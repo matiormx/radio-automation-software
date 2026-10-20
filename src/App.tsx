@@ -25,7 +25,7 @@ import {
   trackUrl,
   backfillCovers,
 } from "./api";
-import type { Track, Playlist, PlaylistRow, Settings, Block, Campaign } from "./types";
+import type { Track, Playlist, PlaylistRow, Settings, Block, Campaign, StationEvent } from "./types";
 import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -38,6 +38,64 @@ import { Normalizer } from "./components/Normalizer";
 import { IconGear, IconWave, LogoRadio } from "./icons";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
+const EVENT_GRACE_MS = 15 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseHM(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+    return null;
+  }
+  return h * 60 + m;
+}
+
+/** Inicio real de la franja que contiene `now`, o null si el evento no aplica. */
+function eventWindowStart(event: StationEvent, now: Date): Date | null {
+  const start = parseHM(event.start);
+  const end = parseHM(event.end);
+  if (start === null || end === null || start === end) return null;
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const at = (d: Date, m: number) => {
+    const out = new Date(d);
+    out.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    return out;
+  };
+  if (start < end) {
+    if (!event.days.includes(dayIso(now)) || mins < start || mins >= end) return null;
+    return at(now, start);
+  }
+  if (mins >= start) {
+    return event.days.includes(dayIso(now)) ? at(now, start) : null;
+  }
+  if (mins < end) {
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (!event.days.includes(dayIso(yesterday))) return null;
+    const out = at(now, start);
+    out.setDate(out.getDate() - 1);
+    return out;
+  }
+  return null;
+}
+
+function eventSourceLabel(event: StationEvent, blocks: Block[]): string {
+  if (event.sourceKind === "library") {
+    return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
+  }
+  return blocks.find((b) => b.id === event.sourceId)?.name ?? "Bloque eliminado";
+}
+
+interface PendingInsert {
+  eventId: string;
+  eventName: string;
+  playlistId: string;
+  trackId: string;
+  deadline: number;
+  onTimeout: "force" | "cancel";
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -74,6 +132,8 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
   const [clock, setClock] = useState("");
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
   const autopilotOn = settings.autopilotEnabled;
 
   const playerRef = useRef<RadioPlayer | null>(null);
@@ -82,6 +142,10 @@ export default function App() {
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
   const normalizerRef = useRef(false);
+  const eventFiring = useRef<Set<string>>(new Set());
+  const pendingInsertsRef = useRef(pendingInserts);
+  pendingInsertsRef.current = pendingInserts;
+  const playRowRef = useRef<(index: number) => void>(() => undefined);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -91,8 +155,11 @@ export default function App() {
 
   // Reloj
   useEffect(() => {
-    const tick = () =>
-      setClock(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    const tick = () => {
+      const now = new Date();
+      setClock(now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      setNowTick(now.getTime());
+    };
     tick();
     const t = window.setInterval(tick, 1000);
     return () => window.clearInterval(t);
@@ -136,6 +203,38 @@ export default function App() {
     [playlists, activeId],
   );
 
+  // Evento de franja AutoDJ activo. Si varios coinciden, manda el que
+  // empezó más tarde (y a igualdad, el último de la lista).
+  const activeAutoEvent = useMemo(() => {
+    const now = new Date(nowTick);
+    let bestEvent: StationEvent | null = null;
+    let bestStart = -Infinity;
+    let bestIndex = -1;
+    for (let index = 0; index < settings.events.length; index++) {
+      const event = settings.events[index];
+      if (!event.enabled || event.kind !== "auto") continue;
+      if (event.sourceKind === "block" && !blocks.some((b) => b.id === event.sourceId)) continue;
+      if (event.sourceKind === "library" && event.sourceId !== "a" && event.sourceId !== "b") {
+        continue;
+      }
+      const start = eventWindowStart(event, now);
+      if (!start) continue;
+      const at = start.getTime();
+      if (at > bestStart || (at === bestStart && index > bestIndex)) {
+        bestEvent = event;
+        bestStart = at;
+        bestIndex = index;
+      }
+    }
+    return bestEvent;
+  }, [settings.events, blocks, nowTick]);
+  const autoScope = activeAutoEvent
+    ? { kind: activeAutoEvent.sourceKind, id: activeAutoEvent.sourceId }
+    : null;
+  const autoScopeKey = autoScope ? `${autoScope.kind}|${autoScope.id}` : "";
+  const autoScopeRef = useRef(autoScope);
+  autoScopeRef.current = autoScope;
+
   // Filas resueltas con datos de la biblioteca
   const rows: PlaylistRow[] = useMemo(() => {
     if (!active) return [];
@@ -164,6 +263,8 @@ export default function App() {
   tracksRef.current = tracks;
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const activeIdRef = useRef("");
+  activeIdRef.current = active?.id ?? "";
   const campaignFiring = useRef<Set<string>>(new Set());
 
   // La lista en pantalla es la misma que suena
@@ -465,6 +566,9 @@ export default function App() {
     await p.playAt(i);
     setPaused(!p.isPlaying);
   }, []);
+  playRowRef.current = (i) => {
+    void playRow(i);
+  };
 
   const togglePlay = useCallback(async () => {
     const p = playerRef.current;
@@ -665,6 +769,187 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotOn, active?.id, settings.campaigns]);
 
+  // Eventos de inserción: a la hora exacta, el sonido queda como siguiente.
+  useEffect(() => {
+    if (!active) return;
+    const check = () => {
+      const s = settingsRef.current;
+      const now = new Date();
+      const rowsNow = rowsRef.current;
+      const playing = playingRowRef.current;
+      const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
+      const currentId = playing >= 0 ? rowsNow[playing]?.id ?? "" : "";
+      const fires: { event: StationEvent; key: string; at: number }[] = [];
+
+      for (const event of s.events) {
+        if (!event.enabled || event.kind !== "insert") continue;
+        if (!event.trackId || !byId.has(event.trackId)) continue;
+        const minute = parseHM(event.start);
+        if (minute === null) continue;
+        const scheduled = new Date(now);
+        scheduled.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
+        let delta = now.getTime() - scheduled.getTime();
+        if (delta < 0) {
+          scheduled.setTime(scheduled.getTime() - DAY_MS);
+          delta = now.getTime() - scheduled.getTime();
+        }
+        if (delta > EVENT_GRACE_MS) continue;
+        if (!event.days.includes(dayIso(scheduled))) continue;
+        const hh = pad2(Math.floor(minute / 60));
+        const mm = pad2(minute % 60);
+        const key = `${dayKey(scheduled)} ${hh}:${mm}`;
+        if (event.lastFired === key) continue;
+        const lock = `${event.id}|${key}`;
+        if (eventFiring.current.has(lock)) continue;
+        eventFiring.current.add(lock);
+        fires.push({ event, key, at: scheduled.getTime() });
+      }
+
+      if (fires.length === 0) return;
+      fires.sort((a, b) => a.at - b.at);
+
+      const firedKeys = new Map<string, string>();
+      const already: StationEvent[] = [];
+      const queue: { event: StationEvent; key: string }[] = [];
+      const queuedTracks = new Set<string>();
+      for (const fire of fires) {
+        firedKeys.set(fire.event.id, fire.key);
+        if (fire.event.trackId === currentId) {
+          already.push(fire.event);
+          continue;
+        }
+        if (queuedTracks.has(fire.event.trackId)) continue;
+        queuedTracks.add(fire.event.trackId);
+        queue.push({ event: fire.event, key: fire.key });
+      }
+
+      const inserted: PendingInsert[] = [];
+      if (queue.length > 0) {
+        let base = playing >= 0 ? playing + 1 : 0;
+        void mutateListRef.current((ids) => {
+          let copy = [...ids];
+          for (const item of queue) {
+            copy = copy.filter((id) => id !== item.event.trackId);
+            const at = Math.max(0, Math.min(copy.length, base));
+            copy.splice(at, 0, item.event.trackId);
+            base = at + 1;
+          }
+          return copy;
+        });
+        const nowMs = Date.now();
+        for (const item of queue) {
+          inserted.push({
+            eventId: item.event.id,
+            eventName: item.event.name,
+            playlistId: active.id,
+            trackId: item.event.trackId,
+            deadline: nowMs + Math.max(0, item.event.maxWaitSecs) * 1000,
+            onTimeout: item.event.onTimeout,
+          });
+        }
+        setPendingInserts((prev) => {
+          const ids = new Set(inserted.map((p) => p.eventId));
+          return [...prev.filter((p) => !ids.has(p.eventId)), ...inserted];
+        });
+      }
+
+      if (firedKeys.size > 0) {
+        setSettings((prev) => {
+          const events = prev.events.map((event) =>
+            firedKeys.has(event.id) ? { ...event, lastFired: firedKeys.get(event.id) ?? "" } : event,
+          );
+          const nextSettings = { ...prev, events };
+          void saveSettings(nextSettings).catch(() => undefined);
+          return nextSettings;
+        });
+      }
+
+      if (inserted.length === 1) {
+        const wait = inserted[0];
+        const limit = queue[0]?.event.maxWaitSecs ?? 0;
+        showToast(
+          limit > 0
+            ? `Evento «${wait.eventName}»: a continuación (máx. ${limit} s)`
+            : `Evento «${wait.eventName}»: a continuación`,
+        );
+      } else if (inserted.length > 1) {
+        showToast(`${inserted.length} eventos insertados en la lista`);
+      } else if (already.length > 0) {
+        showToast(`Evento «${already[0].name}»: ya está sonando`);
+      }
+    };
+
+    check();
+    const timer = window.setInterval(check, 15000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, settings.events]);
+
+  // Temporizador de las inserciones pendientes: si la pista actual no
+  // termina a tiempo, se lanza o se cancela según el evento.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const pending = pendingInsertsRef.current;
+      if (pending.length === 0) return;
+      const rowsNow = rowsRef.current;
+      const playing = playingRowRef.current;
+      const playlistId = activeIdRef.current;
+      const now = Date.now();
+      const keep: PendingInsert[] = [];
+      const force: PendingInsert[] = [];
+      const cancel: PendingInsert[] = [];
+
+      for (const item of pending) {
+        if (item.playlistId !== playlistId) continue;
+        const index = rowsNow.findIndex((row) => row.id === item.trackId);
+        if (index < 0) continue;
+        if (playing >= 0 && index <= playing) continue;
+        if (now < item.deadline) {
+          keep.push(item);
+          continue;
+        }
+        if (item.onTimeout === "force") force.push(item);
+        else cancel.push(item);
+      }
+
+      if (keep.length === pending.length) return;
+      setPendingInserts(keep);
+
+      for (const item of force) {
+        const index = rowsRef.current.findIndex((row) => row.id === item.trackId);
+        if (index >= 0) {
+          playRowRef.current(index);
+          showToast(`Evento «${item.eventName}» lanzado al aire`);
+        }
+      }
+      if (cancel.length > 0) {
+        const ids = new Set(cancel.map((item) => item.trackId));
+        void mutateListRef.current((current) => current.filter((id) => !ids.has(id)));
+        showToast(
+          cancel.length === 1
+            ? `Evento «${cancel[0].eventName}» cancelado: no llegó a tiempo`
+            : `${cancel.length} eventos cancelados: no llegaron a tiempo`,
+        );
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [showToast]);
+
+  // Una inserción deja de estar pendiente en cuanto suena o se cambia de lista.
+  useEffect(() => {
+    if (pendingInserts.length === 0) return;
+    const currentId = playingRow >= 0 ? rows[playingRow]?.id ?? "" : "";
+    setPendingInserts((prev) => {
+      const next = prev.filter((item) => {
+        if (item.playlistId !== active?.id) return false;
+        return item.trackId !== currentId;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingRow, rows, active?.id, pendingInserts.length]);
+
   // Piloto automático
   const setAutopilot = useCallback(
     (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
@@ -678,9 +963,12 @@ export default function App() {
     if (topupBusy.current) return;
     topupBusy.current = true;
     const need = Math.max(1, settings.autopilotFillTo - Math.max(0, upComing));
+    const scope = autoScopeRef.current;
     void autoPick(
       rows.map((r) => r.id),
       need,
+      scope?.kind,
+      scope?.id,
     )
       .then((picked) => {
         if (picked.length > 0) {
@@ -703,7 +991,7 @@ export default function App() {
         topupBusy.current = false;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autopilotOn, playingRow, rows, settings]);
+  }, [autopilotOn, playingRow, rows, settings, autoScopeKey]);
 
   // Horas estimadas de emisión de cada pista pendiente
   const estStart = useMemo(() => {
@@ -752,6 +1040,14 @@ export default function App() {
         </div>
         <div className="top-right">
           {importing && <span className="pill pill-warn">Importando…</span>}
+          {autopilotOn && activeAutoEvent && (
+            <span
+              className="pill pill-event"
+              title={`Evento «${activeAutoEvent.name}»: ${activeAutoEvent.start}–${activeAutoEvent.end} · ${eventSourceLabel(activeAutoEvent, blocks)}`}
+            >
+              Evento: {eventSourceLabel(activeAutoEvent, blocks)}
+            </span>
+          )}
           {autopilotOn && (
             <span className="pill pill-auto">
               Piloto automático</span>
@@ -865,6 +1161,7 @@ export default function App() {
         <SettingsPanel
           settings={settings}
           tracks={tracks}
+          blocks={blocks}
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
           onPickMusicFolder={() => chooseMusicFolder()}

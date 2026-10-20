@@ -68,6 +68,15 @@ body {
 }
 .pill-warn { background: #f59e0b1a; color: var(--warn); }
 .pill-auto { background: var(--accent-soft); color: var(--accent); }
+.pill-event {
+  background: #22c55e14;
+  color: #4ade80;
+  border: 1px solid #22c55e33;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .icon-btn {
   border: 1px solid var(--line);
@@ -1891,6 +1900,8 @@ body {
 }
 .camp-kind-ads { color: #fbbf24; border: 1px solid #fbbf2455; background: #fbbf2410; }
 .camp-kind-jingle { color: #c4b5fd; border: 1px solid #a78bfa55; background: #a78bfa10; }
+.camp-kind-auto { color: #4ade80; border: 1px solid #22c55e55; background: #22c55e10; }
+.camp-kind-insert { color: #7dd3fc; border: 1px solid #38bdf855; background: #38bdf810; }
 .camp-card-meta {
   display: flex;
   flex-wrap: wrap;

@@ -142,6 +142,32 @@ export interface Campaign {
   lastFired: string;
 }
 
+export type StationEventKind = "auto" | "insert";
+export type StationEventSource = "block" | "library";
+export type StationEventTimeout = "force" | "cancel";
+
+export interface StationEvent {
+  id: string;
+  name: string;
+  enabled: boolean;
+  kind: StationEventKind;
+  days: number[];
+  /** Hora de inicio de la franja (auto) o de la inserción (insert), HH:MM */
+  start: string;
+  /** Fin de la franja AutoDJ, HH:MM; puede cruzar medianoche */
+  end: string;
+  sourceKind: StationEventSource;
+  /** id de bloque o "a"/"b" */
+  sourceId: string;
+  /** Pista que se inserta como siguiente */
+  trackId: string;
+  /** Segundos de espera máxima antes de lanzar o cancelar la inserción */
+  maxWaitSecs: number;
+  onTimeout: StationEventTimeout;
+  /** Última emisión "YYYY-MM-DD HH:MM" */
+  lastFired: string;
+}
+
 export type MixerAppSource = "music" | "preview";
 
 export interface MixerInput {
@@ -197,6 +223,7 @@ export interface Settings {
   slogan: string;
   logoPath: string;
   campaigns: Campaign[];
+  events: StationEvent[];
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
 }
@@ -219,6 +246,7 @@ export const DEFAULT_SETTINGS: Settings = {
   slogan: "Estudio de automatización",
   logoPath: "",
   campaigns: [],
+  events: [],
   mixerChannels: [],
   mixerBuses: [],
 };

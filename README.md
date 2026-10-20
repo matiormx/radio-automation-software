@@ -49,6 +49,10 @@ biblioteca y reglas de rotación).
   exactas (o cada hora a un minuto). El AutoDJ inserta el spot después del
   tema que esté sonando, rota los spots de cada campaña y recupera la
   emisión si la app estaba cerrada hace menos de 15 minutos.
+- **Eventos de programación**: franjas que cambian la fuente del AutoDJ
+  (un bloque musical o una biblioteca) y sonidos que se colocan como
+  siguiente a una hora exacta. Si el tema actual no termina a tiempo, el
+  evento puede forzar la reproducción o cancelarse.
 - **Motor de audio** con crossfade (3/6/10 s), seek, siguiente/anterior.
   La pista siguiente se decodifica 30 s antes del cruce y la caché de PCM
   está acotada a 4 pistas; si la decodificación se retrasa, el cruce se
@@ -59,9 +63,9 @@ biblioteca y reglas de rotación).
   radio o la preescucha del normalizador; las salidas, cualquier tarjeta
   del equipo o la predeterminada.
 - **Ajustes con navegación lateral**: General (identidad, logo y carpeta
-  de música), Sonido (mesa de mezclas), AutoDJ (reglas y cola) y Campañas
-  (anuncios y jingles). Todo se guarda al instante, junto con transición
-  y volumen.
+  de música), Sonido (mesa de mezclas), AutoDJ (reglas y cola), Campañas
+  (anuncios y jingles) y Eventos (franjas y sonidos programados). Todo se
+  guarda al instante, junto con transición y volumen.
 
 ## Archivos de musica soportados
 
@@ -120,6 +124,27 @@ opción de emitir cada hora a un minuto concreto.
 - Si la app estaba cerrada a esa hora, recupera la campaña al abrirla solo
   si han pasado menos de 15 minutos.
 - Si un spot desaparece de la biblioteca, se salta y se usa el siguiente.
+
+## Eventos de programación
+
+En **Ajustes > Eventos** se programan dos tipos de evento por días de la
+semana:
+
+- **Franja AutoDJ**: mientras está activa, las próximas canciones que elige
+  el piloto automático salen de un bloque musical o de la Biblioteca A/B.
+  La cola ya cargada no se modifica y, si la fuente se queda sin pistas,
+  el AutoDJ vuelve a la biblioteca completa. Una franja puede cruzar
+  medianoche si la hora de fin es menor que la de inicio.
+- **Sonido programado**: a la hora exacta, la pista elegida se coloca justo
+  después del tema que está sonando. Si el tema actual no termina dentro de
+  la espera máxima, el evento puede forzarlo al aire (con el fundido de
+  salida) o cancelarlo y quitarlo de la lista.
+
+Cada evento recuerda su última emisión para no repetirse el mismo día y
+hora. Si la app estaba cerrada, recupera el evento solo si han pasado menos
+de 15 minutos. Las inserciones programadas funcionan aunque el piloto
+automático esté apagado; las franjas solo afectan cuando el AutoDJ rellena
+la lista.
 
 ## Mesa de sonido
 

@@ -43,6 +43,7 @@ pub struct Settings {
     pub slogan: String,
     pub logo_path: String,
     pub campaigns: Vec<Campaign>,
+    pub events: Vec<StationEvent>,
     pub mixer_channels: Vec<MixerChannel>,
     pub mixer_buses: Vec<MixerBus>,
 }
@@ -170,6 +171,50 @@ impl Default for Campaign {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StationEvent {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    /// "auto" = franja de fuente AutoDJ; "insert" = sonido como siguiente
+    pub kind: String,
+    pub days: Vec<u8>,
+    /// Inicio de la franja (auto) o hora de inserción (insert), HH:MM
+    pub start: String,
+    /// Fin de la franja AutoDJ; puede cruzar medianoche
+    pub end: String,
+    /// "block" o "library"
+    pub source_kind: String,
+    /// id de bloque o "a"/"b"
+    pub source_id: String,
+    pub track_id: String,
+    pub max_wait_secs: u32,
+    /// "force" o "cancel"
+    pub on_timeout: String,
+    pub last_fired: String,
+}
+
+impl Default for StationEvent {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            enabled: true,
+            kind: "auto".to_string(),
+            days: vec![1, 2, 3, 4, 5, 6, 7],
+            start: "06:00".to_string(),
+            end: "10:00".to_string(),
+            source_kind: "library".to_string(),
+            source_id: "a".to_string(),
+            track_id: String::new(),
+            max_wait_secs: 60,
+            on_timeout: "cancel".to_string(),
+            last_fired: String::new(),
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -190,6 +235,7 @@ impl Default for Settings {
             slogan: "Estudio de automatización".to_string(),
             logo_path: String::new(),
             campaigns: Vec::new(),
+            events: Vec::new(),
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
         }
@@ -333,6 +379,8 @@ pub fn auto_pick(
     state: State<'_, AppState>,
     playlist_track_ids: Vec<String>,
     count: u32,
+    scope_kind: Option<String>,
+    scope_id: Option<String>,
 ) -> Result<Vec<String>, String> {
     if count == 0 {
         return Ok(vec![]);
@@ -351,8 +399,26 @@ pub fn auto_pick(
         .map(|t| (t.id.as_str(), t))
         .collect();
 
-    // Bloques activos del piloto automatico: vacio = toda la biblioteca
-    let pick_blocks: HashSet<String> = s.auto_blocks.iter().cloned().collect();
+    // Bloques activos del piloto automatico: vacio = toda la biblioteca.
+    // Un evento activo puede sustituirlos por un bloque concreto o por una
+    // de las dos bibliotecas.
+    let mut pick_blocks: HashSet<String> = s.auto_blocks.iter().cloned().collect();
+    let mut pick_library: Option<String> = None;
+    match scope_kind.as_deref() {
+        Some("block") => {
+            pick_blocks.clear();
+            if let Some(id) = scope_id.as_deref().filter(|id| !id.is_empty()) {
+                pick_blocks.insert(id.to_string());
+            }
+        }
+        Some("library") => {
+            pick_blocks.clear();
+            if let Some(id) = scope_id.as_deref().filter(|id| *id == "a" || *id == "b") {
+                pick_library = Some(id.to_string());
+            }
+        }
+        _ => {}
+    }
 
     // Ultima vez que sono esa pista, ese artista y ese titulo.
     let mut last_track: HashMap<&str, u64> = HashMap::new();
@@ -391,15 +457,20 @@ pub fn auto_pick(
     let salt = now ^ u64::from(std::process::id());
 
     let mut candidates: Vec<Candidate> = Vec::new();
-    let mut in_blocks: HashSet<&str> = HashSet::new();
+    let mut in_scope: HashSet<&str> = HashSet::new();
     for t in &library {
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
             continue;
         }
+        if let Some(lib) = pick_library.as_deref() {
+            if t.library != lib {
+                continue;
+            }
+        }
         if in_playlist.contains(t.id.as_str()) {
             continue; // nada duplicado dentro de la misma lista
         }
-        in_blocks.insert(t.id.as_str());
+        in_scope.insert(t.id.as_str());
         let ok_track =
             now.saturating_sub(*last_track.get(t.id.as_str()).unwrap_or(&0)) >= mins(s.repeat_track_minutes);
         let ok_artist = now.saturating_sub(*last_artist.get(&t.artist.to_lowercase()).unwrap_or(&0))
@@ -413,9 +484,12 @@ pub fn auto_pick(
         });
     }
 
-    // Si los bloques activos no tienen nada disponible, caer a la
-    // biblioteca entera antes que dejar la lista sin gas.
-    if candidates.is_empty() && in_blocks.is_empty() && !pick_blocks.is_empty() {
+    // Si el ambito activo no tiene nada disponible, caer a la biblioteca
+    // entera antes que dejar la lista sin gas.
+    if candidates.is_empty()
+        && in_scope.is_empty()
+        && (!pick_blocks.is_empty() || pick_library.is_some())
+    {
         for t in &library {
             if in_playlist.contains(t.id.as_str()) {
                 continue;

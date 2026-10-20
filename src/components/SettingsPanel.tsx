@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
-import type { Campaign, CampaignKind, Settings, Track } from "../types";
+import type { Block, Campaign, CampaignKind, Settings, Track } from "../types";
 import { effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerPanel } from "./MixerPanel";
+import { EventsTab } from "./EventsTab";
 import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
   settings: Settings;
   tracks: Track[];
+  blocks: Block[];
   onChange: (s: Settings) => void;
   onClose: () => void;
   onPickMusicFolder: () => Promise<void>;
@@ -75,11 +77,12 @@ function MinField({
   );
 }
 
-type Tab = "general" | "autodj" | "campaigns" | "sound";
+type Tab = "general" | "autodj" | "campaigns" | "events" | "sound";
 
 export function SettingsPanel({
   settings,
   tracks,
+  blocks,
   onChange,
   onClose,
   onPickMusicFolder,
@@ -140,6 +143,14 @@ export function SettingsPanel({
               Campañas
               <span>Anuncios y jingles</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "events" ? "settings-nav-on" : ""}`}
+              onClick={() => setTab("events")}
+            >
+              Eventos
+              <span>Franjas y sonidos programados</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -158,6 +169,15 @@ export function SettingsPanel({
               <CampaignsTab
                 settings={s}
                 tracks={tracks}
+                onChange={onChange}
+                onImportAudio={onImportAudio}
+              />
+            )}
+            {tab === "events" && (
+              <EventsTab
+                settings={s}
+                tracks={tracks}
+                blocks={blocks}
                 onChange={onChange}
                 onImportAudio={onImportAudio}
               />

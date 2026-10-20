@@ -157,8 +157,13 @@ export function reportStarted(trackId: string): Promise<void> {
   return invoke("report_started", { trackId });
 }
 
-export function autoPick(playlistTrackIds: string[], count: number): Promise<string[]> {
-  return invoke<string[]>("auto_pick", { playlistTrackIds, count });
+export function autoPick(
+  playlistTrackIds: string[],
+  count: number,
+  scopeKind?: "block" | "library",
+  scopeId?: string,
+): Promise<string[]> {
+  return invoke<string[]>("auto_pick", { playlistTrackIds, count, scopeKind, scopeId });
 }
 
 export function trackUrl(track: { file: string }): string {
