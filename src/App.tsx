@@ -6,23 +6,49 @@ import {
   deletePlaylist,
   importFiles,
   deleteTrack,
+  scanMusicFolder,
+  listBlocks,
+  createBlock,
+  renameBlock,
+  deleteBlock,
   pickAudioFiles,
+  pickFolder,
   onWindowFileDrop,
   getSettings,
   saveSettings,
   reportStarted,
   autoPick,
   AUDIO_EXTENSIONS,
+  setTracksLibrary,
+  pickImageFile,
+  setBrandingLogo,
+  trackUrl,
 } from "./api";
-import type { Track, Playlist, PlaylistRow, Settings } from "./types";
-import { DEFAULT_SETTINGS } from "./types";
+import type { Track, Playlist, PlaylistRow, Settings, Block, Campaign } from "./types";
+import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
-import { LibraryZone } from "./components/LibraryZone";
+import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { IconGear, LogoRadio } from "./icons";
+import { Normalizer } from "./components/Normalizer";
+import { IconGear, IconWave, LogoRadio } from "./icons";
+
+const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function dayIso(d: Date): number {
+  const n = d.getDay();
+  return n === 0 ? 7 : n;
+}
 
 function extOk(path: string): boolean {
   const dot = path.lastIndexOf(".");
@@ -32,6 +58,7 @@ function extOk(path: string): boolean {
 
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [blocks, setBlocks] = useState<Block[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [playingRow, setPlayingRow] = useState(-1);
@@ -39,16 +66,19 @@ export default function App() {
   const [pos, setPos] = useState({ cur: 0, total: 0 });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [normalizerOpen, setNormalizerOpen] = useState(false);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const [dropHover, setDropHover] = useState(false);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
   const [clock, setClock] = useState("");
+  const autopilotOn = settings.autopilotEnabled;
 
   const playerRef = useRef<RadioPlayer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
+  const normalizerRef = useRef(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -102,12 +132,21 @@ export default function App() {
     const byId = new Map(tracks.map((t) => [t.id, t]));
     return active.trackIds.flatMap((id) => {
       const t = byId.get(id);
-      return t ? [{ id: t.id, title: t.title, artist: t.artist, durationSecs: t.durationSecs }] : [];
+      return t
+        ? [{ id: t.id, title: t.title, artist: t.artist, durationSecs: effectiveDuration(t) }]
+        : [];
     });
   }, [active, tracks]);
 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const playingRowRef = useRef(playingRow);
+  playingRowRef.current = playingRow;
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const campaignFiring = useRef<Set<string>>(new Set());
 
   // La lista en pantalla es la misma que suena
   useEffect(() => {
@@ -133,8 +172,9 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [t, ps, s] = await Promise.all([listTracks(), listPlaylists(), getSettings()]);
+        const [t, bs, ps, s] = await Promise.all([listTracks(), listBlocks(), listPlaylists(), getSettings()]);
         setTracks(t);
+        setBlocks(bs);
         setPlaylists(ps);
         setActiveId(ps[0]?.id ?? "");
         setSettings(s);
@@ -143,6 +183,15 @@ export default function App() {
       }
     })();
   }, [showToast]);
+
+  const refreshTracksAndBlocks = useCallback(
+    async () => {
+      const [t, bs] = await Promise.all([listTracks(), listBlocks()]);
+      setTracks(t);
+      setBlocks(bs);
+    },
+    [],
+  );
 
   // Historial: cada pista que empieza se anota para las reglas de rotación
   useEffect(() => {
@@ -153,7 +202,7 @@ export default function App() {
 
   // Arrastrar archivos desde el escritorio
   const doImport = useCallback(
-    async (paths: string[]) => {
+    async (paths: string[], library: "a" | "b" = "a") => {
       const ok = paths.filter(extOk);
       if (ok.length === 0) {
         showToast("Formato no reconocido. Usa audio: mp3, wav, flac, ogg, m4a…");
@@ -161,9 +210,14 @@ export default function App() {
       }
       setImporting(true);
       try {
-        const added = await importFiles(ok);
+        const added = await importFiles(ok, library);
         setTracks(await listTracks());
-        showToast(added.length === 1 ? "1 canción importada" : `${added.length} canciones importadas`);
+        const where = library === "b" ? " a la biblioteca B" : "";
+        showToast(
+          added.length === 1
+            ? `1 canción importada${where}`
+            : `${added.length} canciones importadas${where}`,
+        );
       } catch (e) {
         showToast(`No se pudieron importar: ${String(e)}`);
       } finally {
@@ -177,10 +231,16 @@ export default function App() {
     let alive = true;
     let unlisten: (() => void) | undefined;
     void onWindowFileDrop({
-      onDrop: (paths) => {
+      onDrop: (paths, position) => {
         if (!alive) return;
         setDropHover(false);
-        void doImport(paths);
+        if (normalizerRef.current) {
+          const dpr = window.devicePixelRatio || 1;
+          const cssX = position ? position.x / dpr : window.innerWidth / 2;
+          void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b");
+        } else {
+          void doImport(paths);
+        }
       },
       onEnter: () => setDropHover(true),
       onLeave: () => setDropHover(false),
@@ -199,17 +259,77 @@ export default function App() {
     if (paths && paths.length > 0) await doImport(paths);
   }, [doImport]);
 
+  const pickFilesFor = useCallback(
+    async (library: "a" | "b") => {
+      const paths = await pickAudioFiles();
+      if (paths && paths.length > 0) await doImport(paths, library);
+    },
+    [doImport],
+  );
+
+  const moveTracks = useCallback(async (ids: string[], to: "a" | "b") => {
+    const moved = await setTracksLibrary(ids, to);
+    setTracks(await listTracks());
+    return moved;
+  }, []);
+
   const removeTrack = useCallback(
     async (t: Track) => {
       try {
         await deleteTrack(t.id);
         setTracks((prev) => prev.filter((x) => x.id !== t.id));
+        setBlocks(await listBlocks());
         showToast(`«${t.title}» eliminada de la biblioteca`);
       } catch (e) {
         showToast(`No se pudo eliminar: ${String(e)}`);
       }
     },
     [showToast],
+  );
+
+  // ---- bloques musicales ----
+  const handleCreateBlock = useCallback(
+    async (name: string) => {
+      const b = await createBlock(name);
+      setBlocks((prev) => [...prev, b]);
+      showToast(`Bloque «${b.name}» creado`);
+    },
+    [showToast],
+  );
+
+  const handleRenameBlock = useCallback(async (id: string, name: string) => {
+    await renameBlock(id, name);
+    setBlocks(await listBlocks());
+  }, []);
+
+  const handleDeleteBlock = useCallback(
+    async (id: string) => {
+      await deleteBlock(id);
+      setBlocks(await listBlocks());
+      setTracks(await listTracks());
+      setSettings((prev) => {
+        const nextS = { ...prev, autoBlocks: prev.autoBlocks.filter((x) => x !== id) };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+      showToast("Bloque eliminado");
+    },
+    [showToast],
+  );
+
+  const toggleAutoBlock = useCallback(
+    (blockId: string) => {
+      setSettings((prev) => {
+        const has = prev.autoBlocks.includes(blockId);
+        const nextS = {
+          ...prev,
+          autoBlocks: has ? prev.autoBlocks.filter((x) => x !== blockId) : [...prev.autoBlocks, blockId],
+        };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+    },
+    [],
   );
 
   // Editar la lista activa
@@ -226,6 +346,9 @@ export default function App() {
     },
     [active, showToast],
   );
+
+  const mutateListRef = useRef(mutateList);
+  mutateListRef.current = mutateList;
 
   const addTrack = useCallback(
     (t: Track) => {
@@ -358,8 +481,165 @@ export default function App() {
     void saveSettings(s).catch(() => undefined);
   }, []);
 
+  const chooseMusicFolder = useCallback(async () => {
+    try {
+      const path = await pickFolder();
+      if (!path) return;
+      setSettings((prev) => {
+        const nextS = { ...prev, musicPath: path };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+      showToast("Carpeta de música actualizada");
+    } catch (e) {
+      showToast(`No se pudo elegir la carpeta: ${String(e)}`);
+    }
+  }, [showToast]);
+
+  // Logo e identidad
+  const chooseLogo = useCallback(async () => {
+    try {
+      const path = await pickImageFile();
+      if (!path) return;
+      const dest = await setBrandingLogo(path);
+      setSettings((prev) => {
+        const nextS = { ...prev, logoPath: dest };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+      showToast("Logo actualizado");
+    } catch (e) {
+      showToast(`No se pudo usar el logo: ${String(e)}`);
+    }
+  }, [showToast]);
+
+  const removeLogo = useCallback(async () => {
+    try {
+      await setBrandingLogo(null);
+      setSettings((prev) => {
+        const nextS = { ...prev, logoPath: "" };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+      showToast("Logo quitado");
+    } catch (e) {
+      showToast(`No se pudo quitar el logo: ${String(e)}`);
+    }
+  }, [showToast]);
+
+  const importForCampaign = useCallback(async (): Promise<Track[]> => {
+    const paths = await pickAudioFiles();
+    if (!paths || paths.length === 0) return [];
+    const ok = paths.filter(extOk);
+    if (ok.length === 0) {
+      showToast("Formato no reconocido. Usa audio: mp3, wav, flac, ogg, m4a…");
+      return [];
+    }
+    setImporting(true);
+    try {
+      const added = await importFiles(ok, "a");
+      setTracks(await listTracks());
+      showToast(added.length === 1 ? "1 audio importado" : `${added.length} audios importados`);
+      return added;
+    } catch (e) {
+      showToast(`No se pudieron importar: ${String(e)}`);
+      return [];
+    } finally {
+      setImporting(false);
+    }
+  }, [showToast]);
+
+  // Campañas: insertan el spot programado después del tema que esté sonando
+  useEffect(() => {
+    if (!autopilotOn || !active) return;
+    const check = () => {
+      const now = new Date();
+      const s = settingsRef.current;
+      if (!s.autopilotEnabled) return;
+      const rowsNow = rowsRef.current;
+      const playing = playingRowRef.current;
+      const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
+      const currentId = playing >= 0 ? rowsNow[playing]?.id ?? "" : "";
+      const due: { campaign: Campaign; key: string; spotId: string; cursor: number }[] = [];
+
+      const dayMs = 24 * 60 * 60 * 1000;
+      for (const c of s.campaigns) {
+        if (!c.enabled || c.trackIds.length === 0) continue;
+        const occurrences = c.hourly ? [`${pad2(now.getHours())}:${pad2(c.minute)}`] : c.times;
+        let dueAt: { when: number; key: string } | null = null;
+        for (const t of occurrences) {
+          const [hs, ms] = t.split(":");
+          const h = Number(hs);
+          const m = Number(ms);
+          if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+            continue;
+          }
+          const scheduled = new Date(now);
+          scheduled.setHours(h, m, 0, 0);
+          let delta = now.getTime() - scheduled.getTime();
+          if (delta < 0) {
+            scheduled.setTime(scheduled.getTime() - dayMs);
+            delta = now.getTime() - scheduled.getTime();
+          }
+          if (delta > CAMPAIGN_GRACE_MS) continue;
+          if (!c.days.includes(dayIso(scheduled))) continue;
+          const key = `${dayKey(scheduled)} ${pad2(h)}:${pad2(m)}`;
+          if (c.lastFired === key) continue;
+          if (campaignFiring.current.has(`${c.id}|${key}`)) continue;
+          if (!dueAt || scheduled.getTime() > dueAt.when) {
+            dueAt = { when: scheduled.getTime(), key };
+          }
+        }
+        if (!dueAt) continue;
+
+        const lock = `${c.id}|${dueAt.key}`;
+        const len = c.trackIds.length;
+        const start = ((c.cursor % len) + len) % len;
+        let spot: { id: string; cursor: number } | null = null;
+        for (let off = 0; off < len; off++) {
+          const id = c.trackIds[(start + off) % len];
+          if (!byId.has(id) || id === currentId) continue;
+          spot = { id, cursor: (start + off + 1) % len };
+          break;
+        }
+        if (!spot) continue;
+
+        campaignFiring.current.add(lock);
+        due.push({ campaign: c, key: dueAt.key, spotId: spot.id, cursor: spot.cursor });
+      }
+
+      if (due.length === 0) return;
+      const base = playing >= 0 ? playing + 1 : rowsNow.length;
+      void mutateListRef.current((ids) => {
+        const copy = [...ids];
+        due.forEach((d, i) => copy.splice(Math.min(copy.length, base + i), 0, d.spotId));
+        return copy;
+      });
+      setSettings((prev) => {
+        let campaigns = prev.campaigns;
+        for (const d of due) {
+          campaigns = campaigns.map((c) =>
+            c.id === d.campaign.id ? { ...c, lastFired: d.key, cursor: d.cursor } : c,
+          );
+        }
+        const nextS = { ...prev, campaigns };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+      showToast(
+        due.length === 1
+          ? `Campaña «${due[0].campaign.name}» insertada`
+          : `${due.length} campañas insertadas en la lista`,
+      );
+    };
+
+    check();
+    const timer = window.setInterval(check, 15000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autopilotOn, active?.id, settings.campaigns]);
+
   // Piloto automático
-  const autopilotOn = settings.autopilotEnabled;
   const setAutopilot = useCallback(
     (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
     [settings, updateSettings],
@@ -425,10 +705,23 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <LogoRadio size={32} />
+          {settings.logoPath ? (
+            <img
+              className="brand-logo"
+              src={trackUrl({ file: settings.logoPath })}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          ) : (
+            <LogoRadio size={32} />
+          )}
           <div className="brand-txt">
-            <span className="brand-name">MiRadio</span>
-            <span className="brand-sub">Estudio de automatización</span>
+            <span className="brand-name">{settings.radioName.trim() || "MiRadio"}</span>
+            <span className="brand-sub">
+              {settings.slogan.trim() || "Estudio de automatización"}
+            </span>
           </div>
         </div>
         <div className="top-right">
@@ -438,6 +731,17 @@ export default function App() {
               Piloto automático</span>
           )}
           <span className="clock" role="timer">{clock}</span>
+          <button
+            type="button"
+            className="btn btn-sm top-action"
+            onClick={() => {
+              normalizerRef.current = true;
+              setNormalizerOpen(true);
+            }}
+            title="Normalizar sonoridad y recortar silencios"
+          >
+            <IconWave size={15} /> Normalizar
+          </button>
           <button
             type="button"
             className="icon-btn"
@@ -451,11 +755,20 @@ export default function App() {
       </header>
 
       <main className="main">
-        <LibraryZone
+        <MusicBrowser
           tracks={tracks}
+          blocks={blocks}
+          autoBlocks={settings.autoBlocks}
+          onToggleAutoBlock={toggleAutoBlock}
+          onCreateBlock={handleCreateBlock}
+          onRenameBlock={handleRenameBlock}
+          onDeleteBlock={handleDeleteBlock}
+          onScan={scanMusicFolder}
+          onPickFiles={() => void pickFiles()}
           onAdd={addTrack}
           onDelete={(t) => void removeTrack(t)}
-          onPickFiles={() => void pickFiles()}
+          onTrackSaved={refreshTracksAndBlocks}
+          showToast={showToast}
         />
 
         <div className="right-col">
@@ -500,20 +813,46 @@ export default function App() {
         onVolume={setVolume}
       />
 
+      {normalizerOpen && (
+        <Normalizer
+          tracks={tracks}
+          blocks={blocks}
+          targetLufs={settings.targetLufs}
+          truePeakDb={settings.truePeakDb}
+          onClose={() => {
+            normalizerRef.current = false;
+            setNormalizerOpen(false);
+            void refreshTracksAndBlocks();
+          }}
+          onRefresh={refreshTracksAndBlocks}
+          onPick={(side) => void pickFilesFor(side)}
+          onMove={moveTracks}
+          onTarget={(lufs, peak) =>
+            updateSettings({ ...settings, targetLufs: lufs, truePeakDb: peak })
+          }
+          showToast={showToast}
+        />
+      )}
+
       {settingsOpen && (
         <SettingsPanel
           settings={settings}
+          tracks={tracks}
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
+          onPickMusicFolder={() => chooseMusicFolder()}
+          onPickLogo={() => chooseLogo()}
+          onClearLogo={() => removeLogo()}
+          onImportAudio={() => importForCampaign()}
         />
       )}
 
       {dropHover && (
         <div className="drop-overlay" aria-hidden="true">
-          <div className="drop-overlay-box">
-            <strong>Suelta los archivos</strong>
-            <span>Se copian a la biblioteca, los originales no se tocan</span>
-          </div>
+        <div className="drop-overlay-box">
+          <strong>Suelta los archivos</strong>
+          <span>Se copian a la carpeta de música de MiRadio; los originales no se tocan</span>
+        </div>
         </div>
       )}
 

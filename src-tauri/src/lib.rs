@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+pub mod analysis;
 pub mod library;
 pub mod playlists;
 pub mod settings;
@@ -16,7 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            fs::create_dir_all(data_dir.join(library::MUSIC_DIR))?;
+            fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
             app.manage(AppState { data_dir });
             Ok(())
@@ -24,12 +25,28 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             library::import_files,
             library::list_tracks,
+            library::scan_music_folder,
+            library::update_track,
+            library::track_details,
+            library::relink_track,
             library::delete_track,
+            library::list_blocks,
+            library::create_block,
+            library::rename_block,
+            library::delete_block,
+            library::set_track_blocks,
+            library::import_playlist,
+            library::set_track_library,
+            library::save_track_trim,
+            library::auto_track_trim,
+            analysis::analyze_track,
+            analysis::track_waveform,
             playlists::list_playlists,
             playlists::save_playlist,
             playlists::delete_playlist,
             settings::get_settings,
             settings::save_settings,
+            settings::set_branding_logo,
             settings::report_started,
             settings::auto_pick
         ])

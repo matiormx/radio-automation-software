@@ -98,6 +98,69 @@ export const IconImport = ({ size = 18 }: IconProps) => (
   </svg>
 );
 
+export const IconEdit = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m16.5 3.9 3.6 3.6-11 11L4 19.5l1-5.1L16.5 3.9Z" />
+    <path d="m14.5 6 3.5 3.5" />
+  </svg>
+);
+
+export const IconLink = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" aria-hidden="true">
+    <path d="M10 14a4.6 4.6 0 0 0 6.5.4l2.6-2.6a4.6 4.6 0 0 0-6.5-6.5L11 7" />
+    <path d="M14 10a4.6 4.6 0 0 0-6.5-.4l-2.6 2.6a4.6 4.6 0 0 0 6.5 6.5L13 17" />
+  </svg>
+);
+
+export const IconScan = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+    <path d="M20 5v6h-6" />
+  </svg>
+);
+
+export const IconList = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" aria-hidden="true">
+    <path d="M9 6h11M9 12h11M9 18h11" />
+    <circle cx="4.5" cy="6" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="4.5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="4.5" cy="18" r="1.4" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const IconChevron = ({ size = 10 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M9.2 4.6a1.6 1.6 0 0 1 2.3 0l7 7a1.6 1.6 0 0 1 0 2.3l-7 7a1.6 1.6 0 1 1-2.3-2.3L15.4 12 9.2 5.8a1.6 1.6 0 0 1 0-1.2Z" />
+  </svg>
+);
+
+export const IconMore = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="5" r="1.9" />
+    <circle cx="12" cy="12" r="1.9" />
+    <circle cx="12" cy="19" r="1.9" />
+  </svg>
+);
+
+export const IconFolder = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3.5 7.5v10a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2H12l-1.8-2.2a2 2 0 0 0-1.5-.8H5.5a2 2 0 0 0-2 2Z" />
+  </svg>
+);
+
+export const IconWave = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <path d="M3 12h2.2M7 7.5v9M10.5 4.5v15M14 8.5v7M17.5 6v12M21 10v4" />
+  </svg>
+);
+
+export const IconTag = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3.5 10.7V5a1.5 1.5 0 0 1 1.5-1.5h5.7a2 2 0 0 1 1.4.6l8 8a2 2 0 0 1 0 2.8l-5.1 5.1a2 2 0 0 1-2.8 0l-8-8a2 2 0 0 1-.7-1.3Z" />
+    <circle cx="8.3" cy="8.3" r="1.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export const LogoRadio = ({ size = 34 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
     <rect x="6" y="18" width="52" height="34" rx="9" fill="#2b3442" stroke="#4f8cff" strokeWidth="3" />

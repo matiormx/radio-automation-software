@@ -29,6 +29,61 @@ pub struct Settings {
     /// Evitar dos temas consecutivos del mismo artista en la lista
     pub avoid_consecutive_artist: bool,
     pub master_volume: f32,
+    /// Carpeta de musica predefinida (los arrastres se copian ahi).
+    /// Vacia = carpeta interna de la app.
+    pub music_path: String,
+    /// Bloques musicales de los que elige el piloto automatico.
+    /// Vacio = toda la biblioteca.
+    pub auto_blocks: Vec<String>,
+    /// Objetivo de sonoridad integrada para la normalizacion.
+    pub target_lufs: f64,
+    /// Techo de pico real al aplicar la ganancia de normalizacion.
+    pub true_peak_db: f64,
+    pub radio_name: String,
+    pub slogan: String,
+    /// Logo copiado a la carpeta de datos; vacio = logo por defecto.
+    pub logo_path: String,
+    pub campaigns: Vec<Campaign>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Campaign {
+    pub id: String,
+    pub name: String,
+    /// "ads" (anuncio) o "jingle"
+    pub kind: String,
+    pub enabled: bool,
+    /// Dias ISO: 1 = lunes ... 7 = domingo
+    pub days: Vec<u8>,
+    /// Horas exactas "HH:MM"
+    pub times: Vec<String>,
+    /// Emitir cada hora al minuto indicado
+    pub hourly: bool,
+    pub minute: u8,
+    pub track_ids: Vec<String>,
+    /// Siguiente spot de la rotacion
+    pub cursor: usize,
+    /// "AAAA-MM-DD HH:MM" de la ultima emision
+    pub last_fired: String,
+}
+
+impl Default for Campaign {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            kind: "ads".to_string(),
+            enabled: true,
+            days: vec![1, 2, 3, 4, 5, 6, 7],
+            times: Vec::new(),
+            hourly: false,
+            minute: 0,
+            track_ids: Vec::new(),
+            cursor: 0,
+            last_fired: String::new(),
+        }
+    }
 }
 
 impl Default for Settings {
@@ -43,6 +98,14 @@ impl Default for Settings {
             repeat_track_minutes: 480,
             avoid_consecutive_artist: true,
             master_volume: 1.0,
+            music_path: String::new(),
+            auto_blocks: Vec::new(),
+            target_lufs: -9.0,
+            true_peak_db: -1.0,
+            radio_name: "MiRadio".to_string(),
+            slogan: "Estudio de automatización".to_string(),
+            logo_path: String::new(),
+            campaigns: Vec::new(),
         }
     }
 }
@@ -64,6 +127,11 @@ fn read_settings(data_dir: &PathBuf) -> Settings {
 fn write_settings(data_dir: &PathBuf, s: &Settings) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
     std::fs::write(data_dir.join(SETTINGS_FILE), json).map_err(|e| e.to_string())
+}
+
+/// Lector para otros modulos (library.rs usa music_path)
+pub fn read_settings_public(data_dir: &PathBuf) -> Settings {
+    read_settings(data_dir)
 }
 
 fn read_history(data_dir: &PathBuf) -> Vec<HistoryEntry> {
@@ -104,6 +172,52 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(), String> {
     write_settings(&state.data_dir, &settings)
+}
+
+/// Guarda una imagen de marca copiandola a los datos de la app.
+/// Devuelve la ruta nueva, o "" al quitar el logo.
+#[tauri::command]
+pub fn set_branding_logo(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<String, String> {
+    let dir = state.data_dir.join("branding");
+    match path {
+        None => {
+            let _ = std::fs::remove_dir_all(&dir);
+            Ok(String::new())
+        }
+        Some(raw) => {
+            let src = PathBuf::from(raw.trim());
+            if !src.is_file() {
+                return Err("La imagen no existe".to_string());
+            }
+            let ext = src
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .unwrap_or_default();
+            if !["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
+                return Err("Formato de imagen no soportado (png, jpg, webp o gif)".to_string());
+            }
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            // Copia primero a un temporal para no perder el logo anterior si falla.
+            let dest = dir.join(format!("logo.{ext}"));
+            let tmp = dir.join(format!(".logo-nuevo.{ext}"));
+            let _ = std::fs::remove_file(&tmp);
+            std::fs::copy(&src, &tmp).map_err(|e| format!("No se pudo copiar el logo: {e}"))?;
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p != tmp {
+                        let _ = std::fs::remove_file(p);
+                    }
+                }
+            }
+            std::fs::rename(&tmp, &dest).map_err(|e| format!("No se pudo guardar el logo: {e}"))?;
+            Ok(dest.to_string_lossy().into_owned())
+        }
+    }
 }
 
 /// El frontend avisa cuando una pista empieza a sonar; se guarda para las
@@ -154,6 +268,9 @@ pub fn auto_pick(
         .map(|t| (t.id.as_str(), t))
         .collect();
 
+    // Bloques activos del piloto automatico: vacio = toda la biblioteca
+    let pick_blocks: HashSet<String> = s.auto_blocks.iter().cloned().collect();
+
     // Ultima vez que sono esa pista, ese artista y ese titulo.
     let mut last_track: HashMap<&str, u64> = HashMap::new();
     let mut last_artist: HashMap<String, u64> = HashMap::new();
@@ -191,10 +308,15 @@ pub fn auto_pick(
     let salt = now ^ u64::from(std::process::id());
 
     let mut candidates: Vec<Candidate> = Vec::new();
+    let mut in_blocks: HashSet<&str> = HashSet::new();
     for t in &library {
+        if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
+            continue;
+        }
         if in_playlist.contains(t.id.as_str()) {
             continue; // nada duplicado dentro de la misma lista
         }
+        in_blocks.insert(t.id.as_str());
         let ok_track =
             now.saturating_sub(*last_track.get(t.id.as_str()).unwrap_or(&0)) >= mins(s.repeat_track_minutes);
         let ok_artist = now.saturating_sub(*last_artist.get(&t.artist.to_lowercase()).unwrap_or(&0))
@@ -206,6 +328,21 @@ pub fn auto_pick(
             ok_rules: ok_track as u8 + ok_title as u8 + ok_artist as u8,
             salt: hash_with_salt(&t.id, salt),
         });
+    }
+
+    // Si los bloques activos no tienen nada disponible, caer a la
+    // biblioteca entera antes que dejar la lista sin gas.
+    if candidates.is_empty() && in_blocks.is_empty() && !pick_blocks.is_empty() {
+        for t in &library {
+            if in_playlist.contains(t.id.as_str()) {
+                continue;
+            }
+            candidates.push(Candidate {
+                id: t.id.clone(),
+                ok_rules: 0,
+                salt: hash_with_salt(&t.id, salt),
+            });
+        }
     }
 
     // Orden: mas reglas cumplidas primero, luego pseudoaleatorio.
