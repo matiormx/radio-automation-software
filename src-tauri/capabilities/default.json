@@ -1,0 +1,7 @@
+{
+  "$schema": "gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permisos base de MiRadio: eventos de ventana, dialogos y drag-drop",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}
