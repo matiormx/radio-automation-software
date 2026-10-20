@@ -270,6 +270,7 @@ pub async fn analyze_track(
 
     let scan = scan_file(path)?;
 
+    let _guard = crate::library::lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     let Some(t) = tracks.iter_mut().find(|t| t.id == id) else {
         return Err("La cancion ya no existe en la biblioteca".to_string());

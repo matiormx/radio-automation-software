@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "./types";
+import type { SoundMixer } from "./mixer";
 
 /**
  * Motor de radio con dos decks (A/B) y transiciones suaves (crossfade).
@@ -59,6 +60,7 @@ const EMPTY_TRACK: Track = {
   trimManual: false,
   analyzedAt: 0,
   missing: false,
+  cover: "",
 };
 
 type Slot = "a" | "b";
@@ -87,10 +89,16 @@ export class RadioPlayer {
   loop = false;
 
   private index = -1;
+  /** Posicion del buffer donde quedo la reproduccion al pausar */
+  private pausedOffset: number | null = null;
+  /** Invalida operaciones asincronas antiguas (play, seek, crossfade) */
+  private playGeneration = 0;
 
   onTick: ((current: number, total: number) => void) | null = null;
   onIndexChange: ((index: number) => void) | null = null;
   onEnded: (() => void) | null = null;
+
+  constructor(private mixer: SoundMixer) {}
 
   get current(): Track {
     return this.playlist[this.index] ?? EMPTY_TRACK;
@@ -102,6 +110,10 @@ export class RadioPlayer {
 
   get isPlaying(): boolean {
     return this.ctx?.state === "running" && this.activeDeck() !== null;
+  }
+
+  get isPaused(): boolean {
+    return this.pausedOffset !== null;
   }
 
   setPlaylist(tracks: Track[]) {
@@ -118,39 +130,23 @@ export class RadioPlayer {
   async playAt(index: number): Promise<void> {
     const track = this.playlist[index];
     if (!track) return;
+    const generation = ++this.playGeneration;
     this.ensureCtx();
     if (!this.ctx) return;
-    if (this.ctx.state === "suspended") await this.ctx.resume();
+    await this.mixer.resume();
+    if (generation !== this.playGeneration) return;
 
     const buffer = await this.decodeSafe(track);
-    if (!buffer) return;
+    if (!buffer || generation !== this.playGeneration) return;
 
     await this.stopAll(0.12);
+    if (generation !== this.playGeneration) return;
 
-    const now = this.ctx.currentTime + 0.15;
     const start = Math.min(trimStartOf(track), Math.max(0, buffer.duration - 0.2));
-    const end = trimEndOf(track, buffer.duration);
-    const source = this.ctx.createBufferSource();
-    source.buffer = buffer;
-    const gain = this.ctx.createGain();
-    const norm = this.ctx.createGain();
-    norm.gain.value = normGainOf(track);
-    source.connect(gain);
-    gain.connect(norm);
-    norm.connect(this.master!);
-    source.start(now, start);
-    gain.gain.setValueAtTime(1.0, now);
-
-    const deck: Deck = { source, gain, norm, buffer, startedAt: now, offset: start, end };
-    this.decks = { a: null, b: null };
-    this.decks.a = deck;
-    this.currentSlot = "a";
-    this.fading = false;
-    this.preloadedFor = -1;
-    this.fadeAttemptFor = -1;
+    this.pausedOffset = null;
     this.index = index;
     this.onIndexChange?.(index);
-    this.startRaf();
+    this.startDeck(track, buffer, start);
   }
 
   async toggle(): Promise<void> {
@@ -160,11 +156,16 @@ export class RadioPlayer {
       await this.playAt(0);
       return;
     }
-    if (this.ctx.state === "suspended") {
-      await this.ctx.resume();
-    } else {
-      await this.ctx.suspend();
+    if (this.pausedOffset !== null) {
+      await this.resumePaused();
+      return;
     }
+    const deck = this.activeDeck();
+    if (deck) {
+      this.pause(deck);
+      return;
+    }
+    await this.playAt(this.index);
   }
 
   async next(): Promise<void> {
@@ -180,15 +181,22 @@ export class RadioPlayer {
   async seek(seconds: number): Promise<void> {
     if (this.index < 0 || this.fading) return;
     const track = this.playlist[this.index];
+    const generation = ++this.playGeneration;
     this.ensureCtx();
     if (!this.ctx || !track) return;
     const buffer = this.cache.get(track.id) ?? (await this.decodeSafe(track));
-    if (!buffer || !this.ctx) return;
+    if (!buffer || !this.ctx || generation !== this.playGeneration) return;
     const start = trimStartOf(track);
     const end = trimEndOf(track, buffer.duration);
     const rel = Math.max(0, Math.min(end - start - 0.2, seconds));
     const pos = start + rel;
+    if (this.pausedOffset !== null) {
+      this.pausedOffset = pos;
+      this.onTick?.(rel, end - start);
+      return;
+    }
     await this.stopAll(0.08);
+    if (generation !== this.playGeneration || !this.ctx) return;
     const now = this.ctx.currentTime + 0.1;
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
@@ -206,11 +214,12 @@ export class RadioPlayer {
   }
 
   setVolume(v: number) {
-    if (this.master) this.master.gain.value = Math.max(0, Math.min(1, v));
+    this.mixer.setMasterVolume(v);
   }
 
   dispose() {
     this.disposed = true;
+    this.playGeneration += 1;
     this.stopRaf();
     this.playlist = [];
     this.cache.clear();
@@ -218,7 +227,8 @@ export class RadioPlayer {
     if (this.decks.a) this.hardStop(this.decks.a);
     if (this.decks.b) this.hardStop(this.decks.b);
     this.decks = { a: null, b: null };
-    this.ctx?.close().catch(() => undefined);
+    this.pausedOffset = null;
+    this.master = null;
     this.ctx = null;
   }
 
@@ -228,12 +238,75 @@ export class RadioPlayer {
     return this.decks[this.currentSlot];
   }
 
+  private startDeck(track: Track, buffer: AudioBuffer, position: number) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    if (this.decks.a) this.hardStop(this.decks.a);
+    if (this.decks.b) this.hardStop(this.decks.b);
+    const start = Math.max(
+      trimStartOf(track),
+      Math.min(trimEndOf(track, buffer.duration) - 0.3, position),
+    );
+    const end = trimEndOf(track, buffer.duration);
+    const now = ctx.currentTime + 0.15;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    const norm = ctx.createGain();
+    norm.gain.value = normGainOf(track);
+    source.connect(gain);
+    gain.connect(norm);
+    norm.connect(this.master);
+    source.start(now, start);
+    gain.gain.setValueAtTime(1.0, now);
+
+    const deck: Deck = { source, gain, norm, buffer, startedAt: now, offset: start, end };
+    this.decks = { a: null, b: null };
+    this.decks.a = deck;
+    this.currentSlot = "a";
+    this.fading = false;
+    this.preloadedFor = -1;
+    this.fadeAttemptFor = -1;
+    this.startRaf();
+  }
+
+  private pause(deck: Deck) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.playGeneration += 1;
+    const pos = ctx.currentTime - deck.startedAt + deck.offset;
+    this.pausedOffset = Math.max(deck.offset, Math.min(deck.end, pos));
+    this.onTick?.(this.pausedOffset - deck.offset, deck.end - deck.offset);
+    if (this.decks.a) this.hardStop(this.decks.a);
+    if (this.decks.b) this.hardStop(this.decks.b);
+    this.decks = { a: null, b: null };
+    this.currentSlot = "a";
+    this.fading = false;
+    this.stopRaf();
+  }
+
+  private async resumePaused(): Promise<void> {
+    const track = this.playlist[this.index];
+    const position = this.pausedOffset;
+    if (position === null) return;
+    if (!track) {
+      this.pausedOffset = null;
+      return;
+    }
+    const generation = ++this.playGeneration;
+    await this.mixer.resume();
+    if (generation !== this.playGeneration) return;
+    const buffer = this.cache.get(track.id) ?? (await this.decodeSafe(track));
+    if (!buffer || generation !== this.playGeneration) return;
+    this.pausedOffset = null;
+    this.startDeck(track, buffer, position);
+  }
+
   private ensureCtx() {
     if (this.disposed) return;
     if (!this.ctx) {
-      this.ctx = new AudioContext();
-      this.master = this.ctx.createGain();
-      this.master.connect(this.ctx.destination);
+      this.ctx = this.mixer.ctx;
+      this.master = this.mixer.musicInput;
     }
   }
 
@@ -400,6 +473,7 @@ export class RadioPlayer {
   private async beginCrossfade(deck: Deck, remaining: number, nextIdx: number) {
     if (!this.ctx) return;
     if (this.fadeAttemptFor === nextIdx) return;
+    const generation = this.playGeneration;
     this.fadeAttemptFor = nextIdx;
     this.fading = true;
     this.preloadedFor = -1;
@@ -407,7 +481,12 @@ export class RadioPlayer {
 
     const nextTrack = this.playlist[nextIdx];
     const buffer = await this.decodeSafe(nextTrack);
-    if (!buffer || !this.ctx) {
+    if (
+      !buffer ||
+      !this.ctx ||
+      this.pausedOffset !== null ||
+      generation !== this.playGeneration
+    ) {
       this.fading = false;
       return;
     }

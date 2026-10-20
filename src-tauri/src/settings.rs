@@ -41,9 +41,99 @@ pub struct Settings {
     pub true_peak_db: f64,
     pub radio_name: String,
     pub slogan: String,
-    /// Logo copiado a la carpeta de datos; vacio = logo por defecto.
     pub logo_path: String,
     pub campaigns: Vec<Campaign>,
+    pub mixer_channels: Vec<MixerChannel>,
+    pub mixer_buses: Vec<MixerBus>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MixerInput {
+    /// "app" o "device"
+    pub kind: String,
+    /// "music" o "preview" cuando kind = "app"
+    pub app: String,
+    /// Identificador del dispositivo de entrada cuando kind = "device"
+    pub device_id: String,
+}
+
+impl Default for MixerInput {
+    fn default() -> Self {
+        Self {
+            kind: "app".to_string(),
+            app: "music".to_string(),
+            device_id: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MixerOutput {
+    /// "bus" o "device"
+    pub kind: String,
+    /// id del bus o deviceId de la tarjeta; "default" = salida del sistema
+    pub id: String,
+}
+
+impl Default for MixerOutput {
+    fn default() -> Self {
+        Self {
+            kind: "device".to_string(),
+            id: "default".to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MixerChannel {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub input: MixerInput,
+    pub output: MixerOutput,
+    pub gain_db: f32,
+    pub muted: bool,
+}
+
+impl Default for MixerChannel {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            color: "#4f8cff".to_string(),
+            input: MixerInput::default(),
+            output: MixerOutput::default(),
+            gain_db: 0.0,
+            muted: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MixerBus {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub output_device_id: String,
+    pub gain_db: f32,
+    pub muted: bool,
+}
+
+impl Default for MixerBus {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            color: "#59d98c".to_string(),
+            output_device_id: "default".to_string(),
+            gain_db: 0.0,
+            muted: false,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -51,20 +141,14 @@ pub struct Settings {
 pub struct Campaign {
     pub id: String,
     pub name: String,
-    /// "ads" (anuncio) o "jingle"
     pub kind: String,
     pub enabled: bool,
-    /// Dias ISO: 1 = lunes ... 7 = domingo
     pub days: Vec<u8>,
-    /// Horas exactas "HH:MM"
     pub times: Vec<String>,
-    /// Emitir cada hora al minuto indicado
     pub hourly: bool,
     pub minute: u8,
     pub track_ids: Vec<String>,
-    /// Siguiente spot de la rotacion
     pub cursor: usize,
-    /// "AAAA-MM-DD HH:MM" de la ultima emision
     pub last_fired: String,
 }
 
@@ -106,6 +190,8 @@ impl Default for Settings {
             slogan: "Estudio de automatización".to_string(),
             logo_path: String::new(),
             campaigns: Vec::new(),
+            mixer_channels: Vec::new(),
+            mixer_buses: Vec::new(),
         }
     }
 }
@@ -174,8 +260,6 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(
     write_settings(&state.data_dir, &settings)
 }
 
-/// Guarda una imagen de marca copiandola a los datos de la app.
-/// Devuelve la ruta nueva, o "" al quitar el logo.
 #[tauri::command]
 pub fn set_branding_logo(
     state: State<'_, AppState>,
@@ -201,7 +285,6 @@ pub fn set_branding_logo(
                 return Err("Formato de imagen no soportado (png, jpg, webp o gif)".to_string());
             }
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            // Copia primero a un temporal para no perder el logo anterior si falla.
             let dest = dir.join(format!("logo.{ext}"));
             let tmp = dir.join(format!(".logo-nuevo.{ext}"));
             let _ = std::fs::remove_file(&tmp);

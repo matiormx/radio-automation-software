@@ -5,11 +5,11 @@ import {
   autoTrackTrim,
   getTrackWaveform,
   saveTrackTrim,
-  trackUrl,
 } from "../api";
 import type { AnalysisResult, Block, Track, Waveform } from "../types";
 import { effectiveDuration } from "../types";
 import { IconWave, IconX } from "../icons";
+import type { SoundMixer } from "../mixer";
 
 type Mode = "folders" | "artists" | "blocks" | "genres" | "tags";
 type Side = "a" | "b";
@@ -477,12 +477,13 @@ function effectiveDurationLabel(tracks: Track[]): string {
 
 interface TrimEditorProps {
   track: Track;
+  mixer: SoundMixer | null;
   onClose: () => void;
   onSaved: (track: Track) => void;
   showToast: (msg: string) => void;
 }
 
-function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
+function TrimEditor({ track, mixer, onClose, onSaved, showToast }: TrimEditorProps) {
   const [wave, setWave] = useState<Waveform | null>(null);
   const [error, setError] = useState("");
   const [start, setStart] = useState(track.trimStart);
@@ -490,12 +491,10 @@ function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
   const [drag, setDrag] = useState<"start" | "end" | null>(null);
   const [saving, setSaving] = useState(false);
   const [playPos, setPlayPos] = useState(-1);
+  const [previewing, setPreviewing] = useState(false);
+  const previewingRef = useRef(false);
+  const previewToken = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const endRef = useRef(end);
-  const startRef = useRef(start);
-  endRef.current = end;
-  startRef.current = start;
 
   useEffect(() => {
     let alive = true;
@@ -520,10 +519,9 @@ function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
 
   useEffect(() => {
     return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
+      mixer?.stopPreview();
     };
-  }, []);
+  }, [mixer]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -609,12 +607,13 @@ function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
       setDrag("end");
       e.currentTarget.setPointerCapture(e.pointerId);
     } else {
-      setPlayPos(secs);
-      const audio = audioRef.current;
-      if (audio) {
-        audio.currentTime = secs;
-        setPlayPos(secs);
+      if (previewingRef.current) {
+        previewToken.current += 1;
+        previewingRef.current = false;
+        setPreviewing(false);
+        mixer?.stopPreview();
       }
+      setPlayPos(secs);
     }
   };
 
@@ -636,29 +635,49 @@ function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
     }
   };
 
-  const preview = () => {
-    let audio = audioRef.current;
-    if (!audio) {
-      audio = new Audio(trackUrl(track));
-      audio.preload = "auto";
-      audio.ontimeupdate = () => {
-        if (!audio) return;
-        setPlayPos(audio.currentTime);
-        if (audio.currentTime >= endRef.current) {
-          audio.pause();
-          audio.currentTime = startRef.current;
-          setPlayPos(startRef.current);
-        }
-      };
-      audio.onended = () => setPlayPos(startRef.current);
-      audioRef.current = audio;
-    }
-    if (!audio.paused) {
-      audio.pause();
+  const stopPreview = () => {
+    previewToken.current += 1;
+    previewingRef.current = false;
+    setPreviewing(false);
+    setPlayPos(-1);
+    mixer?.stopPreview();
+  };
+
+  const preview = async () => {
+    if (!mixer) {
+      showToast("La mesa de sonido todavía no está disponible");
       return;
     }
-    if (audio.currentTime < start || audio.currentTime >= end) audio.currentTime = start;
-    void audio.play().catch((e) => showToast(`No se pudo escuchar: ${String(e)}`));
+    if (previewingRef.current) {
+      stopPreview();
+      return;
+    }
+    const token = ++previewToken.current;
+    previewingRef.current = true;
+    setPreviewing(true);
+    setPlayPos(start);
+    try {
+      await mixer.playPreview(
+        track.file,
+        start,
+        end,
+        (position) => {
+          if (previewingRef.current) setPlayPos(position);
+        },
+        () => {
+          if (token !== previewToken.current) return;
+          previewingRef.current = false;
+          setPreviewing(false);
+          setPlayPos(-1);
+        },
+      );
+    } catch (e) {
+      if (token !== previewToken.current) return;
+      previewingRef.current = false;
+      setPreviewing(false);
+      setPlayPos(-1);
+      showToast(`No se pudo escuchar: ${String(e)}`);
+    }
   };
 
   const save = async () => {
@@ -756,8 +775,13 @@ function TrimEditor({ track, onClose, onSaved, showToast }: TrimEditorProps) {
                 }
               />
             </label>
-            <button type="button" className="btn btn-sm" onClick={preview} disabled={!wave}>
-              {playPos >= 0 ? "Escuchar / parar" : "Escuchar"}
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => void preview()}
+              disabled={!wave || !mixer}
+            >
+              {previewing ? "Escuchar / parar" : "Escuchar"}
             </button>
             <button
               type="button"
@@ -808,6 +832,7 @@ interface NormalizerProps {
   onMove: (ids: string[], to: Side) => Promise<number>;
   onTarget: (lufs: number, peak: number) => void;
   showToast: (msg: string) => void;
+  mixer: SoundMixer | null;
 }
 
 export function Normalizer({
@@ -821,6 +846,7 @@ export function Normalizer({
   onMove,
   onTarget,
   showToast,
+  mixer,
 }: NormalizerProps) {
   const [all, setAll] = useState<Track[]>(tracks);
   const [selA, setSelA] = useState<Set<string>>(new Set());
@@ -1077,6 +1103,7 @@ export function Normalizer({
       {trimTrack && (
         <TrimEditor
           track={trimTrack}
+          mixer={mixer}
           onClose={() => setTrimId("")}
           onSaved={applySavedTrim}
           showToast={showToast}

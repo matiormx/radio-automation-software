@@ -57,6 +57,10 @@ export function autoTrackTrim(id: string): Promise<void> {
   return invoke("auto_track_trim", { id });
 }
 
+export function backfillCovers(): Promise<number> {
+  return invoke<number>("backfill_covers");
+}
+
 export function getTrackDetails(id: string): Promise<TrackDetails> {
   return invoke<TrackDetails>("track_details", { id });
 }

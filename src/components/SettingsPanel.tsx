@@ -3,6 +3,8 @@ import type { Campaign, CampaignKind, Settings, Track } from "../types";
 import { effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
+import { MixerPanel } from "./MixerPanel";
+import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
   settings: Settings;
@@ -13,6 +15,7 @@ interface SettingsPanelProps {
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
   onImportAudio: () => Promise<Track[]>;
+  mixer: SoundMixer | null;
 }
 
 const DAYS: { value: number; label: string; long: string }[] = [
@@ -72,7 +75,7 @@ function MinField({
   );
 }
 
-type Tab = "general" | "autodj" | "campaigns";
+type Tab = "general" | "autodj" | "campaigns" | "sound";
 
 export function SettingsPanel({
   settings,
@@ -83,13 +86,14 @@ export function SettingsPanel({
   onPickLogo,
   onClearLogo,
   onImportAudio,
+  mixer,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("general");
   const s = settings;
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
-        className="modal settings-modal"
+        className={`modal settings-modal ${tab === "sound" ? "settings-modal-wide" : ""}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -111,6 +115,14 @@ export function SettingsPanel({
             >
               General
               <span>Identidad, logo y carpeta</span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "sound" ? "settings-nav-on" : ""}`}
+              onClick={() => setTab("sound")}
+            >
+              Sonido
+              <span>Mesa de mezclas y salidas</span>
             </button>
             <button
               type="button"
@@ -140,6 +152,7 @@ export function SettingsPanel({
                 onClearLogo={onClearLogo}
               />
             )}
+            {tab === "sound" && <MixerPanel settings={s} mixer={mixer} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab

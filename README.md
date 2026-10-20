@@ -36,7 +36,9 @@ biblioteca y reglas de rotación).
   están en la biblioteca solo se asignan al bloque; las nuevas se pueden
   copiar a la carpeta de música o enlazar en su sitio.
 - **Lista de emisión**: tabla profesional con hora estimada de emisión,
-  duración y orden por arrastre.
+  **carátula**, duración y orden por arrastre. La portada se toma de la
+  imagen incrustada en el audio o de un `cover.jpg`/`folder.jpg` cercano;
+  al pulsarla se abren los detalles completos de la canción.
 - **Piloto automático**: rellena la lista solo cuando quedan pocas pistas
   por delante, respetando **reglas de rotación**: no repetir tema, título
   ni artista dentro de los minutos configurados, y no emparejar dos temas
@@ -51,9 +53,15 @@ biblioteca y reglas de rotación).
   La pista siguiente se decodifica 30 s antes del cruce y la caché de PCM
   está acotada a 4 pistas; si la decodificación se retrasa, el cruce se
   resuelve sin hueco.
+- **Mesa de sonido digital**: canales con entrada y salida, buses que
+  combinan canales, fader y silencio por canal, nombre y color. Las
+  entradas pueden ser tarjetas físicas o virtuales, la reproducción de la
+  radio o la preescucha del normalizador; las salidas, cualquier tarjeta
+  del equipo o la predeterminada.
 - **Ajustes con navegación lateral**: General (identidad, logo y carpeta
-  de música), AutoDJ (reglas y cola) y Campañas (anuncios y jingles).
-  Todo se guarda al instante, junto con transición y volumen.
+  de música), Sonido (mesa de mezclas), AutoDJ (reglas y cola) y Campañas
+  (anuncios y jingles). Todo se guarda al instante, junto con transición
+  y volumen.
 
 ## Archivos de musica soportados
 
@@ -75,12 +83,25 @@ library.json    <- catalogo: metadatos, etiquetas, analisis, recorte + enlace
 blocks.json     <- bloques musicales
 playlists/      <- una lista guardada por archivo JSON
 branding/       <- logo de la emisora copiado por la app
+covers/         <- caratulas extraidas de los audios
 history.json    <- historial de emision (para las reglas de rotacion)
 ```
 
 Las bibliotecas antiguas (solo titulo/artista/duracion) se migran sola:
 el enlace al archivo se reconstruye desde la carpeta interna `music/`,
 pero los archivos de audio **nunca se borran**.
+
+## Carátulas y detalles
+
+La lista de emisión muestra la carátula de cada canción. MiRadio extrae la
+imagen incrustada en el archivo (MP3, M4A, FLAC, OGG…) o, si no hay, busca
+`cover.jpg`, `folder.jpg`, `front.jpg`, `album.jpg` o una imagen con el
+mismo nombre que el audio en su carpeta. Las copias se guardan en
+`covers/` dentro de la carpeta de datos.
+
+Al pulsar la carátula se abre la ficha completa: metadatos, normalización,
+recorte, formato, calidad, bloques, etiquetas, tamaño y ruta. Es la misma
+ficha que aparece en «Propiedades» del navegador de música.
 
 ## Campañas de anuncios y jingles
 
@@ -97,6 +118,31 @@ opción de emitir cada hora a un minuto concreto.
 - Si la app estaba cerrada a esa hora, recupera la campaña al abrirla solo
   si han pasado menos de 15 minutos.
 - Si un spot desaparece de la biblioteca, se salta y se usa el siguiente.
+
+## Mesa de sonido
+
+En **Ajustes > Sonido** se monta una mesa de mezclas con canales y buses:
+
+- **Canal**: recibe una fuente y la envía a un bus o directamente a una
+  tarjeta. Cada canal tiene fader (-60 a +12 dB), silencio, nombre y color.
+- **Bus**: suma varios canales y sale por una tarjeta. Sirve para agrupar,
+  por ejemplo, música y jingles en una salida y los micrófonos en otra.
+- **Entradas**: las tarjetas de entrada del equipo (físicas o virtuales) y
+  las dos fuentes internas: reproducción de música y preescucha del
+  normalizador.
+- **Salidas**: la salida predeterminada del sistema o cualquier tarjeta de
+  salida. Se pueden usar varias a la vez.
+
+La mesa se guarda en `settings.json` y se aplica en caliente. Si no hay
+canales configurados, la reproducción y la preescucha siguen saliendo por
+la salida predeterminada. Si una fuente interna no está asignada a ningún
+canal, también suena por la predeterminada para no dejar la radio muda.
+
+En Windows, la primera vez que se usa una entrada física hay que conceder
+permiso de micrófono. El botón «Ver entradas» solicita ese permiso y
+actualiza los nombres de las tarjetas. El enrutado a varias salidas usa
+`setSinkId` del WebView2; si el sistema no lo soporta, la mesa avisa y todo
+sale por la salida predeterminada.
 
 ## Como correrla en tu maquina
 
@@ -208,9 +254,10 @@ cargo xwin build --release --target x86_64-pc-windows-msvc --features custom-pro
 ```
 src/                <- interfaz (React + TypeScript)
   audio.ts          <- motor de radio: dos decks + crossfade (Web Audio)
+  mixer.ts          <- mesa de sonido: canales, buses, entradas y salidas
   api.ts            <- llamadas al backend de Rust
   App.tsx           <- pantallas y estado general
-  components/       <- gestor de musica, lista, deck, ajustes
+  components/       <- gestor de musica, lista, deck, ajustes y mesa
 src-tauri/          <- backend (Rust + Tauri 2)
   src/library.rs    <- catalogo de canciones, bloques, importar/escanear/relinkar
   src/settings.rs   <- reglas de rotacion y piloto automatico

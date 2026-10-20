@@ -1,10 +1,12 @@
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::{MimeType, PictureType};
 use lofty::read_from_path;
 use lofty::tag::Accessor;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use tauri::State;
 use uuid::Uuid;
 
@@ -76,6 +78,10 @@ pub struct Track {
     pub analysis_sig: String,
     #[serde(default)]
     pub analyzed_at: u64,
+    #[serde(default)]
+    pub cover: String,
+    #[serde(default)]
+    pub cover_checked: bool,
 }
 
 fn default_library() -> String {
@@ -101,6 +107,130 @@ fn is_allowed(path: &Path) -> bool {
 
 /// Carpeta de musica predefinida por el operador (settings.music_path).
 /// Si no hay ninguna configurada: la carpeta interna de la app.
+fn covers_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("covers")
+}
+
+fn cover_abs(data_dir: &Path, cover: &str) -> String {
+    if cover.trim().is_empty() {
+        return String::new();
+    }
+    let Some(name) = Path::new(cover.trim()).file_name() else {
+        return String::new();
+    };
+    let path = covers_dir(data_dir).join(name);
+    if path.is_file() {
+        path.to_string_lossy().into_owned()
+    } else {
+        String::new()
+    }
+}
+
+fn picture_ext(pic: &lofty::picture::Picture) -> Option<&'static str> {
+    match pic.mime_type() {
+        Some(MimeType::Png) => Some("png"),
+        Some(MimeType::Jpeg) => Some("jpg"),
+        Some(MimeType::Gif) => Some("gif"),
+        Some(MimeType::Bmp) => Some("bmp"),
+        Some(MimeType::Tiff) => Some("tif"),
+        Some(MimeType::Unknown(v)) if v.eq_ignore_ascii_case("image/webp") => Some("webp"),
+        _ => None,
+    }
+}
+
+fn sidecar_cover(audio: &Path) -> Option<(Vec<u8>, String)> {
+    let dir = audio.parent()?;
+    let stem = audio
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let names = ["cover", "folder", "front", "album", "artwork"];
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    entries.sort();
+    for path in entries {
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        let ext = ext.to_ascii_lowercase();
+        if !["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&ext.as_str()) {
+            continue;
+        }
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if file_stem != stem && !names.contains(&file_stem.as_str()) {
+            continue;
+        }
+        if fs::metadata(&path).map(|m| m.len() > 8_000_000).unwrap_or(true) {
+            continue;
+        }
+        if let Ok(data) = fs::read(&path) {
+            let ext = if ext == "jpeg" { "jpg" } else { &ext };
+            return Some((data, ext.to_string()));
+        }
+    }
+    None
+}
+
+fn extract_cover(data_dir: &Path, audio: &Path, id: &str) -> Option<String> {
+    let mut found: Option<(Vec<u8>, String)> = None;
+    if let Ok(tagged) = read_from_path(audio) {
+        if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
+            let pictures = tag.pictures();
+            let picture = pictures
+                .iter()
+                .find(|p| p.pic_type() == PictureType::CoverFront)
+                .or_else(|| pictures.first());
+            if let Some(pic) = picture {
+                if !pic.data().is_empty() && pic.data().len() <= 8_000_000 {
+                    if let Some(ext) = picture_ext(pic) {
+                        found = Some((pic.data().to_vec(), ext.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    if found.is_none() {
+        found = sidecar_cover(audio);
+    }
+    let (data, ext) = found?;
+    let dir = covers_dir(data_dir);
+    fs::create_dir_all(&dir).ok()?;
+    let dest = dir.join(format!("{id}.{ext}"));
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let matches_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s == id)
+                .unwrap_or(false);
+            if matches_id && path != dest {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    fs::write(&dest, data).ok()?;
+    Some(format!("{id}.{ext}"))
+}
+
+fn remove_cover(data_dir: &Path, cover: &str) {
+    if cover.trim().is_empty() {
+        return;
+    }
+    if let Some(name) = Path::new(cover.trim()).file_name() {
+        let _ = fs::remove_file(covers_dir(data_dir).join(name));
+    }
+}
+
 fn music_dir(state: &AppState) -> PathBuf {
     let configured = read_settings_public(&state.data_dir).music_path;
     if configured.trim().is_empty() {
@@ -206,6 +336,12 @@ pub fn read_library_public(data_dir: &Path) -> Vec<Track> {
     read_library_internal(data_dir)
 }
 
+static LIBRARY_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn lock_library() -> MutexGuard<'static, ()> {
+    LIBRARY_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub(crate) fn write_library(data_dir: &Path, tracks: &[Track]) -> Result<(), String> {
     let tmp = data_dir.join("library.json.tmp");
     let json = serde_json::to_vec_pretty(tracks).map_err(|e| e.to_string())?;
@@ -271,10 +407,11 @@ pub struct TrackResolved {
     pub auto_trim_end: Option<f64>,
     pub trim_manual: bool,
     pub analyzed_at: u64,
+    pub cover: String,
 }
 
 impl TrackResolved {
-    fn from(t: Track) -> Self {
+    fn from(t: Track, data_dir: &Path) -> Self {
         let missing =
             t.file.trim().is_empty() || !Path::new(t.file.trim()).is_file();
         Self {
@@ -301,12 +438,16 @@ impl TrackResolved {
             auto_trim_end: t.auto_trim_end,
             trim_manual: t.trim_manual,
             analyzed_at: t.analyzed_at,
+            cover: cover_abs(data_dir, &t.cover),
         }
     }
 }
 
-fn resolve_all(tracks: Vec<Track>) -> Vec<TrackResolved> {
-    tracks.into_iter().map(TrackResolved::from).collect()
+fn resolve_all(tracks: Vec<Track>, data_dir: &Path) -> Vec<TrackResolved> {
+    tracks
+        .into_iter()
+        .map(|t| TrackResolved::from(t, data_dir))
+        .collect()
 }
 
 /// Importa archivos: los COPIA a la carpeta de musica predefinida,
@@ -319,6 +460,7 @@ pub fn import_files(
     paths: Vec<String>,
     library: Option<String>,
 ) -> Result<Vec<TrackResolved>, String> {
+    let _guard = lock_library();
     let dest_dir = music_dir(&state);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let mut tracks = read_library_internal(&state.data_dir);
@@ -347,8 +489,9 @@ pub fn import_files(
             continue;
         }
 
-        let rec = Track {
-            id: Uuid::new_v4().simple().to_string(),
+        let id = Uuid::new_v4().simple().to_string();
+        let mut rec = Track {
+            id: id.clone(),
             title,
             artist,
             album,
@@ -376,13 +519,16 @@ pub fn import_files(
             trim_manual: false,
             analysis_sig: String::new(),
             analyzed_at: 0,
+            cover: String::new(),
+            cover_checked: true,
         };
+        rec.cover = extract_cover(&state.data_dir, &dest, &id).unwrap_or_default();
         imported.push(rec.clone());
         tracks.push(rec);
     }
 
     write_library(&state.data_dir, &tracks)?;
-    Ok(resolve_all(imported))
+    Ok(resolve_all(imported, &state.data_dir))
 }
 
 /// Cataloga los archivos que ya estan en la carpeta de musica
@@ -391,6 +537,7 @@ pub fn import_files(
 /// a mano. Devuelve cuantas canciones nuevas se catalogaron.
 #[tauri::command]
 pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
+    let _guard = lock_library();
     let dir = music_dir(&state);
     if !dir.is_dir() {
         return Ok(0);
@@ -418,8 +565,9 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
         let (seed_title, seed_artist) = display_name_from_file(&path);
         let (title, artist, album, genre, year, duration) =
             read_metadata(&path, seed_title, seed_artist);
-        tracks.push(Track {
-            id: Uuid::new_v4().simple().to_string(),
+        let id = Uuid::new_v4().simple().to_string();
+        let mut rec = Track {
+            id: id.clone(),
             title,
             artist,
             album,
@@ -447,7 +595,11 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
             trim_manual: false,
             analysis_sig: String::new(),
             analyzed_at: 0,
-        });
+            cover: String::new(),
+            cover_checked: true,
+        };
+        rec.cover = extract_cover(&state.data_dir, &path, &id).unwrap_or_default();
+        tracks.push(rec);
         added += 1;
     }
 
@@ -465,7 +617,10 @@ fn normalize_path(p: &str) -> String {
 
 #[tauri::command]
 pub fn list_tracks(state: State<'_, AppState>) -> Result<Vec<TrackResolved>, String> {
-    Ok(resolve_all(read_library_internal(&state.data_dir)))
+    Ok(resolve_all(
+        read_library_internal(&state.data_dir),
+        &state.data_dir,
+    ))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -487,6 +642,7 @@ pub fn update_track(
     id: String,
     patch: TrackPatch,
 ) -> Result<(), String> {
+    let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
         if let Some(v) = patch.title.map(|v| v.trim().to_string()) {
@@ -559,6 +715,7 @@ pub struct TrackDetails {
     pub true_peak_db: Option<f64>,
     pub trim_start: f64,
     pub trim_end: Option<f64>,
+    pub cover: String,
 }
 
 #[tauri::command]
@@ -640,6 +797,7 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         true_peak_db: t.true_peak_db,
         trim_start: t.trim_start,
         trim_end: t.trim_end,
+        cover: cover_abs(&state.data_dir, &t.cover),
     })
 }
 
@@ -650,8 +808,12 @@ pub fn relink_track(state: State<'_, AppState>, id: String, new_path: String) ->
     if !p.is_file() || !is_allowed(&p) {
         return Err("El archivo no existe o no es de audio".to_string());
     }
+    let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
+        remove_cover(&state.data_dir, &t.cover);
+        t.cover = extract_cover(&state.data_dir, &p, &t.id).unwrap_or_default();
+        t.cover_checked = true;
         t.file = p.to_string_lossy().into_owned();
         t.original_name = p
             .file_name()
@@ -664,10 +826,56 @@ pub fn relink_track(state: State<'_, AppState>, id: String, new_path: String) ->
     }
 }
 
+#[tauri::command]
+pub async fn backfill_covers(state: State<'_, AppState>) -> Result<usize, String> {
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&data_dir);
+        let mut added = 0usize;
+        let mut changed = false;
+        for t in tracks.iter_mut() {
+            if t.cover_checked {
+                if t.cover.is_empty() {
+                    continue;
+                }
+                if !cover_abs(&data_dir, &t.cover).is_empty() {
+                    continue;
+                }
+                t.cover.clear();
+                t.cover_checked = false;
+                changed = true;
+            }
+            let path = PathBuf::from(t.file.trim());
+            if !path.is_file() {
+                continue;
+            }
+            if let Some(name) = extract_cover(&data_dir, &path, &t.id) {
+                t.cover = name;
+                added += 1;
+            } else {
+                t.cover.clear();
+            }
+            t.cover_checked = true;
+            changed = true;
+        }
+        if changed {
+            write_library(&data_dir, &tracks)?;
+        }
+        Ok::<usize, String>(added)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Borra el registro (el archivo fisico no se toca).
 #[tauri::command]
 pub fn delete_track(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let _guard = lock_library();
     let tracks = read_library_internal(&state.data_dir);
+    if let Some(t) = tracks.iter().find(|t| t.id == id) {
+        remove_cover(&state.data_dir, &t.cover);
+    }
     let remaining: Vec<Track> = tracks.into_iter().filter(|t| t.id != id).collect();
     write_library(&state.data_dir, &remaining)
 }
@@ -680,6 +888,7 @@ pub fn set_track_library(
     ids: Vec<String>,
     library: String,
 ) -> Result<usize, String> {
+    let _guard = lock_library();
     let target = normalize_library(Some(&library));
     let mut tracks = read_library_internal(&state.data_dir);
     let wanted: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
@@ -705,6 +914,7 @@ pub fn save_track_trim(
     if !start.is_finite() || !end.is_finite() {
         return Err("Marcas de recorte no validas".to_string());
     }
+    let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     let Some(t) = tracks.iter_mut().find(|t| t.id == id) else {
         return Err("La cancion ya no existe en la biblioteca".to_string());
@@ -728,6 +938,7 @@ pub fn save_track_trim(
 /// Vuelve al recorte automático del último análisis.
 #[tauri::command]
 pub fn auto_track_trim(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     let Some(t) = tracks.iter_mut().find(|t| t.id == id) else {
         return Err("La cancion ya no existe en la biblioteca".to_string());
@@ -826,6 +1037,7 @@ pub fn rename_block(state: State<'_, AppState>, id: String, name: String) -> Res
 
 #[tauri::command]
 pub fn delete_block(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let _guard = lock_library();
     let blocks: Vec<Block> = read_blocks(&state.data_dir)
         .into_iter()
         .filter(|b| b.id != id)
@@ -845,6 +1057,7 @@ pub fn set_track_blocks(
     id: String,
     block_ids: Vec<String>,
 ) -> Result<(), String> {
+    let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
         t.blocks = block_ids;
@@ -951,6 +1164,7 @@ pub fn import_playlist(
     block_name: Option<String>,
     copy_files: bool,
 ) -> Result<PlaylistImportReport, String> {
+    let _guard = lock_library();
     let playlist_path = PathBuf::from(&path);
     let text = fs::read_to_string(&playlist_path)
         .map_err(|e| format!("No se pudo leer la lista: {e}"))?;
@@ -1055,8 +1269,9 @@ pub fn import_playlist(
             src.clone()
         };
 
-        let rec = Track {
-            id: Uuid::new_v4().simple().to_string(),
+        let id = Uuid::new_v4().simple().to_string();
+        let mut rec = Track {
+            id: id.clone(),
             title,
             artist,
             album,
@@ -1084,7 +1299,10 @@ pub fn import_playlist(
             trim_manual: false,
             analysis_sig: String::new(),
             analyzed_at: 0,
+            cover: String::new(),
+            cover_checked: true,
         };
+        rec.cover = extract_cover(&state.data_dir, &file, &id).unwrap_or_default();
         index.insert(normalize_path(&rec.file), tracks.len());
         tracks.push(rec);
         added += 1;

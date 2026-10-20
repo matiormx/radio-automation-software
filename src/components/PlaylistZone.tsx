@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Playlist, PlaylistRow } from "../types";
-import { IconUp, IconDown, IconX, IconPlus } from "../icons";
+import { trackUrl } from "../api";
+import { IconUp, IconDown, IconX, IconPlus, IconNote } from "../icons";
+import { TrackDetailsModal } from "./TrackDetailsModal";
 
 interface PlaylistZoneProps {
   playlists: Playlist[];
@@ -48,6 +50,7 @@ export function PlaylistZone({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [extOver, setExtOver] = useState(false);
+  const [detailsId, setDetailsId] = useState("");
 
   useEffect(() => {
     if (!editing) setDraft(active?.name ?? "");
@@ -123,6 +126,7 @@ export function PlaylistZone({
       <div className="pl-head">
         <span className="col-hour">HORA</span>
         <span className="col-num">#</span>
+        <span className="col-cover" />
         <span className="col-main">TÍTULO</span>
         <span className="col-dur">DURACIÓN</span>
         <span className="col-acts" />
@@ -189,6 +193,25 @@ export function PlaylistZone({
               <button type="button" className="plrow-num" onClick={() => onPlayRow(i)} title="Emitir desde esta pista">
                 {i + 1}
               </button>
+              <button
+                type="button"
+                className="plrow-cover"
+                onClick={() => setDetailsId(r.id)}
+                title="Ver detalles de la canción"
+                aria-label={`Ver detalles de ${r.title}`}
+              >
+                <span className="plrow-cover-ph">
+                  <IconNote size={14} />
+                </span>
+                {r.cover && (
+                  <img
+                    src={trackUrl({ file: r.cover })}
+                    alt=""
+                    loading="lazy"
+                    onError={(e) => e.currentTarget.remove()}
+                  />
+                )}
+              </button>
               <button type="button" className="plrow-main" onClick={() => onPlayRow(i)} title="Emitir desde esta pista">
                 <span className="plrow-line">
                   <span className="plrow-title">{r.title}</span>
@@ -212,6 +235,10 @@ export function PlaylistZone({
             </div>
           ))}
         </div>
+      )}
+
+      {detailsId && (
+        <TrackDetailsModal trackId={detailsId} onClose={() => setDetailsId("")} />
       )}
     </section>
   );

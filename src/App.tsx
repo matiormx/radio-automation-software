@@ -23,10 +23,12 @@ import {
   pickImageFile,
   setBrandingLogo,
   trackUrl,
+  backfillCovers,
 } from "./api";
 import type { Track, Playlist, PlaylistRow, Settings, Block, Campaign } from "./types";
 import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
+import { SoundMixer } from "./mixer";
 import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
@@ -75,6 +77,7 @@ export default function App() {
   const autopilotOn = settings.autopilotEnabled;
 
   const playerRef = useRef<RadioPlayer | null>(null);
+  const mixerRef = useRef<SoundMixer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
@@ -97,7 +100,12 @@ export default function App() {
 
   // Motor de audio
   useEffect(() => {
-    const player = new RadioPlayer();
+    const mixer = new SoundMixer();
+    mixer.onError = (msg) => showToast(msg);
+    mixer.setMasterVolume(settingsRef.current.masterVolume);
+    mixer.apply(settingsRef.current);
+    mixerRef.current = mixer;
+    const player = new RadioPlayer(mixer);
     player.onIndexChange = (i) => setPlayingRow(i);
     player.onEnded = () => {
       setPlayingRow(-1);
@@ -118,8 +126,10 @@ export default function App() {
       player.onEnded = null;
       player.dispose();
       playerRef.current = null;
+      mixer.dispose();
+      mixerRef.current = null;
     };
-  }, []);
+  }, [showToast]);
 
   const active = useMemo(
     () => playlists.find((p) => p.id === activeId) ?? playlists[0],
@@ -133,7 +143,15 @@ export default function App() {
     return active.trackIds.flatMap((id) => {
       const t = byId.get(id);
       return t
-        ? [{ id: t.id, title: t.title, artist: t.artist, durationSecs: effectiveDuration(t) }]
+        ? [
+            {
+              id: t.id,
+              title: t.title,
+              artist: t.artist,
+              durationSecs: effectiveDuration(t),
+              cover: t.cover,
+            },
+          ]
         : [];
     });
   }, [active, tracks]);
@@ -168,6 +186,11 @@ export default function App() {
     }
   }, [settings.fadeSeconds, settings.masterVolume]);
 
+  // La mesa de sonido se reconfigura en caliente.
+  useEffect(() => {
+    mixerRef.current?.apply(settings);
+  }, [settings.mixerChannels, settings.mixerBuses]);
+
   // Carga inicial de datos
   useEffect(() => {
     void (async () => {
@@ -178,6 +201,11 @@ export default function App() {
         setPlaylists(ps);
         setActiveId(ps[0]?.id ?? "");
         setSettings(s);
+        void backfillCovers()
+          .then((n) => {
+            if (n > 0) void listTracks().then(setTracks).catch(() => undefined);
+          })
+          .catch(() => undefined);
       } catch (e) {
         showToast(`Error al cargar: ${String(e)}`);
       }
@@ -496,7 +524,6 @@ export default function App() {
     }
   }, [showToast]);
 
-  // Logo e identidad
   const chooseLogo = useCallback(async () => {
     try {
       const path = await pickImageFile();
@@ -549,7 +576,6 @@ export default function App() {
     }
   }, [showToast]);
 
-  // Campañas: insertan el spot programado después del tema que esté sonando
   useEffect(() => {
     if (!autopilotOn || !active) return;
     const check = () => {
@@ -831,6 +857,7 @@ export default function App() {
             updateSettings({ ...settings, targetLufs: lufs, truePeakDb: peak })
           }
           showToast={showToast}
+          mixer={mixerRef.current}
         />
       )}
 
@@ -844,6 +871,7 @@ export default function App() {
           onPickLogo={() => chooseLogo()}
           onClearLogo={() => removeLogo()}
           onImportAudio={() => importForCampaign()}
+          mixer={mixerRef.current}
         />
       )}
 

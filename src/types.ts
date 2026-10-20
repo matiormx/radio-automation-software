@@ -28,6 +28,7 @@ export interface Track {
   analyzedAt: number;
   /** Se calcula al listar: el registro vive aunque falte el archivo */
   missing: boolean;
+  cover: string;
 }
 
 export function effectiveDuration(t: Track): number {
@@ -98,6 +99,7 @@ export interface TrackDetails {
   truePeakDb: number | null;
   trimStart: number;
   trimEnd: number | null;
+  cover: string;
 }
 
 export interface PlaylistImportReport {
@@ -121,6 +123,7 @@ export interface PlaylistRow {
   title: string;
   artist: string;
   durationSecs: number;
+  cover: string;
 }
 
 export type CampaignKind = "ads" | "jingle";
@@ -130,18 +133,46 @@ export interface Campaign {
   name: string;
   kind: CampaignKind;
   enabled: boolean;
-  /** Días ISO: 1 = lunes … 7 = domingo */
   days: number[];
-  /** Horas exactas "HH:MM" */
   times: string[];
-  /** Emitir cada hora al minuto indicado */
   hourly: boolean;
   minute: number;
   trackIds: string[];
-  /** Siguiente spot de la rotación */
   cursor: number;
-  /** Última emisión: "AAAA-MM-DD HH:MM" */
   lastFired: string;
+}
+
+export type MixerAppSource = "music" | "preview";
+
+export interface MixerInput {
+  kind: "app" | "device";
+  app: MixerAppSource | "";
+  deviceId: string;
+}
+
+export interface MixerOutput {
+  kind: "bus" | "device";
+  /** id del bus o deviceId de la tarjeta; "default" = salida del sistema */
+  id: string;
+}
+
+export interface MixerChannel {
+  id: string;
+  name: string;
+  color: string;
+  input: MixerInput;
+  output: MixerOutput;
+  gainDb: number;
+  muted: boolean;
+}
+
+export interface MixerBus {
+  id: string;
+  name: string;
+  color: string;
+  outputDeviceId: string;
+  gainDb: number;
+  muted: boolean;
 }
 
 export interface Settings {
@@ -162,13 +193,12 @@ export interface Settings {
   targetLufs: number;
   /** Techo de pico real (dBTP) */
   truePeakDb: number;
-  /** Identidad de la emisora */
   radioName: string;
   slogan: string;
-  /** Ruta del logo copiado a los datos de la app; "" = logo por defecto */
   logoPath: string;
-  /** Campañas de anuncios y jingles programadas */
   campaigns: Campaign[];
+  mixerChannels: MixerChannel[];
+  mixerBuses: MixerBus[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -189,4 +219,6 @@ export const DEFAULT_SETTINGS: Settings = {
   slogan: "Estudio de automatización",
   logoPath: "",
   campaigns: [],
+  mixerChannels: [],
+  mixerBuses: [],
 };
