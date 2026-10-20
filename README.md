@@ -1,21 +1,21 @@
 # MiRadio
 
-Software de radio facil para chicos que recien empiezan. Inspirado en RadioBOSS y
-Salamandra, pero sin configuraciones tecnicas: **arrastras tus canciones, quedan
-guardadas y suenan una tras otra con transicion suave**.
+Estudio de automatización de radio ligero, pensado para operadores que se
+inician. Referencias: RadioDJ (funciona casi solo) y RadioBOSS (robustez,
+biblioteca y reglas de rotación).
 
 ## Lo que hace
 
-- **Biblio (biblioteca)**: arrastra archivos de musica a la ventana (o toca el
-  banner para buscarlos) y las canciones se copian a una carpeta interna de la
-  app. Nunca se mueven ni borran tus archivos originales.
-- **Al aire (lista)**: agrega canciones con el boton `+`, ordenalas arrastrando
-  o con las flechas, y toca el boton grande para que suenen solas.
-- **Radio de verdad**: doble deck (A/B) con crossfade. Cuando una cancion se
-  acerca al final, la siguiente sube el volumen y la actual baja (3, 6 o 10
-  segundos, a eleccion).
-- **Extras simples**: aborta? no. Repetir lista, volumen, anterior/siguiente,
-  buscar canciones, varias listas con nombres propios (ej: "Manana", "Sabado").
+- **Biblioteca**: arrastra archivos de audio a la ventana (o botón «Importar»)
+  y se copian a una carpeta interna de la app. Los originales no se tocan.
+- **Lista de emisión**: tabla profesional con hora estimada de emisión,
+  duración y orden por arrastre.
+- **Piloto automático**: rellena la lista solo cuando quedan pocas pistas
+  por delante, respetando **reglas de rotación**: no repetir tema, título
+  ni artista dentro de los minutos configurados, y no emparejar dos temas
+  del mismo artista de forma consecutiva. Estilo RadioDJ/RadioBOSS.
+- **Motor de audio** con crossfade (3/6/10 s), seek, siguiente/anterior.
+- **Ajustes persistentes** (reglas, transición, volumen) y reloj de cabecera.
 
 ## Archivos de musica soportados
 
@@ -77,6 +77,45 @@ npm run tauri build
 
 El ejecutable/instalador queda en `src-tauri/target/release/bundle/`
 (.msi/.exe en Windows, .deb/.AppImage en Linux, .dmg en macOS).
+
+## Instalador para Windows sin instalar nada antes
+
+En la raiz del proyecto esta `MiRadio-Instalador-Windows.zip` (1,6 MB):
+
+1. Descargalo, clic derecho y "Extraer todo".
+2. Doble clic en `instalar.cmd`: copia la app a tu carpeta de usuario,
+   crea el icono en el escritorio y en el menu de inicio. No pide
+   permisos de administrador ni instala Node, Rust ni nada mas.
+3. Abre MiRadio y suelta canciones.
+
+Para desinstalar: `desinstalar.cmd`.
+
+### Como se genero (por si hay que reproducirlo)
+
+Se compilo en cruz con `cargo xwin` ejecutandose en Linux, contra
+clang-18/llvm (binarios de Ubuntu) y el SDK de Windows descargado al
+cache de cargo-xwin:
+
+```bash
+# toolchain clang local (sin root)
+mkdir -p /tmp/opencode/toolchain && cd /tmp/opencode/toolchain
+apt-get download clang-18 libclang-cpp18 libllvm18 llvm-18 llvm-18-runtime lld-18
+for f in *.deb; do dpkg -x "$f" prefix/; done
+ln -sf clang prefix/usr/lib/llvm-18/bin/clang-cl
+ln -sf llvm-ar prefix/usr/lib/llvm-18/bin/llvm-lib
+
+export PATH="/tmp/opencode/toolchain/prefix/usr/lib/llvm-18/bin:$HOME/.cargo/bin:$PATH"
+export LD_LIBRARY_PATH="/tmp/opencode/toolchain/prefix/usr/lib/x86_64-linux-gnu"
+cargo install cargo-xwin
+
+cd src-tauri
+# IMPORTANTE: --features custom-protocol embebe la interfaz (sin esto
+# el exe buscara la interfaz en un servidor de desarrollo y quedara
+# en blanco con "localhost rechazo la conexion").
+cargo xwin build --release --target x86_64-pc-windows-msvc --features custom-protocol
+# El exe queda en:
+#   target/x86_64-pc-windows-msvc/release/miradio.exe
+```
 
 ## Estructura del proyecto
 

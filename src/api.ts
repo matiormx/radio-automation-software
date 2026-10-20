@@ -1,7 +1,7 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Playlist, Track } from "./types";
+import type { Playlist, Settings, Track } from "./types";
 
 export const AUDIO_EXTENSIONS = [
   "mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "aif", "aiff", "wma", "webm",
@@ -31,6 +31,22 @@ export function deletePlaylist(id: string): Promise<void> {
   return invoke("delete_playlist", { id });
 }
 
+export function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings");
+}
+
+export function saveSettings(settings: Settings): Promise<void> {
+  return invoke("save_settings", { settings });
+}
+
+export function reportStarted(trackId: string): Promise<void> {
+  return invoke("report_started", { trackId });
+}
+
+export function autoPick(playlistTrackIds: string[], count: number): Promise<string[]> {
+  return invoke<string[]>("auto_pick", { playlistTrackIds, count });
+}
+
 export function trackUrl(track: Track): string {
   return convertFileSrc(track.filePath);
 }
@@ -38,7 +54,7 @@ export function trackUrl(track: Track): string {
 export async function pickAudioFiles(): Promise<string[] | null> {
   return openDialog({
     multiple: true,
-    filters: [{ name: "Canciones", extensions: [...AUDIO_EXTENSIONS] }],
+    filters: [{ name: "Audio", extensions: [...AUDIO_EXTENSIONS] }],
   });
 }
 

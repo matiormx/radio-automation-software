@@ -8,14 +8,21 @@ import {
   deleteTrack,
   pickAudioFiles,
   onWindowFileDrop,
+  getSettings,
+  saveSettings,
+  reportStarted,
+  autoPick,
   AUDIO_EXTENSIONS,
 } from "./api";
-import type { Track, Playlist, PlaylistRow } from "./types";
-import { RadioPlayer } from "./audio";import { LibraryZone } from "./components/LibraryZone";
+import type { Track, Playlist, PlaylistRow, Settings } from "./types";
+import { DEFAULT_SETTINGS } from "./types";
+import { RadioPlayer } from "./audio";
+import { LibraryZone } from "./components/LibraryZone";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { PlayerBar } from "./components/PlayerBar";
-import { LogoRadio } from "./icons";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { IconGear, LogoRadio } from "./icons";
 
 function extOk(path: string): boolean {
   const dot = path.lastIndexOf(".");
@@ -30,23 +37,35 @@ export default function App() {
   const [playingRow, setPlayingRow] = useState(-1);
   const [paused, setPaused] = useState(true);
   const [pos, setPos] = useState({ cur: 0, total: 0 });
-  const [fadeSeconds, setFadeSeconds] = useState(6);
-  const [loopOn, setLoopOn] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const [dropHover, setDropHover] = useState(false);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
+  const [clock, setClock] = useState("");
 
   const playerRef = useRef<RadioPlayer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
+  const topupBusy = useRef(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(""), 2600);
+    toastTimer.current = window.setTimeout(() => setToast(""), 3200);
   }, []);
 
-  // Motor de audio (una sola vez)
+  // Reloj
+  useEffect(() => {
+    const tick = () =>
+      setClock(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  // Motor de audio
   useEffect(() => {
     const player = new RadioPlayer();
     player.onIndexChange = (i) => setPlayingRow(i);
@@ -72,38 +91,25 @@ export default function App() {
     };
   }, []);
 
-  // Datos iniciales
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [t, ps] = await Promise.all([listTracks(), listPlaylists()]);
-        setTracks(t);
-        setPlaylists(ps);
-        setActiveId(ps[0]?.id ?? "");
-      } catch (e) {
-        showToast(`Algo fallo al cargar: ${String(e)}`);
-      }
-    })();
-  }, [showToast]);
-
   const active = useMemo(
     () => playlists.find((p) => p.id === activeId) ?? playlists[0],
     [playlists, activeId],
   );
 
-  // Filas de la lista activa, resueltas con datos de la Biblio
+  // Filas resueltas con datos de la biblioteca
   const rows: PlaylistRow[] = useMemo(() => {
     if (!active) return [];
     const byId = new Map(tracks.map((t) => [t.id, t]));
     return active.trackIds.flatMap((id) => {
       const t = byId.get(id);
-      return t
-        ? [{ id: t.id, title: t.title, artist: t.artist, durationSecs: t.durationSecs }]
-        : [];
+      return t ? [{ id: t.id, title: t.title, artist: t.artist, durationSecs: t.durationSecs }] : [];
     });
   }, [active, tracks]);
 
-  // La lista que ve la pantalla es la misma que suena
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  // La lista en pantalla es la misma que suena
   useEffect(() => {
     const byId = new Map(tracks.map((t) => [t.id, t]));
     const full = rows.flatMap((r) => {
@@ -113,15 +119,60 @@ export default function App() {
     playerRef.current?.setPlaylist(full);
   }, [rows, tracks]);
 
-  // Preferencias
+  // Persistir la carga inicial de ajustes en el motor
   useEffect(() => {
-    if (playerRef.current) playerRef.current.fadeSeconds = fadeSeconds;
-  }, [fadeSeconds]);
-  useEffect(() => {
-    if (playerRef.current) playerRef.current.loop = loopOn;
-  }, [loopOn]);
+    const p = playerRef.current;
+    if (p) {
+      p.fadeSeconds = settings.fadeSeconds;
+      p.loop = false;
+      p.setVolume(settings.masterVolume);
+    }
+  }, [settings.fadeSeconds, settings.masterVolume]);
 
-  // Arrastrar archivos desde el escritorio: quedan guardados
+  // Carga inicial de datos
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [t, ps, s] = await Promise.all([listTracks(), listPlaylists(), getSettings()]);
+        setTracks(t);
+        setPlaylists(ps);
+        setActiveId(ps[0]?.id ?? "");
+        setSettings(s);
+      } catch (e) {
+        showToast(`Error al cargar: ${String(e)}`);
+      }
+    })();
+  }, [showToast]);
+
+  // Historial: cada pista que empieza se anota para las reglas de rotación
+  useEffect(() => {
+    if (playingRow < 0) return;
+    const r = rowsRef.current[playingRow];
+    if (r) void reportStarted(r.id).catch(() => undefined);
+  }, [playingRow]);
+
+  // Arrastrar archivos desde el escritorio
+  const doImport = useCallback(
+    async (paths: string[]) => {
+      const ok = paths.filter(extOk);
+      if (ok.length === 0) {
+        showToast("Formato no reconocido. Usa audio: mp3, wav, flac, ogg, m4a…");
+        return;
+      }
+      setImporting(true);
+      try {
+        const added = await importFiles(ok);
+        setTracks(await listTracks());
+        showToast(added.length === 1 ? "1 canción importada" : `${added.length} canciones importadas`);
+      } catch (e) {
+        showToast(`No se pudieron importar: ${String(e)}`);
+      } finally {
+        setImporting(false);
+      }
+    },
+    [showToast],
+  );
+
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
@@ -129,7 +180,7 @@ export default function App() {
       onDrop: (paths) => {
         if (!alive) return;
         setDropHover(false);
-        doImport(paths);
+        void doImport(paths);
       },
       onEnter: () => setDropHover(true),
       onLeave: () => setDropHover(false),
@@ -143,30 +194,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const doImport = useCallback(
-    async (paths: string[]) => {
-      const ok = paths.filter(extOk);
-      if (ok.length === 0) {
-        showToast("Eso no es una cancion. Prueba con mp3, wav, ogg o m4a");
-        return;
-      }
-      setImporting(true);
-      try {
-        const added = await importFiles(ok);
-        const fresh = await listTracks();
-        setTracks(fresh);
-        showToast(
-          added.length === 1 ? "1 cancion guardada" : `${added.length} canciones guardadas`,
-        );
-      } catch (e) {
-        showToast(`No pude guardar las canciones: ${String(e)}`);
-      } finally {
-        setImporting(false);
-      }
-    },
-    [showToast],
-  );
-
   const pickFiles = useCallback(async () => {
     const paths = await pickAudioFiles();
     if (paths && paths.length > 0) await doImport(paths);
@@ -177,28 +204,24 @@ export default function App() {
       try {
         await deleteTrack(t.id);
         setTracks((prev) => prev.filter((x) => x.id !== t.id));
-        showToast(`Se borro "${t.title}" de la Biblio`);
+        showToast(`«${t.title}» eliminada de la biblioteca`);
       } catch (e) {
-        showToast(`No pude borrar: ${String(e)}`);
+        showToast(`No se pudo eliminar: ${String(e)}`);
       }
     },
     [showToast],
   );
 
-  // Mutar la lista activa
-  const mutateActive = useCallback(
-    async (fn: (ids: string[]) => string[], nextName?: string) => {
+  // Editar la lista activa
+  const mutateList = useCallback(
+    async (fn: (ids: string[]) => string[]) => {
       if (!active) return;
-      const updated: Playlist = {
-        ...active,
-        name: nextName ?? active.name,
-        trackIds: fn(active.trackIds),
-      };
+      const updated: Playlist = { ...active, trackIds: fn(active.trackIds) };
       setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       try {
         await savePlaylist(updated);
       } catch (e) {
-        showToast(`No pude guardar la lista: ${String(e)}`);
+        showToast(`No se pudo guardar la lista: ${String(e)}`);
       }
     },
     [active, showToast],
@@ -206,43 +229,58 @@ export default function App() {
 
   const addTrack = useCallback(
     (t: Track) => {
-      void mutateActive((ids) => [...ids, t.id]);
-      showToast(`Se agrego "${t.title}" a la lista`);
+      void mutateList((ids) => [...ids, t.id]);
     },
-    [mutateActive, showToast],
+    [mutateList],
+  );
+
+  const dropTrackAt = useCallback(
+    (trackId: string, at: number) => {
+      void mutateList((ids) => {
+        if (ids.includes(trackId)) return ids; // sin duplicados
+        const copy = [...ids];
+        copy.splice(Math.max(0, Math.min(copy.length, at)), 0, trackId);
+        return copy;
+      });
+    },
+    [mutateList],
   );
 
   const removeRow = useCallback(
     (i: number) => {
-      void mutateActive((ids) => ids.filter((_, idx) => idx !== i));
+      void mutateList((ids) => ids.filter((_, idx) => idx !== i));
     },
-    [mutateActive],
+    [mutateList],
   );
 
   const reorderRow = useCallback(
     (from: number, to: number) => {
-      void mutateActive((ids) => {
+      void mutateList((ids) => {
         const copy = [...ids];
         const [moved] = copy.splice(from, 1);
         copy.splice(Math.max(0, Math.min(copy.length, to)), 0, moved);
         return copy;
       });
     },
-    [mutateActive],
+    [mutateList],
   );
 
   const renamePlaylist = useCallback(
     (name: string) => {
-      void mutateActive((ids) => ids, name);
+      if (!active) return;
+      void (async () => {
+        const updated: Playlist = { ...active, name };
+        setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        await savePlaylist(updated);
+      })();
     },
-    [mutateActive],
+    [active],
   );
 
   const newPlaylist = useCallback(async () => {
-    const n = playlists.length + 1;
     const pl: Playlist = {
       id: `pl-${Date.now()}`,
-      name: `Lista ${n}`,
+      name: `Lista ${playlists.length + 1}`,
       trackIds: [],
     };
     try {
@@ -250,9 +288,8 @@ export default function App() {
       setPlaylists((prev) => [...prev, pl]);
       setActiveId(pl.id);
       setPlayingRow(-1);
-      showToast(`Lista "${pl.name}" creada`);
     } catch (e) {
-      showToast(`No pude crear la lista: ${String(e)}`);
+      showToast(`No se pudo crear la lista: ${String(e)}`);
     }
   }, [playlists, showToast]);
 
@@ -264,9 +301,9 @@ export default function App() {
       setPlaylists(rest);
       setActiveId(rest[0].id);
       setPlayingRow(-1);
-      showToast("Lista borrada");
+      showToast("Lista eliminada");
     } catch (e) {
-      showToast(`No pude borrar la lista: ${String(e)}`);
+      showToast(`No se pudo eliminar la lista: ${String(e)}`);
     }
   }, [active, playlists, showToast]);
 
@@ -303,45 +340,114 @@ export default function App() {
     void playerRef.current?.seek(seconds);
   }, []);
 
-  const setVolume = useCallback((v: number) => {
-    playerRef.current?.setVolume(v);
+  const setVolume = useCallback(
+    (v: number) => {
+      playerRef.current?.setVolume(v);
+      setSettings((prev) => {
+        if (Math.abs(prev.masterVolume - v) < 0.001) return prev;
+        const nextS = { ...prev, masterVolume: v };
+        void saveSettings(nextS).catch(() => undefined);
+        return nextS;
+      });
+    },
+    [],
+  );
+
+  const updateSettings = useCallback((s: Settings) => {
+    setSettings(s);
+    void saveSettings(s).catch(() => undefined);
   }, []);
 
+  // Piloto automático
+  const autopilotOn = settings.autopilotEnabled;
+  const setAutopilot = useCallback(
+    (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
+    [settings, updateSettings],
+  );
+
+  useEffect(() => {
+    if (!autopilotOn || !active) return;
+    const upComing = rows.length - (playingRow >= 0 ? playingRow + 1 : 0);
+    if (upComing >= settings.autopilotMinUpcoming) return;
+    if (topupBusy.current) return;
+    topupBusy.current = true;
+    const need = Math.max(1, settings.autopilotFillTo - Math.max(0, upComing));
+    void autoPick(
+      rows.map((r) => r.id),
+      need,
+    )
+      .then((picked) => {
+        if (picked.length > 0) {
+          setAutoIds((prev) => {
+            const nextSet = new Set(prev);
+            for (const id of picked) nextSet.add(id);
+            return nextSet;
+          });
+          void mutateList((ids) => {
+            const copy = [...ids];
+            for (const id of picked) {
+              if (!copy.includes(id)) copy.push(id);
+            }
+            return copy;
+          });
+        }
+      })
+      .catch((e) => showToast(`Piloto automático: ${String(e)}`))
+      .finally(() => {
+        topupBusy.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autopilotOn, playingRow, rows, settings]);
+
+  // Horas estimadas de emisión de cada pista pendiente
+  const estStart = useMemo(() => {
+    const out: string[] = new Array(rows.length).fill("");
+    if (rows.length === 0) return out;
+    let t = Date.now();
+    const current = playingRow; // -1 = parado
+    for (let i = 0; i < rows.length; i++) {
+      if (i === current) {
+        t += Math.max(0, pos.total - pos.cur) * 1000;
+      } else {
+        if (i > current) {
+          out[i] = new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+        }
+        t += rows[i].durationSecs * 1000;
+      }
+    }
+    return out;
+  }, [rows, playingRow, pos]);
+
   const deckRow = rows[playingRow] ?? null;
+  const nextRow = playingRow >= 0 && playingRow + 1 < rows.length ? rows[playingRow + 1] : null;
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <LogoRadio size={42} />
-          <div>
-            <h1>MiRadio</h1>
-            <p>Tu radio, facil y divertida</p>
+          <LogoRadio size={32} />
+          <div className="brand-txt">
+            <span className="brand-name">MiRadio</span>
+            <span className="brand-sub">Estudio de automatización</span>
           </div>
         </div>
-        <nav className="pl-tabs" aria-label="Listas de reproduccion">
-          {playlists.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`pl-tab ${p.id === active?.id ? "pl-tab-on" : ""}`}
-              onClick={() => setActiveId(p.id)}
-            >
-              {p.name}
-            </button>
-          ))}
-          {playlists.length > 1 && (
-            <button
-              type="button"
-              className="chip-btn danger"
-              onClick={() => void removeActivePlaylist()}
-              title="Borrar la lista que esta abierta"
-            >
-              Borrar lista
-            </button>
+        <div className="top-right">
+          {importing && <span className="pill pill-warn">Importando…</span>}
+          {autopilotOn && (
+            <span className="pill pill-auto">
+              Piloto automático</span>
           )}
-        </nav>
-        {importing && <span className="badge-busy">Guardando canciones...</span>}
+          <span className="clock" role="timer">{clock}</span>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Ajustes de rotación y piloto automático"
+            aria-label="Ajustes"
+          >
+            <IconGear size={18} />
+          </button>
+        </div>
       </header>
 
       <main className="main">
@@ -359,39 +465,54 @@ export default function App() {
             current={pos.cur}
             total={pos.total}
             spinning={!paused && playingRow >= 0}
+            next={nextRow ? nextRow.title : null}
             onSeek={seek}
           />
           <PlaylistZone
-            name={active?.name ?? ""}
+            playlists={playlists}
+            activeId={active?.id ?? ""}
             rows={rows}
             playingRow={playingRow}
+            autoIds={autoIds}
+            estStart={estStart}
+            onSelect={setActiveId}
+            onNew={() => void newPlaylist()}
+            onRemovePlaylist={() => void removeActivePlaylist()}
             onRename={renamePlaylist}
             onPlayRow={(i) => void playRow(i)}
             onReorder={reorderRow}
             onRemove={removeRow}
-            onNewPlaylist={() => void newPlaylist()}
+            onDropTrack={dropTrackAt}
           />
         </div>
       </main>
 
       <PlayerBar
         paused={paused}
-        loop={loopOn}
-        fadeSeconds={fadeSeconds}
+        autopilot={autopilotOn}
+        fadeSeconds={settings.fadeSeconds}
         hasPlaylist={rows.length > 0}
         onTogglePlay={() => void togglePlay()}
         onNext={() => void next()}
         onPrev={() => void prev()}
-        onLoopChange={setLoopOn}
-        onFadeChange={setFadeSeconds}
+        onAutopilot={setAutopilot}
+        onFadeChange={(s) => updateSettings({ ...settings, fadeSeconds: s })}
         onVolume={setVolume}
       />
+
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          onChange={updateSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {dropHover && (
         <div className="drop-overlay" aria-hidden="true">
           <div className="drop-overlay-box">
-            <strong>Sueltalas!</strong>
-            <span>Las canciones quedan guardadas aca</span>
+            <strong>Suelta los archivos</strong>
+            <span>Se copian a la biblioteca, los originales no se tocan</span>
           </div>
         </div>
       )}

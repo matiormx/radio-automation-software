@@ -92,6 +92,11 @@ fn read_library(data_dir: &Path) -> Vec<Track> {
     }
 }
 
+/// Lector publico para otros modulos (motor de rotacion).
+pub fn read_library_public(data_dir: &Path) -> Vec<Track> {
+    read_library(data_dir)
+}
+
 fn write_library(data_dir: &Path, tracks: &[Track]) -> Result<(), String> {
     let p = data_dir.join(LIBRARY_FILE);
     let tmp = data_dir.join("library.json.tmp");

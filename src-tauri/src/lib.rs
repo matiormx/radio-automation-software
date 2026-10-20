@@ -4,6 +4,7 @@ use tauri::Manager;
 
 pub mod library;
 pub mod playlists;
+pub mod settings;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -26,7 +27,11 @@ pub fn run() {
             library::delete_track,
             playlists::list_playlists,
             playlists::save_playlist,
-            playlists::delete_playlist
+            playlists::delete_playlist,
+            settings::get_settings,
+            settings::save_settings,
+            settings::report_started,
+            settings::auto_pick
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar MiRadio");

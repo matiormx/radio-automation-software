@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { IconVinyl } from "../icons";
 
 interface DeckZoneProps {
   title: string;
@@ -7,6 +6,7 @@ interface DeckZoneProps {
   current: number;
   total: number;
   spinning: boolean;
+  next: string | null;
   onSeek: (seconds: number) => void;
 }
 
@@ -17,31 +17,25 @@ function fmtTime(secs: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function DeckZone({ title, artist, current, total, spinning, onSeek }: DeckZoneProps) {
+export function DeckZone({ title, artist, current, total, spinning, next, onSeek }: DeckZoneProps) {
   const [scrub, setScrub] = useState<number | null>(null);
   const hasTrack = title !== "";
-
   const shown = scrub ?? current;
+  const remaining = total > 0 ? Math.max(0, total - shown) : 0;
 
   return (
-    <section className="panel deck" aria-label="Lo que suena ahora">
-      <div className="deck-left">
-        <span className={spinning ? "spin-wrap spinning" : "spin-wrap"}>
-          <IconVinyl size={144} />
-        </span>
-      </div>
-      <div className="deck-right">
-        <span className="deck-label">{spinning ? "Suenan ahora" : "En la radio"}</span>
-        <span className="deck-title" title={title}>
-          {hasTrack ? title : "Toca una cancion de la lista para empezar"}
+    <section className="panel deck" aria-label="Emisión">
+      <div className="deck-main">
+        <div className="deck-label-row">
+          <span className={`live-dot ${spinning ? "live-on" : ""}`} aria-hidden="true" />
+          <span className="deck-label">{spinning ? "EN EMISIÓN" : "EN PAUSA"}</span>
+        </div>
+        <span className="deck-title" title={hasTrack ? title : ""}>
+          {hasTrack ? title : "Sin emisión"}
         </span>
         {hasTrack && <span className="deck-artist">{artist}</span>}
         {hasTrack && (
-          <>
-            <div className="meta-time">
-              <span>{fmtTime(shown)}</span>
-              <span>{fmtTime(total)}</span>
-            </div>
+          <div className="progress-block">
             <input
               className="pbar"
               type="range"
@@ -58,10 +52,24 @@ export function DeckZone({ title, artist, current, total, spinning, onSeek }: De
                 if (scrub !== null) onSeek(scrub);
                 setScrub(null);
               }}
-              aria-label="Posicion de la cancion"
+              aria-label="Posición de la pista"
             />
-          </>
+            <div className="progress-times">
+              <span>{fmtTime(shown)}</span>
+              <span className="remaining">-{fmtTime(remaining)}</span>
+              <span>{fmtTime(total)}</span>
+            </div>
+          </div>
         )}
+      </div>
+      <div className="deck-side">
+        <div className={`eq ${spinning ? "eq-on" : ""}`} aria-hidden="true">
+          <span /><span /><span /><span /><span />
+        </div>
+        <div className="deck-next">
+          <span className="deck-next-label">A CONTINUACIÓN</span>
+          <span className="deck-next-val" title={next ?? ""}>{next ?? "—"}</span>
+        </div>
       </div>
     </section>
   );

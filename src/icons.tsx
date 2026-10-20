@@ -79,22 +79,35 @@ export const IconLoop = ({ size = 22 }: IconProps) => (
   </svg>
 );
 
-export const LogoRadio = ({ size = 44 }: IconProps) => (
+export const IconGear = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M10.6 2.2a1 1 0 0 1 1-.2l.9.3 1.7.6a1 1 0 0 1 .7.8l.3 2 1.9 1.1 1.9-.8a1 1 0 0 1 1 .1l2.3 2a1 1 0 0 1 .3 1l-.6 2.3a1 1 0 0 1-.5.6l-1.7 1v2.2l1.7 1a1 1 0 0 1 .5.7l.6 2.2a1 1 0 0 1-.3 1l-2.3 2a1 1 0 0 1-1 .1l-1.9-.8-1.9 1.1-.3 2a1 1 0 0 1-.7.8l-2.6.9a1 1 0 0 1-1-.2l-1.4-1.6a1 1 0 0 1-.2-.8l.3-2.1a8 8 0 0 1-1-1l-2.1.3a1 1 0 0 1-.9-.3L3.4 17a1 1 0 0 1-.3-1l.8-2a8 8 0 0 1-.4-1.4l-1.8-.8a1 1 0 0 1-.6-.9v-3a1 1 0 0 1 .6-.9l1.8-.8a8 8 0 0 1 .5-1.4l-.9-2a1 1 0 0 1 .3-1L6 3.7a1 1 0 0 1 .9-.3l2.2.4a8 8 0 0 1 1-1L10.6 2.2ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+  </svg>
+);
+
+export const IconBolt = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M13.5 2a1 1 0 0 1 .9 1.5L10.8 9h4.5a1 1 0 0 1 .8 1.6l-6.8 10A1 1 0 0 1 7.6 20l.4-6H4a1 1 0 0 1-.8-1.6l8.4-10A1 1 0 0 1 13.5 2Z" />
+  </svg>
+);
+
+export const IconImport = ({ size = 18 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 15V4m0 11 4-4" />
+    <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+export const LogoRadio = ({ size = 34 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <defs>
-      <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="#a855f7" />
-        <stop offset="100%" stopColor="#ec4899" />
-      </linearGradient>
-    </defs>
-    <rect x="6" y="18" width="52" height="34" rx="10" fill="url(#logoGrad)" />
-    <path d="M20 3 44 16" stroke="#64748b" strokeWidth="4" strokeLinecap="round" fill="none" />
-    <circle cx="46" cy="15" r="4" fill="#22c55e" />
-    <circle cx="22" cy="35" r="9" fill="#ffffff" opacity="0.95" />
-    <circle cx="22" cy="35" r="4" fill="#94a3b8" />
-    <rect x="36" y="27" width="16" height="4" rx="2" fill="#ffffff" opacity="0.9" />
-    <rect x="36" y="35" width="16" height="4" rx="2" fill="#ffffff" opacity="0.65" />
-    <rect x="36" y="43" width="10" height="4" rx="2" fill="#ffffff" opacity="0.4" />
+    <rect x="6" y="18" width="52" height="34" rx="9" fill="#2b3442" stroke="#4f8cff" strokeWidth="3" />
+    <path d="M20 6 44 18" stroke="#4f8cff" strokeWidth="4" strokeLinecap="round" fill="none" />
+    <circle cx="46" cy="14" r="4" fill="#22c55e" />
+    <circle cx="22" cy="35" r="9" fill="#e6eaf0" opacity="0.9" />
+    <circle cx="22" cy="35" r="3.5" fill="#2b3442" />
+    <rect x="36" y="27" width="16" height="4" rx="2" fill="#e6eaf0" opacity="0.8" />
+    <rect x="36" y="35" width="16" height="4" rx="2" fill="#e6eaf0" opacity="0.5" />
+    <rect x="36" y="43" width="10" height="4" rx="2" fill="#e6eaf0" opacity="0.3" />
   </svg>
 );
 
