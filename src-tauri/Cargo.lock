@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "miradio"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "ebur128-stream",
  "lofty",

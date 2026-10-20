@@ -180,23 +180,88 @@ fn sidecar_cover(audio: &Path) -> Option<(Vec<u8>, String)> {
     None
 }
 
-fn extract_cover(data_dir: &Path, audio: &Path, id: &str) -> Option<String> {
+fn normalize_cover_album(album: &str) -> String {
+    album
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// La portada pertenece al album, no a la cancion. Todas las pistas del
+/// mismo album comparten un unico archivo en `covers/`. Sin album no hay
+/// forma de agrupar, asi que se guarda una por cancion.
+fn cover_key(track: &Track) -> String {
+    let album = normalize_cover_album(&track.album);
+    if album.is_empty() {
+        format!("track-{}", track.id)
+    } else {
+        format!("album-{:016x}", fnv1a(album.as_bytes()))
+    }
+}
+
+fn is_cover_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+    )
+}
+
+const COVER_EXTENSIONS: [&str; 8] = [
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff",
+];
+
+fn find_cover(data_dir: &Path, stem: &str) -> Option<(PathBuf, String)> {
+    let dir = covers_dir(data_dir);
+    for ext in COVER_EXTENSIONS {
+        let name = format!("{stem}.{ext}");
+        let path = dir.join(&name);
+        if path.is_file() {
+            return Some((path, name));
+        }
+    }
+    None
+}
+
+fn extract_cover(data_dir: &Path, audio: &Path, stem: &str) -> Option<String> {
+    if let Some((_, existing)) = find_cover(data_dir, stem) {
+        return Some(existing);
+    }
     let mut found: Option<(Vec<u8>, String)> = None;
+    let mut fallback: Option<(Vec<u8>, String)> = None;
     if let Ok(tagged) = read_from_path(audio) {
-        if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
-            let pictures = tag.pictures();
-            let picture = pictures
-                .iter()
-                .find(|p| p.pic_type() == PictureType::CoverFront)
-                .or_else(|| pictures.first());
-            if let Some(pic) = picture {
-                if !pic.data().is_empty() && pic.data().len() <= 8_000_000 {
-                    if let Some(ext) = picture_ext(pic) {
-                        found = Some((pic.data().to_vec(), ext.to_string()));
-                    }
+        for tag in tagged.tags() {
+            for pic in tag.pictures() {
+                if pic.data().is_empty() || pic.data().len() > 8_000_000 {
+                    continue;
+                }
+                let Some(ext) = picture_ext(pic) else {
+                    continue;
+                };
+                if pic.pic_type() == PictureType::CoverFront {
+                    found = Some((pic.data().to_vec(), ext.to_string()));
+                    break;
+                }
+                if fallback.is_none() {
+                    fallback = Some((pic.data().to_vec(), ext.to_string()));
                 }
             }
+            if found.is_some() {
+                break;
+            }
         }
+    }
+    if found.is_none() {
+        found = fallback;
     }
     if found.is_none() {
         found = sidecar_cover(audio);
@@ -204,30 +269,130 @@ fn extract_cover(data_dir: &Path, audio: &Path, id: &str) -> Option<String> {
     let (data, ext) = found?;
     let dir = covers_dir(data_dir);
     fs::create_dir_all(&dir).ok()?;
-    let dest = dir.join(format!("{id}.{ext}"));
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let matches_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s == id)
-                .unwrap_or(false);
-            if matches_id && path != dest {
-                let _ = fs::remove_file(path);
-            }
-        }
-    }
-    fs::write(&dest, data).ok()?;
-    Some(format!("{id}.{ext}"))
+    let name = format!("{stem}.{ext}");
+    fs::write(dir.join(&name), data).ok()?;
+    Some(name)
 }
 
-fn remove_cover(data_dir: &Path, cover: &str) {
-    if cover.trim().is_empty() {
-        return;
+/// Copia una portada antigua (guardada por cancion) al nombre del album.
+fn copy_cover_to_key(data_dir: &Path, cover: &str, stem: &str) -> Option<String> {
+    let source_name = Path::new(cover.trim()).file_name()?.to_str()?;
+    let source = covers_dir(data_dir).join(source_name);
+    if !source.is_file() {
+        return None;
     }
-    if let Some(name) = Path::new(cover.trim()).file_name() {
-        let _ = fs::remove_file(covers_dir(data_dir).join(name));
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !is_cover_ext(&ext) {
+        return None;
+    }
+    let dir = covers_dir(data_dir);
+    fs::create_dir_all(&dir).ok()?;
+    let name = format!("{stem}.{ext}");
+    let dest = dir.join(&name);
+    if source != dest {
+        fs::copy(&source, &dest).ok()?;
+    }
+    Some(name)
+}
+
+/// Deja una sola portada para todos los registros del mismo album. Si ya
+/// existe una para el album se reutiliza; si no, se recupera de los
+/// metadatos de la primera pista que tenga imagen.
+fn sync_album_cover(data_dir: &Path, tracks: &mut [Track], key: &str) -> bool {
+    let indices: Vec<usize> = tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| cover_key(track) == key)
+        .map(|(index, _)| index)
+        .collect();
+    if indices.is_empty() {
+        return false;
+    }
+
+    let existing = find_cover(data_dir, key);
+    if existing.is_none()
+        && indices
+            .iter()
+            .all(|&index| tracks[index].cover_checked && tracks[index].cover.is_empty())
+    {
+        return false;
+    }
+
+    let chosen = match existing {
+        Some((_, name)) => Some(name),
+        None => {
+            let mut chosen = None;
+            for &index in &indices {
+                if let Some(name) = copy_cover_to_key(data_dir, &tracks[index].cover, key) {
+                    chosen = Some(name);
+                    break;
+                }
+            }
+            if chosen.is_none() {
+                for &index in &indices {
+                    let path = PathBuf::from(tracks[index].file.trim());
+                    if !path.is_file() {
+                        continue;
+                    }
+                    if let Some(name) = extract_cover(data_dir, &path, key) {
+                        chosen = Some(name);
+                        break;
+                    }
+                }
+            }
+            chosen
+        }
+    };
+
+    let mut changed = false;
+    for index in indices {
+        let next = chosen.clone().unwrap_or_default();
+        let track = &mut tracks[index];
+        if track.cover != next {
+            track.cover = next;
+            changed = true;
+        }
+        if !track.cover_checked {
+            track.cover_checked = true;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Elimina portadas que ya no referencia ninguna pista.
+fn cleanup_covers(data_dir: &Path, tracks: &[Track]) {
+    let referenced: HashSet<String> = tracks
+        .iter()
+        .filter_map(|track| {
+            Path::new(track.cover.trim())
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+        })
+        .collect();
+    let Ok(entries) = fs::read_dir(covers_dir(data_dir)) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
+        if is_cover_ext(ext) && !referenced.contains(name) {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -464,7 +629,7 @@ pub fn import_files(
     let dest_dir = music_dir(&state);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let mut tracks = read_library_internal(&state.data_dir);
-    let mut imported: Vec<Track> = Vec::new();
+    let mut imported_ids: Vec<String> = Vec::new();
 
     for raw in paths {
         let src = PathBuf::from(&raw);
@@ -490,7 +655,7 @@ pub fn import_files(
         }
 
         let id = Uuid::new_v4().simple().to_string();
-        let mut rec = Track {
+        let rec = Track {
             id: id.clone(),
             title,
             artist,
@@ -520,14 +685,26 @@ pub fn import_files(
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),
-            cover_checked: true,
+            cover_checked: false,
         };
-        rec.cover = extract_cover(&state.data_dir, &dest, &id).unwrap_or_default();
-        imported.push(rec.clone());
+        imported_ids.push(id);
         tracks.push(rec);
     }
 
+    let keys: HashSet<String> = imported_ids
+        .iter()
+        .filter_map(|id| tracks.iter().find(|track| &track.id == id))
+        .map(cover_key)
+        .collect();
+    for key in &keys {
+        sync_album_cover(&state.data_dir, &mut tracks, key);
+    }
+    cleanup_covers(&state.data_dir, &tracks);
     write_library(&state.data_dir, &tracks)?;
+    let imported: Vec<Track> = imported_ids
+        .iter()
+        .filter_map(|id| tracks.iter().find(|track| &track.id == id).cloned())
+        .collect();
     Ok(resolve_all(imported, &state.data_dir))
 }
 
@@ -557,6 +734,7 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
     entries.sort();
 
     let mut added = 0usize;
+    let mut added_keys: HashSet<String> = HashSet::new();
     for path in entries {
         let key = normalize_path(&path.to_string_lossy());
         if known.contains(&key) {
@@ -566,7 +744,7 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
         let (title, artist, album, genre, year, duration) =
             read_metadata(&path, seed_title, seed_artist);
         let id = Uuid::new_v4().simple().to_string();
-        let mut rec = Track {
+        let rec = Track {
             id: id.clone(),
             title,
             artist,
@@ -596,13 +774,17 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),
-            cover_checked: true,
+            cover_checked: false,
         };
-        rec.cover = extract_cover(&state.data_dir, &path, &id).unwrap_or_default();
+        added_keys.insert(cover_key(&rec));
         tracks.push(rec);
         added += 1;
     }
 
+    for key in &added_keys {
+        sync_album_cover(&state.data_dir, &mut tracks, key);
+    }
+    cleanup_covers(&state.data_dir, &tracks);
     write_library(&state.data_dir, &tracks)?;
     Ok(added)
 }
@@ -644,7 +826,9 @@ pub fn update_track(
 ) -> Result<(), String> {
     let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
+    let mut keys: HashSet<String> = HashSet::new();
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
+        keys.insert(cover_key(t));
         if let Some(v) = patch.title.map(|v| v.trim().to_string()) {
             if !v.is_empty() {
                 t.title = v;
@@ -665,10 +849,15 @@ pub fn update_track(
         if let Some(tags) = patch.tags {
             t.tags = clean_tags(tags);
         }
-        write_library(&state.data_dir, &tracks)
+        keys.insert(cover_key(t));
     } else {
-        Err("La cancion ya no existe en la biblioteca".to_string())
+        return Err("La cancion ya no existe en la biblioteca".to_string());
     }
+    for key in &keys {
+        sync_album_cover(&state.data_dir, &mut tracks, key);
+    }
+    cleanup_covers(&state.data_dir, &tracks);
+    write_library(&state.data_dir, &tracks)
 }
 
 fn clean_tags(tags: Vec<String>) -> Vec<String> {
@@ -810,20 +999,26 @@ pub fn relink_track(state: State<'_, AppState>, id: String, new_path: String) ->
     }
     let _guard = lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
+    let mut keys: HashSet<String> = HashSet::new();
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
-        remove_cover(&state.data_dir, &t.cover);
-        t.cover = extract_cover(&state.data_dir, &p, &t.id).unwrap_or_default();
-        t.cover_checked = true;
+        keys.insert(cover_key(t));
+        t.cover.clear();
+        t.cover_checked = false;
         t.file = p.to_string_lossy().into_owned();
         t.original_name = p
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
-        write_library(&state.data_dir, &tracks)
+        keys.insert(cover_key(t));
     } else {
-        Err("La cancion ya no existe en la biblioteca".to_string())
+        return Err("La cancion ya no existe en la biblioteca".to_string());
     }
+    for key in &keys {
+        sync_album_cover(&state.data_dir, &mut tracks, key);
+    }
+    cleanup_covers(&state.data_dir, &tracks);
+    write_library(&state.data_dir, &tracks)
 }
 
 #[tauri::command]
@@ -832,37 +1027,22 @@ pub async fn backfill_covers(state: State<'_, AppState>) -> Result<usize, String
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock_library();
         let mut tracks = read_library_internal(&data_dir);
-        let mut added = 0usize;
-        let mut changed = false;
-        for t in tracks.iter_mut() {
-            if t.cover_checked {
-                if t.cover.is_empty() {
-                    continue;
-                }
-                if !cover_abs(&data_dir, &t.cover).is_empty() {
-                    continue;
-                }
-                t.cover.clear();
-                t.cover_checked = false;
-                changed = true;
+        let mut keys: Vec<String> = {
+            let unique: HashSet<String> = tracks.iter().map(cover_key).collect();
+            unique.into_iter().collect()
+        };
+        keys.sort();
+        let mut changed = 0usize;
+        for key in &keys {
+            if sync_album_cover(&data_dir, &mut tracks, key) {
+                changed += 1;
             }
-            let path = PathBuf::from(t.file.trim());
-            if !path.is_file() {
-                continue;
-            }
-            if let Some(name) = extract_cover(&data_dir, &path, &t.id) {
-                t.cover = name;
-                added += 1;
-            } else {
-                t.cover.clear();
-            }
-            t.cover_checked = true;
-            changed = true;
         }
-        if changed {
+        cleanup_covers(&data_dir, &tracks);
+        if changed > 0 {
             write_library(&data_dir, &tracks)?;
         }
-        Ok::<usize, String>(added)
+        Ok::<usize, String>(changed)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -873,10 +1053,8 @@ pub async fn backfill_covers(state: State<'_, AppState>) -> Result<usize, String
 pub fn delete_track(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let _guard = lock_library();
     let tracks = read_library_internal(&state.data_dir);
-    if let Some(t) = tracks.iter().find(|t| t.id == id) {
-        remove_cover(&state.data_dir, &t.cover);
-    }
     let remaining: Vec<Track> = tracks.into_iter().filter(|t| t.id != id).collect();
+    cleanup_covers(&state.data_dir, &remaining);
     write_library(&state.data_dir, &remaining)
 }
 
@@ -1232,6 +1410,7 @@ pub fn import_playlist(
     let mut matched = 0usize;
     let mut added = 0usize;
     let mut missing = Vec::new();
+    let mut added_keys: HashSet<String> = HashSet::new();
 
     for raw in &entries {
         let src = resolve_playlist_entry(&playlist_dir, raw);
@@ -1270,7 +1449,7 @@ pub fn import_playlist(
         };
 
         let id = Uuid::new_v4().simple().to_string();
-        let mut rec = Track {
+        let rec = Track {
             id: id.clone(),
             title,
             artist,
@@ -1300,14 +1479,18 @@ pub fn import_playlist(
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),
-            cover_checked: true,
+            cover_checked: false,
         };
-        rec.cover = extract_cover(&state.data_dir, &file, &id).unwrap_or_default();
+        added_keys.insert(cover_key(&rec));
         index.insert(normalize_path(&rec.file), tracks.len());
         tracks.push(rec);
         added += 1;
     }
 
+    for key in &added_keys {
+        sync_album_cover(&state.data_dir, &mut tracks, key);
+    }
+    cleanup_covers(&state.data_dir, &tracks);
     write_library(&state.data_dir, &tracks)?;
     if created_block {
         write_blocks(&state.data_dir, &blocks)?;
@@ -1326,7 +1509,31 @@ pub fn import_playlist(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_m3u_entries;
+    use super::{
+        cleanup_covers, cover_key, parse_m3u_entries, sync_album_cover, Track,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    fn cover_test_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "miradio-cover-test-{tag}-{}",
+            Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(dir.join("covers")).unwrap();
+        dir
+    }
+
+    fn track(id: &str, album: &str, cover: &str) -> Track {
+        Track {
+            id: id.to_string(),
+            album: album.to_string(),
+            cover: cover.to_string(),
+            cover_checked: true,
+            ..Track::default()
+        }
+    }
 
     #[test]
     fn parsea_bom_crlf_y_comentarios() {
@@ -1345,5 +1552,59 @@ mod tests {
     #[test]
     fn ignora_lineas_vacias() {
         assert!(parse_m3u_entries("#EXTM3U\n\n\n").is_empty());
+    }
+
+    #[test]
+    fn agrupa_la_portada_por_album_y_no_por_cancion() {
+        let data = cover_test_dir("album");
+        let covers = data.join("covers");
+        fs::write(covers.join("uno.jpg"), b"uno").unwrap();
+        fs::write(covers.join("dos.png"), b"dos").unwrap();
+
+        let mut tracks = vec![
+            track("uno", "Abbey Road", "uno.jpg"),
+            track("dos", "  abbey   ROAD ", "dos.png"),
+        ];
+        let key = cover_key(&tracks[0]);
+        assert_eq!(key, cover_key(&tracks[1]));
+        assert!(sync_album_cover(&data, &mut tracks, &key));
+        assert_eq!(tracks[0].cover, tracks[1].cover);
+        assert!(covers.join(&tracks[0].cover).is_file());
+
+        cleanup_covers(&data, &tracks);
+        let mut files: Vec<String> = fs::read_dir(&covers)
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| entry.file_name().to_str().map(|s| s.to_string()))
+            .collect();
+        files.sort();
+        assert_eq!(files, vec![tracks[0].cover.clone()]);
+        fs::remove_dir_all(data).unwrap();
+    }
+
+    #[test]
+    fn sin_album_cada_cancion_conserva_su_portada() {
+        let uno = track("uno", "", "uno.jpg");
+        let dos = track("dos", "", "dos.jpg");
+        assert_ne!(cover_key(&uno), cover_key(&dos));
+    }
+
+    #[test]
+    fn reutiliza_la_portada_que_ya_existe_para_el_album() {
+        let data = cover_test_dir("reuse");
+        let covers = data.join("covers");
+        fs::write(covers.join("vieja.jpg"), b"vieja").unwrap();
+
+        let mut tracks = vec![track("uno", "Disco", "vieja.jpg")];
+        let key = cover_key(&tracks[0]);
+        let target = format!("{key}.png");
+        fs::write(covers.join(&target), b"album").unwrap();
+
+        assert!(sync_album_cover(&data, &mut tracks, &key));
+        assert_eq!(tracks[0].cover, target);
+        assert_eq!(fs::read(covers.join(&target)).unwrap(), b"album");
+        cleanup_covers(&data, &tracks);
+        assert!(!covers.join("vieja.jpg").exists());
+        fs::remove_dir_all(data).unwrap();
     }
 }

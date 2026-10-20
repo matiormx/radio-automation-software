@@ -96,8 +96,10 @@ pero los archivos de audio **nunca se borran**.
 La lista de emisión muestra la carátula de cada canción. MiRadio extrae la
 imagen incrustada en el archivo (MP3, M4A, FLAC, OGG…) o, si no hay, busca
 `cover.jpg`, `folder.jpg`, `front.jpg`, `album.jpg` o una imagen con el
-mismo nombre que el audio en su carpeta. Las copias se guardan en
-`covers/` dentro de la carpeta de datos.
+mismo nombre que el audio en su carpeta. Como la imagen pertenece al álbum,
+se guarda **una sola copia por álbum** en `covers/`: todas las canciones del
+mismo álbum comparten el archivo. Si una ficha no tiene álbum, se usa una
+portada por canción. Las bibliotecas existentes se consolidan al iniciar.
 
 Al pulsar la carátula se abre la ficha completa: metadatos, normalización,
 recorte, formato, calidad, bloques, etiquetas, tamaño y ruta. Es la misma
