@@ -803,6 +803,31 @@ body {
 .seg-on { background: var(--accent-dim); color: #fff; }
 .seg-on:hover { color: #fff; }
 
+.pb-block { gap: 8px; }
+.pb-select {
+  min-width: 130px;
+  max-width: 190px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 5px 7px;
+  outline: none;
+}
+.pb-select:focus { border-color: var(--accent); }
+.pb-block-event {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pb-vol input[type="range"] {
   width: 140px;
   height: 6px;

@@ -81,12 +81,20 @@ biblioteca y reglas de rotación).
   bitrate por salida. El motor FFmpeg emite audio por Icecast en FLAC o
   AAC y vídeo por RTSP; se inicia y detiene con el botón **EMITIR** de la
   cabecera.
-- **Ajustes con navegación lateral**: General (identidad, logo y carpeta
-  de música), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas y cola),
-  Campañas (anuncios y jingles), Eventos (franjas y sonidos programados)
-  y Streaming. Todo se guarda al instante, junto con transición y volumen.
-  Al ocultar Ajustes o Librería no se pierde la pestaña ni lo que estés
-  editando.
+- **Arranque y silencio**: en Ajustes > General se puede reproducir la
+  lista automáticamente al abrir la app y activar la detección de
+  silencio, que salta a la siguiente canción (o reanuda la reproducción)
+  cuando pasan 3 segundos sin sonido.
+- **Bloque del AutoDJ**: Ajustes > General elige el bloque musical por
+  defecto, y la barra inferior, junto al piloto automático, permite
+  cambiarlo en caliente y ver qué bloque está usando. Un evento activo
+  tiene prioridad sobre esa elección.
+- **Ajustes con navegación lateral**: General (identidad, logo, carpeta
+  de música y arranque), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas
+  y cola), Campañas (anuncios y jingles), Eventos (franjas y sonidos
+  programados) y Streaming. Todo se guarda al instante, junto con
+  transición y volumen. Al ocultar Ajustes o Librería no se pierde la
+  pestaña ni lo que estés editando.
 
 ## Archivos de musica soportados
 
@@ -207,6 +215,26 @@ la lista.
 En la lista, cada evento tiene botones para **desactivarlo** o **lanzarlo
 manualmente**. El interruptor **EVENTOS** de la barra superior desactiva
 temporalmente todos los eventos sin borrar su programación.
+
+## Arranque, silencio y bloque del AutoDJ
+
+En **Ajustes > General**:
+
+- **Reproducir automáticamente al iniciar el programa**: al abrir la app
+  empieza a sonar la lista activa.
+- **Detección de silencio**: si durante 3 segundos no suena nada, el
+  reproductor pasa a la siguiente canción; si la reproducción estaba
+  parada, la reanuda. Si pausas a mano, no vuelve a arrancar sola.
+- **Bloque musical por defecto del AutoDJ**: el piloto automático saca
+  las próximas canciones de ese bloque. En «Automático» usa los bloques
+  marcados con el rayo en la pestaña Música y, si no hay ninguno, toda la
+  biblioteca.
+
+En la barra inferior, junto al interruptor del piloto automático, está el
+selector **BLOQUE AUTO**: muestra el bloque que se está usando y permite
+asignar otro sin abrir los ajustes. Cuando hay un evento de franja
+activo, la etiqueta muestra el origen del evento, que manda sobre el
+bloque elegido.
 
 ## Mesa de sonido
 

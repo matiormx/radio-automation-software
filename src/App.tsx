@@ -168,6 +168,9 @@ export default function App() {
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
   const autopilotOn = settings.autopilotEnabled;
+  const defaultBlockId = blocks.some((block) => block.id === settings.defaultBlockId)
+    ? settings.defaultBlockId
+    : "";
   const hasStreamOutputs = useMemo(
     () =>
       settings.streaming.icecast.some((stream) => stream.enabled) ||
@@ -1470,10 +1473,24 @@ export default function App() {
         autopilot={autopilotOn}
         fadeSeconds={settings.fadeSeconds}
         hasPlaylist={rows.length > 0}
+        blocks={blocks}
+        defaultBlockId={defaultBlockId}
+        autoEventLabel={activeAutoEvent ? eventSourceLabel(activeAutoEvent, blocks) : null}
         onTogglePlay={() => void togglePlay()}
         onNext={() => void next()}
         onPrev={() => void prev()}
         onAutopilot={setAutopilot}
+        onDefaultBlockChange={(id) => {
+          updateSettings({ ...settings, defaultBlockId: id });
+          const name = blocks.find((block) => block.id === id)?.name;
+          showToast(
+            activeAutoEvent
+              ? `Bloque guardado; ahora manda el evento «${eventSourceLabel(activeAutoEvent, blocks)}»`
+              : name
+                ? `AutoDJ: «${name}»`
+                : "AutoDJ: automático (bloques de Música)",
+          );
+        }}
         onFadeChange={(s) => updateSettings({ ...settings, fadeSeconds: s })}
         onVolume={setVolume}
       />

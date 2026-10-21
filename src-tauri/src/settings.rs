@@ -588,11 +588,7 @@ pub fn auto_pick(
     // Bloques activos del piloto automatico: vacio = toda la biblioteca.
     // Un evento activo puede sustituirlos por un bloque concreto o por una
     // de las dos bibliotecas.
-    let mut pick_blocks: HashSet<String> = if s.default_block_id.trim().is_empty() {
-        s.auto_blocks.iter().cloned().collect()
-    } else {
-        std::iter::once(s.default_block_id.clone()).collect()
-    };
+    let mut pick_blocks = pick_block_ids(&s);
     let mut pick_library: Option<String> = None;
     match scope_kind.as_deref() {
         Some("block") => {
@@ -728,4 +724,48 @@ pub fn auto_pick(
         }
     }
     Ok(result)
+}
+
+/// Bloques de los que saca canciones el AutoDJ. El bloque por defecto
+/// manda sobre los bloques marcados en el navegador; si no hay, todos.
+fn pick_block_ids(s: &Settings) -> HashSet<String> {
+    if s.default_block_id.trim().is_empty() {
+        s.auto_blocks.iter().cloned().collect()
+    } else {
+        std::iter::once(s.default_block_id.clone()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings_with(blocks: &[&str], default_block: &str) -> Settings {
+        let mut s = Settings::default();
+        s.auto_blocks = blocks.iter().map(|b| b.to_string()).collect();
+        s.default_block_id = default_block.to_string();
+        s
+    }
+
+    #[test]
+    fn el_bloque_por_defecto_manda_sobre_los_marcados() {
+        let s = settings_with(&["uno", "dos"], "tres");
+        let ids = pick_block_ids(&s);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("tres"));
+    }
+
+    #[test]
+    fn sin_bloque_por_defecto_se_usan_los_marcados() {
+        let s = settings_with(&["uno", "dos"], "");
+        let ids = pick_block_ids(&s);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("uno") && ids.contains("dos"));
+    }
+
+    #[test]
+    fn sin_bloques_la_biblioteca_esta_libre() {
+        let s = settings_with(&[], "");
+        assert!(pick_block_ids(&s).is_empty());
+    }
 }
