@@ -71,8 +71,6 @@ pub fn run() {
             streaming::stream_stop,
             streaming::stream_push_pcm,
             update::app_version,
-            update::install_update,
-            update::download_update,
             update::open_url,
             nowplaying::write_now_playing,
             nowplaying::write_now_playing_image

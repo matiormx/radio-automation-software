@@ -186,25 +186,6 @@ export function appVersion(): Promise<string> {
   return invoke<string>("app_version");
 }
 
-export function installAppUpdate(
-  url: string,
-  version: string,
-): Promise<{ path: string; launched: boolean; bytes: number }> {
-  return invoke("install_update", { url, version });
-}
-
-export function downloadAppUpdate(url: string, dest: string): Promise<string> {
-  return invoke<string>("download_update", { url, dest });
-}
-
-export async function pickDownloadPath(suggested: string): Promise<string | null> {
-  return saveDialog({
-    title: "Guardar la actualización",
-    defaultPath: suggested,
-    filters: [{ name: "Ejecutable", extensions: ["exe", "msi"] }],
-  });
-}
-
 export function openExternal(url: string): Promise<void> {
   return invoke("open_url", { url });
 }

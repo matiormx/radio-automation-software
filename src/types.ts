@@ -304,10 +304,6 @@ export interface AppUpdateInfo {
   latest: string;
   available: boolean;
   notes: string;
-  assetUrl: string;
-  assetName: string;
-  pageUrl: string;
-  error: string | null;
 }
 
 export interface StreamProbe {

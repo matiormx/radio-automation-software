@@ -1,45 +1,25 @@
-import { useEffect, useState } from "react";
-import {
-  DEFAULT_UPDATE_FEED,
-  checkForUpdate,
-  downloadUpdate,
-  installUpdate,
-  loadUpdateFeed,
-  loadUpdateToken,
-  openRelease,
-  saveUpdateFeed,
-  saveUpdateToken,
-} from "../update";
+import { useState } from "react";
+import { openExternal } from "../api";
+import { RELEASES_PAGE, checkForUpdate, installUpdate } from "../update";
 import type { AppUpdateInfo } from "../types";
 
 /**
  * Actualizaciones de la app: busca la ultima release publicada y, si es mas
- * nueva, descarga el instalador y lo abre.
+ * nueva, la descarga, comprueba su firma, la instala y reinicia la app.
  */
 export function UpdateSection({ showToast }: { showToast: (msg: string) => void }) {
-  const [feed, setFeed] = useState(DEFAULT_UPDATE_FEED);
-  const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [percent, setPercent] = useState<number | null>(null);
   const [info, setInfo] = useState<AppUpdateInfo | null>(null);
   const [error, setError] = useState("");
-  const [version, setVersion] = useState("");
-
-  useEffect(() => {
-    setFeed(loadUpdateFeed());
-    setToken(loadUpdateToken());
-  }, []);
 
   const search = async () => {
     setBusy(true);
     setError("");
-    saveUpdateFeed(feed);
-    saveUpdateToken(token);
     try {
-      const result = await checkForUpdate(feed, token);
+      const result = await checkForUpdate();
       setInfo(result);
-      setVersion(result.current);
       if (!result.available) {
         showToast(`Ya tienes la última versión (${result.current})`);
       }
@@ -56,64 +36,31 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
   const install = async () => {
     if (!info) return;
     setInstalling(true);
+    setPercent(null);
     setError("");
     try {
-      const path = await installUpdate(info);
-      showToast(`Instalador descargado: ${path}`);
+      await installUpdate((downloaded, total) => {
+        setPercent(total ? Math.min(100, Math.round((downloaded / total) * 100)) : null);
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       showToast(`No se pudo instalar: ${message}`);
-    } finally {
       setInstalling(false);
     }
   };
 
-  const download = async () => {
-    if (!info) return;
-    setDownloading(true);
-    setError("");
-    try {
-      const path = await downloadUpdate(info);
-      showToast(`Descargado en ${path}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      showToast(`No se pudo descargar: ${message}`);
-    } finally {
-      setDownloading(false);
-    }
+  const openDownloads = () => {
+    void openExternal(RELEASES_PAGE).catch((e) => setError(String(e)));
   };
 
   return (
     <fieldset className="fieldset">
       <legend>Actualizaciones de la app</legend>
       <p className="hint">
-        Busca la última release publicada y descarga el instalador. Al instalarlo, la app se
-        cierra y se actualiza. Si el origen es un repositorio privado, pega un token de GitHub
-        con permiso de lectura.
+        Busca la última versión publicada en GitHub. Al instalarla, la app descarga la
+        actualización, comprueba su firma, se cierra y se vuelve a abrir ya actualizada.
       </p>
-      <label className="field">
-        <span className="field-label">Origen de actualizaciones</span>
-        <input
-          type="text"
-          value={feed}
-          onChange={(e) => setFeed(e.target.value)}
-          spellCheck={false}
-          placeholder={DEFAULT_UPDATE_FEED}
-        />
-      </label>
-      <label className="field">
-        <span className="field-label">Token de GitHub (opcional)</span>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder="ghp_…"
-        />
-      </label>
       <div className="update-actions">
         <button type="button" className="btn btn-sm" onClick={() => void search()} disabled={busy || installing}>
           {busy ? "Buscando…" : "Buscar actualizaciones"}
@@ -123,43 +70,24 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
             type="button"
             className="btn btn-sm btn-accent"
             onClick={() => void install()}
-            disabled={busy || installing || downloading}
+            disabled={busy || installing}
           >
-            {installing ? "Descargando…" : `Instalar ${info.latest}`}
+            {installing
+              ? percent === null
+                ? "Instalando…"
+                : `Descargando… ${percent} %`
+              : `Instalar ${info.latest}`}
           </button>
         )}
-        {info?.assetUrl && (
-          <>
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => void download()}
-              disabled={busy || installing || downloading}
-              title="Descargar el instalador sin ejecutarlo"
-            >
-              {downloading ? "Descargando…" : "Descargar .exe"}
-            </button>
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => void openRelease(info).catch((e) => setError(String(e)))}
-              disabled={installing}
-            >
-              Abrir la descarga
-            </button>
-          </>
-        )}
+        <button type="button" className="ghost-btn" onClick={openDownloads} disabled={installing}>
+          Abrir la página de descargas
+        </button>
       </div>
-      {version && (
+      {info && (
         <p className="hint">
-          Versión instalada: <strong>{version}</strong>
-          {info && (
-            <>
-              {" "}
-              · última publicada: <strong>{info.latest}</strong>
-              {info.available ? " (hay una más nueva)" : " (estás al día)"}
-            </>
-          )}
+          Versión instalada: <strong>{info.current}</strong> · última publicada:{" "}
+          <strong>{info.latest}</strong>
+          {info.available ? " (hay una más nueva)" : " (estás al día)"}
         </p>
       )}
       {info?.notes && <p className="hint update-notes">{info.notes}</p>}
