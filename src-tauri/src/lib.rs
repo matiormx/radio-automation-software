@@ -18,7 +18,12 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // El actualizador oficial solo existe en escritorio.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
