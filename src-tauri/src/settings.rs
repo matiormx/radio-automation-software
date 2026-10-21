@@ -44,6 +44,8 @@ pub struct Settings {
     pub logo_path: String,
     pub campaigns: Vec<Campaign>,
     pub events: Vec<StationEvent>,
+    /// Interruptor general de eventos; si esta apagado no se lanza ninguno.
+    pub events_enabled: bool,
     pub mixer_channels: Vec<MixerChannel>,
     pub mixer_buses: Vec<MixerBus>,
     /// Bus cuya señal muestra el VU de salida; vacio = salida general.
@@ -192,8 +194,6 @@ pub struct StationEvent {
     pub days: Vec<u8>,
     /// Inicio de la franja (auto) o hora de inserción (insert), HH:MM
     pub start: String,
-    /// Fin de la franja AutoDJ; puede cruzar medianoche
-    pub end: String,
     /// "block" o "library"
     pub source_kind: String,
     /// id de bloque o "a"/"b"
@@ -214,7 +214,6 @@ impl Default for StationEvent {
             kind: "auto".to_string(),
             days: vec![1, 2, 3, 4, 5, 6, 7],
             start: "06:00".to_string(),
-            end: "10:00".to_string(),
             source_kind: "library".to_string(),
             source_id: "a".to_string(),
             track_id: String::new(),
@@ -410,6 +409,7 @@ impl Default for Settings {
             logo_path: String::new(),
             campaigns: Vec::new(),
             events: Vec::new(),
+            events_enabled: true,
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
             monitor_bus_id: String::new(),

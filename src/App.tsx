@@ -54,33 +54,39 @@ function parseHM(value: string): number | null {
   return h * 60 + m;
 }
 
-/** Inicio real de la franja que contiene `now`, o null si el evento no aplica. */
-function eventWindowStart(event: StationEvent, now: Date): Date | null {
+/** Inicio más reciente de una franja, o null si el evento no aplica. */
+function eventStartAt(event: StationEvent, now: Date): Date | null {
   const start = parseHM(event.start);
-  const end = parseHM(event.end);
-  if (start === null || end === null || start === end) return null;
-  const mins = now.getHours() * 60 + now.getMinutes();
-  const at = (d: Date, m: number) => {
-    const out = new Date(d);
-    out.setHours(Math.floor(m / 60), m % 60, 0, 0);
-    return out;
-  };
-  if (start < end) {
-    if (!event.days.includes(dayIso(now)) || mins < start || mins >= end) return null;
-    return at(now, start);
-  }
-  if (mins >= start) {
-    return event.days.includes(dayIso(now)) ? at(now, start) : null;
-  }
-  if (mins < end) {
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (!event.days.includes(dayIso(yesterday))) return null;
-    const out = at(now, start);
-    out.setDate(out.getDate() - 1);
-    return out;
+  if (start === null) return null;
+  for (let offset = 0; offset <= 7; offset++) {
+    const day = new Date(now);
+    day.setDate(day.getDate() - offset);
+    day.setHours(Math.floor(start / 60), start % 60, 0, 0);
+    if (day.getTime() > now.getTime()) continue;
+    if (!event.days.includes(dayIso(day))) continue;
+    return day;
   }
   return null;
+}
+
+/** Próximo inicio de cualquier franja AutoDJ después de `after`. */
+function nextAutoStartAfter(events: StationEvent[], after: Date): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let offset = 0; offset <= 7; offset++) {
+    const day = new Date(after);
+    day.setDate(day.getDate() + offset);
+    for (const event of events) {
+      if (!event.enabled || event.kind !== "auto") continue;
+      const start = parseHM(event.start);
+      if (start === null) continue;
+      if (!event.days.includes(dayIso(day))) continue;
+      const at = new Date(day);
+      at.setHours(Math.floor(start / 60), start % 60, 0, 0);
+      if (at.getTime() <= after.getTime()) continue;
+      if (at.getTime() < best) best = at.getTime();
+    }
+  }
+  return best;
 }
 
 function eventSourceLabel(event: StationEvent, blocks: Block[]): string {
@@ -145,6 +151,7 @@ export default function App() {
   const [clock, setClock] = useState("");
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
+  const [manualAuto, setManualAuto] = useState<{ id: string; until: number } | null>(null);
   const autopilotOn = settings.autopilotEnabled;
 
   const playerRef = useRef<RadioPlayer | null>(null);
@@ -233,6 +240,20 @@ export default function App() {
   // Evento de franja AutoDJ activo. Si varios coinciden, manda el que
   // empezó más tarde (y a igualdad, el último de la lista).
   const activeAutoEvent = useMemo(() => {
+    if (!settings.eventsEnabled) return null;
+    const manual =
+      manualAuto && manualAuto.until > nowTick
+        ? settings.events.find(
+            (event) => event.id === manualAuto.id && event.enabled && event.kind === "auto",
+          )
+        : null;
+    if (manual) {
+      const validSource =
+        manual.sourceKind === "library"
+          ? manual.sourceId === "a" || manual.sourceId === "b"
+          : blocks.some((block) => block.id === manual.sourceId);
+      if (validSource) return manual;
+    }
     const now = new Date(nowTick);
     let bestEvent: StationEvent | null = null;
     let bestStart = -Infinity;
@@ -244,7 +265,7 @@ export default function App() {
       if (event.sourceKind === "library" && event.sourceId !== "a" && event.sourceId !== "b") {
         continue;
       }
-      const start = eventWindowStart(event, now);
+      const start = eventStartAt(event, now);
       if (!start) continue;
       const at = start.getTime();
       if (at > bestStart || (at === bestStart && index > bestIndex)) {
@@ -254,7 +275,7 @@ export default function App() {
       }
     }
     return bestEvent;
-  }, [settings.events, blocks, nowTick]);
+  }, [settings.events, settings.eventsEnabled, manualAuto, blocks, nowTick]);
   const autoScope = activeAutoEvent
     ? { kind: activeAutoEvent.sourceKind, id: activeAutoEvent.sourceId }
     : null;
@@ -659,6 +680,61 @@ export default function App() {
     void saveSettings(s).catch(() => undefined);
   }, []);
 
+  const launchEvent = useCallback(
+    (event: StationEvent) => {
+      if (!settingsRef.current.eventsEnabled) {
+        showToast("Los eventos están desactivados globalmente");
+        return;
+      }
+      if (!event.enabled) {
+        showToast(`El evento «${event.name}» está desactivado`);
+        return;
+      }
+      if (event.kind === "auto") {
+        const until = nextAutoStartAfter(settingsRef.current.events, new Date());
+        setManualAuto({ id: event.id, until });
+        showToast(`Evento «${event.name}» activado manualmente`);
+        return;
+      }
+
+      const track = tracksRef.current.find((item) => item.id === event.trackId);
+      if (!track) {
+        showToast(`El evento «${event.name}» no tiene una pista disponible`);
+        return;
+      }
+      const playing = playingRowRef.current;
+      const currentId = playing >= 0 ? rowsRef.current[playing]?.id ?? "" : "";
+      if (currentId === event.trackId) {
+        showToast(`El evento «${event.name}» ya está sonando`);
+        return;
+      }
+      const playlistId = activeIdRef.current;
+      if (!playlistId) {
+        showToast("No hay una lista activa para lanzar el evento");
+        return;
+      }
+
+      void mutateListRef.current((ids) => {
+        const copy = ids.filter((id) => id !== event.trackId);
+        const at = Math.max(0, Math.min(copy.length, playing >= 0 ? playing + 1 : 0));
+        copy.splice(at, 0, event.trackId);
+        return copy;
+      });
+
+      const item: PendingInsert = {
+        eventId: event.id,
+        eventName: event.name,
+        playlistId,
+        trackId: event.trackId,
+        deadline: Date.now() + Math.max(0, event.maxWaitSecs) * 1000,
+        onTimeout: event.onTimeout,
+      };
+      setPendingInserts((prev) => [...prev.filter((p) => p.eventId !== event.id), item]);
+      showToast(`Evento «${event.name}»: a continuación`);
+    },
+    [showToast],
+  );
+
   const chooseMusicFolder = useCallback(async () => {
     try {
       const path = await pickFolder();
@@ -827,6 +903,7 @@ export default function App() {
     if (!active) return;
     const check = () => {
       const s = settingsRef.current;
+      if (!s.eventsEnabled) return;
       const now = new Date();
       const rowsNow = rowsRef.current;
       const playing = playingRowRef.current;
@@ -936,7 +1013,7 @@ export default function App() {
     const timer = window.setInterval(check, 15000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.id, settings.events]);
+  }, [active?.id, settings.events, settings.eventsEnabled]);
 
   // Temporizador de las inserciones pendientes: si la pista actual no
   // termina a tiempo, se lanza o se cancela según el evento.
@@ -1096,7 +1173,7 @@ export default function App() {
           {autopilotOn && activeAutoEvent && (
             <span
               className="pill pill-event"
-              title={`Evento «${activeAutoEvent.name}»: ${activeAutoEvent.start}–${activeAutoEvent.end} · ${eventSourceLabel(activeAutoEvent, blocks)}`}
+              title={`Evento «${activeAutoEvent.name}»: desde las ${activeAutoEvent.start} · ${eventSourceLabel(activeAutoEvent, blocks)}`}
             >
               Evento: {eventSourceLabel(activeAutoEvent, blocks)}
             </span>
@@ -1105,6 +1182,26 @@ export default function App() {
             <span className="pill pill-auto">
               Piloto automático</span>
           )}
+          <label
+            className={`top-switch ${settings.eventsEnabled ? "switch-on" : ""}`}
+            title={
+              settings.eventsEnabled
+                ? "Desactivar temporalmente todos los eventos"
+                : "Activar los eventos programados"
+            }
+          >
+            <span className="top-switch-label">EVENTOS</span>
+            <span className="switch-track"><span className="switch-knob" /></span>
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={settings.eventsEnabled}
+              onChange={(e) => {
+                if (!e.target.checked) setManualAuto(null);
+                updateSettings({ ...settings, eventsEnabled: e.target.checked });
+              }}
+            />
+          </label>
           <span className="clock" role="timer">{clock}</span>
           <button
             type="button"
@@ -1231,6 +1328,7 @@ export default function App() {
           onPickLogo={() => chooseLogo()}
           onClearLogo={() => removeLogo()}
           onImportAudio={() => importForCampaign()}
+          onLaunchEvent={launchEvent}
           mixer={mixerRef.current}
         />
       )}

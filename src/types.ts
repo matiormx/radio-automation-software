@@ -159,8 +159,6 @@ export interface StationEvent {
   days: number[];
   /** Hora de inicio de la franja (auto) o de la inserción (insert), HH:MM */
   start: string;
-  /** Fin de la franja AutoDJ, HH:MM; puede cruzar medianoche */
-  end: string;
   sourceKind: StationEventSource;
   /** id de bloque o "a"/"b" */
   sourceId: string;
@@ -298,6 +296,8 @@ export interface Settings {
   logoPath: string;
   campaigns: Campaign[];
   events: StationEvent[];
+  /** Interruptor general: si está apagado, no se lanza ningún evento */
+  eventsEnabled: boolean;
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
   /** Bus cuya señal muestra el VU de salida; "" = salida general */
@@ -325,6 +325,7 @@ export const DEFAULT_SETTINGS: Settings = {
   logoPath: "",
   campaigns: [],
   events: [],
+  eventsEnabled: true,
   mixerChannels: [],
   mixerBuses: [],
   monitorBusId: "",

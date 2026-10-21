@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Block, Campaign, CampaignKind, Settings, Track } from "../types";
+import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
 import { effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
@@ -20,6 +20,7 @@ interface SettingsPanelProps {
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
   onImportAudio: () => Promise<Track[]>;
+  onLaunchEvent: (event: StationEvent) => void;
   mixer: SoundMixer | null;
 }
 
@@ -143,6 +144,7 @@ export function SettingsPanel({
   onPickLogo,
   onClearLogo,
   onImportAudio,
+  onLaunchEvent,
   mixer,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("general");
@@ -262,6 +264,7 @@ export function SettingsPanel({
                 blocks={blocks}
                 onChange={onChange}
                 onImportAudio={onImportAudio}
+                onLaunchEvent={onLaunchEvent}
               />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}

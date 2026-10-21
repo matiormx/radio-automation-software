@@ -49,6 +49,28 @@ body {
 
 .top-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
+.top-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.top-switch:hover { border-color: var(--line-strong); color: var(--text); }
+.top-switch:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.top-switch-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.top-switch .switch-track { width: 28px; height: 16px; }
+.top-switch .switch-knob { width: 12px; height: 12px; }
+.top-switch.switch-on .switch-knob { left: 14px; }
+
 .clock {
   font-family: var(--mono);
   font-size: 14px;
@@ -2080,8 +2102,6 @@ body {
   padding: 10px 12px;
 }
 .camp-off { opacity: 0.55; }
-.camp-toggle { display: flex; align-items: center; }
-.camp-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 .camp-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .camp-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .camp-card-title strong {
@@ -2111,7 +2131,15 @@ body {
   color: var(--text-dim);
 }
 .camp-card-last { font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
-.camp-card-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.camp-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.camp-card-actions .btn { white-space: nowrap; }
 .camp-del:hover { color: var(--danger); }
 
 .camp-editor { display: flex; flex-direction: column; gap: 14px; }

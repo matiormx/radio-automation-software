@@ -62,8 +62,9 @@ biblioteca y reglas de rotación).
   emisión si la app estaba cerrada hace menos de 15 minutos.
 - **Eventos de programación**: franjas que cambian la fuente del AutoDJ
   (un bloque musical o una biblioteca) y sonidos que se colocan como
-  siguiente a una hora exacta. Si el tema actual no termina a tiempo, el
-  evento puede forzar la reproducción o cancelarse.
+  siguiente a una hora exacta. Cada evento se puede desactivar o lanzar
+  manualmente; el interruptor **EVENTOS** de la cabecera los desactiva
+  temporalmente todos.
 - **Motor de audio** con crossfade (3/6/10 s), seek, siguiente/anterior.
   La pista siguiente se decodifica 30 s antes del cruce y la caché de PCM
   está acotada a 4 pistas; si la decodificación se retrasa, el cruce se
@@ -171,11 +172,11 @@ tarjeta SDI requiere el SDK DeckLink instalado en el equipo.
 En **Ajustes > Eventos** se programan dos tipos de evento por días de la
 semana:
 
-- **Franja AutoDJ**: mientras está activa, las próximas canciones que elige
-  el piloto automático salen de un bloque musical o de la Biblioteca A/B.
-  La cola ya cargada no se modifica y, si la fuente se queda sin pistas,
-  el AutoDJ vuelve a la biblioteca completa. Una franja puede cruzar
-  medianoche si la hora de fin es menor que la de inicio.
+- **Franja AutoDJ**: empieza a la hora indicada y se mantiene hasta que
+  empiece otro evento. Las próximas canciones que elige el piloto
+  automático salen de un bloque musical o de la Biblioteca A/B. La cola ya
+  cargada no se modifica y, si la fuente se queda sin pistas, el AutoDJ
+  vuelve a la biblioteca completa.
 - **Sonido programado**: a la hora exacta, la pista elegida se coloca justo
   después del tema que está sonando. Si el tema actual no termina dentro de
   la espera máxima, el evento puede forzarlo al aire (con el fundido de
@@ -186,6 +187,10 @@ hora. Si la app estaba cerrada, recupera el evento solo si han pasado menos
 de 15 minutos. Las inserciones programadas funcionan aunque el piloto
 automático esté apagado; las franjas solo afectan cuando el AutoDJ rellena
 la lista.
+
+En la lista, cada evento tiene botones para **desactivarlo** o **lanzarlo
+manualmente**. El interruptor **EVENTOS** de la barra superior desactiva
+temporalmente todos los eventos sin borrar su programación.
 
 ## Mesa de sonido
 

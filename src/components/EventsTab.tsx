@@ -59,9 +59,8 @@ function sourceLabel(event: StationEvent, blocks: Block[]): string {
 
 function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track>): string[] {
   if (event.kind === "auto") {
-    const cross = (parseHM(event.end) ?? 0) < (parseHM(event.start) ?? 0);
     return [
-      `${event.start}–${event.end}${cross ? " (+1 día)" : ""}`,
+      `Desde las ${event.start}`,
       daysText(event),
       `Fuente: ${sourceLabel(event, blocks)}`,
     ];
@@ -87,7 +86,6 @@ function newEvent(): StationEvent {
     kind: "auto",
     days: [1, 2, 3, 4, 5, 6, 7],
     start: "06:00",
-    end: "10:00",
     sourceKind: "library",
     sourceId: "a",
     trackId: "",
@@ -103,12 +101,14 @@ export function EventsTab({
   blocks,
   onChange,
   onImportAudio,
+  onLaunchEvent,
 }: {
   settings: Settings;
   tracks: Track[];
   blocks: Block[];
   onChange: (s: Settings) => void;
   onImportAudio: () => Promise<Track[]>;
+  onLaunchEvent: (event: StationEvent) => void;
 }) {
   const [draft, setDraft] = useState<StationEvent | null>(null);
   const [error, setError] = useState("");
@@ -146,15 +146,6 @@ export function EventsTab({
       return;
     }
     if (draft.kind === "auto") {
-      const end = parseHM(draft.end);
-      if (end === null) {
-        setError("La hora de fin no es válida.");
-        return;
-      }
-      if (start === end) {
-        setError("La hora de inicio y la de fin no pueden ser iguales.");
-        return;
-      }
       if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
         setError("Elige un bloque musical para la franja.");
         return;
@@ -235,7 +226,7 @@ export function EventsTab({
         <div>
           <h4>Eventos de programación</h4>
           <p className="hint">
-            Una franja cambia la fuente del AutoDJ durante un horario. Un sonido programado se
+            Una franja cambia la fuente del AutoDJ a partir de una hora. Un sonido programado se
             coloca como siguiente a una hora exacta; si el tema actual no termina a tiempo, se
             puede forzar o cancelar.
           </p>
@@ -244,6 +235,13 @@ export function EventsTab({
           <IconPlus size={14} /> Nuevo evento
         </button>
       </div>
+
+      {!settings.eventsEnabled && (
+        <div className="form-error">
+          Los eventos están desactivados globalmente. Actívalos con el interruptor EVENTOS de la
+          pantalla principal para que vuelvan a ejecutarse.
+        </div>
+      )}
 
       {settings.events.length === 0 ? (
         <div className="camp-empty">
@@ -260,9 +258,6 @@ export function EventsTab({
               !blocks.some((b) => b.id === event.sourceId);
             return (
               <div key={event.id} className={`camp-card ${event.enabled ? "" : "camp-off"}`}>
-                <label className="camp-toggle" title="Activar o desactivar el evento">
-                  <input type="checkbox" checked={event.enabled} onChange={() => toggle(event)} />
-                </label>
                 <div className="camp-card-main">
                   <div className="camp-card-title">
                     <strong>{event.name}</strong>
@@ -285,6 +280,33 @@ export function EventsTab({
                   )}
                 </div>
                 <div className="camp-card-actions">
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${event.enabled ? "" : "btn-accent"}`}
+                    onClick={() => toggle(event)}
+                    title={event.enabled ? "Desactivar el evento" : "Activar el evento"}
+                  >
+                    {event.enabled ? "Desactivar" : "Activar"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-accent"
+                    onClick={() => onLaunchEvent(event)}
+                    disabled={
+                      !settings.eventsEnabled || !event.enabled || missingTrack || missingBlock
+                    }
+                    title={
+                      !settings.eventsEnabled
+                        ? "Activa los eventos globalmente para poder lanzarlo"
+                        : !event.enabled
+                          ? "Activa el evento para poder lanzarlo"
+                          : missingTrack || missingBlock
+                            ? "Completa la fuente del evento para poder lanzarlo"
+                            : "Lanzar el evento ahora"
+                    }
+                  >
+                    Lanzar
+                  </button>
                   <button type="button" className="btn btn-sm" onClick={() => edit(event)}>
                     Editar
                   </button>
@@ -437,23 +459,13 @@ function EventEditor({
               onChange={(e) => set({ start: e.target.value })}
             />
           </label>
-          {draft.kind === "auto" && (
-            <label className="field">
-              <span className="field-label">Termina</span>
-              <input
-                type="time"
-                value={draft.end}
-                onChange={(e) => set({ end: e.target.value })}
-              />
-            </label>
-          )}
         </div>
 
         {draft.kind === "auto" ? (
           <p className="hint">
-            Mientras la franja esté activa, las próximas canciones que elija el AutoDJ saldrán de
-            la fuente indicada. La cola que ya está cargada no se toca. Si la hora de fin es menor
-            que la de inicio, la franja cruza medianoche.
+            La franja empieza a esa hora y se mantiene hasta que empiece otro evento. Las próximas
+            canciones que elija el AutoDJ saldrán de la fuente indicada; la cola que ya está
+            cargada no se toca.
           </p>
         ) : (
           <>
