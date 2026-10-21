@@ -1,5 +1,14 @@
 name: Compilar MiRadio para Windows
 
+# Publicar una versión:
+#   1. Sube la versión en package.json, src-tauri/Cargo.toml y
+#      src-tauri/tauri.conf.json (las tres iguales).
+#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+# El workflow crea la Release con el instalador .exe, el .msi, sus firmas y
+# latest.json, que es lo que lee la app para actualizarse sola.
+# Con "Run workflow" (sin etiqueta) solo compila y guarda los paquetes como
+# artefacto de la ejecución, sin publicar nada.
+
 on:
   push:
     tags:
@@ -14,6 +23,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Comprobar que la etiqueta coincide con la versión
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $tag = $env:TAG.TrimStart('v')
+          if ($config.version -ne $tag) {
+            Write-Error "La etiqueta $env:TAG no coincide con la versión $($config.version) de tauri.conf.json. Súbela en los tres archivos antes de etiquetar."
+            exit 1
+          }
+
+      - name: Comprobar la clave de firma de actualizaciones
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            Write-Error "Falta el secreto TAURI_SIGNING_PRIVATE_KEY (Settings > Secrets and variables > Actions). Sin él no se pueden firmar las actualizaciones."
+            exit 1
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,16 +56,29 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Compilar instalador NSIS
+      - name: Compilar instaladores (.exe y .msi)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Firma de las actualizaciones (clave de `tauri signer generate`).
+          # Si la clave no tiene contraseña, el segundo secreto no hace falta.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # En un tag vX.Y.Z crea una Release con el instalador adjunto.
-          # Sin tag solo compila y deja el artefacto.
+          # En un tag vX.Y.Z crea una Release con los instaladores y latest.json.
+          # Sin tag solo compila.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: ${{ github.ref_type == 'tag' && format('MiRadio {0}', github.ref_name) || '' }}
-          # Firma de codigo (opcional): definir estos secretos y descomentar.
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          args: --bundles nsis
+          # latest.json apunta al instalador NSIS: se instala por usuario, sin
+          # permisos de administrador, igual que la instalación actual.
+          updaterJsonPreferNsis: true
+          args: --bundles nsis,msi
+
+      - name: Guardar los paquetes de la ejecución manual
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiRadio-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*
+            src-tauri/target/release/bundle/msi/*
