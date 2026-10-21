@@ -13,6 +13,8 @@ export interface NowPlayingFields {
   radio: string;
   /** Bloques a los que pertenece la cancion */
   block: string;
+  /** Programa en antena (modo LIVE); vacio si no hay */
+  program: string;
   /** Hora actual */
   time: string;
 }
@@ -29,6 +31,7 @@ export const NOW_PLAYING_PLACEHOLDERS: { key: string; label: string }[] = [
   { key: "{duration_sec}", label: "duracion en segundos" },
   { key: "{radio}", label: "nombre de la radio" },
   { key: "{block}", label: "bloques de la cancion" },
+  { key: "{program}", label: "programa en directo" },
   { key: "{time}", label: "hora actual" },
 ];
 

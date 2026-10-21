@@ -306,6 +306,18 @@ export interface StreamProbe {
   error: string | null;
 }
 
+/** Programa de emisión preparado de antemano. */
+export interface Program {
+  id: string;
+  name: string;
+  subtitle: string;
+  /** Ruta de la imagen de portada */
+  cover: string;
+  /** Hora de inicio prevista ("22:00"); vacio = sin hora */
+  startsAt: string;
+  enabled: boolean;
+}
+
 export interface Settings {
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
@@ -326,6 +338,12 @@ export interface Settings {
   autoBlocks: string[];
   /** Bloque por defecto del AutoDJ; "" = usar autoBlocks o toda la biblioteca */
   defaultBlockId: string;
+  /** Modo LIVE: la barra auxiliar sustituye los metadatos por los del programa */
+  liveMode: boolean;
+  /** Programa seleccionado en modo LIVE */
+  liveProgramId: string;
+  /** Programas preparados de antemano */
+  programs: Program[];
   /** Archivo "now playing" que se escribe con la cancion que suena */
   nowPlayingPath: string;
   /** Plantilla del archivo nowplaying; por defecto "{artist} - {title}" */
@@ -364,6 +382,9 @@ export const DEFAULT_SETTINGS: Settings = {
   musicPath: "",
   autoBlocks: [],
   defaultBlockId: "",
+  liveMode: false,
+  liveProgramId: "",
+  programs: [],
   nowPlayingPath: "",
   nowPlayingTemplate: "{artist} - {title}",
   targetLufs: -9,

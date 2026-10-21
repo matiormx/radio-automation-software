@@ -8,6 +8,7 @@ import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
 import { UpdateSection } from "./UpdateSection";
+import { ProgramsTab } from "./ProgramsTab";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   NOW_PLAYING_PLACEHOLDERS,
@@ -30,6 +31,8 @@ interface SettingsPanelProps {
   onImportAudio: () => Promise<Track[]>;
   onLaunchEvent: (event: StationEvent) => void;
   showToast: (msg: string) => void;
+  tab: SettingsTab;
+  onTabChange: (tab: SettingsTab) => void;
   mixer: SoundMixer | null;
 }
 
@@ -140,7 +143,15 @@ function MinField({
   );
 }
 
-type Tab = "general" | "autodj" | "campaigns" | "events" | "sound" | "video" | "streaming";
+export type SettingsTab =
+  | "general"
+  | "autodj"
+  | "campaigns"
+  | "events"
+  | "programs"
+  | "sound"
+  | "video"
+  | "streaming";
 
 export function SettingsPanel({
   settings,
@@ -157,9 +168,10 @@ export function SettingsPanel({
   onImportAudio,
   onLaunchEvent,
   showToast,
+  tab,
+  onTabChange,
   mixer,
 }: SettingsPanelProps) {
-  const [tab, setTab] = useState<Tab>("general");
   const s = settings;
   return (
     <div
@@ -193,7 +205,7 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "general" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("general")}
+              onClick={() => onTabChange("general")}
             >
               General
               <span>Identidad, logo y carpeta</span>
@@ -201,7 +213,7 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "sound" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("sound")}
+              onClick={() => onTabChange("sound")}
             >
               Sonido
               <span>Mesa de mezclas y salidas</span>
@@ -209,7 +221,7 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "video" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("video")}
+              onClick={() => onTabChange("video")}
             >
               Vídeo
               <span>Entradas, salidas y mezcla</span>
@@ -217,7 +229,7 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "autodj" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("autodj")}
+              onClick={() => onTabChange("autodj")}
             >
               AutoDJ
               <span>Rotación y cola automática</span>
@@ -225,7 +237,7 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "campaigns" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("campaigns")}
+              onClick={() => onTabChange("campaigns")}
             >
               Campañas
               <span>Anuncios y jingles</span>
@@ -233,15 +245,23 @@ export function SettingsPanel({
             <button
               type="button"
               className={`settings-nav-btn ${tab === "events" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("events")}
+              onClick={() => onTabChange("events")}
             >
               Eventos
               <span>Franjas y sonidos programados</span>
             </button>
             <button
               type="button"
+              className={`settings-nav-btn ${tab === "programs" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("programs")}
+            >
+              Programas
+              <span>Títulos y portadas en directo</span>
+            </button>
+            <button
+              type="button"
               className={`settings-nav-btn ${tab === "streaming" ? "settings-nav-on" : ""}`}
-              onClick={() => setTab("streaming")}
+              onClick={() => onTabChange("streaming")}
             >
               Streaming
               <span>Icecast, FLAC, AAC y RTSP</span>
@@ -282,6 +302,9 @@ export function SettingsPanel({
                 onImportAudio={onImportAudio}
                 onLaunchEvent={onLaunchEvent}
               />
+            )}
+            {tab === "programs" && (
+              <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
           </div>

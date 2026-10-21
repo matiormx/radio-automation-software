@@ -147,6 +147,14 @@ export function setBrandingLogo(path: string | null): Promise<string> {
   return invoke<string>("set_branding_logo", { path });
 }
 
+export function importProgramCover(path: string): Promise<string> {
+  return invoke<string>("import_program_cover", { path });
+}
+
+export function deleteProgramCover(path: string): Promise<void> {
+  return invoke("delete_program_cover", { path });
+}
+
 export function writeNowPlaying(path: string, contents: string): Promise<string> {
   return invoke<string>("write_now_playing", { path, contents });
 }

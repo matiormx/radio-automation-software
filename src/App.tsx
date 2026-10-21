@@ -45,6 +45,7 @@ import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
 import { StreamEncoder } from "./streaming";
+import { LiveBar } from "./components/LiveBar";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -58,7 +59,7 @@ import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { PlayerBar } from "./components/PlayerBar";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
 import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
@@ -171,6 +172,7 @@ export default function App() {
   const [pos, setPos] = useState({ cur: 0, total: 0 });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [normalizerOpen, setNormalizerOpen] = useState(false);
   const [normalizerMounted, setNormalizerMounted] = useState(false);
@@ -371,6 +373,14 @@ export default function App() {
     });
   }, [active, tracks]);
 
+  // Programa en antena (modo LIVE). Sus metadatos sustituyen a los de la
+  // canción en el nowplaying y en la portada.
+  const liveProgram = useMemo(() => {
+    if (!settings.liveMode) return null;
+    const programs = settings.programs ?? [];
+    return programs.find((program) => program.id === settings.liveProgramId) ?? null;
+  }, [settings.liveMode, settings.liveProgramId, settings.programs]);
+
   // Archivo "now playing": se escribe con los datos de la cancion actual.
   const nowPlayingTrack = useMemo(() => {
     if (playingRow < 0) return null;
@@ -387,36 +397,40 @@ export default function App() {
       .filter((name) => name !== "")
       .join(", ");
     const fields: NowPlayingFields = {
-      artist: nowPlayingTrack.artist ?? "",
-      title: nowPlayingTrack.title ?? "",
-      album: nowPlayingTrack.album ?? "",
-      year: nowPlayingTrack.year ?? "",
-      genre: nowPlayingTrack.genre ?? "",
+      artist: liveProgram ? liveProgram.subtitle ?? "" : nowPlayingTrack.artist ?? "",
+      title: liveProgram ? liveProgram.name ?? "" : nowPlayingTrack.title ?? "",
+      album: liveProgram ? "" : nowPlayingTrack.album ?? "",
+      year: liveProgram ? "" : nowPlayingTrack.year ?? "",
+      genre: liveProgram ? "" : nowPlayingTrack.genre ?? "",
       duration: fmtDuration(durationSec),
       durationSec: String(durationSec),
       radio: settings.radioName ?? "",
-      block: blockNames,
+      block: liveProgram ? "" : blockNames,
+      program: liveProgram?.name ?? "",
       time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
     };
     const template = settings.nowPlayingTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
     return nowPlayingLine(renderNowPlaying(template, fields));
-  }, [nowPlayingTrack, blocks, settings.nowPlayingTemplate, settings.radioName]);
+  }, [nowPlayingTrack, blocks, liveProgram, settings.nowPlayingTemplate, settings.radioName]);
 
   const nowPlayingTextRef = useRef<string | null>(null);
   nowPlayingTextRef.current = nowPlayingText;
   const nowPlayingErrorRef = useRef("");
 
   const nowPlayingCoverUrl = useMemo(() => {
+    if (liveProgram) {
+      return liveProgram.cover ? trackUrl({ file: liveProgram.cover }) : "";
+    }
     const track = nowPlayingTrack;
     if (!track || !track.cover) return "";
     return trackUrl({ file: track.cover });
-  }, [nowPlayingTrack]);
+  }, [nowPlayingTrack, liveProgram]);
 
   const nowPlayingCoverRef = useRef({ url: "", title: "", artist: "", radio: "" });
   nowPlayingCoverRef.current = {
     url: nowPlayingCoverUrl,
-    title: nowPlayingTrack?.title ?? "",
-    artist: nowPlayingTrack?.artist ?? "",
+    title: liveProgram ? liveProgram.name ?? "" : nowPlayingTrack?.title ?? "",
+    artist: liveProgram ? liveProgram.subtitle ?? "" : nowPlayingTrack?.artist ?? "",
     radio: settings.radioName ?? "",
   };
 
@@ -1506,6 +1520,23 @@ export default function App() {
               }}
             />
           </label>
+          <label
+            className={`top-switch ${settings.liveMode ? "switch-on" : ""}`}
+            title={
+              settings.liveMode
+                ? "Desactivar el modo LIVE (volver a los metadatos de la canción)"
+                : "Modo LIVE: la barra auxiliar muestra el programa y sus metadatos"
+            }
+          >
+            <span className="top-switch-label">LIVE</span>
+            <span className="switch-track"><span className="switch-knob" /></span>
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={settings.liveMode}
+              onChange={(e) => updateSettings({ ...settings, liveMode: e.target.checked })}
+            />
+          </label>
           <button
             type="button"
             className={`top-live ${streamStatus?.running ? "live" : ""} ${
@@ -1571,6 +1602,18 @@ export default function App() {
         <VuMeter mixer={mixer} />
 
         <div className="right-col">
+          {settings.liveMode && (
+            <LiveBar
+              programs={(settings.programs ?? []).filter((program) => program.enabled)}
+              activeId={settings.liveProgramId}
+              onSelect={(id) => updateSettings({ ...settings, liveProgramId: id })}
+              onOpenPrograms={() => {
+                setSettingsTab("programs");
+                setSettingsMounted(true);
+                setSettingsOpen(true);
+              }}
+            />
+          )}
           <DeckZone
             title={deckRow?.title ?? ""}
             artist={deckRow?.artist ?? ""}
@@ -1669,6 +1712,8 @@ export default function App() {
           onImportAudio={() => importForCampaign()}
           onLaunchEvent={launchEvent}
           showToast={showToast}
+          tab={settingsTab}
+          onTabChange={setSettingsTab}
           mixer={mixerRef.current}
         />
       )}

@@ -89,6 +89,9 @@ biblioteca y reglas de rotación).
   defecto, y la barra inferior, junto al piloto automático, permite
   cambiarlo en caliente y ver qué bloque está usando. Un evento activo
   tiene prioridad sobre esa elección.
+- **Modo LIVE**: se preparan programas con antelación (título, portada y
+  hora) y, al activar el interruptor LIVE, una barra auxiliar muestra el
+  programa en antena; sus metadatos sustituyen a los de la canción.
 - **Archivo nowplaying**: la app escribe un `.txt` con la canción que está
   sonando (por defecto `ARTISTA - TITULO`) y, junto a él, un `.jpg` con
   la portada de esa canción.
@@ -327,6 +330,31 @@ El emparejamiento con canciones ya catalogadas es por ruta normalizada
 (mayúsculas/minúsculas y separadores incluidos), así que reimportar la
 misma lista no duplica canciones.
 
+## Modo LIVE
+
+En **Ajustes > Programas** se preparan los programas con antelación:
+título, bajada, portada y hora de inicio. Cada programa se puede activar
+(«Al aire») o cambiar desde la propia barra.
+
+El interruptor **LIVE** de la cabecera activa el modo: aparece una barra
+auxiliar sobre el reproductor con la portada y el título del programa que
+está en antena, la hora prevista y las portadas de los demás programas
+preparados (un clic pone ese programa en antena).
+
+En modo LIVE, los metadatos de la canción que suena se sustituyen por los
+del programa en el archivo `nowplaying.txt` y en el `nowplaying.jpg`:
+
+| | Sin modo LIVE | Con modo LIVE |
+| --- | --- | --- |
+| `{title}` | Título de la canción | Título del programa |
+| `{artist}` | Artista | Bajada del programa |
+| `{album}`, `{year}`, `{genre}` | Datos de la canción | Vacíos |
+| `{block}` | Bloques de la canción | Vacío |
+| `{program}` | Vacío | Título del programa |
+
+El marcador `{program}` está disponible siempre: vale el título del
+programa en directo y queda vacío si el modo LIVE está apagado.
+
 ## Archivo nowplaying
 
 En **Ajustes > General > Archivo nowplaying** eliges dónde se escribe el
@@ -357,6 +385,7 @@ Datos disponibles para la plantilla:
 | `{duration_sec}` | Duración en segundos |
 | `{radio}` | Nombre de la radio |
 | `{block}` | Bloques a los que pertenece la canción |
+| `{program}` | Programa en directo (modo LIVE) |
 | `{time}` | Hora actual |
 
 Un ejemplo: `{radio} | {artist} - {title} ({duration})`.

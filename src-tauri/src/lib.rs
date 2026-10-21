@@ -52,6 +52,8 @@ pub fn run() {
             settings::get_settings,
             settings::save_settings,
             settings::set_branding_logo,
+            settings::import_program_cover,
+            settings::delete_program_cover,
             settings::report_started,
             settings::auto_pick,
             streaming::stream_probe,

@@ -41,6 +41,13 @@ pub struct Settings {
     pub auto_blocks: Vec<String>,
     /// Bloque por defecto del AutoDJ. Vacio = usar auto_blocks o toda la biblioteca.
     pub default_block_id: String,
+    /// Modo LIVE: la barra auxiliar muestra el programa seleccionado y sus
+    /// metadatos sustituyen a los de la cancion.
+    pub live_mode: bool,
+    /// Programa que esta en antena en modo LIVE.
+    pub live_program_id: String,
+    /// Programas preparados de antemano.
+    pub programs: Vec<Program>,
     /// Archivo "now playing" que se escribe con la cancion que suena.
     /// Vacio = no escribir nada.
     pub now_playing_path: String,
@@ -63,6 +70,22 @@ pub struct Settings {
     pub monitor_bus_id: String,
     pub video: VideoSettings,
     pub streaming: StreamingSettings,
+}
+
+/// Programa de emisión preparado con antelacion: tiene titulo, portada y
+/// una hora opcional de inicio. En modo LIVE sustituye los metadatos de la
+/// canción que suena.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Program {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
+    /// Ruta de la imagen de portada
+    pub cover: String,
+    /// Hora de inicio prevista ("22:00"); vacio = sin hora
+    pub starts_at: String,
+    pub enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -416,6 +439,9 @@ impl Default for Settings {
             music_path: String::new(),
             auto_blocks: Vec::new(),
             default_block_id: String::new(),
+            live_mode: false,
+            live_program_id: String::new(),
+            programs: Vec::new(),
             now_playing_path: String::new(),
             now_playing_template: "{artist} - {title}".to_string(),
             target_lufs: -9.0,
@@ -497,6 +523,49 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(), String> {
     write_settings(&state.data_dir, &settings)
+}
+
+/// Copia la portada de un programa a la carpeta de la app y devuelve su ruta.
+#[tauri::command]
+pub fn import_program_cover(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    let src = PathBuf::from(path.trim());
+    if !src.is_file() {
+        return Err("La imagen no existe".to_string());
+    }
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !["png", "jpg", "jpeg", "webp", "gif"].contains(&ext.as_str()) {
+        return Err("Formato de imagen no soportado (png, jpg, webp o gif)".to_string());
+    }
+    let dir = state.data_dir.join("programs");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("No se pudo preparar la carpeta: {e}"))?;
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.replace([' ', '/', '\\', ':'], "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "programa".to_string());
+    let stamp = now_epoch();
+    let dest = dir.join(format!("{stamp}-{stem}.{ext}"));
+    std::fs::copy(&src, &dest).map_err(|e| format!("No se pudo copiar la portada: {e}"))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Borra la portada de un programa (solo dentro de la carpeta de la app).
+#[tauri::command]
+pub fn delete_program_cover(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let dir = state.data_dir.join("programs");
+    let target = PathBuf::from(path.trim());
+    if target.parent() != Some(dir.as_path()) {
+        return Err("Esa imagen no es de MiRadio".to_string());
+    }
+    if target.is_file() {
+        let _ = std::fs::remove_file(&target);
+    }
+    Ok(())
 }
 
 #[tauri::command]

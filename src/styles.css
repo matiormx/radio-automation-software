@@ -844,6 +844,104 @@ body {
   border: 2px solid var(--panel);
 }
 
+/* ---------- modo LIVE ---------- */
+
+.livebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: linear-gradient(90deg, #2a1216, var(--panel) 65%);
+  border: 1px solid #ef444455;
+  border-radius: 8px;
+}
+.livebar-cover {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--text-faint);
+}
+.livebar-cover img { width: 100%; height: 100%; object-fit: cover; }
+.livebar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.livebar-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #f87171;
+}
+.livebar-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.livebar-sub,
+.livebar-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.livebar-time { color: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
+.livebar-list { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.livebar-chip {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--text-faint);
+  cursor: pointer;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.livebar-chip:hover { border-color: var(--accent); }
+.livebar-chip img { width: 100%; height: 100%; object-fit: cover; }
+.livebar-chip-txt { font-size: 11px; font-weight: 700; }
+
+.prog-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prog-card .fieldset legend { max-width: 100%; }
+.prog-row { display: flex; gap: 12px; align-items: flex-start; }
+.prog-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 96px;
+  flex-shrink: 0;
+}
+.prog-cover img,
+.prog-cover svg {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  padding: 4px;
+  color: var(--text-faint);
+}
+.prog-fields { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+.prog-fields .field input { flex: 1; min-width: 0; }
+.prog-del { color: var(--danger); }
+
 /* ---------- ajustes ---------- */
 
 .modal-backdrop {
