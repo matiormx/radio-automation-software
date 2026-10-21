@@ -93,6 +93,10 @@ biblioteca y reglas de rotación).
   hora). La barra auxiliar está siempre visible: en gris con el programa
   preparado y en rojo cuando LIVE está activo, con sus metadatos
   sustituyendo a los de la canción en el archivo `live.txt`.
+- **Historial de emisión**: las canciones que ya han sonado se guardan y se
+  ven en gris en la pestaña «Historial» de Música, con la hora de emisión.
+- **Continuar donde se quedó**: al reabrir la app, la lista activa, la
+  pista y el punto exacto de reproducción se recuperan solos.
 - **Dos archivos de directo**: `nowplaying.txt` (con su `nowplaying.jpg`)
   lleva siempre la música que está sonando, y `live.txt` (con su
   `live.jpg`) lleva el programa seleccionado cuando el modo LIVE está
@@ -245,6 +249,28 @@ selector **BLOQUE AUTO**: muestra el bloque que se está usando y permite
 asignar otro sin abrir los ajustes. Cuando hay un evento de franja
 activo, la etiqueta muestra el origen del evento, que manda sobre el
 bloque elegido.
+
+## Historial y reanudación
+
+**Historial.** Cada vez que empieza una canción, queda anotada en el
+historial (archivo `history.json` de la app). En la pestaña **Historial** de
+Música se ven las últimas 25, en gris y con la hora en que sonaron, de la
+más reciente a la más antigua. El historial también alimenta las reglas de
+rotación (no repetir tema, artista o pista).
+
+**Continuar donde se quedó.** La app guarda cada 5 segundos y al cerrar en
+qué lista estaba, qué pista sonaba y en qué segundo. Al volver a abrirla:
+
+- recupera la lista activa y deja el reproductor en esa pista y ese punto;
+- si estaba sonando y tienes activado «Reproducir automáticamente al iniciar
+  el programa», sigue sonando; si no, queda en pausa justo donde estaba,
+  y al pulsar el play continúa desde ahí.
+
+La pista recuperada no cuenta como nueva en el historial.
+
+**Vaciar la lista.** En la cabecera de la lista de emisión, el botón
+**Vaciar** quita todas sus pistas (pregunta antes). No borra las canciones
+de la biblioteca: solo la lista.
 
 ## Mesa de sonido
 
