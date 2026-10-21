@@ -25,6 +25,7 @@ import {
   trackUrl,
   backfillCovers,
   writeNowPlaying,
+  writeNowPlayingImage,
   pickNowPlayingFile,
   getStreamStatus,
   startStreaming,
@@ -46,6 +47,8 @@ import { SoundMixer } from "./mixer";
 import { StreamEncoder } from "./streaming";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
+  buildCoverJpeg,
+  nowPlayingImagePath,
   nowPlayingLine,
   renderNowPlaying,
   type NowPlayingFields,
@@ -367,6 +370,91 @@ export default function App() {
         : [];
     });
   }, [active, tracks]);
+
+  // Archivo "now playing": se escribe con los datos de la cancion actual.
+  const nowPlayingTrack = useMemo(() => {
+    if (playingRow < 0) return null;
+    const row = rows[playingRow];
+    if (!row) return null;
+    return tracks.find((track) => track.id === row.id) ?? null;
+  }, [playingRow, rows, tracks]);
+
+  const nowPlayingText = useMemo(() => {
+    if (!nowPlayingTrack) return null;
+    const durationSec = Math.max(0, Math.round(effectiveDuration(nowPlayingTrack)));
+    const blockNames = nowPlayingTrack.blocks
+      .map((id) => blocks.find((block) => block.id === id)?.name ?? "")
+      .filter((name) => name !== "")
+      .join(", ");
+    const fields: NowPlayingFields = {
+      artist: nowPlayingTrack.artist ?? "",
+      title: nowPlayingTrack.title ?? "",
+      album: nowPlayingTrack.album ?? "",
+      year: nowPlayingTrack.year ?? "",
+      genre: nowPlayingTrack.genre ?? "",
+      duration: fmtDuration(durationSec),
+      durationSec: String(durationSec),
+      radio: settings.radioName ?? "",
+      block: blockNames,
+      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+    };
+    const template = settings.nowPlayingTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
+    return nowPlayingLine(renderNowPlaying(template, fields));
+  }, [nowPlayingTrack, blocks, settings.nowPlayingTemplate, settings.radioName]);
+
+  const nowPlayingTextRef = useRef<string | null>(null);
+  nowPlayingTextRef.current = nowPlayingText;
+  const nowPlayingErrorRef = useRef("");
+
+  const nowPlayingCoverUrl = useMemo(() => {
+    const track = nowPlayingTrack;
+    if (!track || !track.cover) return "";
+    return trackUrl({ file: track.cover });
+  }, [nowPlayingTrack]);
+
+  const nowPlayingCoverRef = useRef({ url: "", title: "", artist: "", radio: "" });
+  nowPlayingCoverRef.current = {
+    url: nowPlayingCoverUrl,
+    title: nowPlayingTrack?.title ?? "",
+    artist: nowPlayingTrack?.artist ?? "",
+    radio: settings.radioName ?? "",
+  };
+
+  const reportNowPlayingError = useCallback(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === nowPlayingErrorRef.current) return;
+      nowPlayingErrorRef.current = message;
+      showToast(`No se pudo escribir el nowplaying: ${message}`);
+    },
+    [showToast],
+  );
+
+  /** Escribe la portada de la cancion como JPEG junto al archivo de texto. */
+  const publishNowPlayingImage = useCallback(
+    async (txtPath: string, cover: { url: string; title: string; artist: string; radio: string }) => {
+      const imagePath = nowPlayingImagePath(txtPath);
+      if (!imagePath) return;
+      const data = await buildCoverJpeg(cover.url, {
+        title: cover.title,
+        artist: cover.artist,
+        radio: cover.radio,
+      });
+      await writeNowPlayingImage(imagePath, data);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const path = settings.nowPlayingPath.trim();
+    if (!path || !nowPlayingText) return;
+    void writeNowPlaying(path, nowPlayingText)
+      .then(() => {
+        nowPlayingErrorRef.current = "";
+      })
+      .catch(reportNowPlayingError);
+    void publishNowPlayingImage(path, nowPlayingCoverRef.current).catch(reportNowPlayingError);
+  }, [nowPlayingText, settings.nowPlayingPath, nowPlayingCoverUrl, publishNowPlayingImage, reportNowPlayingError]);
 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -955,9 +1043,16 @@ export default function App() {
       return;
     }
     void writeNowPlaying(path, text)
-      .then((file) => showToast(`Nowplaying escrito en ${file}`))
+      .then(async (file) => {
+        showToast(`Nowplaying escrito en ${file}`);
+        try {
+          await publishNowPlayingImage(path, nowPlayingCoverRef.current);
+        } catch (e) {
+          showToast(`No se pudo escribir la portada: ${String(e)}`);
+        }
+      })
       .catch((e) => showToast(`No se pudo escribir: ${String(e)}`));
-  }, [showToast]);
+  }, [showToast, publishNowPlayingImage]);
 
   const chooseLogo = useCallback(async () => {
     try {
@@ -1331,56 +1426,6 @@ export default function App() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotOn, playingRow, rows, settings, autoScopeKey]);
-
-  // Archivo "now playing": se escribe con los datos de la cancion actual.
-  const nowPlayingTrack = useMemo(() => {
-    if (playingRow < 0) return null;
-    const row = rows[playingRow];
-    if (!row) return null;
-    return tracks.find((track) => track.id === row.id) ?? null;
-  }, [playingRow, rows, tracks]);
-
-  const nowPlayingText = useMemo(() => {
-    if (!nowPlayingTrack) return null;
-    const durationSec = Math.max(0, Math.round(effectiveDuration(nowPlayingTrack)));
-    const blockNames = nowPlayingTrack.blocks
-      .map((id) => blocks.find((block) => block.id === id)?.name ?? "")
-      .filter((name) => name !== "")
-      .join(", ");
-    const fields: NowPlayingFields = {
-      artist: nowPlayingTrack.artist ?? "",
-      title: nowPlayingTrack.title ?? "",
-      album: nowPlayingTrack.album ?? "",
-      year: nowPlayingTrack.year ?? "",
-      genre: nowPlayingTrack.genre ?? "",
-      duration: fmtDuration(durationSec),
-      durationSec: String(durationSec),
-      radio: settings.radioName ?? "",
-      block: blockNames,
-      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
-    };
-    const template = settings.nowPlayingTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
-    return nowPlayingLine(renderNowPlaying(template, fields));
-  }, [nowPlayingTrack, blocks, settings.nowPlayingTemplate, settings.radioName]);
-
-  const nowPlayingTextRef = useRef<string | null>(null);
-  nowPlayingTextRef.current = nowPlayingText;
-  const nowPlayingErrorRef = useRef("");
-
-  useEffect(() => {
-    const path = settings.nowPlayingPath.trim();
-    if (!path || !nowPlayingText) return;
-    void writeNowPlaying(path, nowPlayingText)
-      .then(() => {
-        nowPlayingErrorRef.current = "";
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message === nowPlayingErrorRef.current) return;
-        nowPlayingErrorRef.current = message;
-        showToast(`No se pudo escribir el nowplaying: ${message}`);
-      });
-  }, [nowPlayingText, settings.nowPlayingPath, showToast]);
 
   // Horas estimadas de emisión de cada pista pendiente
   const estStart = useMemo(() => {

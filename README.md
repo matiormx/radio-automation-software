@@ -89,9 +89,9 @@ biblioteca y reglas de rotación).
   defecto, y la barra inferior, junto al piloto automático, permite
   cambiarlo en caliente y ver qué bloque está usando. Un evento activo
   tiene prioridad sobre esa elección.
-- **Archivo nowplaying**: la app escribe un archivo `.txt` con la canción
-  que está sonando, en la ruta que elijas y con los datos que elijas
-  (por defecto, `ARTISTA - TITULO`).
+- **Archivo nowplaying**: la app escribe un `.txt` con la canción que está
+  sonando (por defecto `ARTISTA - TITULO`) y, junto a él, un `.jpg` con
+  la portada de esa canción.
 - **Actualización desde los ajustes**: en Ajustes > General se busca la
   última release publicada y se descarga el instalador, que se abre solo.
 - **Ajustes con navegación lateral**: General (identidad, logo, carpeta
@@ -334,9 +334,15 @@ archivo de texto con la canción que está sonando (por ejemplo
 `C:\MiRadio\nowplaying.txt`) y qué datos lleva dentro. Por defecto es
 `{artist} - {title}`.
 
-El archivo se reescribe en cada cambio de canción, de forma atómica (se
-escribe un temporal y se renombra), para que ningún programa lea una
-línea a medias. Solo se aceptan archivos `.txt`.
+El archivo de texto se reescribe en cada cambio de canción, de forma
+atómica (se escribe un temporal y se renombra), para que ningún programa
+lea una línea a medias. Solo se aceptan archivos `.txt`.
+
+Junto a él, en la misma carpeta, se escribe **`nowplaying.jpg`** con la
+portada de la canción: un JPEG cuadrado de 600x600 (recortado al centro).
+Si la canción no tiene portada, se genera una imagen con el título y el
+artista. La imagen se escribe de forma atómica y solo se acepta un JPEG
+válido.
 
 Datos disponibles para la plantilla:
 

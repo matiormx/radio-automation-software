@@ -8,7 +8,11 @@ import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
 import { UpdateSection } from "./UpdateSection";
-import { DEFAULT_NOW_PLAYING_TEMPLATE, NOW_PLAYING_PLACEHOLDERS } from "../nowplaying";
+import {
+  DEFAULT_NOW_PLAYING_TEMPLATE,
+  NOW_PLAYING_PLACEHOLDERS,
+  nowPlayingImagePath,
+} from "../nowplaying";
 import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
@@ -411,6 +415,11 @@ function GeneralTab({
             </button>
           </span>
         </label>
+        <p className="hint">
+          Junto al archivo de texto se escribe la portada de la canción:{" "}
+          <code>{nowPlayingImagePath(s.nowPlayingPath) || "nowplaying.jpg"}</code> (misma carpeta,
+          600x600). Si la canción no tiene portada, se genera una imagen con el título.
+        </p>
         <label className="field">
           <span className="field-label">Contenido</span>
           <span className="field-unit np-path">

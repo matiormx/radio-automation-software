@@ -62,7 +62,8 @@ pub fn run() {
             update::app_version,
             update::install_update,
             update::open_url,
-            nowplaying::write_now_playing
+            nowplaying::write_now_playing,
+            nowplaying::write_now_playing_image
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar MiRadio");

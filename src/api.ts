@@ -151,6 +151,10 @@ export function writeNowPlaying(path: string, contents: string): Promise<string>
   return invoke<string>("write_now_playing", { path, contents });
 }
 
+export function writeNowPlayingImage(path: string, data: string): Promise<string> {
+  return invoke<string>("write_now_playing_image", { path, data });
+}
+
 export async function pickNowPlayingFile(current: string): Promise<string | null> {
   return saveDialog({
     title: "Archivo nowplaying",
