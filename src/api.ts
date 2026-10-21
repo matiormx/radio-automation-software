@@ -6,6 +6,8 @@ import type {
   Playlist,
   PlaylistImportReport,
   Settings,
+  StreamProbe,
+  StreamStatus,
   Track,
   TrackDetails,
   TrackPatch,
@@ -143,6 +145,26 @@ export function saveSettings(settings: Settings): Promise<void> {
 
 export function setBrandingLogo(path: string | null): Promise<string> {
   return invoke<string>("set_branding_logo", { path });
+}
+
+export function probeStreaming(): Promise<StreamProbe> {
+  return invoke<StreamProbe>("stream_probe");
+}
+
+export function getStreamStatus(): Promise<StreamStatus> {
+  return invoke<StreamStatus>("stream_status");
+}
+
+export function startStreaming(settings: Settings): Promise<StreamStatus> {
+  return invoke<StreamStatus>("stream_start", { settings });
+}
+
+export function stopStreaming(): Promise<StreamStatus> {
+  return invoke<StreamStatus>("stream_stop");
+}
+
+export function pushStreamPcm(data: number[]): Promise<void> {
+  return invoke("stream_push_pcm", { data });
 }
 
 export async function pickImageFile(): Promise<string | null> {

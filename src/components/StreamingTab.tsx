@@ -56,10 +56,17 @@ export function StreamingTab({ settings, onChange }: Props) {
           <h4>Streaming</h4>
           <p className="hint">
             Emisión de audio a Icecast en FLAC o AAC y salida de vídeo por RTSP a un servidor
-            externo. El motor usa FFmpeg y se controla desde la barra de emisión.
+            externo. El motor usa FFmpeg y se inicia con el botón EMITIR de la cabecera. La
+            captura toma el mismo bus que el VU de salida en PCM 48 kHz estéreo.
           </p>
         </div>
       </div>
+
+      <p className="hint">
+        El motor busca <code>ffmpeg.exe</code> junto a MiRadio.exe, en una carpeta <code>bin</code>
+        o en PATH. También puedes indicar la ruta con la variable <code>MIRADIO_FFMPEG</code>.
+        El instalador copia <code>ffmpeg.exe</code> si está junto a <code>instalar.cmd</code>.
+      </p>
 
       <fieldset className="fieldset">
         <legend>Audio por Icecast</legend>
@@ -346,8 +353,8 @@ export function StreamingTab({ settings, onChange }: Props) {
           </label>
         </div>
         <p className="hint">
-          La emisión RTSP empuja el programa de vídeo al servidor indicado. La salida NDI se
-          activará en la segunda fase.
+          La emisión RTSP empuja el programa de vídeo al servidor indicado. Usa la primera entrada
+          de vídeo activa. La salida NDI se activará en la segunda fase.
         </p>
       </fieldset>
     </>

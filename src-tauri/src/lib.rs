@@ -6,6 +6,7 @@ pub mod analysis;
 pub mod library;
 pub mod playlists;
 pub mod settings;
+pub mod streaming;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -20,6 +21,7 @@ pub fn run() {
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
             app.manage(AppState { data_dir });
+            app.manage(streaming::StreamingState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -49,7 +51,12 @@ pub fn run() {
             settings::save_settings,
             settings::set_branding_logo,
             settings::report_started,
-            settings::auto_pick
+            settings::auto_pick,
+            streaming::stream_probe,
+            streaming::stream_status,
+            streaming::stream_start,
+            streaming::stream_stop,
+            streaming::stream_push_pcm
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar MiRadio");

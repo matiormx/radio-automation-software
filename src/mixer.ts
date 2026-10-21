@@ -73,6 +73,7 @@ export class SoundMixer {
   private monitorAnalyser: AnalyserNode;
   private monitorData: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
+  private readonly programTap: GainNode;
 
   private readonly canSink =
     typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
@@ -85,6 +86,7 @@ export class SoundMixer {
     this.ctx = new Ctor();
     this.musicInput = this.ctx.createGain();
     this.previewInput = this.ctx.createGain();
+    this.programTap = this.ctx.createGain();
     this.monitorAnalyser = this.ctx.createAnalyser();
     this.monitorAnalyser.fftSize = 1024;
     this.monitorAnalyser.smoothingTimeConstant = 0.7;
@@ -108,6 +110,11 @@ export class SoundMixer {
     if (this.monitorTap) {
       try {
         this.monitorTap.disconnect(this.monitorAnalyser);
+      } catch {
+        /* ya estaba desconectado */
+      }
+      try {
+        this.monitorTap.disconnect(this.programTap);
       } catch {
         /* ya estaba desconectado */
       }
@@ -145,6 +152,7 @@ export class SoundMixer {
     const monitorSource = cfg.monitorBusId ? this.busGains.get(cfg.monitorBusId) : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorAnalyser);
+    monitorTap.connect(this.programTap);
     this.monitorTap = monitorTap;
 
     let musicUsed = false;
@@ -203,6 +211,11 @@ export class SoundMixer {
       sink.el.remove();
       this.sinks.delete(id);
     }
+  }
+
+  /** Señal del programa (mismo bus que el VU) para el motor de emisión. */
+  getProgramNode(): AudioNode {
+    return this.programTap;
   }
 
   getMonitorLevel(): { level: number; db: number } {
@@ -321,6 +334,11 @@ export class SoundMixer {
       } catch {
         /* ya estaba desconectado */
       }
+      try {
+        this.monitorTap.disconnect(this.programTap);
+      } catch {
+        /* ya estaba desconectado */
+      }
       this.monitorTap = null;
     }
     for (const src of this.inputSources.values()) {
@@ -335,6 +353,7 @@ export class SoundMixer {
     }
     this.sinks.clear();
     this.deviceMixes.clear();
+    this.programTap.disconnect();
     void this.ctx.close().catch(() => undefined);
   }
 

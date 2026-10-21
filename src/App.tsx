@@ -24,11 +24,24 @@ import {
   setBrandingLogo,
   trackUrl,
   backfillCovers,
+  getStreamStatus,
+  startStreaming,
+  stopStreaming,
 } from "./api";
-import type { Track, Playlist, PlaylistRow, Settings, Block, Campaign, StationEvent } from "./types";
+import type {
+  Track,
+  Playlist,
+  PlaylistRow,
+  Settings,
+  Block,
+  Campaign,
+  StationEvent,
+  StreamStatus,
+} from "./types";
 import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
+import { StreamEncoder } from "./streaming";
 import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
@@ -152,10 +165,20 @@ export default function App() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
   const [manualAuto, setManualAuto] = useState<{ id: string; until: number } | null>(null);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
+  const [streamBusy, setStreamBusy] = useState(false);
   const autopilotOn = settings.autopilotEnabled;
+  const hasStreamOutputs = useMemo(
+    () =>
+      settings.streaming.icecast.some((stream) => stream.enabled) ||
+      settings.streaming.rtsp.enabled ||
+      (settings.video.enabled && settings.video.outputs.some((output) => output.enabled)),
+    [settings.streaming.icecast, settings.streaming.rtsp.enabled, settings.video.enabled, settings.video.outputs],
+  );
 
   const playerRef = useRef<RadioPlayer | null>(null);
   const mixerRef = useRef<SoundMixer | null>(null);
+  const streamEncoderRef = useRef<StreamEncoder | null>(null);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
@@ -195,6 +218,27 @@ export default function App() {
     };
     document.addEventListener("contextmenu", onContextMenu);
     return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  // Motor de emisión: al abrir la app se recupera el estado y se evita
+  // dejar procesos FFmpeg huérfanos de una recarga anterior.
+  useEffect(() => {
+    void getStreamStatus()
+      .then((status) => {
+        if (status.running) {
+          void stopStreaming()
+            .then(setStreamStatus)
+            .catch(() => undefined);
+        } else {
+          setStreamStatus(status);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      void streamEncoderRef.current?.stop();
+      streamEncoderRef.current = null;
+      void stopStreaming().catch(() => undefined);
+    };
   }, []);
 
   // Motor de audio
@@ -679,6 +723,90 @@ export default function App() {
     setSettings(s);
     void saveSettings(s).catch(() => undefined);
   }, []);
+
+  const failStreaming = useCallback(
+    (message: string) => {
+      showToast(message);
+      void streamEncoderRef.current?.stop();
+      streamEncoderRef.current = null;
+      void stopStreaming()
+        .then(setStreamStatus)
+        .catch(() => undefined);
+    },
+    [showToast],
+  );
+
+  const toggleStreaming = useCallback(async () => {
+    if (streamBusy) return;
+    if (streamStatus?.running) {
+      setStreamBusy(true);
+      try {
+        await streamEncoderRef.current?.stop();
+        streamEncoderRef.current = null;
+        setStreamStatus(await stopStreaming());
+        showToast("Emisión detenida");
+      } catch (error) {
+        showToast(`No se pudo detener la emisión: ${String(error)}`);
+      } finally {
+        setStreamBusy(false);
+      }
+      return;
+    }
+    if (!hasStreamOutputs) {
+      showToast("Configura una salida Icecast, RTSP o de vídeo antes de emitir");
+      return;
+    }
+    const mixer = mixerRef.current;
+    if (!mixer) {
+      showToast("La mesa de sonido todavía no está lista");
+      return;
+    }
+    setStreamBusy(true);
+    try {
+      const status = await startStreaming(settings);
+      if (!status.running) {
+        throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
+      }
+      setStreamStatus(status);
+      if (status.needsAudio) {
+        const encoder = new StreamEncoder(mixer, failStreaming);
+        await encoder.start();
+        streamEncoderRef.current = encoder;
+      }
+      showToast(status.lastError ?? "Emisión iniciada");
+    } catch (error) {
+      await streamEncoderRef.current?.stop();
+      streamEncoderRef.current = null;
+      await stopStreaming()
+        .then(setStreamStatus)
+        .catch(() => setStreamStatus(null));
+      showToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStreamBusy(false);
+    }
+  }, [streamBusy, streamStatus?.running, hasStreamOutputs, settings, failStreaming, showToast]);
+
+  useEffect(() => {
+    if (!streamStatus?.running) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      void getStreamStatus()
+        .then((status) => {
+          if (!alive) return;
+          setStreamStatus(status);
+          if (!status.running) {
+            void streamEncoderRef.current?.stop();
+            streamEncoderRef.current = null;
+            showToast(status.lastError ?? "La emisión se detuvo");
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [streamStatus?.running, showToast]);
 
   const launchEvent = useCallback(
     (event: StationEvent) => {
@@ -1202,6 +1330,25 @@ export default function App() {
               }}
             />
           </label>
+          <button
+            type="button"
+            className={`top-live ${streamStatus?.running ? "live" : ""} ${
+              streamBusy ? "busy" : ""
+            }`}
+            onClick={() => void toggleStreaming()}
+            disabled={streamBusy || (!streamStatus?.running && !hasStreamOutputs)}
+            aria-pressed={streamStatus?.running ?? false}
+            title={
+              streamStatus?.running
+                ? "Detener la emisión"
+                : hasStreamOutputs
+                  ? streamStatus?.lastError ?? "Iniciar la emisión"
+                  : "Configura una salida en Ajustes > Streaming"
+            }
+          >
+            <span className="top-live-dot" />
+            <span>{streamBusy ? "CONECTANDO" : streamStatus?.running ? "EN VIVO" : "EMITIR"}</span>
+          </button>
           <span className="clock" role="timer">{clock}</span>
           <button
             type="button"

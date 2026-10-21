@@ -273,6 +273,28 @@ export interface StreamingSettings {
   rtsp: RtspOutput;
 }
 
+export interface StreamOutputStatus {
+  id: string;
+  name: string;
+  kind: string;
+  running: boolean;
+}
+
+export interface StreamStatus {
+  running: boolean;
+  needsAudio: boolean;
+  ffmpeg: string | null;
+  outputs: StreamOutputStatus[];
+  lastError: string | null;
+}
+
+export interface StreamProbe {
+  available: boolean;
+  path: string | null;
+  version: string | null;
+  error: string | null;
+}
+
 export interface Settings {
   fadeSeconds: number;
   autopilotEnabled: boolean;

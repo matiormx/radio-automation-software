@@ -76,10 +76,11 @@ biblioteca y reglas de rotación).
   del equipo o la predeterminada. El **VU vertical** entre la biblioteca y
   la lista muestra el nivel de la salida general o del bus elegido en
   Sonido.
-- **Ajustes de vídeo y streaming**: canales de entrada (archivo, RTSP o
-  NDI) y de salida (pantalla/HDMI, tarjeta SDI, NDI o RTSP), con formato,
-  FPS y bitrate por salida. La sección Streaming configura emisiones de
-  audio por Icecast en FLAC o AAC y la salida de vídeo por RTSP.
+- **Vídeo y streaming**: canales de entrada (archivo, RTSP o NDI) y de
+  salida (pantalla/HDMI, tarjeta SDI, NDI o RTSP), con formato, FPS y
+  bitrate por salida. El motor FFmpeg emite audio por Icecast en FLAC o
+  AAC y vídeo por RTSP; se inicia y detiene con el botón **EMITIR** de la
+  cabecera.
 - **Ajustes con navegación lateral**: General (identidad, logo y carpeta
   de música), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas y cola),
   Campañas (anuncios y jingles), Eventos (franjas y sonidos programados)
@@ -161,11 +162,26 @@ activa.
 En **Ajustes > Streaming** se configuran una o varias emisiones de audio por
 Icecast (FLAC sin pérdida o AAC con bitrate) con servidor, puerto, montaje,
 credenciales y metadatos públicos, además de la salida de vídeo RTSP con
-transporte TCP/UDP, resolución, FPS, bitrate y keyframes. El motor usa FFmpeg
-y se controla desde la barra de emisión.
+transporte TCP/UDP, resolución, FPS, bitrate y keyframes.
 
-NDI queda preparado en los canales para una segunda fase. La salida por
-tarjeta SDI requiere el SDK DeckLink instalado en el equipo.
+El botón **EMITIR** de la cabecera arranca y detiene el motor. La captura de
+audio toma el mismo bus que el VU de salida en PCM s16le a 48 kHz estéreo;
+FFmpeg lo transcodifica a FLAC/AAC para Icecast y a AAC para RTSP. Las
+salidas RTSP usan la primera entrada de vídeo activa y hacen cortes, sin
+mezcla. La salida a pantalla/HDMI usa la salida SDL de FFmpeg y la salida SDI
+requiere una build de FFmpeg con DeckLink y el SDK instalado.
+
+MiRadio busca **FFmpeg** en este orden:
+
+1. La variable de entorno `MIRADIO_FFMPEG`.
+2. `ffmpeg.exe` junto a `MiRadio.exe` o en `bin\ffmpeg.exe`.
+3. `ffmpeg.exe` en `PATH`.
+
+El instalador copia `ffmpeg.exe` si lo incluyes en la misma carpeta que
+`instalar.cmd`. Sin FFmpeg, el resto de la app funciona; al pulsar EMITIR se
+muestra el error de que no se encontró.
+
+NDI queda preparado en los canales para una segunda fase.
 
 ## Eventos de programación
 
@@ -288,6 +304,9 @@ En la raiz del proyecto esta `MiRadio-Instalador-Windows.zip`:
    No pide permisos de administrador. Si la app está abierta, la cierra
    antes de actualizar.
 3. Abre MiRadio y suelta canciones.
+4. Para emisión, coloca `ffmpeg.exe` junto a `instalar.cmd` antes de
+   instalar. El instalador lo copia al lado de `MiRadio.exe`; también
+   puedes instalarlo en `PATH` o usar `MIRADIO_FFMPEG`.
 
 Para desinstalar: `desinstalar.cmd` o «Aplicaciones instaladas». Los datos
 (`%LOCALAPPDATA%\com.miradio.app`) se conservan a propósito.
