@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trackUrl } from "../api";
 import { IconNote } from "../icons";
 
@@ -58,9 +58,37 @@ export function DeckZone({
   nextDuration,
   onSeek,
 }: DeckZoneProps) {
+  // Posicion que el operador esta arrastrando (aun sin soltar).
   const [scrub, setScrub] = useState<number | null>(null);
+  // Destino ya pedido al motor: se sigue mostrando hasta que el motor llega
+  // para que la barra no rebote a la posicion vieja al soltar.
+  const [target, setTarget] = useState<number | null>(null);
+  const scrubRef = useRef<number | null>(null);
+  const onSeekRef = useRef(onSeek);
+  onSeekRef.current = onSeek;
   const hasTrack = title !== "";
-  const shown = scrub ?? current;
+  const shown = scrub ?? target ?? current;
+
+  // Aplica el salto una sola vez, venga de soltar el raton o de una tecla.
+  const commitScrub = () => {
+    const value = scrubRef.current;
+    scrubRef.current = null;
+    setScrub(null);
+    if (value === null) return;
+    setTarget(value);
+    onSeekRef.current(value);
+  };
+
+  // El destino se oculta cuando el motor ya esta ahi, o pasados 2 s por si el
+  // salto no llegara a aplicarse.
+  useEffect(() => {
+    if (target !== null && Math.abs(current - target) <= 2) setTarget(null);
+  }, [current, target]);
+  useEffect(() => {
+    if (target === null) return;
+    const timer = window.setTimeout(() => setTarget(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [target]);
   const remaining = total > 0 ? Math.max(0, total - shown) : 0;
   const nextSub = [nextAlbum, nextDuration > 0 ? fmtTime(nextDuration) : ""].filter(Boolean).join(" · ");
 
@@ -87,15 +115,13 @@ export function DeckZone({
                 max={Math.max(1, Math.floor(total - 2))}
                 step={1}
                 value={Math.max(0, Math.floor(shown))}
-                onChange={(e) => setScrub(Number(e.target.value))}
-                onPointerUp={() => {
-                  if (scrub !== null) onSeek(scrub);
-                  setScrub(null);
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  scrubRef.current = value;
+                  setScrub(value);
                 }}
-                onKeyUp={() => {
-                  if (scrub !== null) onSeek(scrub);
-                  setScrub(null);
-                }}
+                onPointerUp={commitScrub}
+                onKeyUp={commitScrub}
                 aria-label="Posición de la pista"
               />
               <div className="progress-times">
