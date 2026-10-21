@@ -78,6 +78,8 @@ interface PaneProps {
   onPick: (side: Side) => void;
   busy: boolean;
   errors: Map<string, string>;
+  skipAnalyzed: boolean;
+  onSkipAnalyzed: (skip: boolean) => void;
 }
 
 function Pane({
@@ -92,6 +94,8 @@ function Pane({
   onPick,
   busy,
   errors,
+  skipAnalyzed,
+  onSkipAnalyzed,
 }: PaneProps) {
   const [mode, setMode] = useState<Mode>("folders");
   const [search, setSearch] = useState("");
@@ -452,6 +456,18 @@ function Pane({
             ? `${selected.size} seleccionadas`
             : `${visible.length} visibles · ${effectiveDurationLabel(visible)}`}
         </span>
+        <label
+          className="nskip"
+          title="No volver a analizar canciones que ya tengan un análisis previo"
+        >
+          <input
+            type="checkbox"
+            checked={skipAnalyzed}
+            disabled={busy}
+            onChange={(e) => onSkipAnalyzed(e.target.checked)}
+          />
+          Omitir ya analizadas
+        </label>
         <button
           type="button"
           className="btn btn-sm"
@@ -884,6 +900,7 @@ export function Normalizer({
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [running, setRunning] = useState<RunningState | null>(null);
   const [paused, setPaused] = useState(false);
+  const [skipAnalyzed, setSkipAnalyzed] = useState(false);
   const [trimId, setTrimId] = useState("");
   const [target, setTarget] = useState(String(targetLufs));
   const [peak, setPeak] = useState(String(truePeakDb));
