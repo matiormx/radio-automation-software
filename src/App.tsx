@@ -24,6 +24,8 @@ import {
   setBrandingLogo,
   trackUrl,
   backfillCovers,
+  writeNowPlaying,
+  pickNowPlayingFile,
   getStreamStatus,
   startStreaming,
   stopStreaming,
@@ -42,6 +44,12 @@ import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
 import { StreamEncoder } from "./streaming";
+import {
+  DEFAULT_NOW_PLAYING_TEMPLATE,
+  nowPlayingLine,
+  renderNowPlaying,
+  type NowPlayingFields,
+} from "./nowplaying";
 import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
@@ -135,6 +143,13 @@ function campaignTime(value: string): number | null {
   if (!value) return null;
   const t = new Date(value).getTime();
   return Number.isNaN(t) ? null : t;
+}
+
+function fmtDuration(secs: number): string {
+  const total = Math.max(0, Math.round(secs));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function extOk(path: string): boolean {
@@ -917,6 +932,33 @@ export default function App() {
     }
   }, [showToast]);
 
+  const chooseNowPlayingFile = useCallback(async () => {
+    try {
+      const path = await pickNowPlayingFile(settingsRef.current.nowPlayingPath);
+      if (!path) return;
+      updateSettings({ ...settingsRef.current, nowPlayingPath: path });
+      showToast("Archivo nowplaying elegido");
+    } catch (e) {
+      showToast(`No se pudo elegir el archivo: ${String(e)}`);
+    }
+  }, [showToast, updateSettings]);
+
+  const writeNowPlayingNow = useCallback(() => {
+    const path = settingsRef.current.nowPlayingPath.trim();
+    if (!path) {
+      showToast("Elige primero el archivo nowplaying");
+      return;
+    }
+    const text = nowPlayingTextRef.current;
+    if (!text) {
+      showToast("Ahora mismo no suena ninguna canción");
+      return;
+    }
+    void writeNowPlaying(path, text)
+      .then((file) => showToast(`Nowplaying escrito en ${file}`))
+      .catch((e) => showToast(`No se pudo escribir: ${String(e)}`));
+  }, [showToast]);
+
   const chooseLogo = useCallback(async () => {
     try {
       const path = await pickImageFile();
@@ -1290,6 +1332,56 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotOn, playingRow, rows, settings, autoScopeKey]);
 
+  // Archivo "now playing": se escribe con los datos de la cancion actual.
+  const nowPlayingTrack = useMemo(() => {
+    if (playingRow < 0) return null;
+    const row = rows[playingRow];
+    if (!row) return null;
+    return tracks.find((track) => track.id === row.id) ?? null;
+  }, [playingRow, rows, tracks]);
+
+  const nowPlayingText = useMemo(() => {
+    if (!nowPlayingTrack) return null;
+    const durationSec = Math.max(0, Math.round(effectiveDuration(nowPlayingTrack)));
+    const blockNames = nowPlayingTrack.blocks
+      .map((id) => blocks.find((block) => block.id === id)?.name ?? "")
+      .filter((name) => name !== "")
+      .join(", ");
+    const fields: NowPlayingFields = {
+      artist: nowPlayingTrack.artist ?? "",
+      title: nowPlayingTrack.title ?? "",
+      album: nowPlayingTrack.album ?? "",
+      year: nowPlayingTrack.year ?? "",
+      genre: nowPlayingTrack.genre ?? "",
+      duration: fmtDuration(durationSec),
+      durationSec: String(durationSec),
+      radio: settings.radioName ?? "",
+      block: blockNames,
+      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+    };
+    const template = settings.nowPlayingTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
+    return nowPlayingLine(renderNowPlaying(template, fields));
+  }, [nowPlayingTrack, blocks, settings.nowPlayingTemplate, settings.radioName]);
+
+  const nowPlayingTextRef = useRef<string | null>(null);
+  nowPlayingTextRef.current = nowPlayingText;
+  const nowPlayingErrorRef = useRef("");
+
+  useEffect(() => {
+    const path = settings.nowPlayingPath.trim();
+    if (!path || !nowPlayingText) return;
+    void writeNowPlaying(path, nowPlayingText)
+      .then(() => {
+        nowPlayingErrorRef.current = "";
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === nowPlayingErrorRef.current) return;
+        nowPlayingErrorRef.current = message;
+        showToast(`No se pudo escribir el nowplaying: ${message}`);
+      });
+  }, [nowPlayingText, settings.nowPlayingPath, showToast]);
+
   // Horas estimadas de emisión de cada pista pendiente
   const estStart = useMemo(() => {
     const out: string[] = new Array(rows.length).fill("");
@@ -1526,6 +1618,8 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           onPickMusicFolder={() => chooseMusicFolder()}
           onPickLogo={() => chooseLogo()}
+          onPickNowPlaying={chooseNowPlayingFile}
+          onWriteNowPlaying={writeNowPlayingNow}
           onClearLogo={() => removeLogo()}
           onImportAudio={() => importForCampaign()}
           onLaunchEvent={launchEvent}

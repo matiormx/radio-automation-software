@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type {
   Block,
   Playlist,
@@ -145,6 +145,18 @@ export function saveSettings(settings: Settings): Promise<void> {
 
 export function setBrandingLogo(path: string | null): Promise<string> {
   return invoke<string>("set_branding_logo", { path });
+}
+
+export function writeNowPlaying(path: string, contents: string): Promise<string> {
+  return invoke<string>("write_now_playing", { path, contents });
+}
+
+export async function pickNowPlayingFile(current: string): Promise<string | null> {
+  return saveDialog({
+    title: "Archivo nowplaying",
+    defaultPath: current || "nowplaying.txt",
+    filters: [{ name: "Texto", extensions: ["txt"] }],
+  });
 }
 
 export function appVersion(): Promise<string> {

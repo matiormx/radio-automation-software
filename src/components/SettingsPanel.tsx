@@ -8,6 +8,7 @@ import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
 import { UpdateSection } from "./UpdateSection";
+import { DEFAULT_NOW_PLAYING_TEMPLATE, NOW_PLAYING_PLACEHOLDERS } from "../nowplaying";
 import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
@@ -18,6 +19,8 @@ interface SettingsPanelProps {
   onChange: (s: Settings) => void;
   onClose: () => void;
   onPickMusicFolder: () => Promise<void>;
+  onPickNowPlaying: () => void;
+  onWriteNowPlaying: () => void;
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
   onImportAudio: () => Promise<Track[]>;
@@ -143,6 +146,8 @@ export function SettingsPanel({
   onChange,
   onClose,
   onPickMusicFolder,
+  onPickNowPlaying,
+  onWriteNowPlaying,
   onPickLogo,
   onClearLogo,
   onImportAudio,
@@ -247,6 +252,8 @@ export function SettingsPanel({
                 showToast={showToast}
                 onChange={onChange}
                 onPickMusicFolder={onPickMusicFolder}
+                onPickNowPlaying={onPickNowPlaying}
+                onWriteNowPlaying={onWriteNowPlaying}
                 onPickLogo={onPickLogo}
                 onClearLogo={onClearLogo}
               />
@@ -286,6 +293,8 @@ function GeneralTab({
   showToast,
   onChange,
   onPickMusicFolder,
+  onPickNowPlaying,
+  onWriteNowPlaying,
   onPickLogo,
   onClearLogo,
 }: {
@@ -294,6 +303,8 @@ function GeneralTab({
   showToast: (msg: string) => void;
   onChange: (s: Settings) => void;
   onPickMusicFolder: () => Promise<void>;
+  onPickNowPlaying: () => void;
+  onWriteNowPlaying: () => void;
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
 }) {
@@ -367,6 +378,60 @@ function GeneralTab({
           Si eliges un bloque, el AutoDJ saca las próximas canciones de ahí. En «Automático»
           usa los bloques marcados con el rayo en Música; si no hay ninguno, toda la biblioteca.
           Un evento activo tiene prioridad sobre esta selección.
+        </p>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Archivo nowplaying</legend>
+        <p className="hint">
+          Escribe un archivo de texto con la canción que está sonando, para que otros programas
+          o pantallas lo lean. Se actualiza en cada cambio de canción.
+        </p>
+        <label className="field">
+          <span className="field-label">Archivo</span>
+          <span className="field-unit np-path">
+            <input
+              type="text"
+              value={s.nowPlayingPath}
+              spellCheck={false}
+              placeholder="C:\\MiRadio\\nowplaying.txt"
+              onChange={(e) => onChange({ ...s, nowPlayingPath: e.target.value })}
+            />
+            <button type="button" className="btn btn-sm" onClick={() => void onPickNowPlaying()}>
+              <IconFolder size={14} />
+              Elegir archivo
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onWriteNowPlaying}
+              title="Escribir ahora la canción que suena"
+            >
+              Escribir ahora
+            </button>
+          </span>
+        </label>
+        <label className="field">
+          <span className="field-label">Contenido</span>
+          <span className="field-unit np-path">
+            <input
+              type="text"
+              value={s.nowPlayingTemplate}
+              spellCheck={false}
+              placeholder={DEFAULT_NOW_PLAYING_TEMPLATE}
+              onChange={(e) => onChange({ ...s, nowPlayingTemplate: e.target.value })}
+            />
+          </span>
+        </label>
+        <p className="hint">
+          Por defecto: <code>{DEFAULT_NOW_PLAYING_TEMPLATE}</code>. Puedes usar{" "}
+          {NOW_PLAYING_PLACEHOLDERS.map((item, index) => (
+            <span key={item.key}>
+              {index > 0 && ", "}
+              <code>{item.key}</code> ({item.label})
+            </span>
+          ))}
+          .
         </p>
       </fieldset>
 

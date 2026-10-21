@@ -6,6 +6,7 @@ pub mod analysis;
 pub mod library;
 pub mod playlists;
 pub mod settings;
+pub mod nowplaying;
 pub mod streaming;
 pub mod update;
 
@@ -60,7 +61,8 @@ pub fn run() {
             streaming::stream_push_pcm,
             update::app_version,
             update::install_update,
-            update::open_url
+            update::open_url,
+            nowplaying::write_now_playing
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar MiRadio");

@@ -917,6 +917,22 @@ body {
 }
 .field-unit input:focus { border-color: var(--accent); }
 
+.np-path { flex: 1; justify-content: flex-end; }
+.np-path input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 5px 8px;
+  outline: none;
+}
+.np-path input:focus { border-color: var(--accent); }
+
 .update-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .update-notes {
   max-height: 120px;

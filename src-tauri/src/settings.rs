@@ -41,6 +41,11 @@ pub struct Settings {
     pub auto_blocks: Vec<String>,
     /// Bloque por defecto del AutoDJ. Vacio = usar auto_blocks o toda la biblioteca.
     pub default_block_id: String,
+    /// Archivo "now playing" que se escribe con la cancion que suena.
+    /// Vacio = no escribir nada.
+    pub now_playing_path: String,
+    /// Plantilla del archivo nowplaying. Por defecto "artista - titulo".
+    pub now_playing_template: String,
     /// Objetivo de sonoridad integrada para la normalizacion.
     pub target_lufs: f64,
     /// Techo de pico real al aplicar la ganancia de normalizacion.
@@ -411,6 +416,8 @@ impl Default for Settings {
             music_path: String::new(),
             auto_blocks: Vec::new(),
             default_block_id: String::new(),
+            now_playing_path: String::new(),
+            now_playing_template: "{artist} - {title}".to_string(),
             target_lufs: -9.0,
             true_peak_db: -1.0,
             radio_name: "MiRadio".to_string(),

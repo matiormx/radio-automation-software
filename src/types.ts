@@ -326,6 +326,10 @@ export interface Settings {
   autoBlocks: string[];
   /** Bloque por defecto del AutoDJ; "" = usar autoBlocks o toda la biblioteca */
   defaultBlockId: string;
+  /** Archivo "now playing" que se escribe con la cancion que suena */
+  nowPlayingPath: string;
+  /** Plantilla del archivo nowplaying; por defecto "{artist} - {title}" */
+  nowPlayingTemplate: string;
   /** Objetivo de sonoridad de la normalizacion (LUFS) */
   targetLufs: number;
   /** Techo de pico real (dBTP) */
@@ -360,6 +364,8 @@ export const DEFAULT_SETTINGS: Settings = {
   musicPath: "",
   autoBlocks: [],
   defaultBlockId: "",
+  nowPlayingPath: "",
+  nowPlayingTemplate: "{artist} - {title}",
   targetLufs: -9,
   truePeakDb: -1,
   radioName: "MiRadio",

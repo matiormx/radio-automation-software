@@ -89,6 +89,9 @@ biblioteca y reglas de rotación).
   defecto, y la barra inferior, junto al piloto automático, permite
   cambiarlo en caliente y ver qué bloque está usando. Un evento activo
   tiene prioridad sobre esa elección.
+- **Archivo nowplaying**: la app escribe un archivo `.txt` con la canción
+  que está sonando, en la ruta que elijas y con los datos que elijas
+  (por defecto, `ARTISTA - TITULO`).
 - **Actualización desde los ajustes**: en Ajustes > General se busca la
   última release publicada y se descarga el instalador, que se abre solo.
 - **Ajustes con navegación lateral**: General (identidad, logo, carpeta
@@ -323,6 +326,34 @@ El ejecutable/instalador queda en `src-tauri/target/release/bundle/`
 El emparejamiento con canciones ya catalogadas es por ruta normalizada
 (mayúsculas/minúsculas y separadores incluidos), así que reimportar la
 misma lista no duplica canciones.
+
+## Archivo nowplaying
+
+En **Ajustes > General > Archivo nowplaying** eliges dónde se escribe el
+archivo de texto con la canción que está sonando (por ejemplo
+`C:\MiRadio\nowplaying.txt`) y qué datos lleva dentro. Por defecto es
+`{artist} - {title}`.
+
+El archivo se reescribe en cada cambio de canción, de forma atómica (se
+escribe un temporal y se renombra), para que ningún programa lea una
+línea a medias. Solo se aceptan archivos `.txt`.
+
+Datos disponibles para la plantilla:
+
+| Marcador | Contenido |
+| --- | --- |
+| `{artist}` | Artista |
+| `{title}` | Título de la canción |
+| `{album}` | Álbum |
+| `{year}` | Año |
+| `{genre}` | Género |
+| `{duration}` | Duración en m:ss |
+| `{duration_sec}` | Duración en segundos |
+| `{radio}` | Nombre de la radio |
+| `{block}` | Bloques a los que pertenece la canción |
+| `{time}` | Hora actual |
+
+Un ejemplo: `{radio} | {artist} - {title} ({duration})`.
 
 ## Actualizar la app
 
