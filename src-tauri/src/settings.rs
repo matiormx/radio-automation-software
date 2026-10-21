@@ -46,6 +46,8 @@ pub struct Settings {
     pub events: Vec<StationEvent>,
     pub mixer_channels: Vec<MixerChannel>,
     pub mixer_buses: Vec<MixerBus>,
+    pub video: VideoSettings,
+    pub streaming: StreamingSettings,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -221,6 +223,170 @@ impl Default for StationEvent {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoInput {
+    pub id: String,
+    pub name: String,
+    /// "file", "rtsp" o "ndi"
+    pub kind: String,
+    pub source: String,
+    pub enabled: bool,
+}
+
+impl Default for VideoInput {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            kind: "file".to_string(),
+            source: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoOutput {
+    pub id: String,
+    pub name: String,
+    /// "screen", "decklink", "ndi" o "rtsp"
+    pub kind: String,
+    pub source: String,
+    pub enabled: bool,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub bitrate_kbps: u32,
+}
+
+impl Default for VideoOutput {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            kind: "screen".to_string(),
+            source: "0".to_string(),
+            enabled: true,
+            width: 1920,
+            height: 1080,
+            fps: 25,
+            bitrate_kbps: 6000,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoSettings {
+    pub enabled: bool,
+    pub inputs: Vec<VideoInput>,
+    pub outputs: Vec<VideoOutput>,
+}
+
+impl Default for VideoSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IcecastStream {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub mount: String,
+    pub username: String,
+    pub password: String,
+    pub tls: bool,
+    /// "flac" o "aac"
+    pub codec: String,
+    pub bitrate_kbps: u32,
+    pub sample_rate: u32,
+    pub channels: u8,
+    pub public: bool,
+    pub station_name: String,
+    pub description: String,
+    pub genre: String,
+}
+
+impl Default for IcecastStream {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            enabled: true,
+            host: "localhost".to_string(),
+            port: 8000,
+            mount: "/miradio".to_string(),
+            username: "source".to_string(),
+            password: String::new(),
+            tls: false,
+            codec: "flac".to_string(),
+            bitrate_kbps: 0,
+            sample_rate: 48000,
+            channels: 2,
+            public: false,
+            station_name: "MiRadio".to_string(),
+            description: String::new(),
+            genre: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RtspOutput {
+    pub enabled: bool,
+    pub url: String,
+    /// "tcp" o "udp"
+    pub transport: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub bitrate_kbps: u32,
+    pub keyframe_secs: u32,
+}
+
+impl Default for RtspOutput {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: String::new(),
+            transport: "tcp".to_string(),
+            width: 1920,
+            height: 1080,
+            fps: 25,
+            bitrate_kbps: 6000,
+            keyframe_secs: 2,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StreamingSettings {
+    pub icecast: Vec<IcecastStream>,
+    pub rtsp: RtspOutput,
+}
+
+impl Default for StreamingSettings {
+    fn default() -> Self {
+        Self {
+            icecast: Vec::new(),
+            rtsp: RtspOutput::default(),
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -244,6 +410,8 @@ impl Default for Settings {
             events: Vec::new(),
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
+            video: VideoSettings::default(),
+            streaming: StreamingSettings::default(),
         }
     }
 }

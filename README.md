@@ -69,11 +69,16 @@ biblioteca y reglas de rotación).
   entradas pueden ser tarjetas físicas o virtuales, la reproducción de la
   radio o la preescucha del normalizador; las salidas, cualquier tarjeta
   del equipo o la predeterminada.
+- **Ajustes de vídeo y streaming**: canales de entrada (archivo, RTSP o
+  NDI) y de salida (pantalla/HDMI, tarjeta SDI, NDI o RTSP), con formato,
+  FPS y bitrate por salida. La sección Streaming configura emisiones de
+  audio por Icecast en FLAC o AAC y la salida de vídeo por RTSP.
 - **Ajustes con navegación lateral**: General (identidad, logo y carpeta
-  de música), Sonido (mesa de mezclas), AutoDJ (reglas y cola), Campañas
-  (anuncios y jingles) y Eventos (franjas y sonidos programados). Todo se
-  guarda al instante, junto con transición y volumen. Al ocultar Ajustes o
-  Librería no se pierde la pestaña ni lo que estés editando.
+  de música), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas y cola),
+  Campañas (anuncios y jingles), Eventos (franjas y sonidos programados)
+  y Streaming. Todo se guarda al instante, junto con transición y volumen.
+  Al ocultar Ajustes o Librería no se pierde la pestaña ni lo que estés
+  editando.
 
 ## Archivos de musica soportados
 
@@ -137,6 +142,23 @@ campaña sigue activa hasta que se desactive o se le ponga una fecha.
 - Si la app estaba cerrada a esa hora, recupera la campaña al abrirla solo
   si han pasado menos de 15 minutos.
 - Si un spot desaparece de la biblioteca, se salta y se usa el siguiente.
+
+## Vídeo y streaming
+
+En **Ajustes > Vídeo** se definen los canales de entrada y salida. Las
+entradas pueden ser archivos de vídeo, URLs RTSP o fuentes NDI; las salidas,
+una pantalla/HDMI, una tarjeta SDI, NDI o una URL RTSP. Cada salida guarda su
+resolución, FPS y bitrate. La mezcla inicial hace cortes entre la fuente
+activa.
+
+En **Ajustes > Streaming** se configuran una o varias emisiones de audio por
+Icecast (FLAC sin pérdida o AAC con bitrate) con servidor, puerto, montaje,
+credenciales y metadatos públicos, además de la salida de vídeo RTSP con
+transporte TCP/UDP, resolución, FPS, bitrate y keyframes. El motor usa FFmpeg
+y se controla desde la barra de emisión.
+
+NDI queda preparado en los canales para una segunda fase. La salida por
+tarjeta SDI requiere el SDK DeckLink instalado en el equipo.
 
 ## Eventos de programación
 

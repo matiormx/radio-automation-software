@@ -5,6 +5,8 @@ import { trackUrl } from "../api";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerPanel } from "./MixerPanel";
 import { EventsTab } from "./EventsTab";
+import { VideoTab } from "./VideoTab";
+import { StreamingTab } from "./StreamingTab";
 import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
@@ -128,7 +130,7 @@ function MinField({
   );
 }
 
-type Tab = "general" | "autodj" | "campaigns" | "events" | "sound";
+type Tab = "general" | "autodj" | "campaigns" | "events" | "sound" | "video" | "streaming";
 
 export function SettingsPanel({
   settings,
@@ -152,7 +154,9 @@ export function SettingsPanel({
       aria-hidden={hidden}
     >
       <div
-        className={`modal settings-modal ${tab === "sound" ? "settings-modal-wide" : ""}`}
+        className={`modal settings-modal ${
+          tab === "sound" || tab === "video" || tab === "streaming" ? "settings-modal-wide" : ""
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -190,6 +194,14 @@ export function SettingsPanel({
             </button>
             <button
               type="button"
+              className={`settings-nav-btn ${tab === "video" ? "settings-nav-on" : ""}`}
+              onClick={() => setTab("video")}
+            >
+              Vídeo
+              <span>Entradas, salidas y mezcla</span>
+            </button>
+            <button
+              type="button"
               className={`settings-nav-btn ${tab === "autodj" ? "settings-nav-on" : ""}`}
               onClick={() => setTab("autodj")}
             >
@@ -212,6 +224,14 @@ export function SettingsPanel({
               Eventos
               <span>Franjas y sonidos programados</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "streaming" ? "settings-nav-on" : ""}`}
+              onClick={() => setTab("streaming")}
+            >
+              Streaming
+              <span>Icecast, FLAC, AAC y RTSP</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -225,6 +245,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "sound" && <MixerPanel settings={s} mixer={mixer} onChange={onChange} />}
+            {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab
@@ -243,6 +264,7 @@ export function SettingsPanel({
                 onImportAudio={onImportAudio}
               />
             )}
+            {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
           </div>
         </div>
       </div>

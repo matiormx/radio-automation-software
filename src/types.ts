@@ -205,6 +205,75 @@ export interface MixerBus {
   muted: boolean;
 }
 
+export type VideoInputKind = "file" | "rtsp" | "ndi";
+export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtsp";
+
+export interface VideoInput {
+  id: string;
+  name: string;
+  kind: VideoInputKind;
+  /** Ruta de archivo, URL RTSP o nombre de la fuente NDI */
+  source: string;
+  enabled: boolean;
+}
+
+export interface VideoOutput {
+  id: string;
+  name: string;
+  kind: VideoOutputKind;
+  /** Monitor, dispositivo DeckLink, nombre NDI o URL RTSP */
+  source: string;
+  enabled: boolean;
+  width: number;
+  height: number;
+  fps: number;
+  bitrateKbps: number;
+}
+
+export interface VideoSettings {
+  enabled: boolean;
+  inputs: VideoInput[];
+  outputs: VideoOutput[];
+}
+
+export type IcecastCodec = "flac" | "aac";
+
+export interface IcecastStream {
+  id: string;
+  name: string;
+  enabled: boolean;
+  host: string;
+  port: number;
+  mount: string;
+  username: string;
+  password: string;
+  tls: boolean;
+  codec: IcecastCodec;
+  bitrateKbps: number;
+  sampleRate: number;
+  channels: 1 | 2;
+  public: boolean;
+  stationName: string;
+  description: string;
+  genre: string;
+}
+
+export interface RtspOutput {
+  enabled: boolean;
+  url: string;
+  transport: "tcp" | "udp";
+  width: number;
+  height: number;
+  fps: number;
+  bitrateKbps: number;
+  keyframeSecs: number;
+}
+
+export interface StreamingSettings {
+  icecast: IcecastStream[];
+  rtsp: RtspOutput;
+}
+
 export interface Settings {
   fadeSeconds: number;
   autopilotEnabled: boolean;
@@ -230,6 +299,8 @@ export interface Settings {
   events: StationEvent[];
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
+  video: VideoSettings;
+  streaming: StreamingSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -253,4 +324,22 @@ export const DEFAULT_SETTINGS: Settings = {
   events: [],
   mixerChannels: [],
   mixerBuses: [],
+  video: {
+    enabled: false,
+    inputs: [],
+    outputs: [],
+  },
+  streaming: {
+    icecast: [],
+    rtsp: {
+      enabled: false,
+      url: "",
+      transport: "tcp",
+      width: 1920,
+      height: 1080,
+      fps: 25,
+      bitrateKbps: 6000,
+      keyframeSecs: 2,
+    },
+  },
 };
