@@ -243,7 +243,14 @@ export class SoundMixer {
 
   async resume(): Promise<void> {
     if (this.disposed) return;
-    if (this.ctx.state === "suspended") await this.ctx.resume();
+    if (this.ctx.state === "suspended") {
+      // Si el navegador bloquea el arranque automatico, la promesa se queda
+      // colgada: no esperamos mas de un momento y seguimos.
+      await Promise.race([
+        this.ctx.resume().catch(() => undefined),
+        new Promise((resolve) => window.setTimeout(resolve, 1200)),
+      ]);
+    }
     for (const sink of this.sinks.values()) this.playSink(sink);
   }
 

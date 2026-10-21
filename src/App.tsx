@@ -921,6 +921,22 @@ export default function App() {
     }
   }, [playlists, showToast]);
 
+  const clearActivePlaylist = useCallback(async () => {
+    if (!active) return;
+    if (active.trackIds.length === 0) {
+      showToast("La lista ya está vacía");
+      return;
+    }
+    if (!window.confirm(`¿Vaciar la lista «${active.name}»? Se quitan todas sus pistas.`)) return;
+    playerRef.current?.pause?.();
+    setPlayingRow(-1);
+    setPaused(true);
+    pausedRef.current = true;
+    userPausedRef.current = true;
+    await mutateList(() => []);
+    showToast(`Lista «${active.name}» vaciada`);
+  }, [active, mutateList, showToast]);
+
   const removeActivePlaylist = useCallback(async () => {
     if (!active || playlists.length <= 1) return;
     try {
@@ -1806,6 +1822,7 @@ export default function App() {
             onSelect={setActiveId}
             onNew={() => void newPlaylist()}
             onRemovePlaylist={() => void removeActivePlaylist()}
+            onClearPlaylist={() => void clearActivePlaylist()}
             onRename={renamePlaylist}
             onPlayRow={(i) => void playRow(i)}
             onReorder={reorderRow}

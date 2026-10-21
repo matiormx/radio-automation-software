@@ -156,17 +156,34 @@ export class RadioPlayer {
   }
 
   /**
-   * Deja el reproductor en una pista y una posicion concretos, sin necesidad
-   * de que este sonando. Se usa al reabrir la app para continuar donde se
-   * quedo la ultima sesion.
+   * Prepara una pista y una posicion sin ponerla a sonar. Al pulsar el play
+   * sigue desde ahi. Se usa al reabrir la app para continuar donde se quedo
+   * la ultima sesion.
+   */
+  async prepare(index: number, positionSecs: number): Promise<void> {
+    const track = this.playlist[index];
+    if (!track) return;
+    const buffer = await this.decodeSafe(track);
+    if (!buffer) return;
+    const start = Math.min(trimStartOf(track), Math.max(0, buffer.duration - 0.2));
+    const end = trimEndOf(track, buffer.duration);
+    this.index = index;
+    this.pausedOffset = Math.max(start, Math.min(end - 0.2, start + Math.max(0, positionSecs)));
+    this.onIndexChange?.(index);
+    this.onTick?.(this.pausedOffset - start, end - start);
+  }
+
+  /**
+   * Deja el reproductor en una pista y una posicion concretos. Si no se pide
+   * que suene, queda preparada para seguir desde ahi.
    */
   async restoreAt(index: number, positionSecs: number, autoplay: boolean): Promise<void> {
+    if (!autoplay) {
+      await this.prepare(index, positionSecs);
+      return;
+    }
     await this.playAt(index);
     if (positionSecs > 0) await this.seek(positionSecs);
-    if (!autoplay) {
-      const deck = this.activeDeck();
-      if (deck) this.pause(deck);
-    }
   }
 
   async toggle(): Promise<void> {
@@ -182,7 +199,7 @@ export class RadioPlayer {
     }
     const deck = this.activeDeck();
     if (deck) {
-      this.pause(deck);
+      this.pauseDeck(deck);
       return;
     }
     await this.playAt(this.index);
@@ -295,7 +312,13 @@ export class RadioPlayer {
     this.startRaf();
   }
 
-  private pause(deck: Deck) {
+  /** Detiene la reproduccion dejando el cursor donde estaba. */
+  pause(): void {
+    const deck = this.activeDeck();
+    if (deck) this.pauseDeck(deck);
+  }
+
+  private pauseDeck(deck: Deck) {
     const ctx = this.ctx;
     if (!ctx) return;
     this.playGeneration += 1;

@@ -14,6 +14,7 @@ interface PlaylistZoneProps {
   onSelect: (id: string) => void;
   onNew: () => void;
   onRemovePlaylist: () => void;
+  onClearPlaylist: () => void;
   onRename: (name: string) => void;
   onPlayRow: (index: number) => void;
   onReorder: (from: number, to: number) => void;
@@ -38,6 +39,7 @@ export function PlaylistZone({
   onSelect,
   onNew,
   onRemovePlaylist,
+  onClearPlaylist,
   onRename,
   onPlayRow,
   onReorder,
@@ -101,6 +103,16 @@ export function PlaylistZone({
           ) : (
             <button type="button" className="ghost-btn" onClick={() => setEditing(true)} title="Renombrar lista">
               {active?.name}
+            </button>
+          )}
+          {rows.length > 0 && (
+            <button
+              type="button"
+              className="ghost-btn ghost-danger"
+              onClick={onClearPlaylist}
+              title="Quitar todas las pistas de esta lista"
+            >
+              Vaciar
             </button>
           )}
           {playlists.length > 1 && (
