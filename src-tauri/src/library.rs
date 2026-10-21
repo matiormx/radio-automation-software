@@ -485,9 +485,18 @@ fn read_metadata(
     }
 }
 
-/// Lee el catalogo aplicando la migracion del formato antiguo:
+/// Antes de separar «intro» y «mix», un unico marcador (`mix_point`) servia
+/// para las dos cosas y se colocaba al principio de la pista. Un mix en la
+/// primera mitad no puede ser un mix (va al final): es un marcador de intro
+/// antiguo. Sin duracion conocida no se toca nada.
+fn is_legacy_intro_marker(mix_point: f64, intro_point: f64, duration: f64) -> bool {
+    intro_point <= 0.0 && mix_point > 0.0 && duration > 0.0 && mix_point <= duration / 2.0
+}
+
+/// Lee el catalogo aplicando las migraciones del formato antiguo:
 /// sin `file`, el enlace se reconstruye desde el `fileName` de la
-/// carpeta interna.
+/// carpeta interna, y un marcador de intro guardado como mix pasa a ser
+/// el punto de intro. La migracion se guarda con la siguiente escritura.
 pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
     let file = data_dir.join(LIBRARY_FILE);
     match fs::read(&file) {
@@ -501,6 +510,10 @@ pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
                         .join(&t.file_name)
                         .to_string_lossy()
                         .into_owned();
+                }
+                if is_legacy_intro_marker(t.mix_point, t.intro_point, t.duration_secs) {
+                    t.intro_point = t.mix_point;
+                    t.mix_point = 0.0;
                 }
                 t
             })
@@ -1579,7 +1592,8 @@ pub fn import_playlist(
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_covers, cover_key, parse_m3u_entries, sync_album_cover, Track,
+        cleanup_covers, cover_key, is_legacy_intro_marker, parse_m3u_entries, sync_album_cover,
+        Track,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1675,5 +1689,19 @@ mod tests {
         cleanup_covers(&data, &tracks);
         assert!(!covers.join("vieja.jpg").exists());
         fs::remove_dir_all(data).unwrap();
+    }
+
+    #[test]
+    fn un_mix_en_la_primera_mitad_es_una_intro_antigua() {
+        // Un marcador a los 2 s de una pista de 3 min era la intro.
+        assert!(is_legacy_intro_marker(2.0, 0.0, 180.0));
+        assert!(is_legacy_intro_marker(90.0, 0.0, 180.0));
+        // Un mix al final es un mix de verdad.
+        assert!(!is_legacy_intro_marker(150.0, 0.0, 180.0));
+        // Si ya hay intro, no se toca nada.
+        assert!(!is_legacy_intro_marker(2.0, 5.0, 180.0));
+        // Sin mix o sin duracion conocida, tampoco.
+        assert!(!is_legacy_intro_marker(0.0, 0.0, 180.0));
+        assert!(!is_legacy_intro_marker(2.0, 0.0, 0.0));
     }
 }
