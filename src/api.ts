@@ -59,10 +59,11 @@ export function saveTrackTrim(id: string, start: number, end: number): Promise<v
 
 export function saveTrackMarkers(
   id: string,
+  introPoint: number,
   mixPoint: number,
   fadeOutStart: number,
 ): Promise<void> {
-  return invoke("save_track_markers", { id, mixPoint, fadeOutStart });
+  return invoke("save_track_markers", { id, introPoint, mixPoint, fadeOutStart });
 }
 
 export function autoTrackTrim(id: string): Promise<void> {

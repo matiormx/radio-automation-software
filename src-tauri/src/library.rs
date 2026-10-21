@@ -73,7 +73,11 @@ pub struct Track {
     /// El operador ajustó el recorte a mano.
     #[serde(default)]
     pub trim_manual: bool,
-    /// Punto de mezcla: donde termina la intro y empieza la siguiente cancion.
+    /// Punto de intro: donde empieza a cantar (esta al principio de la pista).
+    /// 0 = sin punto de intro.
+    #[serde(default)]
+    pub intro_point: f64,
+    /// Punto de mezcla: donde entra la siguiente cancion (esta al final).
     /// 0 = sin punto de mezcla.
     #[serde(default)]
     pub mix_point: f64,
@@ -579,6 +583,7 @@ pub struct TrackResolved {
     pub auto_trim_start: f64,
     pub auto_trim_end: Option<f64>,
     pub trim_manual: bool,
+    pub intro_point: f64,
     pub mix_point: f64,
     pub fade_out_start: f64,
     pub analyzed_at: u64,
@@ -612,6 +617,7 @@ impl TrackResolved {
             auto_trim_start: t.auto_trim_start,
             auto_trim_end: t.auto_trim_end,
             trim_manual: t.trim_manual,
+            intro_point: t.intro_point,
             mix_point: t.mix_point,
             fade_out_start: t.fade_out_start,
             analyzed_at: t.analyzed_at,
@@ -694,6 +700,7 @@ pub fn import_files(
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            intro_point: 0.0,
             mix_point: 0.0,
             fade_out_start: 0.0,
             analysis_sig: String::new(),
@@ -785,6 +792,7 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            intro_point: 0.0,
             mix_point: 0.0,
             fade_out_start: 0.0,
             analysis_sig: String::new(),
@@ -920,6 +928,9 @@ pub struct TrackDetails {
     pub true_peak_db: Option<f64>,
     pub trim_start: f64,
     pub trim_end: Option<f64>,
+    pub intro_point: f64,
+    pub mix_point: f64,
+    pub fade_out_start: f64,
     pub cover: String,
 }
 
@@ -1002,6 +1013,9 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         true_peak_db: t.true_peak_db,
         trim_start: t.trim_start,
         trim_end: t.trim_end,
+        intro_point: t.intro_point,
+        mix_point: t.mix_point,
+        fade_out_start: t.fade_out_start,
         cover: cover_abs(&state.data_dir, &t.cover),
     })
 }
@@ -1134,10 +1148,11 @@ pub fn save_track_trim(
 pub fn save_track_markers(
     state: State<'_, AppState>,
     id: String,
+    intro_point: f64,
     mix_point: f64,
     fade_out_start: f64,
 ) -> Result<(), String> {
-    if !mix_point.is_finite() || !fade_out_start.is_finite() {
+    if !intro_point.is_finite() || !mix_point.is_finite() || !fade_out_start.is_finite() {
         return Err("Puntos no validos".to_string());
     }
     let _guard = lock_library();
@@ -1146,6 +1161,11 @@ pub fn save_track_markers(
         return Err("La cancion ya no existe en la biblioteca".to_string());
     };
     let duration = if t.duration_secs > 0.0 { t.duration_secs } else { 0.0 };
+    t.intro_point = if intro_point > 0.0 {
+        (intro_point.min(duration) * 1000.0).round() / 1000.0
+    } else {
+        0.0
+    };
     t.mix_point = if mix_point > 0.0 {
         (mix_point.min(duration) * 1000.0).round() / 1000.0
     } else {
@@ -1522,6 +1542,7 @@ pub fn import_playlist(
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            intro_point: 0.0,
             mix_point: 0.0,
             fade_out_start: 0.0,
             analysis_sig: String::new(),

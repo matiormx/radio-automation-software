@@ -282,7 +282,8 @@ Con el botón derecho sobre cualquier canción de la biblioteca, elige
 | --- | --- |
 | **Corte inicial** (verde) | Por dónde empieza a sonar la pista. |
 | **Corte final** (naranja) | Por dónde termina. |
-| **Punto mix / intro** (cian) | Donde termina la introducción y entra la siguiente canción: la actual sigue sonando debajo. |
+| **Intro** (cian) | Al principio de la pista: dónde empieza a cantar (donde acaba la música de introducción). |
+| **Mix** (rosa) | Al final de la pista: dónde el reproductor lanza la siguiente canción. |
 | **Fade out** (violeta) | Desde ese punto la pista baja de volumen hasta el final. |
 
 Se arrastran sobre la onda o se escriben en los campos (con botones de
@@ -291,9 +292,10 @@ la salida de monitorización de la mesa de sonido—, *Mix aquí*, *Fade aquí*,
 *Recorte automático* (vuelve al recorte que calculó el analizador) y
 *Guardar*.
 
-En la reproducción, el punto de mezcla hace que la siguiente canción entre
-en ese momento mientras la actual sigue sonando, y el fade out baja la
-pista hasta el final.
+En la reproducción, el **mix** hace que la siguiente canción entre en ese
+momento (la actual sigue sonando hasta su final) y el fade out baja la
+pista hasta el final. La **intro** queda guardada como dato de la pista y
+se ve en la ficha de la canción.
 
 ## Historial y reanudación
 

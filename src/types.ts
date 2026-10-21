@@ -25,7 +25,9 @@ export interface Track {
   autoTrimStart: number;
   autoTrimEnd: number | null;
   trimManual: boolean;
-  /** Punto de mezcla: donde termina la intro y entra la siguiente cancion (0 = ninguno) */
+  /** Punto de intro: donde empieza a cantar (0 = ninguno) */
+  introPoint: number;
+  /** Punto de mezcla: donde entra la siguiente cancion (0 = ninguno) */
   mixPoint: number;
   /** Punto donde empieza el fade out hacia el final (0 = ninguno) */
   fadeOutStart: number;
@@ -53,10 +55,6 @@ export interface AnalysisResult {
   autoTrimStart: number;
   autoTrimEnd: number | null;
   trimManual: boolean;
-  /** Punto de mezcla: donde termina la intro y entra la siguiente cancion (0 = ninguno) */
-  mixPoint: number;
-  /** Punto donde empieza el fade out hacia el final (0 = ninguno) */
-  fadeOutStart: number;
   analyzedAt: number;
 }
 
@@ -107,6 +105,9 @@ export interface TrackDetails {
   truePeakDb: number | null;
   trimStart: number;
   trimEnd: number | null;
+  introPoint: number;
+  mixPoint: number;
+  fadeOutStart: number;
   cover: string;
 }
 

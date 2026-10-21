@@ -113,6 +113,18 @@ export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModa
                     ? `${fmtTime(details.trimStart)} – ${fmtTime(details.trimEnd ?? details.durationSecs)}`
                     : "Sin recorte"}
                 </span>
+                <span className="prop-k">Intro</span>
+                <span className="prop-v">
+                  {details.introPoint > 0 ? fmtTime(details.introPoint) : "Sin marcar"}
+                </span>
+                <span className="prop-k">Mix</span>
+                <span className="prop-v">
+                  {details.mixPoint > 0 ? fmtTime(details.mixPoint) : "Sin marcar"}
+                </span>
+                <span className="prop-k">Fade out</span>
+                <span className="prop-v">
+                  {details.fadeOutStart > 0 ? fmtTime(details.fadeOutStart) : "Sin marcar"}
+                </span>
                 <span className="prop-k">Formato</span>
                 <span className="prop-v">
                   {details.format}

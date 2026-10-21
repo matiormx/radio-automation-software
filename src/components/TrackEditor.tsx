@@ -9,7 +9,7 @@ import { IconX, IconPlay, IconPause, IconTrash } from "../icons";
 import type { Track, Waveform } from "../types";
 import type { SoundMixer } from "../mixer";
 
-type MarkerId = "start" | "end" | "mix" | "fade";
+type MarkerId = "start" | "end" | "intro" | "mix" | "fade";
 
 interface TrackEditorProps {
   track: Track;
@@ -22,7 +22,8 @@ interface TrackEditorProps {
 const MARKER_COLORS: Record<MarkerId, string> = {
   start: "#59d98c",
   end: "#ffb84d",
-  mix: "#4dd6ff",
+  intro: "#4dd6ff",
+  mix: "#ff7ab6",
   fade: "#c08bff",
 };
 
@@ -48,6 +49,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
   const [error, setError] = useState("");
   const [start, setStart] = useState(track.trimStart || 0);
   const [end, setEnd] = useState(track.trimEnd ?? track.durationSecs);
+  const [intro, setIntro] = useState(track.introPoint || 0);
   const [mix, setMix] = useState(track.mixPoint || 0);
   const [fade, setFade] = useState(track.fadeOutStart || 0);
   const [drag, setDrag] = useState<MarkerId | null>(null);
@@ -70,6 +72,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
         const e = Math.min(w.durationSecs, track.trimEnd ?? w.durationSecs);
         setStart(s);
         setEnd(Math.max(s + 0.3, e));
+        setIntro(track.introPoint > 0 ? Math.min(w.durationSecs, track.introPoint) : 0);
         setMix(track.mixPoint > 0 ? Math.min(w.durationSecs, track.mixPoint) : 0);
         setFade(track.fadeOutStart > 0 ? Math.min(w.durationSecs, track.fadeOutStart) : 0);
       })
@@ -154,6 +157,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
 
     handle(start, MARKER_COLORS.start);
     handle(end, MARKER_COLORS.end);
+    if (intro > 0) handle(intro, MARKER_COLORS.intro);
     if (mix > 0) handle(mix, MARKER_COLORS.mix);
     if (fade > 0) handle(fade, MARKER_COLORS.fade);
 
@@ -166,7 +170,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
       ctx.lineTo(x, h);
       ctx.stroke();
     }
-  }, [wave, start, end, mix, fade, playPos]);
+  }, [wave, start, end, intro, mix, fade, playPos]);
 
   const secsAt = (clientX: number): number => {
     const canvas = canvasRef.current;
@@ -185,6 +189,8 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
       setDrag("start");
     } else if (near(end)) {
       setDrag("end");
+    } else if (near(intro)) {
+      setDrag("intro");
     } else if (near(mix)) {
       setDrag("mix");
     } else if (near(fade)) {
@@ -207,6 +213,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
     const secs = secsAt(e.clientX);
     if (drag === "start") setStart(Math.max(0, Math.min(end - 0.3, secs)));
     else if (drag === "end") setEnd(Math.min(wave.durationSecs, Math.max(start + 0.3, secs)));
+    else if (drag === "intro") setIntro(Math.max(start, Math.min(end, secs)));
     else if (drag === "mix") setMix(Math.max(start, Math.min(end, secs)));
     else if (drag === "fade") setFade(Math.max(start, Math.min(end, secs)));
   };
@@ -271,12 +278,13 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
     setSaving(true);
     try {
       await saveTrackTrim(track.id, start, end);
-      await saveTrackMarkers(track.id, mix, fade);
+      await saveTrackMarkers(track.id, intro, mix, fade);
       onSaved({
         ...track,
         trimStart: start,
         trimEnd: end >= duration - 0.02 ? null : end,
         trimManual: true,
+        introPoint: intro,
         mixPoint: mix,
         fadeOutStart: fade,
       });
@@ -304,14 +312,21 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
   const setPoint = (which: MarkerId, value: number) => {
     if (which === "start") setStart(Math.max(0, Math.min(end - 0.3, value)));
     else if (which === "end") setEnd(Math.min(duration, Math.max(start + 0.3, value)));
+    else if (which === "intro") setIntro(Math.max(start, Math.min(end, value)));
     else if (which === "mix") setMix(Math.max(start, Math.min(end, value)));
     else setFade(Math.max(start, Math.min(end, value)));
   };
 
+  const valueOf = (which: MarkerId): number => {
+    if (which === "start") return start;
+    if (which === "end") return end;
+    if (which === "intro") return intro;
+    if (which === "mix") return mix;
+    return fade;
+  };
+
   const nudge = (which: MarkerId, delta: number) => {
-    const current =
-      which === "start" ? start : which === "end" ? end : which === "mix" ? mix : fade;
-    setPoint(which, current + delta);
+    setPoint(which, valueOf(which) + delta);
   };
 
   const head = playPos >= 0 ? playPos : start;
@@ -363,8 +378,16 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
               onNudge={(d) => nudge("end", d)}
             />
             <Marker
+              id="intro"
+              label="Intro (empieza a cantar)"
+              value={intro}
+              duration={duration}
+              onChange={(v) => setPoint("intro", v)}
+              onNudge={(d) => nudge("intro", d)}
+            />
+            <Marker
               id="mix"
-              label="Punto mix (intro)"
+              label="Mix (entra la siguiente)"
               value={mix}
               duration={duration}
               onChange={(v) => setPoint("mix", v)}
@@ -384,6 +407,17 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
             <button type="button" className="btn btn-sm" onClick={() => void preview()}>
               {previewing ? <IconPause size={14} /> : <IconPlay size={14} />}
               {previewing ? "Parar" : "Escuchar (preescucha)"}
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setPlayPos(head);
+                setPoint("intro", head);
+              }}
+              title="Poner el punto de intro donde está el cursor"
+            >
+              Intro aquí
             </button>
             <button
               type="button"
@@ -414,10 +448,11 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
               type="button"
               className="ghost-btn"
               onClick={() => {
+                setIntro(0);
                 setMix(0);
                 setFade(0);
               }}
-              title="Quitar el punto de mezcla y el de fade out"
+              title="Quitar los puntos de intro, mezcla y fade out"
             >
               <IconTrash size={13} />
               Quitar puntos
@@ -433,8 +468,9 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
           </div>
 
           <p className="hint">
-            Arrastra las marcas sobre la onda o usa los campos. El <strong>punto mix</strong> es
-            donde termina la intro y entra la siguiente canción; el <strong>fade out</strong> es
+            Arrastra las marcas sobre la onda o usa los campos. La <strong>intro</strong> es donde
+            empieza a cantar (al principio de la pista); el <strong>mix</strong> es donde el
+            reproductor lanza la siguiente canción (al final); el <strong>fade out</strong> es
             donde la pista baja hasta el final. La preescucha sale por la salida de monitorización
             de la mesa de sonido.
           </p>

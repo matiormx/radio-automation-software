@@ -58,6 +58,7 @@ const EMPTY_TRACK: Track = {
   autoTrimStart: 0,
   autoTrimEnd: null,
   trimManual: false,
+  introPoint: 0,
   mixPoint: 0,
   fadeOutStart: 0,
   analyzedAt: 0,
