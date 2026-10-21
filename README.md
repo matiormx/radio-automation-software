@@ -21,6 +21,8 @@ biblioteca y reglas de rotación).
   ajustable) con techo de pico a -1 dBTP y marcar **inicio y final** para
   recortar silencios sin tocar el audio. Incluye editor de onda con marcas
   arrastrables y análisis desatendido por selección o por lista visible.
+  Al analizar una selección se puede marcar **Omitir ya analizadas** para
+  conservar los análisis previos y procesar solo lo nuevo.
   El análisis sigue en segundo plano al ocultar la ventana; se puede
   pausar, reanudar o cancelar desde la propia librería o desde el aviso
   flotante que queda sobre el reproductor.
@@ -49,8 +51,10 @@ biblioteca y reglas de rotación).
 - **Identidad de emisora**: nombre, eslogan y logo propios. El logo se
   copia a la carpeta de datos y sustituye la marca de la cabecera.
 - **Campañas de anuncios y jingles**: programa spots por días y horas
-  exactas (o cada hora a un minuto). El AutoDJ inserta el spot después del
-  tema que esté sonando, rota los spots de cada campaña y recupera la
+  exactas (eligiendo entre las 24 horas con el minuto deseado, o cada
+  hora a un minuto), con fecha y hora de inicio y fin. Por defecto empieza
+  hoy y continúa de forma permanente. El AutoDJ inserta el spot después
+  del tema que esté sonando, rota los spots de cada campaña y recupera la
   emisión si la app estaba cerrada hace menos de 15 minutos.
 - **Eventos de programación**: franjas que cambian la fuente del AutoDJ
   (un bloque musical o una biblioteca) y sonidos que se colocan como
@@ -117,10 +121,15 @@ ficha que aparece en «Propiedades» del navegador de música.
 
 En **Ajustes > Campañas** se crea una campaña con nombre, tipo (anuncio o
 jingle) y una lista ordenada de spots elegidos de la biblioteca. La
-programación admite días de la semana y horas exactas (`HH:MM`), o la
-opción de emitir cada hora a un minuto concreto.
+programación admite días de la semana y un selector de las 24 horas: se
+elige el minuto y se pulsa la hora para añadirla (o se vuelve a pulsar
+para quitarla). También existe la opción de emitir cada hora a un minuto
+concreto. Cada campaña tiene **inicio** y **fin** de fecha y hora; por
+defecto empieza hoy y no tiene fin (continuidad permanente). Sin fin, la
+campaña sigue activa hasta que se desactive o se le ponga una fecha.
 
-- Solo se emiten con el piloto automático encendido.
+- Solo se emiten con el piloto automático encendido y dentro de su
+  ventana de fechas.
 - El spot se inserta justo después del tema que está sonando cuando llega
   la hora, sin cortarlo; si la lista está parada, se añade al final.
 - Cada campaña rota sus spots en orden y recuerda la última emisión para

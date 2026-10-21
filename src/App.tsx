@@ -176,6 +176,18 @@ export default function App() {
     return () => window.clearInterval(t);
   }, []);
 
+  // Evita el menú contextual del navegador (actualizar, guardar, imprimir…)
+  // salvo en campos editables, donde copiar/pegar sigue siendo útil.
+  useEffect(() => {
+    const onContextMenu = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest("input, textarea, [contenteditable='true']")) return;
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
   // Motor de audio
   useEffect(() => {
     const mixer = new SoundMixer();
