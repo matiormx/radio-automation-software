@@ -15,7 +15,10 @@ interface Deck {
   norm: GainNode;
   buffer: AudioBuffer;
   startedAt: number;
+  /** Base de la pista: inicio del recorte (de aqui se mide la duracion) */
   offset: number;
+  /** Posicion absoluta del buffer donde arranco este source */
+  from: number;
   /** Posicion absoluta del buffer donde termina la pista */
   end: number;
 }
@@ -129,6 +132,10 @@ export class RadioPlayer {
   setPlaylist(tracks: Track[]) {
     const prevId = this.index >= 0 ? this.playlist[this.index]?.id : undefined;
     this.playlist = tracks;
+    // Prepara las dos primeras pistas: arrancar el play es inmediato.
+    for (const track of tracks.slice(0, 2)) {
+      if (!this.cache.has(track.id)) void this.decodeSafe(track);
+    }
     if (prevId) {
       this.index = tracks.findIndex((t) => t.id === prevId);
     } else if (this.index >= tracks.length) {
@@ -149,7 +156,8 @@ export class RadioPlayer {
     const buffer = await this.decodeSafe(track);
     if (!buffer || generation !== this.playGeneration) return;
 
-    await this.stopAll(0.12);
+    // El fundido del deck anterior va en paralelo: la pista entra ya.
+    void this.stopAll(0.05);
     if (generation !== this.playGeneration) return;
 
     const start = Math.min(trimStartOf(track), Math.max(0, buffer.duration - 0.2));
@@ -157,6 +165,9 @@ export class RadioPlayer {
     this.index = index;
     this.onIndexChange?.(index);
     this.startDeck(track, buffer, start);
+    // La siguiente ya se decodifica en segundo plano para que el boton
+    // "siguiente" sea instantaneo.
+    this.prefetchNext(index);
   }
 
   /**
@@ -220,7 +231,7 @@ export class RadioPlayer {
   }
 
   async seek(seconds: number): Promise<void> {
-    if (this.index < 0 || this.fading) return;
+    if (this.index < 0) return;
     const track = this.playlist[this.index];
     const generation = ++this.playGeneration;
     this.ensureCtx();
@@ -236,9 +247,10 @@ export class RadioPlayer {
       this.onTick?.(rel, end - start);
       return;
     }
-    await this.stopAll(0.08);
+    // El fundido del deck anterior va en paralelo: la pista entra ya.
+    void this.stopAll(0.05);
     if (generation !== this.playGeneration || !this.ctx) return;
-    const now = this.ctx.currentTime + 0.1;
+    const now = this.ctx.currentTime + 0.03;
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     const gain = this.ctx.createGain();
@@ -249,7 +261,16 @@ export class RadioPlayer {
     norm.connect(this.master!);
     source.start(now, pos);
     gain.gain.setValueAtTime(1.0, now);
-    this.decks.a = { source, gain, norm, buffer, startedAt: now, offset: pos, end };
+    this.decks.a = {
+      source,
+      gain,
+      norm,
+      buffer,
+      startedAt: now,
+      offset: start,
+      from: pos,
+      end,
+    };
     this.currentSlot = "a";
     this.startRaf();
   }
@@ -306,7 +327,16 @@ export class RadioPlayer {
     source.start(now, start);
     gain.gain.setValueAtTime(1.0, now);
 
-    const deck: Deck = { source, gain, norm, buffer, startedAt: now, offset: start, end };
+    const deck: Deck = {
+      source,
+      gain,
+      norm,
+      buffer,
+      startedAt: now,
+      offset: trimStartOf(track),
+      from: start,
+      end,
+    };
     this.decks = { a: null, b: null, c: null };
     this.decks.a = deck;
     this.currentSlot = "a";
@@ -327,8 +357,8 @@ export class RadioPlayer {
     const ctx = this.ctx;
     if (!ctx) return;
     this.playGeneration += 1;
-    const pos = ctx.currentTime - deck.startedAt + deck.offset;
-    this.pausedOffset = Math.max(deck.offset, Math.min(deck.end, pos));
+    const pos = ctx.currentTime - deck.startedAt + deck.from;
+    this.pausedOffset = Math.max(deck.from, Math.min(deck.end, pos));
     this.onTick?.(this.pausedOffset - deck.offset, deck.end - deck.offset);
     for (const slot of SLOTS) {
       if (this.decks[slot]) this.hardStop(this.decks[slot]);
@@ -441,6 +471,14 @@ export class RadioPlayer {
     }
   }
 
+  /** Decodifica la pista siguiente en segundo plano. */
+  private prefetchNext(index: number) {
+    const next = this.playlist[index + 1];
+    if (!next) return;
+    if (this.cache.has(next.id)) return;
+    void this.decodeSafe(next);
+  }
+
   /** Decodifica la siguiente pista con antelacion para que el cruce sea puntual. */
   private ensurePreload(nextIdx: number) {
     if (nextIdx < 0 || nextIdx >= this.playlist.length) return;
@@ -513,7 +551,7 @@ export class RadioPlayer {
     }
 
     const total = deck.end - deck.offset;
-    const pos = ctx.currentTime - deck.startedAt + deck.offset;
+    const pos = ctx.currentTime - deck.startedAt + deck.from;
     const remaining = deck.end - pos;
 
     if (pos < deck.offset) {
@@ -622,7 +660,7 @@ export class RadioPlayer {
 
     const ctx = this.ctx;
     const now = ctx.currentTime;
-    const deckEnd = deck.startedAt + (deck.end - deck.offset);
+    const deckEnd = deck.startedAt + (deck.end - deck.from);
     const available = deckEnd - now;
     const nextStart = Math.min(trimStartOf(nextTrack), Math.max(0, buffer.duration - 0.2));
     const nextEnd = trimEndOf(nextTrack, buffer.duration);
@@ -645,7 +683,8 @@ export class RadioPlayer {
         norm,
         buffer,
         startedAt: startAt,
-        offset: nextStart,
+        offset: trimStartOf(nextTrack),
+        from: nextStart,
         end: nextEnd,
       };
 

@@ -9,6 +9,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // La carpeta de compilacion de Rust genera ficheros a cada build:
+    // sin esto, Vite recarga la pagina mientras se compila.
+    watch: {
+      ignored: ["**/src-tauri/target/**", "**/dist/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {

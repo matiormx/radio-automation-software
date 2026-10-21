@@ -68,7 +68,10 @@ biblioteca y reglas de rotación).
 - **Motor de audio** con crossfade (3/6/10 s), seek, siguiente/anterior.
   La pista siguiente se decodifica 30 s antes del cruce y la caché de PCM
   está acotada a 4 pistas; si la decodificación se retrasa, el cruce se
-  resuelve sin hueco.
+  resuelve sin hueco. Los botones y la barra de tiempo responden al
+  instante: las dos primeras pistas de la lista se decodifican por
+  adelantado, el fundido del deck anterior va en paralelo con el arranque
+  del nuevo y la barra siempre cubre la duración completa del corte.
 - **Mesa de sonido digital**: canales con entrada y salida, buses que
   combinan canales, fader y silencio por canal, nombre y color. Las
   entradas pueden ser tarjetas físicas o virtuales, la reproducción de la
