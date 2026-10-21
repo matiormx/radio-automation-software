@@ -665,15 +665,6 @@ export function MusicBrowser({
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => setDeezerOpen(true)}
-          title="Buscar en Deezer los datos de una canción e importar tu archivo con ellos"
-        >
-          <IconSearch size={14} />
-          Deezer
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm"
           onClick={() => void doScan()}
           disabled={scanning}
           title="Catalogar los archivos de la carpeta de música"
@@ -691,14 +682,6 @@ export function MusicBrowser({
           Lista
         </button>
       </div>
-
-      {deezerOpen && (
-        <DeezerSearch
-          onClose={() => setDeezerOpen(false)}
-          onImported={onTrackSaved}
-          showToast={showToast}
-        />
-      )}
 
       <div className="browser-body">
         <aside className="browser-side" aria-label="Filtros">
@@ -1168,6 +1151,29 @@ export function MusicBrowser({
         />
       )}
 
+      {edit && deezerOpen && (
+        <DeezerSearch
+          initialQuery={`${edit.artist} ${edit.title}`.trim()}
+          onClose={() => setDeezerOpen(false)}
+          onPick={(d) => {
+            setEdit((s) =>
+              s
+                ? {
+                    ...s,
+                    title: d.title || s.title,
+                    artist: d.artist || s.artist,
+                    album: d.album || s.album,
+                    year: d.year || s.year,
+                    genre: d.genre || s.genre,
+                  }
+                : s,
+            );
+            setDeezerOpen(false);
+          }}
+          showToast={showToast}
+        />
+      )}
+
       {edit && (
         <div className="modal-backdrop" onClick={() => setEdit(null)}>
           <div
@@ -1184,6 +1190,16 @@ export function MusicBrowser({
               </button>
             </div>
             <div className="modal-body">
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ alignSelf: "flex-start" }}
+                onClick={() => setDeezerOpen(true)}
+                title="Buscar esta canción en Deezer y rellenar sus datos"
+              >
+                <IconSearch size={14} />
+                Rellenar desde Deezer
+              </button>
               <label className="field">
                 <span className="field-label">Título</span>
                 <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />

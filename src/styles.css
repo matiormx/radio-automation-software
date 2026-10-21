@@ -3029,3 +3029,4 @@ body {
 .deezer-info { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; }
 .deezer-info strong, .deezer-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deezer-info span { color: var(--text-faint); }
+.deezer-modal { z-index: 140; }
