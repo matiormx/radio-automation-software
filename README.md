@@ -112,7 +112,8 @@ biblioteca y reglas de rotación).
   `live.jpg`) lleva el programa seleccionado cuando el modo LIVE está
   activado; si LIVE está apagado, los dos muestran la misma canción.
 - **Actualización desde los ajustes**: en Ajustes > General se busca la
-  última release publicada y se descarga el instalador, que se abre solo.
+  última release publicada; al instalarla, la app descarga la actualización,
+  comprueba su firma, se cierra y se vuelve a abrir ya actualizada.
 - **Ajustes con navegación lateral**: General (identidad, logo, carpeta
   de música, arranque y actualizaciones), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas
   y cola), Campañas (anuncios y jingles), Eventos (franjas y sonidos
@@ -392,6 +393,12 @@ npm run tauri build
 El ejecutable/instalador queda en `src-tauri/target/release/bundle/`
 (.msi/.exe en Windows, .deb/.AppImage en Linux, .dmg en macOS).
 
+Como la app se actualiza sola con paquetes firmados, `tauri build` necesita la
+clave privada de firma en la variable de entorno `TAURI_SIGNING_PRIVATE_KEY`
+(el contenido de la clave o la ruta al archivo; si tiene contraseña, también
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Las versiones oficiales las compila
+GitHub Actions con esa clave guardada como secreto (ver «Actualizar la app»).
+
 ## Importar listas M3U / M3U8
 
 1. Panel «Música» → botón «Lista».
@@ -489,26 +496,35 @@ Un ejemplo: `{radio} | {artist} - {title} ({duration})`.
 
 En **Ajustes > General > Actualizaciones de la app**:
 
-1. **Buscar actualizaciones** consulta el origen de actualizaciones (por
-   defecto, la última release de este repositorio en GitHub) y compara la
-   versión publicada con la que tienes instalada.
-2. Si hay una versión más nueva, aparece **Instalar X.Y.Z**: descarga el
-   instalador en la carpeta temporal y lo abre.
-3. **Descargar .exe** guarda el instalador donde elijas (abre el diálogo
-   de guardado) sin ejecutarlo, por si prefieres instalarlo a mano.
-   **Abrir la descarga** lo hace en el navegador.
+1. **Buscar actualizaciones** lee el `latest.json` de la última release de
+   este repositorio en GitHub y compara la versión publicada con la que
+   tienes instalada.
+2. Si hay una versión más nueva, aparece **Instalar X.Y.Z**: descarga la
+   actualización mostrando el progreso, comprueba su firma con la clave
+   pública incluida en la app, ejecuta el instalador y reinicia MiRadio.
+3. **Abrir la página de descargas** abre las releases en el navegador, por
+   si prefieres instalar a mano.
 
-El origen puede cambiarse por cualquier URL que devuelva la respuesta de
-la API de GitHub (`tag_name`, `body` y `assets`) o un manifiesto propio
-con `version`, `url` y, opcionalmente, `notes`. Si el repositorio es
-privado, pega un token de GitHub con permiso de lectura (se guarda solo en
-este equipo).
+El repositorio es público, así que la app no necesita ningún token. Una
+actualización con la firma incorrecta se rechaza y no se instala.
 
-Por seguridad, la instalación automática (descargar y ejecutar) solo
-acepta instaladores descargados por HTTPS desde GitHub; la simple descarga
-admite cualquier enlace https. Las
-versiones se publican subiendo una etiqueta `vX.Y.Z`: el workflow de
-GitHub Actions compila el instalador NSIS y lo adjunta a la release.
+### Publicar una versión
+
+1. Sube la versión en `package.json`, `src-tauri/Cargo.toml` y
+   `src-tauri/tauri.conf.json` (las tres iguales).
+2. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. El workflow `.github/workflows/windows.yml` compila el instalador `.exe`
+   (NSIS) y el `.msi`, firma las actualizaciones y publica la release con
+   `latest.json`. Falla pronto si la etiqueta no coincide con la versión.
+
+Requisito único: guardar la clave privada de firma como secreto del
+repositorio (Settings > Secrets and variables > Actions) con el nombre
+`TAURI_SIGNING_PRIVATE_KEY`. Si la clave tiene contraseña, añade también
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. La clave pública correspondiente está
+en `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); si cambias de
+clave, hay que cambiarla ahí y las versiones ya instaladas no podrán
+actualizarse solas: tendrán que instalar a mano una vez. Pierde la clave
+privada y pasa lo mismo.
 
 ## Instalador para Windows sin instalar nada antes
 
@@ -528,10 +544,11 @@ Para desinstalar: `desinstalar.cmd` o «Aplicaciones instaladas». Los datos
 (`%LOCALAPPDATA%\com.miradio.app`) se conservan a propósito.
 
 El ejecutable no está firmado, así que SmartScreen puede avisar la primera
-vez. Para eliminarlo hace falta un certificado de firma de código; el
-workflow `.github/workflows/windows.yml` compila el instalador NSIS en un
-runner de Windows en cada tag `v*` y está preparado para firmar. La
-compilación cruzada con `cargo-xwin` queda para desarrollo.
+vez. Para eliminarlo hace falta un certificado de firma de código de
+Windows (de pago); la firma de las actualizaciones descrita arriba es otra
+cosa y no evita ese aviso. El workflow `.github/workflows/windows.yml`
+compila el instalador NSIS y el MSI en un runner de Windows en cada tag
+`v*`. La compilación cruzada con `cargo-xwin` queda para desarrollo.
 
 ### Como se genero (por si hay que reproducirlo)
 
