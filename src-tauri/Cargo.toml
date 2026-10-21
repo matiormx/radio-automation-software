@@ -27,6 +27,7 @@ serde_json = "1"
 lofty = "0.25"
 symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "wav", "ogg", "pcm", "alac"] }
 ebur128-stream = "0.2"
+ureq = "2"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

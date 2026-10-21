@@ -3019,3 +3019,13 @@ body {
   .io-format, .stream-grid, .rtsp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stream-wide { grid-column: span 2; }
 }
+
+/* Buscador Deezer */
+.deezer-form { display: flex; gap: 8px; align-items: center; }
+.deezer-form .search-box { flex: 1; }
+.deezer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.deezer-row { display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; }
+.deezer-row img, .deezer-nocover { width: 44px; height: 44px; border-radius: 4px; background: var(--line); flex: none; object-fit: cover; }
+.deezer-info { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; }
+.deezer-info strong, .deezer-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deezer-info span { color: var(--text-faint); }

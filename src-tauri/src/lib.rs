@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 pub mod analysis;
+pub mod deezer;
 pub mod library;
 pub mod playlists;
 pub mod settings;
@@ -33,6 +34,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library::import_files,
+            deezer::deezer_search,
+            deezer::deezer_track,
             library::list_tracks,
             library::scan_music_folder,
             library::update_track,

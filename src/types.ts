@@ -446,3 +446,15 @@ export const DEFAULT_SETTINGS: Settings = {
     },
   },
 };
+
+export interface DeezerTrack {
+  id: number;
+  title: string;
+  artist: string;
+  album: string;
+  durationSecs: number;
+  preview: string;
+  cover: string;
+  year: string;
+  genre: string;
+}

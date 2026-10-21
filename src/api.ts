@@ -12,6 +12,7 @@ import type {
   TrackDetails,
   TrackPatch,
   AnalysisResult,
+  DeezerTrack,
   HistoryEntry,
   SessionState,
   Waveform,
@@ -27,6 +28,14 @@ export function listTracks(): Promise<Track[]> {
 
 export function importFiles(paths: string[], library: "a" | "b" = "a"): Promise<Track[]> {
   return invoke<Track[]>("import_files", { paths, library });
+}
+
+export function deezerSearch(query: string): Promise<DeezerTrack[]> {
+  return invoke<DeezerTrack[]>("deezer_search", { query });
+}
+
+export function deezerTrack(id: number): Promise<DeezerTrack> {
+  return invoke<DeezerTrack>("deezer_track", { id });
 }
 
 export function scanMusicFolder(): Promise<number> {

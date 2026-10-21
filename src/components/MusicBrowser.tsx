@@ -1,3 +1,4 @@
+import { DeezerSearch } from "./DeezerSearch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
@@ -514,6 +515,8 @@ export function MusicBrowser({
     setPropsId(t.id);
   };
 
+  const [deezerOpen, setDeezerOpen] = useState(false);
+
   const doScan = async () => {
     setScanning(true);
     try {
@@ -662,6 +665,15 @@ export function MusicBrowser({
         <button
           type="button"
           className="btn btn-sm"
+          onClick={() => setDeezerOpen(true)}
+          title="Buscar en Deezer los datos de una canción e importar tu archivo con ellos"
+        >
+          <IconSearch size={14} />
+          Deezer
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
           onClick={() => void doScan()}
           disabled={scanning}
           title="Catalogar los archivos de la carpeta de música"
@@ -679,6 +691,14 @@ export function MusicBrowser({
           Lista
         </button>
       </div>
+
+      {deezerOpen && (
+        <DeezerSearch
+          onClose={() => setDeezerOpen(false)}
+          onImported={onTrackSaved}
+          showToast={showToast}
+        />
+      )}
 
       <div className="browser-body">
         <aside className="browser-side" aria-label="Filtros">
