@@ -24,6 +24,9 @@ import {
   setBrandingLogo,
   trackUrl,
   backfillCovers,
+  listHistory,
+  loadSession,
+  saveSession,
   writeNowPlaying,
   writeNowPlayingImage,
   pickNowPlayingFile,
@@ -32,6 +35,8 @@ import {
   stopStreaming,
 } from "./api";
 import type {
+  HistoryEntry,
+  SessionState,
   Track,
   Playlist,
   PlaylistRow,
@@ -188,6 +193,7 @@ export default function App() {
   const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
   const [manualAuto, setManualAuto] = useState<{ id: string; until: number } | null>(null);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [streamBusy, setStreamBusy] = useState(false);
   const autopilotOn = settings.autopilotEnabled;
   const defaultBlockId = blocks.some((block) => block.id === settings.defaultBlockId)
@@ -206,6 +212,10 @@ export default function App() {
   const streamEncoderRef = useRef<StreamEncoder | null>(null);
   const userPausedRef = useRef(false);
   const autoPlayStartedRef = useRef(false);
+  const pausedRef = useRef(true);
+  const sessionRef = useRef<SessionState | null>(null);
+  const sessionRestoredRef = useRef(false);
+  const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
@@ -577,16 +587,50 @@ export default function App() {
     mixerRef.current?.apply(settings);
   }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId]);
 
+  // Continuar donde se quedo la ultima sesion: misma lista, misma pista y
+  // misma posicion. Si la app se abrio con "reproducir automaticamente",
+  // ademas sigue sonando; si no, queda pausada en ese punto.
+  useEffect(() => {
+    if (sessionRestoredRef.current) return;
+    const session = sessionRef.current;
+    if (!session || !session.trackId) return;
+    const player = playerRef.current;
+    if (!player) return;
+    const index = rows.findIndex((row) => row.id === session.trackId);
+    if (index < 0) return;
+    sessionRestoredRef.current = true;
+    restoringRef.current = true;
+    void player
+      .restoreAt(index, session.positionSecs, settings.autoPlayOnStart)
+      .then(() => {
+        setPaused(!player.isPlaying);
+        pausedRef.current = !player.isPlaying;
+      })
+      .catch(() => undefined);
+  }, [rows, settings.autoPlayOnStart]);
+
   // Carga inicial de datos
   useEffect(() => {
     void (async () => {
       try {
-        const [t, bs, ps, s] = await Promise.all([listTracks(), listBlocks(), listPlaylists(), getSettings()]);
+        const [t, bs, ps, s, hist, session] = await Promise.all([
+          listTracks(),
+          listBlocks(),
+          listPlaylists(),
+          getSettings(),
+          listHistory().catch(() => [] as HistoryEntry[]),
+          loadSession().catch(() => null),
+        ]);
         setTracks(t);
         setBlocks(bs);
         setPlaylists(ps);
         setActiveId(ps[0]?.id ?? "");
         setSettings(s);
+        setHistory(hist);
+        sessionRef.current = session;
+        if (session?.playlistId && ps.some((pl) => pl.id === session.playlistId)) {
+          setActiveId(session.playlistId);
+        }
         void backfillCovers()
           .then((n) => {
             if (n > 0) void listTracks().then(setTracks).catch(() => undefined);
@@ -625,11 +669,40 @@ export default function App() {
     void refreshTracksAndBlocks();
   }, [refreshTracksAndBlocks]);
 
+  // Guardar la sesion para poder continuar donde se quedo al reabrir.
+  useEffect(() => {
+    const save = () => {
+      const index = playingRowRef.current;
+      const row = index >= 0 ? rowsRef.current[index] : null;
+      const session: SessionState = {
+        playlistId: activeIdRef.current,
+        trackId: row?.id ?? "",
+        positionSecs: posRef.current.cur,
+        playing: !pausedRef.current,
+        updatedAt: Date.now(),
+      };
+      void saveSession(session).catch(() => undefined);
+    };
+    const timer = window.setInterval(save, 5000);
+    return () => {
+      window.clearInterval(timer);
+      save();
+    };
+  }, []);
+
   // Historial: cada pista que empieza se anota para las reglas de rotación
   useEffect(() => {
     if (playingRow < 0) return;
     const r = rowsRef.current[playingRow];
-    if (r) void reportStarted(r.id).catch(() => undefined);
+    if (!r) return;
+    if (restoringRef.current) {
+      restoringRef.current = false;
+      return;
+    }
+    void reportStarted(r.id)
+      .then(() => listHistory())
+      .then((entries) => setHistory(entries))
+      .catch(() => undefined);
   }, [playingRow]);
 
   // Arrastrar archivos desde el escritorio
@@ -1679,6 +1752,7 @@ export default function App() {
         <MusicBrowser
           tracks={tracks}
           blocks={blocks}
+          history={history}
           autoBlocks={settings.autoBlocks}
           onToggleAutoBlock={toggleAutoBlock}
           onCreateBlock={handleCreateBlock}

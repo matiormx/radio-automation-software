@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Block, PlaylistImportReport, Track, TrackPatch } from "../types";
+import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
   relinkTrack,
@@ -25,13 +25,14 @@ import {
   IconTag,
 } from "../icons";
 
-type Mode = "folders" | "artists" | "blocks" | "genres" | "tags";
+type Mode = "folders" | "artists" | "blocks" | "genres" | "tags" | "history";
 type SortKey = "title" | "album" | "genre" | "duration";
 const NONE = "__none";
 
 interface MusicBrowserProps {
   tracks: Track[];
   blocks: Block[];
+  history: HistoryEntry[];
   autoBlocks: string[];
   onToggleAutoBlock: (blockId: string) => void;
   onCreateBlock: (name: string) => Promise<void>;
@@ -87,7 +88,11 @@ const MODES: { id: Mode; label: string }[] = [
   { id: "blocks", label: "Bloques" },
   { id: "genres", label: "Estilos" },
   { id: "tags", label: "Etiquetas" },
+  { id: "history", label: "Historial" },
 ];
+
+/** Cuantas canciones ya emitidas se ven a la vez. */
+const HISTORY_LIMIT = 25;
 
 function fmtTime(secs: number): string {
   if (!secs || secs <= 0) return "--:--";
@@ -223,6 +228,7 @@ function FolderTree({
 export function MusicBrowser({
   tracks,
   blocks,
+  history,
   autoBlocks,
   onToggleAutoBlock,
   onCreateBlock,
@@ -305,6 +311,23 @@ export function MusicBrowser({
   const noBlockCount = useMemo(() => tracks.filter((t) => t.blocks.length === 0).length, [tracks]);
 
   const noTagCount = useMemo(() => tracks.filter((t) => t.tags.length === 0).length, [tracks]);
+
+  // Canciones ya emitidas, de la mas reciente a la mas antigua.
+  const playedTracks = useMemo(() => {
+    if (history.length === 0) return [];
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    const seen = new Set<string>();
+    const out: { track: Track; playedAt: number }[] = [];
+    for (const entry of history) {
+      if (seen.has(entry.trackId)) continue;
+      seen.add(entry.trackId);
+      const track = byId.get(entry.trackId);
+      if (!track) continue;
+      out.push({ track, playedAt: entry.playedAt });
+      if (out.length >= HISTORY_LIMIT) break;
+    }
+    return out;
+  }, [history, tracks]);
 
   const filtered = useMemo(() => {
     let list = tracks;
@@ -565,6 +588,7 @@ export function MusicBrowser({
     if (mode === "blocks") return selection === NONE ? "Sin bloque" : blockNames.get(selection) ?? "Bloque";
     if (mode === "genres") return selection === NONE ? "Sin estilo" : selection;
     if (mode === "tags") return selection === NONE ? "Sin etiquetas" : selection;
+    if (mode === "history") return "Últimas canciones emitidas";
     return selection;
   })();
 
@@ -874,13 +898,56 @@ export function MusicBrowser({
               Estilo
               {sort.key === "genre" && <span className="sort-mark">{sort.dir === 1 ? "↑" : "↓"}</span>}
             </button>
-            <button type="button" className="bcol bcol-dur" onClick={() => toggleSort("duration")}>
-              Dur.
+            <button
+              type="button"
+              className="bcol bcol-dur"
+              onClick={() => toggleSort("duration")}
+              title={mode === "history" ? "Hora en que sonó" : "Duración"}
+            >
+              {mode === "history" ? "Emitida" : "Dur."}
               {sort.key === "duration" && <span className="sort-mark">{sort.dir === 1 ? "↑" : "↓"}</span>}
             </button>
           </div>
 
-          {filtered.length === 0 ? (
+          {mode === "history" ? (
+            <div className="browser-rows" role="list" onClick={() => setSelectedId("")}>
+              {playedTracks.length === 0 ? (
+                <div className="empty-note">
+                  Todavía no ha sonado ninguna canción. Aquí se verán las últimas que se han
+                  emitido.
+                </div>
+              ) : (
+                playedTracks.map(({ track, playedAt }) => (
+                  <div
+                    key={track.id}
+                    className="brow brow-history"
+                    role="listitem"
+                    onDoubleClick={() => onAdd(track)}
+                    title={`${track.title} — ${track.artist}`}
+                  >
+                    <div className="bcell bcol-name">
+                      <span className="brow-title">{track.title}</span>
+                      <span className="brow-sub">{track.artist}</span>
+                    </div>
+                    <span className="bcell bcol-album" title={track.album}>
+                      {track.album || "—"}
+                    </span>
+                    <span className="bcell bcol-genre" title={track.genre}>
+                      {track.genre || "—"}
+                    </span>
+                    <span className="bcell bcol-dur brow-when">
+                      {new Date(playedAt * 1000).toLocaleString("es-ES", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="empty-note">
               {tracks.length === 0
                 ? "La biblioteca está vacía. Importa canciones, escanea tu carpeta de música o importa una lista M3U."

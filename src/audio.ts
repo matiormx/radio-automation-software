@@ -155,6 +155,20 @@ export class RadioPlayer {
     this.startDeck(track, buffer, start);
   }
 
+  /**
+   * Deja el reproductor en una pista y una posicion concretos, sin necesidad
+   * de que este sonando. Se usa al reabrir la app para continuar donde se
+   * quedo la ultima sesion.
+   */
+  async restoreAt(index: number, positionSecs: number, autoplay: boolean): Promise<void> {
+    await this.playAt(index);
+    if (positionSecs > 0) await this.seek(positionSecs);
+    if (!autoplay) {
+      const deck = this.activeDeck();
+      if (deck) this.pause(deck);
+    }
+  }
+
   async toggle(): Promise<void> {
     this.ensureCtx();
     if (!this.ctx) return;

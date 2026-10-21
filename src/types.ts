@@ -306,6 +306,22 @@ export interface StreamProbe {
   error: string | null;
 }
 
+/** Canción ya emitida. */
+export interface HistoryEntry {
+  trackId: string;
+  /** Segundos desde epoch */
+  playedAt: number;
+}
+
+/** Estado de la última sesión, para continuar donde se quedó. */
+export interface SessionState {
+  playlistId: string;
+  trackId: string;
+  positionSecs: number;
+  playing: boolean;
+  updatedAt: number;
+}
+
 /** Programa de emisión preparado de antemano. */
 export interface Program {
   id: string;

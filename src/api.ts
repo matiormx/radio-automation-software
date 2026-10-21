@@ -12,6 +12,8 @@ import type {
   TrackDetails,
   TrackPatch,
   AnalysisResult,
+  HistoryEntry,
+  SessionState,
   Waveform,
 } from "./types";
 
@@ -224,6 +226,18 @@ export async function pickImageFile(): Promise<string | null> {
     title: "Logo de la emisora",
     filters: [{ name: "Imagen", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
   });
+}
+
+export function listHistory(): Promise<HistoryEntry[]> {
+  return invoke<HistoryEntry[]>("list_history");
+}
+
+export function saveSession(session: SessionState): Promise<void> {
+  return invoke("save_session", { session });
+}
+
+export function loadSession(): Promise<SessionState | null> {
+  return invoke<SessionState | null>("load_session");
 }
 
 export function reportStarted(trackId: string): Promise<void> {

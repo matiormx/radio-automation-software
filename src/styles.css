@@ -1041,6 +1041,13 @@ body {
 }
 .field-unit input:focus { border-color: var(--accent); }
 
+/* historial: canciones ya emitidas, en gris */
+.brow-history { opacity: 0.55; }
+.brow-history:hover { opacity: 0.85; }
+.brow-history .brow-title { color: var(--text-dim); }
+.brow-history .brow-sub { color: var(--text-faint); }
+.brow-when { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+
 .np-path { flex: 1; justify-content: flex-end; }
 .np-path input {
   flex: 1;

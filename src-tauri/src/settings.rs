@@ -9,6 +9,7 @@ use crate::library::Track;
 
 const SETTINGS_FILE: &str = "settings.json";
 const HISTORY_FILE: &str = "history.json";
+const SESSION_FILE: &str = "session.json";
 const MAX_HISTORY: usize = 800;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -632,6 +633,42 @@ pub fn report_started(state: State<'_, AppState>, track_id: String) -> Result<()
         history.drain(0..cut);
     }
     write_history(&state.data_dir, &history)
+}
+
+/// Canciones ya emitidas, de la mas reciente a la mas antigua. Se guarda en
+/// history.json, asi que sobrevive a los reinicios de la app.
+#[tauri::command]
+pub fn list_history(state: State<'_, AppState>) -> Vec<HistoryEntry> {
+    let mut entries = read_history(&state.data_dir);
+    entries.reverse();
+    entries
+}
+
+/// Estado de la ultima sesion: lista, pista y posicion. Sirve para
+/// continuar la emision donde se quedo al cerrar la app.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SessionState {
+    pub playlist_id: String,
+    pub track_id: String,
+    pub position_secs: f64,
+    pub playing: bool,
+    pub updated_at: u64,
+}
+
+#[tauri::command]
+pub fn save_session(state: State<'_, AppState>, session: SessionState) -> Result<(), String> {
+    let mut session = session;
+    session.updated_at = now_epoch();
+    let json = serde_json::to_vec_pretty(&session).map_err(|e| e.to_string())?;
+    std::fs::write(state.data_dir.join(SESSION_FILE), json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_session(state: State<'_, AppState>) -> Option<SessionState> {
+    std::fs::read(state.data_dir.join(SESSION_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
 }
 
 #[derive(Clone)]
