@@ -90,8 +90,9 @@ biblioteca y reglas de rotación).
   cambiarlo en caliente y ver qué bloque está usando. Un evento activo
   tiene prioridad sobre esa elección.
 - **Modo LIVE**: se preparan programas con antelación (título, portada y
-  hora) y, al activar el interruptor LIVE, una barra auxiliar muestra el
-  programa en antena; sus metadatos sustituyen a los de la canción.
+  hora). La barra auxiliar está siempre visible: en gris con el programa
+  preparado y en rojo cuando LIVE está activo, con sus metadatos
+  sustituyendo a los de la canción en el archivo `live.txt`.
 - **Dos archivos de directo**: `nowplaying.txt` (con su `nowplaying.jpg`)
   lleva siempre la música que está sonando, y `live.txt` (con su
   `live.jpg`) lleva el programa seleccionado cuando el modo LIVE está
@@ -337,10 +338,16 @@ En **Ajustes > Programas** se preparan los programas con antelación:
 título, bajada, portada y hora de inicio. Cada programa se puede activar
 («Al aire») o cambiar desde la propia barra.
 
-El interruptor **LIVE** de la cabecera activa el modo: aparece una barra
-auxiliar sobre el reproductor con la portada y el título del programa que
-está en antena, la hora prevista y las portadas de los demás programas
-preparados (un clic pone ese programa en antena).
+La barra auxiliar está **siempre visible** sobre el reproductor. En gris
+(etiqueta *PREPARADO*) cuando el modo LIVE está apagado y en rojo
+(*EN DIRECTO*) cuando está activo. Muestra la portada y el título del
+programa preparado, la hora prevista y las portadas de los demás programas
+(un clic pone ese programa en antena).
+
+Como la barra está siempre a la vista, se puede **preparar el programa
+antes de activarlo**: se elige en la barra (o en Ajustes > Programas) con
+el LIVE apagado y, cuando llega el momento, se pulsa **LIVE** —en la barra
+o en la cabecera— y ese programa pasa a estar en antena.
 
 En modo LIVE, el archivo `live.txt` (y su `live.jpg`) pasan a llevar los
 datos del programa en lugar de los de la canción:

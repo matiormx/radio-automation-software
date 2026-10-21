@@ -851,10 +851,18 @@ body {
   align-items: center;
   gap: 12px;
   padding: 8px 10px;
-  background: linear-gradient(90deg, #2a1216, var(--panel) 65%);
-  border: 1px solid #ef444455;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
 }
+.livebar.live {
+  background: linear-gradient(90deg, #2a1216, var(--panel) 65%);
+  border-color: #ef444455;
+}
+.livebar.idle .livebar-cover { filter: grayscale(1) brightness(0.85); opacity: 0.75; }
+.livebar.idle .livebar-name { color: var(--text-dim); }
+.livebar.idle .livebar-tag { color: var(--text-faint); }
 .livebar-cover {
   width: 52px;
   height: 52px;
@@ -880,6 +888,24 @@ body {
   font-weight: 700;
   letter-spacing: 1.2px;
   color: #f87171;
+}
+.livebar-toggle {
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.livebar-toggle:hover { color: var(--text); border-color: var(--line-strong); }
+.livebar-toggle.on {
+  color: #fecaca;
+  background: #ef44441f;
+  border-color: #ef444488;
 }
 .livebar-name {
   font-size: 14px;

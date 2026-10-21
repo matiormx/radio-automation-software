@@ -375,12 +375,17 @@ export default function App() {
     });
   }, [active, tracks]);
 
-  // Programa en antena (modo LIVE). Solo se usa en el archivo "live".
-  const liveProgram = useMemo(() => {
-    if (!settings.liveMode) return null;
+  // Programa preparado (se elige con el LIVE apagado o encendido).
+  const selectedProgram = useMemo(() => {
     const programs = settings.programs ?? [];
     return programs.find((program) => program.id === settings.liveProgramId) ?? null;
-  }, [settings.liveMode, settings.liveProgramId, settings.programs]);
+  }, [settings.liveProgramId, settings.programs]);
+
+  // Programa en antena: solo cuando el modo LIVE esta activado.
+  const liveProgram = useMemo(() => {
+    if (!settings.liveMode) return null;
+    return selectedProgram;
+  }, [settings.liveMode, selectedProgram]);
 
   // Cancion que esta sonando ahora.
   const nowPlayingTrack = useMemo(() => {
@@ -1690,18 +1695,18 @@ export default function App() {
         <VuMeter mixer={mixer} />
 
         <div className="right-col">
-          {settings.liveMode && (
-            <LiveBar
-              programs={(settings.programs ?? []).filter((program) => program.enabled)}
-              activeId={settings.liveProgramId}
-              onSelect={(id) => updateSettings({ ...settings, liveProgramId: id })}
-              onOpenPrograms={() => {
-                setSettingsTab("programs");
-                setSettingsMounted(true);
-                setSettingsOpen(true);
-              }}
-            />
-          )}
+          <LiveBar
+            programs={(settings.programs ?? []).filter((program) => program.enabled)}
+            activeId={settings.liveProgramId}
+            live={settings.liveMode}
+            onSelect={(id) => updateSettings({ ...settings, liveProgramId: id })}
+            onToggleLive={(on) => updateSettings({ ...settings, liveMode: on })}
+            onOpenPrograms={() => {
+              setSettingsTab("programs");
+              setSettingsMounted(true);
+              setSettingsOpen(true);
+            }}
+          />
           <DeckZone
             title={deckRow?.title ?? ""}
             artist={deckRow?.artist ?? ""}
