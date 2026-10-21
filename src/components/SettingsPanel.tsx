@@ -12,6 +12,8 @@ import { ProgramsTab } from "./ProgramsTab";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   NOW_PLAYING_PLACEHOLDERS,
+  liveFilePath,
+  liveImagePath,
   nowPlayingImagePath,
 } from "../nowplaying";
 import type { SoundMixer } from "../mixer";
@@ -25,6 +27,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   onPickMusicFolder: () => Promise<void>;
   onPickNowPlaying: () => void;
+  onPickLiveFile: () => void;
   onWriteNowPlaying: () => void;
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
@@ -162,6 +165,7 @@ export function SettingsPanel({
   onClose,
   onPickMusicFolder,
   onPickNowPlaying,
+  onPickLiveFile,
   onWriteNowPlaying,
   onPickLogo,
   onClearLogo,
@@ -277,6 +281,7 @@ export function SettingsPanel({
                 onChange={onChange}
                 onPickMusicFolder={onPickMusicFolder}
                 onPickNowPlaying={onPickNowPlaying}
+                onPickLiveFile={onPickLiveFile}
                 onWriteNowPlaying={onWriteNowPlaying}
                 onPickLogo={onPickLogo}
                 onClearLogo={onClearLogo}
@@ -321,6 +326,7 @@ function GeneralTab({
   onChange,
   onPickMusicFolder,
   onPickNowPlaying,
+  onPickLiveFile,
   onWriteNowPlaying,
   onPickLogo,
   onClearLogo,
@@ -331,6 +337,7 @@ function GeneralTab({
   onChange: (s: Settings) => void;
   onPickMusicFolder: () => Promise<void>;
   onPickNowPlaying: () => void;
+  onPickLiveFile: () => void;
   onWriteNowPlaying: () => void;
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
@@ -443,6 +450,11 @@ function GeneralTab({
           <code>{nowPlayingImagePath(s.nowPlayingPath) || "nowplaying.jpg"}</code> (misma carpeta,
           600x600). Si la canción no tiene portada, se genera una imagen con el título.
         </p>
+        <p className="hint">
+          Hay dos archivos: <code>nowplaying.txt</code> lleva siempre la música que está sonando, y
+          el archivo de directo lleva el programa seleccionado cuando el modo LIVE está activado. Si
+          LIVE está apagado, los dos muestran la misma canción.
+        </p>
         <label className="field">
           <span className="field-label">Contenido</span>
           <span className="field-unit np-path">
@@ -452,6 +464,38 @@ function GeneralTab({
               spellCheck={false}
               placeholder={DEFAULT_NOW_PLAYING_TEMPLATE}
               onChange={(e) => onChange({ ...s, nowPlayingTemplate: e.target.value })}
+            />
+          </span>
+        </label>
+        <label className="field">
+          <span className="field-label">Archivo directo</span>
+          <span className="field-unit np-path">
+            <input
+              type="text"
+              value={s.liveFilePath}
+              spellCheck={false}
+              placeholder={liveFilePath(s.nowPlayingPath, "") || "live.txt"}
+              onChange={(e) => onChange({ ...s, liveFilePath: e.target.value })}
+            />
+            <button type="button" className="btn btn-sm" onClick={() => void onPickLiveFile()}>
+              <IconFolder size={14} />
+              Elegir archivo
+            </button>
+          </span>
+        </label>
+        <p className="hint">
+          Se escribirá en <code>{liveFilePath(s.nowPlayingPath, s.liveFilePath) || "live.txt"}</code>{" "}
+          con su portada <code>{liveImagePath(liveFilePath(s.nowPlayingPath, s.liveFilePath)) || "live.jpg"}</code>.
+        </p>
+        <label className="field">
+          <span className="field-label">Contenido directo</span>
+          <span className="field-unit np-path">
+            <input
+              type="text"
+              value={s.liveTemplate}
+              spellCheck={false}
+              placeholder={DEFAULT_NOW_PLAYING_TEMPLATE}
+              onChange={(e) => onChange({ ...s, liveTemplate: e.target.value })}
             />
           </span>
         </label>

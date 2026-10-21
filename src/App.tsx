@@ -49,6 +49,8 @@ import { LiveBar } from "./components/LiveBar";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
+  liveFilePath,
+  liveImagePath,
   nowPlayingImagePath,
   nowPlayingLine,
   renderNowPlaying,
@@ -373,15 +375,14 @@ export default function App() {
     });
   }, [active, tracks]);
 
-  // Programa en antena (modo LIVE). Sus metadatos sustituyen a los de la
-  // canción en el nowplaying y en la portada.
+  // Programa en antena (modo LIVE). Solo se usa en el archivo "live".
   const liveProgram = useMemo(() => {
     if (!settings.liveMode) return null;
     const programs = settings.programs ?? [];
     return programs.find((program) => program.id === settings.liveProgramId) ?? null;
   }, [settings.liveMode, settings.liveProgramId, settings.programs]);
 
-  // Archivo "now playing": se escribe con los datos de la cancion actual.
+  // Cancion que esta sonando ahora.
   const nowPlayingTrack = useMemo(() => {
     if (playingRow < 0) return null;
     const row = rows[playingRow];
@@ -389,46 +390,89 @@ export default function App() {
     return tracks.find((track) => track.id === row.id) ?? null;
   }, [playingRow, rows, tracks]);
 
-  const nowPlayingText = useMemo(() => {
+  /** Datos de la cancion que suena. */
+  const songFields = useMemo<NowPlayingFields | null>(() => {
     if (!nowPlayingTrack) return null;
     const durationSec = Math.max(0, Math.round(effectiveDuration(nowPlayingTrack)));
     const blockNames = nowPlayingTrack.blocks
       .map((id) => blocks.find((block) => block.id === id)?.name ?? "")
       .filter((name) => name !== "")
       .join(", ");
-    const fields: NowPlayingFields = {
-      artist: liveProgram ? liveProgram.subtitle ?? "" : nowPlayingTrack.artist ?? "",
-      title: liveProgram ? liveProgram.name ?? "" : nowPlayingTrack.title ?? "",
-      album: liveProgram ? "" : nowPlayingTrack.album ?? "",
-      year: liveProgram ? "" : nowPlayingTrack.year ?? "",
-      genre: liveProgram ? "" : nowPlayingTrack.genre ?? "",
+    return {
+      artist: nowPlayingTrack.artist ?? "",
+      title: nowPlayingTrack.title ?? "",
+      album: nowPlayingTrack.album ?? "",
+      year: nowPlayingTrack.year ?? "",
+      genre: nowPlayingTrack.genre ?? "",
       duration: fmtDuration(durationSec),
       durationSec: String(durationSec),
       radio: settings.radioName ?? "",
-      block: liveProgram ? "" : blockNames,
-      program: liveProgram?.name ?? "",
+      block: blockNames,
+      program: "",
       time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
     };
+  }, [nowPlayingTrack, blocks, settings.radioName]);
+
+  /** Datos del programa en antena (modo LIVE). */
+  const programFields = useMemo<NowPlayingFields | null>(() => {
+    if (!liveProgram) return null;
+    return {
+      artist: liveProgram.subtitle ?? "",
+      title: liveProgram.name ?? "",
+      album: "",
+      year: "",
+      genre: "",
+      duration: "",
+      durationSec: "",
+      radio: settings.radioName ?? "",
+      block: "",
+      program: liveProgram.name ?? "",
+      time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+    };
+  }, [liveProgram, settings.radioName]);
+
+  // Archivo "now playing": siempre la musica que esta sonando.
+  const nowPlayingText = useMemo(() => {
+    if (!songFields) return null;
     const template = settings.nowPlayingTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
+    return nowPlayingLine(renderNowPlaying(template, songFields));
+  }, [songFields, settings.nowPlayingTemplate]);
+
+  // Archivo "live": el programa si el modo LIVE esta activo; si no, la musica.
+  const liveText = useMemo(() => {
+    const fields = liveProgram ? programFields : songFields;
+    if (!fields) return null;
+    const template = settings.liveTemplate?.trim() || DEFAULT_NOW_PLAYING_TEMPLATE;
     return nowPlayingLine(renderNowPlaying(template, fields));
-  }, [nowPlayingTrack, blocks, liveProgram, settings.nowPlayingTemplate, settings.radioName]);
+  }, [liveProgram, programFields, songFields, settings.liveTemplate]);
 
   const nowPlayingTextRef = useRef<string | null>(null);
   nowPlayingTextRef.current = nowPlayingText;
+  const liveTextRef = useRef<string | null>(null);
+  liveTextRef.current = liveText;
   const nowPlayingErrorRef = useRef("");
 
   const nowPlayingCoverUrl = useMemo(() => {
-    if (liveProgram) {
-      return liveProgram.cover ? trackUrl({ file: liveProgram.cover }) : "";
-    }
     const track = nowPlayingTrack;
     if (!track || !track.cover) return "";
     return trackUrl({ file: track.cover });
-  }, [nowPlayingTrack, liveProgram]);
+  }, [nowPlayingTrack]);
+
+  const liveCoverUrl = useMemo(() => {
+    if (liveProgram) return liveProgram.cover ? trackUrl({ file: liveProgram.cover }) : "";
+    return nowPlayingCoverUrl;
+  }, [liveProgram, nowPlayingCoverUrl]);
 
   const nowPlayingCoverRef = useRef({ url: "", title: "", artist: "", radio: "" });
   nowPlayingCoverRef.current = {
     url: nowPlayingCoverUrl,
+    title: nowPlayingTrack?.title ?? "",
+    artist: nowPlayingTrack?.artist ?? "",
+    radio: settings.radioName ?? "",
+  };
+  const liveCoverRef = useRef({ url: "", title: "", artist: "", radio: "" });
+  liveCoverRef.current = {
+    url: liveCoverUrl,
     title: liveProgram ? liveProgram.name ?? "" : nowPlayingTrack?.title ?? "",
     artist: liveProgram ? liveProgram.subtitle ?? "" : nowPlayingTrack?.artist ?? "",
     radio: settings.radioName ?? "",
@@ -444,10 +488,9 @@ export default function App() {
     [showToast],
   );
 
-  /** Escribe la portada de la cancion como JPEG junto al archivo de texto. */
-  const publishNowPlayingImage = useCallback(
-    async (txtPath: string, cover: { url: string; title: string; artist: string; radio: string }) => {
-      const imagePath = nowPlayingImagePath(txtPath);
+  /** Escribe una portada como JPEG junto a su archivo de texto. */
+  const publishCoverImage = useCallback(
+    async (imagePath: string, cover: { url: string; title: string; artist: string; radio: string }) => {
       if (!imagePath) return;
       const data = await buildCoverJpeg(cover.url, {
         title: cover.title,
@@ -459,16 +502,37 @@ export default function App() {
     [],
   );
 
+  // Rutas de los dos archivos (y de sus imagenes).
+  const nowPlayingPath = settings.nowPlayingPath.trim();
+  const nowPlayingImage = nowPlayingImagePath(nowPlayingPath);
+  const livePath = liveFilePath(nowPlayingPath, settings.liveFilePath ?? "");
+  const liveImage = liveImagePath(livePath);
+
   useEffect(() => {
-    const path = settings.nowPlayingPath.trim();
-    if (!path || !nowPlayingText) return;
-    void writeNowPlaying(path, nowPlayingText)
+    if (!nowPlayingPath || !nowPlayingText) return;
+    void writeNowPlaying(nowPlayingPath, nowPlayingText)
       .then(() => {
         nowPlayingErrorRef.current = "";
       })
       .catch(reportNowPlayingError);
-    void publishNowPlayingImage(path, nowPlayingCoverRef.current).catch(reportNowPlayingError);
-  }, [nowPlayingText, settings.nowPlayingPath, nowPlayingCoverUrl, publishNowPlayingImage, reportNowPlayingError]);
+    void publishCoverImage(nowPlayingImage, nowPlayingCoverRef.current).catch(reportNowPlayingError);
+  }, [
+    nowPlayingText,
+    nowPlayingPath,
+    nowPlayingImage,
+    publishCoverImage,
+    reportNowPlayingError,
+  ]);
+
+  useEffect(() => {
+    if (!livePath || !liveText) return;
+    void writeNowPlaying(livePath, liveText)
+      .then(() => {
+        nowPlayingErrorRef.current = "";
+      })
+      .catch(reportNowPlayingError);
+    void publishCoverImage(liveImage, liveCoverRef.current).catch(reportNowPlayingError);
+  }, [liveText, livePath, liveImage, publishCoverImage, reportNowPlayingError]);
 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -1045,8 +1109,21 @@ export default function App() {
     }
   }, [showToast, updateSettings]);
 
+  const chooseLiveFile = useCallback(async () => {
+    try {
+      const current = settingsRef.current.liveFilePath?.trim();
+      const path = await pickNowPlayingFile(current || "live.txt");
+      if (!path) return;
+      updateSettings({ ...settingsRef.current, liveFilePath: path });
+      showToast("Archivo de directo elegido");
+    } catch (e) {
+      showToast(`No se pudo elegir el archivo: ${String(e)}`);
+    }
+  }, [showToast, updateSettings]);
+
   const writeNowPlayingNow = useCallback(() => {
-    const path = settingsRef.current.nowPlayingPath.trim();
+    const s = settingsRef.current;
+    const path = s.nowPlayingPath.trim();
     if (!path) {
       showToast("Elige primero el archivo nowplaying");
       return;
@@ -1056,17 +1133,28 @@ export default function App() {
       showToast("Ahora mismo no suena ninguna canción");
       return;
     }
+    const live = liveFilePath(path, s.liveFilePath ?? "");
     void writeNowPlaying(path, text)
       .then(async (file) => {
         showToast(`Nowplaying escrito en ${file}`);
         try {
-          await publishNowPlayingImage(path, nowPlayingCoverRef.current);
+          await publishCoverImage(nowPlayingImagePath(path), nowPlayingCoverRef.current);
         } catch (e) {
           showToast(`No se pudo escribir la portada: ${String(e)}`);
         }
+        const liveText = liveTextRef.current;
+        if (live && liveText) {
+          try {
+            await writeNowPlaying(live, liveText);
+            await publishCoverImage(liveImagePath(live), liveCoverRef.current);
+            showToast(`Directo escrito en ${live}`);
+          } catch (e) {
+            showToast(`No se pudo escribir el archivo live: ${String(e)}`);
+          }
+        }
       })
       .catch((e) => showToast(`No se pudo escribir: ${String(e)}`));
-  }, [showToast, publishNowPlayingImage]);
+  }, [showToast, publishCoverImage]);
 
   const chooseLogo = useCallback(async () => {
     try {
@@ -1707,6 +1795,7 @@ export default function App() {
           onPickMusicFolder={() => chooseMusicFolder()}
           onPickLogo={() => chooseLogo()}
           onPickNowPlaying={chooseNowPlayingFile}
+          onPickLiveFile={chooseLiveFile}
           onWriteNowPlaying={writeNowPlayingNow}
           onClearLogo={() => removeLogo()}
           onImportAudio={() => importForCampaign()}

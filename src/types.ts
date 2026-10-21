@@ -348,6 +348,10 @@ export interface Settings {
   nowPlayingPath: string;
   /** Plantilla del archivo nowplaying; por defecto "{artist} - {title}" */
   nowPlayingTemplate: string;
+  /** Archivo "live" con el programa; "" = en la carpeta del nowplaying */
+  liveFilePath: string;
+  /** Plantilla del archivo live; por defecto "{artist} - {title}" */
+  liveTemplate: string;
   /** Objetivo de sonoridad de la normalizacion (LUFS) */
   targetLufs: number;
   /** Techo de pico real (dBTP) */
@@ -387,6 +391,8 @@ export const DEFAULT_SETTINGS: Settings = {
   programs: [],
   nowPlayingPath: "",
   nowPlayingTemplate: "{artist} - {title}",
+  liveFilePath: "",
+  liveTemplate: "{artist} - {title}",
   targetLufs: -9,
   truePeakDb: -1,
   radioName: "MiRadio",

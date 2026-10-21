@@ -53,6 +53,11 @@ pub struct Settings {
     pub now_playing_path: String,
     /// Plantilla del archivo nowplaying. Por defecto "artista - titulo".
     pub now_playing_template: String,
+    /// Archivo "live" con el programa en directo. Vacio = en la misma
+    /// carpeta que el nowplaying, con el nombre "live.txt".
+    pub live_file_path: String,
+    /// Plantilla del archivo live. Por defecto "artista - titulo".
+    pub live_template: String,
     /// Objetivo de sonoridad integrada para la normalizacion.
     pub target_lufs: f64,
     /// Techo de pico real al aplicar la ganancia de normalizacion.
@@ -444,6 +449,8 @@ impl Default for Settings {
             programs: Vec::new(),
             now_playing_path: String::new(),
             now_playing_template: "{artist} - {title}".to_string(),
+            live_file_path: String::new(),
+            live_template: "{artist} - {title}".to_string(),
             target_lufs: -9.0,
             true_peak_db: -1.0,
             radio_name: "MiRadio".to_string(),

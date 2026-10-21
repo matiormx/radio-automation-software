@@ -54,6 +54,9 @@ export function nowPlayingLine(text: string): string {
 
 /** Nombre de la imagen que se escribe junto al archivo de texto. */
 export const NOW_PLAYING_IMAGE_NAME = "nowplaying.jpg";
+/** Nombre del archivo de directo (programa) y de su imagen. */
+export const LIVE_FILE_NAME = "live.txt";
+export const LIVE_IMAGE_NAME = "live.jpg";
 
 /** Carpeta del archivo .txt (o "" si no hay ruta). */
 export function nowPlayingFolder(txtPath: string): string {
@@ -68,6 +71,25 @@ export function nowPlayingImagePath(txtPath: string): string {
   const clean = txtPath.trim();
   if (!clean) return "";
   return `${nowPlayingFolder(clean)}${NOW_PLAYING_IMAGE_NAME}`;
+}
+
+/**
+ * Ruta del archivo de directo. Si no se elige una, se usa "live.txt" en la
+ * misma carpeta que el nowplaying.
+ */
+export function liveFilePath(nowPlayingPath: string, livePath: string): string {
+  const chosen = livePath.trim();
+  if (chosen) return chosen;
+  const folder = nowPlayingFolder(nowPlayingPath);
+  if (!folder) return "";
+  return `${folder}${LIVE_FILE_NAME}`;
+}
+
+/** Ruta de la imagen del archivo de directo. */
+export function liveImagePath(livePath: string): string {
+  const clean = livePath.trim();
+  if (!clean) return "";
+  return `${nowPlayingFolder(clean)}${LIVE_IMAGE_NAME}`;
 }
 
 function blobToBase64(blob: Blob): Promise<string> {

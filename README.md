@@ -92,9 +92,10 @@ biblioteca y reglas de rotación).
 - **Modo LIVE**: se preparan programas con antelación (título, portada y
   hora) y, al activar el interruptor LIVE, una barra auxiliar muestra el
   programa en antena; sus metadatos sustituyen a los de la canción.
-- **Archivo nowplaying**: la app escribe un `.txt` con la canción que está
-  sonando (por defecto `ARTISTA - TITULO`) y, junto a él, un `.jpg` con
-  la portada de esa canción.
+- **Dos archivos de directo**: `nowplaying.txt` (con su `nowplaying.jpg`)
+  lleva siempre la música que está sonando, y `live.txt` (con su
+  `live.jpg`) lleva el programa seleccionado cuando el modo LIVE está
+  activado; si LIVE está apagado, los dos muestran la misma canción.
 - **Actualización desde los ajustes**: en Ajustes > General se busca la
   última release publicada y se descarga el instalador, que se abre solo.
 - **Ajustes con navegación lateral**: General (identidad, logo, carpeta
@@ -341,26 +342,37 @@ auxiliar sobre el reproductor con la portada y el título del programa que
 está en antena, la hora prevista y las portadas de los demás programas
 preparados (un clic pone ese programa en antena).
 
-En modo LIVE, los metadatos de la canción que suena se sustituyen por los
-del programa en el archivo `nowplaying.txt` y en el `nowplaying.jpg`:
+En modo LIVE, el archivo `live.txt` (y su `live.jpg`) pasan a llevar los
+datos del programa en lugar de los de la canción:
 
-| | Sin modo LIVE | Con modo LIVE |
-| --- | --- | --- |
-| `{title}` | Título de la canción | Título del programa |
-| `{artist}` | Artista | Bajada del programa |
-| `{album}`, `{year}`, `{genre}` | Datos de la canción | Vacíos |
-| `{block}` | Bloques de la canción | Vacío |
-| `{program}` | Vacío | Título del programa |
+| | `nowplaying.txt` | `live.txt` con LIVE activo | `live.txt` sin LIVE |
+| --- | --- | --- | --- |
+| `{title}` | Título de la canción | Título del programa | Título de la canción |
+| `{artist}` | Artista | Bajada del programa | Artista |
+| `{album}`, `{year}`, `{genre}` | Datos de la canción | Vacíos | Datos de la canción |
+| `{block}` | Bloques de la canción | Vacío | Bloques de la canción |
+| `{program}` | Vacío | Título del programa | Vacío |
 
-El marcador `{program}` está disponible siempre: vale el título del
-programa en directo y queda vacío si el modo LIVE está apagado.
+Cada archivo tiene su propia plantilla (*Contenido* y *Contenido directo*).
+El marcador `{program}` vale el título del programa en directo y queda
+vacío si el modo LIVE está apagado.
 
 ## Archivo nowplaying
 
-En **Ajustes > General > Archivo nowplaying** eliges dónde se escribe el
-archivo de texto con la canción que está sonando (por ejemplo
-`C:\MiRadio\nowplaying.txt`) y qué datos lleva dentro. Por defecto es
-`{artist} - {title}`.
+En **Ajustes > General > Archivo nowplaying** eliges dónde se escriben los
+archivos de texto (por ejemplo `C:\MiRadio\nowplaying.txt`) y qué datos
+llevan dentro. Por defecto es `{artist} - {title}`.
+
+Hay dos salidas, que se escriben a la vez:
+
+- **nowplaying.txt**: siempre la música que está sonando, con su
+  `nowplaying.jpg`.
+- **live.txt**: el programa seleccionado si el modo LIVE está activado; si
+  LIVE está apagado, muestra la misma música que el nowplaying, así que
+  los dos archivos coinciden. Va acompañado de su `live.jpg`.
+
+Si dejas el archivo directo en blanco, se usa `live.txt` en la misma
+carpeta que el nowplaying.
 
 El archivo de texto se reescribe en cada cambio de canción, de forma
 atómica (se escribe un temporal y se renombra), para que ningún programa
