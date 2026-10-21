@@ -478,12 +478,13 @@ function effectiveDurationLabel(tracks: Track[]): string {
 interface TrimEditorProps {
   track: Track;
   mixer: SoundMixer | null;
+  active: boolean;
   onClose: () => void;
   onSaved: (track: Track) => void;
   showToast: (msg: string) => void;
 }
 
-function TrimEditor({ track, mixer, onClose, onSaved, showToast }: TrimEditorProps) {
+function TrimEditor({ track, mixer, active, onClose, onSaved, showToast }: TrimEditorProps) {
   const [wave, setWave] = useState<Waveform | null>(null);
   const [error, setError] = useState("");
   const [start, setStart] = useState(track.trimStart);
@@ -522,6 +523,15 @@ function TrimEditor({ track, mixer, onClose, onSaved, showToast }: TrimEditorPro
       mixer?.stopPreview();
     };
   }, [mixer]);
+
+  useEffect(() => {
+    if (active) return;
+    previewToken.current += 1;
+    previewingRef.current = false;
+    setPreviewing(false);
+    setPlayPos(-1);
+    mixer?.stopPreview();
+  }, [active, mixer]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -826,7 +836,10 @@ interface NormalizerProps {
   blocks: Block[];
   targetLufs: number;
   truePeakDb: number;
-  onClose: () => void;
+  hidden: boolean;
+  onHide: () => void;
+  onStatus: (status: NormalizerStatus | null) => void;
+  apiRef: { current: NormalizerApi | null };
   onRefresh: () => Promise<void>;
   onPick: (side: Side) => void;
   onMove: (ids: string[], to: Side) => Promise<number>;
@@ -835,12 +848,29 @@ interface NormalizerProps {
   mixer: SoundMixer | null;
 }
 
+export interface NormalizerStatus {
+  total: number;
+  done: number;
+  errors: number;
+  label: string;
+  paused: boolean;
+}
+
+export interface NormalizerApi {
+  pause: () => void;
+  resume: () => void;
+  cancel: () => void;
+}
+
 export function Normalizer({
   tracks,
   blocks,
   targetLufs,
   truePeakDb,
-  onClose,
+  hidden,
+  onHide,
+  onStatus,
+  apiRef,
   onRefresh,
   onPick,
   onMove,
@@ -853,15 +883,47 @@ export function Normalizer({
   const [selB, setSelB] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [running, setRunning] = useState<RunningState | null>(null);
+  const [paused, setPaused] = useState(false);
   const [trimId, setTrimId] = useState("");
   const [target, setTarget] = useState(String(targetLufs));
   const [peak, setPeak] = useState(String(truePeakDb));
   const cancelRef = useRef(false);
+  const pausedRef = useRef(false);
   const busyRef = useRef(false);
 
   useEffect(() => setAll(tracks), [tracks]);
   useEffect(() => setTarget(String(targetLufs)), [targetLufs]);
   useEffect(() => setPeak(String(truePeakDb)), [truePeakDb]);
+
+  useEffect(() => {
+    apiRef.current = {
+      pause: () => {
+        if (!busyRef.current) return;
+        pausedRef.current = true;
+        setPaused(true);
+      },
+      resume: () => {
+        pausedRef.current = false;
+        setPaused(false);
+      },
+      cancel: () => {
+        cancelRef.current = true;
+        pausedRef.current = false;
+        setPaused(false);
+      },
+    };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef]);
+
+  useEffect(() => {
+    onStatus(running ? { ...running, paused } : null);
+  }, [running, paused, onStatus]);
+
+  useEffect(() => {
+    return () => onStatus(null);
+  }, [onStatus]);
 
   const libA = useMemo(() => all.filter((t) => t.library !== "b"), [all]);
   const libB = useMemo(() => all.filter((t) => t.library === "b"), [all]);
@@ -914,10 +976,15 @@ export function Normalizer({
     const goal = Math.max(-40, Math.min(-5, Number(target.replace(",", ".")) || targetLufs));
     const ceiling = Math.max(-6, Math.min(0, Number(peak.replace(",", ".")) || truePeakDb));
     cancelRef.current = false;
+    pausedRef.current = false;
+    setPaused(false);
     setErrors(new Map());
     let failed = 0;
     setRunning({ total: valid.length, done: 0, errors: 0, label: "" });
     for (let i = 0; i < valid.length; i++) {
+      while (pausedRef.current && !cancelRef.current) {
+        await new Promise((resolve) => window.setTimeout(resolve, 150));
+      }
       if (cancelRef.current) break;
       const id = valid[i];
       const t = all.find((x) => x.id === id);
@@ -937,6 +1004,8 @@ export function Normalizer({
     }
     const cancelled = cancelRef.current;
     busyRef.current = false;
+    pausedRef.current = false;
+    setPaused(false);
     setRunning(null);
     void onRefresh();
     showToast(
@@ -953,7 +1022,7 @@ export function Normalizer({
   };
 
   return (
-    <div className="norm-overlay">
+    <div className={`norm-overlay ${hidden ? "norm-hidden" : ""}`} aria-hidden={hidden}>
       <header className="norm-head">
         <div className="norm-brand">
           <IconWave size={20} />
@@ -1011,14 +1080,20 @@ export function Normalizer({
         >
           Analizar selección ({selA.size + selB.size})
         </button>
+        {running && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => (paused ? apiRef.current?.resume() : apiRef.current?.pause())}
+          >
+            {paused ? "Reanudar" : "Pausar"}
+          </button>
+        )}
         <button
           type="button"
           className="ghost-btn"
-          onClick={() => {
-            cancelRef.current = true;
-            onClose();
-          }}
-          title="Cerrar normalizador"
+          onClick={onHide}
+          title="Ocultar la librería; el análisis sigue en segundo plano"
         >
           <IconX size={18} />
         </button>
@@ -1082,12 +1157,20 @@ export function Normalizer({
             <span style={{ width: `${(running.done / Math.max(1, running.total)) * 100}%` }} />
           </div>
           <span className="norm-progress-txt">
+            {paused ? "En pausa · " : ""}
             {running.done}/{running.total}
             {running.errors > 0 ? ` · ${running.errors} con error` : ""}
             {running.label ? ` · ${running.label}` : ""}
           </span>
-          <button type="button" className="btn btn-sm" onClick={() => (cancelRef.current = true)}>
-            Detener
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => (paused ? apiRef.current?.resume() : apiRef.current?.pause())}
+          >
+            {paused ? "Reanudar" : "Pausar"}
+          </button>
+          <button type="button" className="ghost-btn" onClick={() => apiRef.current?.cancel()}>
+            Cancelar
           </button>
         </div>
       )}
@@ -1104,6 +1187,7 @@ export function Normalizer({
         <TrimEditor
           track={trimTrack}
           mixer={mixer}
+          active={!hidden}
           onClose={() => setTrimId("")}
           onSaved={applySavedTrim}
           showToast={showToast}

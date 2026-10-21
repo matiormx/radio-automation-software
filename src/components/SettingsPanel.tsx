@@ -11,6 +11,7 @@ interface SettingsPanelProps {
   settings: Settings;
   tracks: Track[];
   blocks: Block[];
+  hidden: boolean;
   onChange: (s: Settings) => void;
   onClose: () => void;
   onPickMusicFolder: () => Promise<void>;
@@ -83,6 +84,7 @@ export function SettingsPanel({
   settings,
   tracks,
   blocks,
+  hidden,
   onChange,
   onClose,
   onPickMusicFolder,
@@ -94,7 +96,11 @@ export function SettingsPanel({
   const [tab, setTab] = useState<Tab>("general");
   const s = settings;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className={`modal-backdrop ${hidden ? "modal-hidden" : ""}`}
+      onClick={onClose}
+      aria-hidden={hidden}
+    >
       <div
         className={`modal settings-modal ${tab === "sound" ? "settings-modal-wide" : ""}`}
         onClick={(e) => e.stopPropagation()}
@@ -104,8 +110,13 @@ export function SettingsPanel({
       >
         <div className="modal-head">
           <h3>Ajustes</h3>
-          <button type="button" className="ghost-btn" onClick={onClose}>
-            Cerrar
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onClose}
+            title="Ocultar los ajustes; se conserva la pestaña y lo que estés editando"
+          >
+            Ocultar
           </button>
         </div>
 

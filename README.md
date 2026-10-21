@@ -14,13 +14,16 @@ biblioteca y reglas de rotación).
   Bloques, Estilos y Etiquetas. Buscador por cualquier campo, ordenación
   por columnas, arrastre a la lista y menú contextual con **Propiedades**
   (metadatos + formato, bitrate, frecuencia, canales, tamaño y ruta).
-- **Normalizador de bibliotecas A/B**: ventana de dos columnas para mover
-  canciones entre dos bibliotecas (sin mover ni borrar archivos), medir
-  sonoridad EBU R128 (LUFS y pico real), calcular una **ganancia no
-  destructiva** hacia el objetivo (-9 LUFS por defecto, ajustable) con
-  techo de pico a -1 dBTP y marcar **inicio y final** para recortar
-  silencios sin tocar el audio. Incluye editor de onda con marcas
+- **Librería y normalizador A/B**: el botón **Librería** abre una ventana de
+  dos columnas para mover canciones entre dos bibliotecas (sin mover ni
+  borrar archivos), medir sonoridad EBU R128 (LUFS y pico real), calcular
+  una **ganancia no destructiva** hacia el objetivo (-9 LUFS por defecto,
+  ajustable) con techo de pico a -1 dBTP y marcar **inicio y final** para
+  recortar silencios sin tocar el audio. Incluye editor de onda con marcas
   arrastrables y análisis desatendido por selección o por lista visible.
+  El análisis sigue en segundo plano al ocultar la ventana; se puede
+  pausar, reanudar o cancelar desde la propia librería o desde el aviso
+  flotante que queda sobre el reproductor.
 - **Gestor de música**: arrastra archivos de audio a la ventana (o botón
   «Importar») y **se copian a la carpeta de música predefinida**
   (configurable en Ajustes; por defecto una carpeta interna de la app).
@@ -65,7 +68,8 @@ biblioteca y reglas de rotación).
 - **Ajustes con navegación lateral**: General (identidad, logo y carpeta
   de música), Sonido (mesa de mezclas), AutoDJ (reglas y cola), Campañas
   (anuncios y jingles) y Eventos (franjas y sonidos programados). Todo se
-  guarda al instante, junto con transición y volumen.
+  guarda al instante, junto con transición y volumen. Al ocultar Ajustes o
+  Librería no se pierde la pestaña ni lo que estés editando.
 
 ## Archivos de musica soportados
 

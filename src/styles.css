@@ -656,6 +656,7 @@ body {
   display: grid;
   place-items: center;
 }
+.modal-hidden { display: none !important; }
 .modal {
   width: 430px;
   max-height: 80vh;
@@ -1406,6 +1407,15 @@ body {
 /* ---------- normalizador de bibliotecas ---------- */
 
 .top-action { margin-right: 2px; gap: 5px; }
+.top-action-busy { border-color: #38bdf866; }
+.top-action-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: #7dd3fc;
+  background: #38bdf814;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
 
 .norm-overlay {
   position: fixed;
@@ -1415,6 +1425,7 @@ body {
   display: flex;
   flex-direction: column;
 }
+.norm-hidden { display: none !important; }
 
 .norm-head {
   display: flex;
@@ -1696,6 +1707,70 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.norm-mini {
+  position: fixed;
+  left: 16px;
+  bottom: 78px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(540px, calc(100vw - 32px));
+  padding: 6px 8px 6px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 34px #00000066;
+}
+.norm-mini-paused { border-color: #f59e0b55; }
+.norm-mini-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.norm-mini-main:hover strong { color: var(--accent); }
+.norm-mini-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+.norm-mini-txt strong { font-size: 11px; color: var(--text); }
+.norm-mini-txt span {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.norm-mini-bar {
+  flex: 0 0 auto;
+  width: 74px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+.norm-mini-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.norm-mini .btn { padding: 3px 8px; font-size: 11px; }
+.norm-mini-cancel { padding: 3px 7px; font-size: 11px; }
+.norm-mini-cancel:hover { color: var(--danger); }
 
 .norm-foot {
   display: flex;

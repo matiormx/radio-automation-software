@@ -35,7 +35,8 @@ import { DeckZone } from "./components/DeckZone";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
-import { IconGear, IconWave, LogoRadio } from "./icons";
+import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
+import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
 const EVENT_GRACE_MS = 15 * 60 * 1000;
@@ -126,7 +127,10 @@ export default function App() {
   const [pos, setPos] = useState({ cur: 0, total: 0 });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsMounted, setSettingsMounted] = useState(false);
   const [normalizerOpen, setNormalizerOpen] = useState(false);
+  const [normalizerMounted, setNormalizerMounted] = useState(false);
+  const [normStatus, setNormStatus] = useState<NormalizerStatus | null>(null);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const [dropHover, setDropHover] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -142,6 +146,7 @@ export default function App() {
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
   const normalizerRef = useRef(false);
+  const normApiRef = useRef<NormalizerApi | null>(null);
   const eventFiring = useRef<Set<string>>(new Set());
   const pendingInsertsRef = useRef(pendingInserts);
   pendingInsertsRef.current = pendingInserts;
@@ -321,6 +326,24 @@ export default function App() {
     },
     [],
   );
+
+  const openSettings = useCallback(() => {
+    setSettingsMounted(true);
+    setSettingsOpen(true);
+  }, []);
+
+  const openNormalizer = useCallback(() => {
+    normalizerRef.current = true;
+    setNormalizerMounted(true);
+    setNormalizerOpen(true);
+    if (!normStatus) void refreshTracksAndBlocks();
+  }, [normStatus, refreshTracksAndBlocks]);
+
+  const hideNormalizer = useCallback(() => {
+    normalizerRef.current = false;
+    setNormalizerOpen(false);
+    void refreshTracksAndBlocks();
+  }, [refreshTracksAndBlocks]);
 
   // Historial: cada pista que empieza se anota para las reglas de rotación
   useEffect(() => {
@@ -1055,19 +1078,21 @@ export default function App() {
           <span className="clock" role="timer">{clock}</span>
           <button
             type="button"
-            className="btn btn-sm top-action"
-            onClick={() => {
-              normalizerRef.current = true;
-              setNormalizerOpen(true);
-            }}
-            title="Normalizar sonoridad y recortar silencios"
+            className={`btn btn-sm top-action ${normStatus ? "top-action-busy" : ""}`}
+            onClick={openNormalizer}
+            title="Abrir la librería: mover entre A/B, normalizar y recortar"
           >
-            <IconWave size={15} /> Normalizar
+            <IconList size={15} /> Librería
+            {normStatus && (
+              <span className="top-action-count">
+                {normStatus.done}/{normStatus.total}
+              </span>
+            )}
           </button>
           <button
             type="button"
             className="icon-btn"
-            onClick={() => setSettingsOpen(true)}
+            onClick={openSettings}
             title="Ajustes de rotación y piloto automático"
             aria-label="Ajustes"
           >
@@ -1135,17 +1160,16 @@ export default function App() {
         onVolume={setVolume}
       />
 
-      {normalizerOpen && (
+      {normalizerMounted && (
         <Normalizer
           tracks={tracks}
           blocks={blocks}
           targetLufs={settings.targetLufs}
           truePeakDb={settings.truePeakDb}
-          onClose={() => {
-            normalizerRef.current = false;
-            setNormalizerOpen(false);
-            void refreshTracksAndBlocks();
-          }}
+          hidden={!normalizerOpen}
+          onHide={hideNormalizer}
+          onStatus={setNormStatus}
+          apiRef={normApiRef}
           onRefresh={refreshTracksAndBlocks}
           onPick={(side) => void pickFilesFor(side)}
           onMove={moveTracks}
@@ -1157,11 +1181,12 @@ export default function App() {
         />
       )}
 
-      {settingsOpen && (
+      {settingsMounted && (
         <SettingsPanel
           settings={settings}
           tracks={tracks}
           blocks={blocks}
+          hidden={!settingsOpen}
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
           onPickMusicFolder={() => chooseMusicFolder()}
@@ -1170,6 +1195,51 @@ export default function App() {
           onImportAudio={() => importForCampaign()}
           mixer={mixerRef.current}
         />
+      )}
+
+      {normStatus && !normalizerOpen && (
+        <div className={`norm-mini ${normStatus.paused ? "norm-mini-paused" : ""}`} role="status">
+          <button
+            type="button"
+            className="norm-mini-main"
+            onClick={openNormalizer}
+            title="Abrir la librería"
+          >
+            <IconWave size={15} />
+            <span className="norm-mini-txt">
+              <strong>Librería</strong>
+              <span title={normStatus.label}>
+                {normStatus.paused ? "En pausa" : "Normalizando"} · {normStatus.done}/
+                {normStatus.total}
+                {normStatus.errors > 0 ? ` · ${normStatus.errors} con error` : ""}
+                {normStatus.label ? ` · ${normStatus.label}` : ""}
+              </span>
+            </span>
+            <span className="norm-mini-bar">
+              <span
+                style={{
+                  width: `${(normStatus.done / Math.max(1, normStatus.total)) * 100}%`,
+                }}
+              />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() =>
+              normStatus.paused ? normApiRef.current?.resume() : normApiRef.current?.pause()
+            }
+          >
+            {normStatus.paused ? "Reanudar" : "Pausar"}
+          </button>
+          <button
+            type="button"
+            className="ghost-btn norm-mini-cancel"
+            onClick={() => normApiRef.current?.cancel()}
+          >
+            Cancelar
+          </button>
+        </div>
       )}
 
       {dropHover && (
