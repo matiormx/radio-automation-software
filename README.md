@@ -89,8 +89,10 @@ biblioteca y reglas de rotación).
   defecto, y la barra inferior, junto al piloto automático, permite
   cambiarlo en caliente y ver qué bloque está usando. Un evento activo
   tiene prioridad sobre esa elección.
+- **Actualización desde los ajustes**: en Ajustes > General se busca la
+  última release publicada y se descarga el instalador, que se abre solo.
 - **Ajustes con navegación lateral**: General (identidad, logo, carpeta
-  de música y arranque), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas
+  de música, arranque y actualizaciones), Sonido (mesa de mezclas), Vídeo, AutoDJ (reglas
   y cola), Campañas (anuncios y jingles), Eventos (franjas y sonidos
   programados) y Streaming. Todo se guarda al instante, junto con
   transición y volumen. Al ocultar Ajustes o Librería no se pierde la
@@ -321,6 +323,28 @@ El ejecutable/instalador queda en `src-tauri/target/release/bundle/`
 El emparejamiento con canciones ya catalogadas es por ruta normalizada
 (mayúsculas/minúsculas y separadores incluidos), así que reimportar la
 misma lista no duplica canciones.
+
+## Actualizar la app
+
+En **Ajustes > General > Actualizaciones de la app**:
+
+1. **Buscar actualizaciones** consulta el origen de actualizaciones (por
+   defecto, la última release de este repositorio en GitHub) y compara la
+   versión publicada con la que tienes instalada.
+2. Si hay una versión más nueva, aparece **Instalar X.Y.Z**: descarga el
+   instalador en la carpeta temporal y lo abre. También puedes usar
+   **Abrir la descarga** para hacerlo a mano en el navegador.
+
+El origen puede cambiarse por cualquier URL que devuelva la respuesta de
+la API de GitHub (`tag_name`, `body` y `assets`) o un manifiesto propio
+con `version`, `url` y, opcionalmente, `notes`. Si el repositorio es
+privado, pega un token de GitHub con permiso de lectura (se guarda solo en
+este equipo).
+
+Por seguridad, la instalación automática solo ejecuta instaladores
+descargados por HTTPS desde GitHub; el resto se abre en el navegador. Las
+versiones se publican subiendo una etiqueta `vX.Y.Z`: el workflow de
+GitHub Actions compila el instalador NSIS y lo adjunta a la release.
 
 ## Instalador para Windows sin instalar nada antes
 

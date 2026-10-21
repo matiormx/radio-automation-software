@@ -917,6 +917,16 @@ body {
 }
 .field-unit input:focus { border-color: var(--accent); }
 
+.update-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.update-notes {
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 8px;
+}
+.update-error { color: var(--danger); }
+
 .check-field {
   display: flex;
   align-items: center;

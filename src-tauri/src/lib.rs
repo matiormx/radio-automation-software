@@ -7,6 +7,7 @@ pub mod library;
 pub mod playlists;
 pub mod settings;
 pub mod streaming;
+pub mod update;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -56,7 +57,10 @@ pub fn run() {
             streaming::stream_status,
             streaming::stream_start,
             streaming::stream_stop,
-            streaming::stream_push_pcm
+            streaming::stream_push_pcm,
+            update::app_version,
+            update::install_update,
+            update::open_url
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar MiRadio");

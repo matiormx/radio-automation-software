@@ -288,6 +288,17 @@ export interface StreamStatus {
   lastError: string | null;
 }
 
+export interface AppUpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  notes: string;
+  assetUrl: string;
+  assetName: string;
+  pageUrl: string;
+  error: string | null;
+}
+
 export interface StreamProbe {
   available: boolean;
   path: string | null;

@@ -7,6 +7,7 @@ import { MixerPanel } from "./MixerPanel";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
+import { UpdateSection } from "./UpdateSection";
 import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
@@ -21,6 +22,7 @@ interface SettingsPanelProps {
   onClearLogo: () => Promise<void>;
   onImportAudio: () => Promise<Track[]>;
   onLaunchEvent: (event: StationEvent) => void;
+  showToast: (msg: string) => void;
   mixer: SoundMixer | null;
 }
 
@@ -145,6 +147,7 @@ export function SettingsPanel({
   onClearLogo,
   onImportAudio,
   onLaunchEvent,
+  showToast,
   mixer,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<Tab>("general");
@@ -241,6 +244,7 @@ export function SettingsPanel({
               <GeneralTab
                 settings={s}
                 blocks={blocks}
+                showToast={showToast}
                 onChange={onChange}
                 onPickMusicFolder={onPickMusicFolder}
                 onPickLogo={onPickLogo}
@@ -279,6 +283,7 @@ export function SettingsPanel({
 function GeneralTab({
   settings: s,
   blocks,
+  showToast,
   onChange,
   onPickMusicFolder,
   onPickLogo,
@@ -286,6 +291,7 @@ function GeneralTab({
 }: {
   settings: Settings;
   blocks: Block[];
+  showToast: (msg: string) => void;
   onChange: (s: Settings) => void;
   onPickMusicFolder: () => Promise<void>;
   onPickLogo: () => Promise<void>;
@@ -363,6 +369,8 @@ function GeneralTab({
           Un evento activo tiene prioridad sobre esta selección.
         </p>
       </fieldset>
+
+      <UpdateSection showToast={showToast} />
 
       <fieldset className="fieldset">
         <legend>Logo</legend>

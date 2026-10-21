@@ -147,6 +147,21 @@ export function setBrandingLogo(path: string | null): Promise<string> {
   return invoke<string>("set_branding_logo", { path });
 }
 
+export function appVersion(): Promise<string> {
+  return invoke<string>("app_version");
+}
+
+export function installAppUpdate(
+  url: string,
+  version: string,
+): Promise<{ path: string; launched: boolean; bytes: number }> {
+  return invoke("install_update", { url, version });
+}
+
+export function openExternal(url: string): Promise<void> {
+  return invoke("open_url", { url });
+}
+
 export function probeStreaming(): Promise<StreamProbe> {
   return invoke<StreamProbe>("stream_probe");
 }

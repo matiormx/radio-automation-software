@@ -1529,6 +1529,7 @@ export default function App() {
           onClearLogo={() => removeLogo()}
           onImportAudio={() => importForCampaign()}
           onLaunchEvent={launchEvent}
+          showToast={showToast}
           mixer={mixerRef.current}
         />
       )}
