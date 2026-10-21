@@ -32,6 +32,7 @@ import { SoundMixer } from "./mixer";
 import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
+import { VuMeter } from "./components/VuMeter";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
@@ -148,6 +149,7 @@ export default function App() {
 
   const playerRef = useRef<RadioPlayer | null>(null);
   const mixerRef = useRef<SoundMixer | null>(null);
+  const [mixer, setMixer] = useState<SoundMixer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
@@ -195,6 +197,7 @@ export default function App() {
     mixer.setMasterVolume(settingsRef.current.masterVolume);
     mixer.apply(settingsRef.current);
     mixerRef.current = mixer;
+    setMixer(mixer);
     const player = new RadioPlayer(mixer);
     player.onIndexChange = (i) => setPlayingRow(i);
     player.onEnded = () => {
@@ -218,6 +221,7 @@ export default function App() {
       playerRef.current = null;
       mixer.dispose();
       mixerRef.current = null;
+      setMixer(null);
     };
   }, [showToast]);
 
@@ -270,6 +274,7 @@ export default function App() {
               id: t.id,
               title: t.title,
               artist: t.artist,
+              album: t.album,
               durationSecs: effectiveDuration(t),
               cover: t.cover,
             },
@@ -313,7 +318,7 @@ export default function App() {
   // La mesa de sonido se reconfigura en caliente.
   useEffect(() => {
     mixerRef.current?.apply(settings);
-  }, [settings.mixerChannels, settings.mixerBuses]);
+  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId]);
 
   // Carga inicial de datos
   useEffect(() => {
@@ -1143,14 +1148,22 @@ export default function App() {
           showToast={showToast}
         />
 
+        <VuMeter mixer={mixer} />
+
         <div className="right-col">
           <DeckZone
             title={deckRow?.title ?? ""}
             artist={deckRow?.artist ?? ""}
+            album={deckRow?.album ?? ""}
+            cover={deckRow?.cover ?? ""}
             current={pos.cur}
             total={pos.total}
             spinning={!paused && playingRow >= 0}
             next={nextRow ? nextRow.title : null}
+            nextArtist={nextRow?.artist ?? ""}
+            nextAlbum={nextRow?.album ?? ""}
+            nextCover={nextRow?.cover ?? ""}
+            nextDuration={nextRow?.durationSecs ?? 0}
             onSeek={seek}
           />
           <PlaylistZone

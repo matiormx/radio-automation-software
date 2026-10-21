@@ -44,6 +44,10 @@ biblioteca y reglas de rotación).
   **carátula**, duración y orden por arrastre. La portada se toma de la
   imagen incrustada en el audio o de un `cover.jpg`/`folder.jpg` cercano;
   al pulsarla se abren los detalles completos de la canción.
+- **Pantalla principal**: el tema en emisión muestra portada, título,
+  artista, álbum y progreso; el siguiente muestra también portada,
+  artista, álbum y duración. El VU vertical ocupa la división entre la
+  biblioteca y la lista.
 - **Piloto automático**: rellena la lista solo cuando quedan pocas pistas
   por delante, respetando **reglas de rotación**: no repetir tema, título
   ni artista dentro de los minutos configurados, y no emparejar dos temas
@@ -68,7 +72,9 @@ biblioteca y reglas de rotación).
   combinan canales, fader y silencio por canal, nombre y color. Las
   entradas pueden ser tarjetas físicas o virtuales, la reproducción de la
   radio o la preescucha del normalizador; las salidas, cualquier tarjeta
-  del equipo o la predeterminada.
+  del equipo o la predeterminada. El **VU vertical** entre la biblioteca y
+  la lista muestra el nivel de la salida general o del bus elegido en
+  Sonido.
 - **Ajustes de vídeo y streaming**: canales de entrada (archivo, RTSP o
   NDI) y de salida (pantalla/HDMI, tarjeta SDI, NDI o RTSP), con formato,
   FPS y bitrate por salida. La sección Streaming configura emisiones de
@@ -194,6 +200,9 @@ En **Ajustes > Sonido** se monta una mesa de mezclas con canales y buses:
   normalizador.
 - **Salidas**: la salida predeterminada del sistema o cualquier tarjeta de
   salida. Se pueden usar varias a la vez.
+- **VU de salida**: elige la salida general o un bus concreto. El medidor
+  vertical de la pantalla principal muestra esa señal con pico y lectura
+  en dB.
 
 La mesa se guarda en `settings.json` y se aplica en caliente. Si no hay
 canales configurados, la reproducción y la preescucha siguen saliendo por

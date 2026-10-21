@@ -45,7 +45,7 @@ interface InputSource {
   node: MediaStreamAudioSourceNode;
 }
 
-type Config = Pick<Settings, "mixerChannels" | "mixerBuses">;
+type Config = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
 
 export class SoundMixer {
   readonly ctx: AudioContext;
@@ -56,7 +56,7 @@ export class SoundMixer {
 
   onError: ((message: string) => void) | null = null;
 
-  private config: Config = { mixerChannels: [], mixerBuses: [] };
+  private config: Config = { mixerChannels: [], mixerBuses: [], monitorBusId: "" };
   private volume = 1;
   private channelGains = new Map<string, GainNode>();
   private busGains = new Map<string, GainNode>();
@@ -70,6 +70,9 @@ export class SoundMixer {
   /** Cancela decodificaciones de preescucha que ya no interesan */
   private previewJob = 0;
   private disposed = false;
+  private monitorAnalyser: AnalyserNode;
+  private monitorData: Float32Array<ArrayBuffer>;
+  private monitorTap: AudioNode | null = null;
 
   private readonly canSink =
     typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
@@ -82,6 +85,14 @@ export class SoundMixer {
     this.ctx = new Ctor();
     this.musicInput = this.ctx.createGain();
     this.previewInput = this.ctx.createGain();
+    this.monitorAnalyser = this.ctx.createAnalyser();
+    this.monitorAnalyser.fftSize = 1024;
+    this.monitorAnalyser.smoothingTimeConstant = 0.7;
+    this.monitorData = new Float32Array(new ArrayBuffer(this.monitorAnalyser.fftSize * 4));
+    const silent = this.ctx.createGain();
+    silent.gain.value = 0;
+    this.monitorAnalyser.connect(silent);
+    silent.connect(this.ctx.destination);
     this.apply(this.config);
   }
 
@@ -90,9 +101,18 @@ export class SoundMixer {
     const cfg: Config = {
       mixerChannels: config.mixerChannels ?? [],
       mixerBuses: config.mixerBuses ?? [],
+      monitorBusId: config.monitorBusId ?? "",
     };
     this.config = cfg;
 
+    if (this.monitorTap) {
+      try {
+        this.monitorTap.disconnect(this.monitorAnalyser);
+      } catch {
+        /* ya estaba desconectado */
+      }
+      this.monitorTap = null;
+    }
     this.musicInput.disconnect();
     this.previewInput.disconnect();
     for (const src of this.inputSources.values()) src.node.disconnect();
@@ -121,6 +141,11 @@ export class SoundMixer {
       gain.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
       this.busGains.set(bus.id, gain);
     }
+
+    const monitorSource = cfg.monitorBusId ? this.busGains.get(cfg.monitorBusId) : null;
+    const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
+    monitorTap.connect(this.monitorAnalyser);
+    this.monitorTap = monitorTap;
 
     let musicUsed = false;
     let previewUsed = false;
@@ -178,6 +203,19 @@ export class SoundMixer {
       sink.el.remove();
       this.sinks.delete(id);
     }
+  }
+
+  getMonitorLevel(): { level: number; db: number } {
+    if (this.disposed) return { level: 0, db: -60 };
+    this.monitorAnalyser.getFloatTimeDomainData(this.monitorData);
+    let sum = 0;
+    for (const sample of this.monitorData) sum += sample * sample;
+    const rms = Math.sqrt(sum / this.monitorData.length);
+    const db = 20 * Math.log10(Math.max(rms, 0.000001));
+    return {
+      level: Math.max(0, Math.min(1, (db + 48) / 48)),
+      db: Math.max(-60, db),
+    };
   }
 
   setMasterVolume(v: number) {
@@ -277,6 +315,14 @@ export class SoundMixer {
     if (this.disposed) return;
     this.disposed = true;
     this.stopPreview();
+    if (this.monitorTap) {
+      try {
+        this.monitorTap.disconnect(this.monitorAnalyser);
+      } catch {
+        /* ya estaba desconectado */
+      }
+      this.monitorTap = null;
+    }
     for (const src of this.inputSources.values()) {
       src.node.disconnect();
       for (const track of src.stream.getTracks()) track.stop();

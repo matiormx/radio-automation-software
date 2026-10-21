@@ -122,6 +122,7 @@ export interface PlaylistRow {
   id: string;
   title: string;
   artist: string;
+  album: string;
   durationSecs: number;
   cover: string;
 }
@@ -299,6 +300,8 @@ export interface Settings {
   events: StationEvent[];
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
+  /** Bus cuya señal muestra el VU de salida; "" = salida general */
+  monitorBusId: string;
   video: VideoSettings;
   streaming: StreamingSettings;
 }
@@ -324,6 +327,7 @@ export const DEFAULT_SETTINGS: Settings = {
   events: [],
   mixerChannels: [],
   mixerBuses: [],
+  monitorBusId: "",
   video: {
     enabled: false,
     inputs: [],

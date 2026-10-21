@@ -156,14 +156,16 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   };
 
   const removeBus = (id: string) => {
-    setBuses(buses.filter((bus) => bus.id !== id));
-    setChannels(
-      channels.map((ch) =>
+    onChange({
+      ...settings,
+      mixerBuses: buses.filter((bus) => bus.id !== id),
+      mixerChannels: channels.map((ch) =>
         ch.output.kind === "bus" && ch.output.id === id
           ? { ...ch, output: { kind: "device", id: "default" } }
           : ch,
       ),
-    );
+      monitorBusId: settings.monitorBusId === id ? "" : settings.monitorBusId,
+    });
   };
 
   const musicChannels = channels.filter(
@@ -224,6 +226,28 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         «aplicación» son la reproducción de la radio y la preescucha del normalizador.
         {!navigator.mediaDevices && " Este WebView no permite seleccionar dispositivos."}
       </p>
+
+      <div className="mixer-monitor-row">
+        <div className="mixer-monitor-text">
+          <strong>VU de salida</strong>
+          <span>Elige la señal que muestra el medidor vertical de la pantalla principal.</span>
+        </div>
+        <select
+          value={settings.monitorBusId}
+          aria-label="Bus de monitorización del VU"
+          onChange={(e) => onChange({ ...settings, monitorBusId: e.target.value })}
+        >
+          <option value="">Salida general (master)</option>
+          {buses.map((bus) => (
+            <option key={bus.id} value={bus.id}>
+              {bus.name}
+            </option>
+          ))}
+          {settings.monitorBusId && !buses.some((bus) => bus.id === settings.monitorBusId) && (
+            <option value={settings.monitorBusId}>Bus no disponible</option>
+          )}
+        </select>
+      </div>
 
       {channels.length === 0 && buses.length === 0 ? (
         <div className="mixer-empty">

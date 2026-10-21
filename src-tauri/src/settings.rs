@@ -46,6 +46,8 @@ pub struct Settings {
     pub events: Vec<StationEvent>,
     pub mixer_channels: Vec<MixerChannel>,
     pub mixer_buses: Vec<MixerBus>,
+    /// Bus cuya señal muestra el VU de salida; vacio = salida general.
+    pub monitor_bus_id: String,
     pub video: VideoSettings,
     pub streaming: StreamingSettings,
 }
@@ -410,6 +412,7 @@ impl Default for Settings {
             events: Vec::new(),
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
+            monitor_bus_id: String::new(),
             video: VideoSettings::default(),
             streaming: StreamingSettings::default(),
         }
