@@ -981,13 +981,31 @@ export function Normalizer({
     if (running || busyRef.current) return;
     busyRef.current = true;
     const wanted = Array.from(new Set(ids));
-    const valid = wanted.filter((id) => {
+    const available = wanted.filter((id) => {
       const t = all.find((x) => x.id === id);
       return t && !t.missing;
     });
+    const skipped = skipAnalyzed
+      ? available.filter((id) => {
+          const t = all.find((x) => x.id === id);
+          return t != null && t.analyzedAt > 0;
+        }).length
+      : 0;
+    const valid = skipAnalyzed
+      ? available.filter((id) => {
+          const t = all.find((x) => x.id === id);
+          return t != null && t.analyzedAt <= 0;
+        })
+      : available;
     if (valid.length === 0) {
       busyRef.current = false;
-      showToast("Selecciona canciones con archivo disponible");
+      showToast(
+        skipped > 0
+          ? skipped === 1
+            ? "La canción seleccionada ya estaba analizada"
+            : `Las ${skipped} canciones seleccionadas ya estaban analizadas`
+          : "Selecciona canciones con archivo disponible",
+      );
       return;
     }
     const goal = Math.max(-40, Math.min(-5, Number(target.replace(",", ".")) || targetLufs));
@@ -1020,17 +1038,19 @@ export function Normalizer({
       setRunning({ total: valid.length, done: i + 1, errors: failed, label: t?.title ?? "" });
     }
     const cancelled = cancelRef.current;
+    const skippedNote =
+      skipped > 0 ? ` · ${skipped} ${skipped === 1 ? "omitida" : "omitidas"}` : "";
     busyRef.current = false;
     pausedRef.current = false;
     setPaused(false);
     setRunning(null);
     void onRefresh();
     showToast(
-      cancelled
+      (cancelled
         ? `Análisis detenido: ${valid.length - failed} completadas`
         : failed > 0
           ? `Análisis terminado: ${valid.length - failed} correctas, ${failed} con error`
-          : `${valid.length} canciones analizadas`,
+          : `${valid.length} canciones analizadas`) + skippedNote,
     );
   };
 
@@ -1097,6 +1117,18 @@ export function Normalizer({
         >
           Analizar selección ({selA.size + selB.size})
         </button>
+        <label
+          className="nskip norm-skip"
+          title="No volver a analizar canciones que ya tengan un análisis previo"
+        >
+          <input
+            type="checkbox"
+            checked={skipAnalyzed}
+            disabled={running !== null}
+            onChange={(e) => setSkipAnalyzed(e.target.checked)}
+          />
+          Omitir ya analizadas
+        </label>
         {running && (
           <button
             type="button"
@@ -1129,6 +1161,8 @@ export function Normalizer({
           onPick={onPick}
           busy={running !== null}
           errors={errors}
+          skipAnalyzed={skipAnalyzed}
+          onSkipAnalyzed={setSkipAnalyzed}
         />
 
         <div className="norm-move">
@@ -1165,6 +1199,8 @@ export function Normalizer({
           onPick={onPick}
           busy={running !== null}
           errors={errors}
+          skipAnalyzed={skipAnalyzed}
+          onSkipAnalyzed={setSkipAnalyzed}
         />
       </div>
 

@@ -1659,6 +1659,18 @@ body {
   border-top: 1px solid var(--line);
 }
 .npane-foot .side-hint { margin-right: auto; font-size: 9.5px; }
+.nskip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nskip input { margin: 0; width: 12px; height: 12px; accent-color: var(--accent); }
+.nskip input:disabled { opacity: 0.45; cursor: default; }
+.norm-skip { font-size: 10.5px; }
 
 .norm-move {
   display: flex;
