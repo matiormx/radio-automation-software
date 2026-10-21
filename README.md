@@ -287,7 +287,7 @@ Con el botón derecho sobre cualquier canción de la biblioteca, elige
 | **Corte inicial** (verde) | Por dónde empieza a sonar la pista. |
 | **Corte final** (naranja) | Por dónde termina. |
 | **Intro** (cian) | Al principio de la pista: dónde empieza a cantar (donde acaba la música de introducción). |
-| **Mix** (rosa) | Al final de la pista: dónde el reproductor lanza la siguiente canción. |
+| **Mix** (rosa) | Al final de la pista: dónde el reproductor lanza la siguiente canción. Tiene que estar en la segunda mitad de la pista; si no, se ignora. |
 | **Fade out** (violeta) | Desde ese punto la pista baja de volumen hasta el final. |
 
 Se arrastran sobre la onda o se escriben en los campos (con botones de

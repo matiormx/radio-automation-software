@@ -411,6 +411,19 @@ export class RadioPlayer {
     return point > 0 ? point : 0;
   }
 
+  /**
+   * Punto de mezcla que el motor respeta. El mix va al final de la pista:
+   * si queda en la primera mitad del tramo que suena (por ejemplo un marcador
+   * de intro guardado antes de separar intro y mix) se ignora y la pista se
+   * cruza al final, en vez de saltar a la siguiente a los pocos segundos.
+   */
+  private usableMixPoint(index: number, deck: Deck): number {
+    const point = this.mixPointOf(index);
+    if (point <= 0) return 0;
+    const middle = deck.offset + (deck.end - deck.offset) / 2;
+    return point > middle && point < deck.end ? point : 0;
+  }
+
   /** Punto de fade out de la pista: desde ahi baja hasta el final. */
   private fadeOutOf(index: number): number {
     const track = this.playlist[index];
@@ -614,8 +627,8 @@ export class RadioPlayer {
 
     // Punto de mezcla: la siguiente cancion entra en ese punto y la actual
     // sigue sonando (su intro queda debajo). Sin punto, se cruza al final.
-    const mixPoint = this.mixPointOf(this.index);
-    const crossfadeAt = mixPoint > 0 ? Math.max(mixPoint, deck.offset) : deck.end - this.fadeSeconds;
+    const mixPoint = this.usableMixPoint(this.index, deck);
+    const crossfadeAt = mixPoint > 0 ? mixPoint : deck.end - this.fadeSeconds;
     if (
       !this.fading &&
       this.index >= 0 &&

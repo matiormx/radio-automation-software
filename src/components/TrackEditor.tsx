@@ -275,6 +275,13 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
   };
 
   const save = async () => {
+    if (mix > 0 && mix <= start + (end - start) / 2) {
+      showToast(
+        "El punto Mix va al final de la pista (segunda mitad). " +
+          "Si querías marcar dónde empieza a cantar, usa Intro.",
+      );
+      return;
+    }
     setSaving(true);
     try {
       await saveTrackTrim(track.id, start, end);
