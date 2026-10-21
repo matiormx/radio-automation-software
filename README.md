@@ -398,8 +398,10 @@ En **Ajustes > General > Actualizaciones de la app**:
    defecto, la última release de este repositorio en GitHub) y compara la
    versión publicada con la que tienes instalada.
 2. Si hay una versión más nueva, aparece **Instalar X.Y.Z**: descarga el
-   instalador en la carpeta temporal y lo abre. También puedes usar
-   **Abrir la descarga** para hacerlo a mano en el navegador.
+   instalador en la carpeta temporal y lo abre.
+3. **Descargar .exe** guarda el instalador donde elijas (abre el diálogo
+   de guardado) sin ejecutarlo, por si prefieres instalarlo a mano.
+   **Abrir la descarga** lo hace en el navegador.
 
 El origen puede cambiarse por cualquier URL que devuelva la respuesta de
 la API de GitHub (`tag_name`, `body` y `assets`) o un manifiesto propio
@@ -407,8 +409,9 @@ con `version`, `url` y, opcionalmente, `notes`. Si el repositorio es
 privado, pega un token de GitHub con permiso de lectura (se guarda solo en
 este equipo).
 
-Por seguridad, la instalación automática solo ejecuta instaladores
-descargados por HTTPS desde GitHub; el resto se abre en el navegador. Las
+Por seguridad, la instalación automática (descargar y ejecutar) solo
+acepta instaladores descargados por HTTPS desde GitHub; la simple descarga
+admite cualquier enlace https. Las
 versiones se publican subiendo una etiqueta `vX.Y.Z`: el workflow de
 GitHub Actions compila el instalador NSIS y lo adjunta a la release.
 

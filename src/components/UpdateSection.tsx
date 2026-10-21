@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   DEFAULT_UPDATE_FEED,
   checkForUpdate,
+  downloadUpdate,
   installUpdate,
   loadUpdateFeed,
   loadUpdateToken,
@@ -20,6 +21,7 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [info, setInfo] = useState<AppUpdateInfo | null>(null);
   const [error, setError] = useState("");
   const [version, setVersion] = useState("");
@@ -67,6 +69,22 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
     }
   };
 
+  const download = async () => {
+    if (!info) return;
+    setDownloading(true);
+    setError("");
+    try {
+      const path = await downloadUpdate(info);
+      showToast(`Descargado en ${path}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      showToast(`No se pudo descargar: ${message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <fieldset className="fieldset">
       <legend>Actualizaciones de la app</legend>
@@ -101,14 +119,25 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
           {busy ? "Buscando…" : "Buscar actualizaciones"}
         </button>
         {info?.available && (
+          <button
+            type="button"
+            className="btn btn-sm btn-accent"
+            onClick={() => void install()}
+            disabled={busy || installing || downloading}
+          >
+            {installing ? "Descargando…" : `Instalar ${info.latest}`}
+          </button>
+        )}
+        {info?.assetUrl && (
           <>
             <button
               type="button"
-              className="btn btn-sm btn-accent"
-              onClick={() => void install()}
-              disabled={busy || installing}
+              className="ghost-btn"
+              onClick={() => void download()}
+              disabled={busy || installing || downloading}
+              title="Descargar el instalador sin ejecutarlo"
             >
-              {installing ? "Descargando…" : `Instalar ${info.latest}`}
+              {downloading ? "Descargando…" : "Descargar .exe"}
             </button>
             <button
               type="button"

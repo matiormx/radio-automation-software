@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[cfg(windows)]
@@ -30,16 +30,8 @@ pub fn install_update(url: String, version: String) -> Result<UpdateInstall, Str
     let file_name = format!("MiRadio-{}-setup.exe", safe_version(&version));
     let path: PathBuf = std::env::temp_dir().join(file_name);
 
-    let script = format!(
-        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; \
-         Invoke-WebRequest -Uri '{url}' -OutFile '{dest}' -UseBasicParsing;",
-        url = ps_quote(&url),
-        dest = ps_quote(&path.to_string_lossy()),
-    );
-    run_powershell(&script)?;
-
-    let meta = std::fs::metadata(&path).map_err(|e| format!("No se pudo leer la descarga: {e}"))?;
-    if meta.len() < 512_000 {
+    let bytes = download_file(&url, &path)?;
+    if bytes < 512_000 {
         let _ = std::fs::remove_file(&path);
         return Err("La descarga parece incompleta; no se instala nada".to_string());
     }
@@ -50,8 +42,53 @@ pub fn install_update(url: String, version: String) -> Result<UpdateInstall, Str
     Ok(UpdateInstall {
         path: path.to_string_lossy().to_string(),
         launched: true,
-        bytes: meta.len(),
+        bytes,
     })
+}
+
+/// Descarga el archivo a la ruta que elija el usuario, sin ejecutarlo.
+/// Aqui si se admiten cualquier enlaces https: descargar no es ejecutar.
+#[tauri::command]
+pub fn download_update(url: String, dest: String) -> Result<String, String> {
+    let url = url.trim();
+    if !url.starts_with("https://") {
+        return Err("Solo se admiten enlaces https".to_string());
+    }
+    if url.chars().any(|c| c.is_control()) {
+        return Err("El enlace no es válido".to_string());
+    }
+    let dest = dest.trim();
+    if dest.is_empty() {
+        return Err("No se ha elegido dónde guardar el archivo".to_string());
+    }
+    let target = PathBuf::from(dest);
+    if target.is_dir() {
+        return Err("Esa ruta es una carpeta, no un archivo".to_string());
+    }
+    if let Some(dir) = target.parent() {
+        if !dir.as_os_str().is_empty() && !dir.is_dir() {
+            return Err(format!("La carpeta no existe: {}", dir.display()));
+        }
+    }
+    download_file(url, &target)?;
+    Ok(target.display().to_string())
+}
+
+/// Descarga una url a una ruta concreta y devuelve el tamaño.
+fn download_file(url: &str, target: &Path) -> Result<u64, String> {
+    let script = format!(
+        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; \
+         Invoke-WebRequest -Uri '{url}' -OutFile '{dest}' -UseBasicParsing;",
+        url = ps_quote(url),
+        dest = ps_quote(&target.to_string_lossy()),
+    );
+    run_powershell(&script)?;
+    let meta = std::fs::metadata(target).map_err(|e| format!("No se pudo leer la descarga: {e}"))?;
+    if meta.len() < 1024 {
+        let _ = std::fs::remove_file(target);
+        return Err("La descarga está vacía o incompleta".to_string());
+    }
+    Ok(meta.len())
 }
 
 /// Abre un enlace en el navegador (pagina de la release, avisos, etc).

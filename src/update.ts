@@ -1,4 +1,10 @@
-import { appVersion, installAppUpdate, openExternal } from "./api";
+import {
+  appVersion,
+  downloadAppUpdate,
+  installAppUpdate,
+  openExternal,
+  pickDownloadPath,
+} from "./api";
 import type { AppUpdateInfo } from "./types";
 
 /** Origen por defecto: ultima release publicada en GitHub. */
@@ -169,6 +175,20 @@ export async function installUpdate(info: AppUpdateInfo): Promise<string> {
   }
   const result = await installAppUpdate(info.assetUrl, info.latest);
   return result.path;
+}
+
+/**
+ * Descarga el instalador a la carpeta que elija el usuario, sin ejecutarlo.
+ */
+export async function downloadUpdate(info: AppUpdateInfo): Promise<string> {
+  if (!info.assetUrl) {
+    throw new Error("Esta versión no trae instalador; ábrela desde la página de la release");
+  }
+  const suggested =
+    info.assetName || `MiRadio_${info.latest}_x64-setup.exe`;
+  const dest = await pickDownloadPath(suggested);
+  if (!dest) throw new Error("No se eligió dónde guardar el archivo");
+  return downloadAppUpdate(info.assetUrl, dest);
 }
 
 /** Abre la pagina de la release en el navegador. */
