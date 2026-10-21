@@ -8,6 +8,7 @@ import {
   deleteTrack,
   scanMusicFolder,
   listBlocks,
+  setTrackBlocks,
   createBlock,
   renameBlock,
   deleteBlock,
@@ -196,6 +197,7 @@ export default function App() {
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [cutsTrackId, setCutsTrackId] = useState("");
+  const [pendingEdit, setPendingEdit] = useState<{ id: string; n: number } | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
   const autopilotOn = settings.autopilotEnabled;
   const cutsTrack = tracks.find((track) => track.id === cutsTrackId) ?? null;
@@ -382,6 +384,7 @@ export default function App() {
               album: t.album,
               durationSecs: effectiveDuration(t),
               cover: t.cover,
+              blocks: t.blocks,
             },
           ]
         : [];
@@ -875,6 +878,64 @@ export default function App() {
       });
     },
     [mutateList],
+  );
+
+  /** Preescucha de una pista de la lista por la salida de monitorizacion. */
+  const previewRow = useCallback(
+    (index: number) => {
+      const row = rowsRef.current[index];
+      const mixer = mixerRef.current;
+      if (!row || !mixer) return;
+      const track = tracksRef.current.find((t) => t.id === row.id);
+      if (!track) return;
+      void mixer
+        .playPreview(
+          track.file,
+          track.trimStart || 0,
+          track.trimEnd ?? track.durationSecs,
+          () => undefined,
+          () => undefined,
+        )
+        .catch((error) => showToast(`No se pudo escuchar: ${String(error)}`));
+      showToast(`Preescucha: ${track.title}`);
+    },
+    [showToast],
+  );
+
+  const editRowCuts = useCallback(
+    (index: number) => {
+      const row = rowsRef.current[index];
+      if (!row) return;
+      setCutsTrackId(row.id);
+    },
+    [],
+  );
+
+  const editRowMeta = useCallback(
+    (index: number) => {
+      const row = rowsRef.current[index];
+      if (!row) return;
+      setPendingEdit({ id: row.id, n: Date.now() });
+    },
+    [],
+  );
+
+  /** Quita o pone una pista en un bloque musical. */
+  const toggleRowBlock = useCallback(
+    async (trackId: string, blockId: string) => {
+      const track = tracksRef.current.find((t) => t.id === trackId);
+      if (!track) return;
+      const next = track.blocks.includes(blockId)
+        ? track.blocks.filter((b) => b !== blockId)
+        : [...track.blocks, blockId];
+      try {
+        await setTrackBlocks(trackId, next);
+        await refreshTracksAndBlocks();
+      } catch (e) {
+        showToast(`No se pudo cambiar el bloque: ${String(e)}`);
+      }
+    },
+    [refreshTracksAndBlocks, showToast],
   );
 
   const removeRow = useCallback(
@@ -1783,6 +1844,8 @@ export default function App() {
           onDelete={(t) => void removeTrack(t)}
           onTrackSaved={refreshTracksAndBlocks}
           onEditCuts={(t) => setCutsTrackId(t.id)}
+          pendingEdit={pendingEdit}
+          onPendingEditDone={() => setPendingEdit(null)}
           showToast={showToast}
         />
 
@@ -1832,6 +1895,11 @@ export default function App() {
             onReorder={reorderRow}
             onRemove={removeRow}
             onDropTrack={dropTrackAt}
+            blocks={blocks}
+            onPreview={previewRow}
+            onEditMeta={editRowMeta}
+            onEditCuts={editRowCuts}
+            onToggleBlock={toggleRowBlock}
           />
         </div>
       </main>

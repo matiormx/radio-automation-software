@@ -93,6 +93,10 @@ biblioteca y reglas de rotación).
   hora). La barra auxiliar está siempre visible: en gris con el programa
   preparado y en rojo cuando LIVE está activo, con sus metadatos
   sustituyendo a los de la canción en el archivo `live.txt`.
+- **Lista de emisión con herramientas**: botón derecho sobre una pista de la
+  lista para preescucharla, editar sus cortes o sus metadatos o quitarla.
+  Cada fila muestra sus bloques musicales, que se quitan o se añaden con
+  un clic.
 - **Editor de cortes y puntos**: con el botón derecho sobre una canción se
   abre el editor, con la forma de onda, el corte inicial y final, el punto
   de mezcla (donde entra la siguiente canción) y el punto de fade out.
@@ -252,6 +256,22 @@ selector **BLOQUE AUTO**: muestra el bloque que se está usando y permite
 asignar otro sin abrir los ajustes. Cuando hay un evento de franja
 activo, la etiqueta muestra el origen del evento, que manda sobre el
 bloque elegido.
+
+## Herramientas de la lista de emisión
+
+Con el botón derecho sobre cualquier pista de la lista de emisión:
+
+| Acción | Qué hace |
+| --- | --- |
+| **Preescucha** | Suena por la salida de monitorización de la mesa de sonido, desde su corte inicial hasta el final. |
+| **Cortes y puntos** | Abre el editor de onda con los cortes, el punto de mezcla y el fade out. |
+| **Editar metadatos** | Abre el editor de título, artista, álbum, etiquetas y bloques. |
+| **Quitar de la lista** | La quita de la lista (no la borra de la biblioteca). |
+
+Cada fila de la lista muestra también sus **bloques musicales** en forma de
+etiquetas: un clic en la etiqueta la quita del bloque, y el botón **+**
+abre la lista de bloques para añadirla a otro (los que ya tiene salen
+marcados).
 
 ## Cortes y puntos de una canción
 

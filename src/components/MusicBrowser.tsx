@@ -45,6 +45,9 @@ interface MusicBrowserProps {
   onDelete: (track: Track) => void;
   onTrackSaved: () => Promise<void>;
   onEditCuts: (track: Track) => void;
+  /** Peticion de edicion de metadatos desde otra zona de la app */
+  pendingEdit: { id: string; n: number } | null;
+  onPendingEditDone: () => void;
   showToast: (msg: string) => void;
 }
 
@@ -242,6 +245,8 @@ export function MusicBrowser({
   onDelete,
   onTrackSaved,
   onEditCuts,
+  pendingEdit,
+  onPendingEditDone,
   showToast,
 }: MusicBrowserProps) {
   const [mode, setMode] = useState<Mode>("folders");
@@ -431,6 +436,26 @@ export function MusicBrowser({
     });
     setSelectedId(track.id);
   };
+
+  // Edicion de metadatos solicitada desde la lista de emision.
+  useEffect(() => {
+    if (!pendingEdit) return;
+    const t = tracks.find((x) => x.id === pendingEdit.id);
+    if (t) {
+      setEdit({
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        genre: t.genre,
+        year: t.year,
+        tagsText: t.tags.join(", "),
+        blocks: [...t.blocks],
+        busy: false,
+      });
+    }
+    onPendingEditDone();
+  }, [pendingEdit, tracks, onPendingEditDone]);
 
   const openEditor = (t: Track) => {
     setEdit({

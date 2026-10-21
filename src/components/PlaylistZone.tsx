@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
-import type { Playlist, PlaylistRow } from "../types";
+import { useEffect, useRef, useState } from "react";
+import type { Block, Playlist, PlaylistRow } from "../types";
 import { trackUrl } from "../api";
-import { IconUp, IconDown, IconX, IconPlus, IconNote } from "../icons";
+import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave } from "../icons";
 import { TrackDetailsModal } from "./TrackDetailsModal";
 
 interface PlaylistZoneProps {
   playlists: Playlist[];
   activeId: string;
   rows: PlaylistRow[];
+  blocks: Block[];
   playingRow: number;
   autoIds: Set<string>;
   estStart: string[];
@@ -20,6 +21,10 @@ interface PlaylistZoneProps {
   onReorder: (from: number, to: number) => void;
   onRemove: (index: number) => void;
   onDropTrack: (trackId: string, at: number) => void;
+  onPreview: (index: number) => void;
+  onEditMeta: (index: number) => void;
+  onEditCuts: (index: number) => void;
+  onToggleBlock: (trackId: string, blockId: string) => void;
 }
 
 function fmtDur(secs: number): string {
@@ -33,6 +38,7 @@ export function PlaylistZone({
   playlists,
   activeId,
   rows,
+  blocks,
   playingRow,
   autoIds,
   estStart,
@@ -45,6 +51,10 @@ export function PlaylistZone({
   onReorder,
   onRemove,
   onDropTrack,
+  onPreview,
+  onEditMeta,
+  onEditCuts,
+  onToggleBlock,
 }: PlaylistZoneProps) {
   const active = playlists.find((p) => p.id === activeId) ?? playlists[0];
   const [editing, setEditing] = useState(false);
@@ -53,6 +63,9 @@ export function PlaylistZone({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [extOver, setExtOver] = useState(false);
   const [detailsId, setDetailsId] = useState("");
+  const [ctx, setCtx] = useState<{ index: number; x: number; y: number } | null>(null);
+  const [blockMenu, setBlockMenu] = useState<string | null>(null);
+  const blockMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!editing) setDraft(active?.name ?? "");
@@ -65,6 +78,28 @@ export function PlaylistZone({
   };
 
   const totalSecs = rows.reduce((acc, r) => acc + r.durationSecs, 0);
+
+  const blockName = (id: string) => blocks.find((b) => b.id === id)?.name ?? "Bloque";
+
+  // Cierra el menu contextual con Escape.
+  useEffect(() => {
+    if (!ctx) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtx(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [ctx]);
+
+  // Cierra el menu de bloques al pulsar fuera.
+  useEffect(() => {
+    if (!blockMenu) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!blockMenuRef.current?.contains(e.target as Node)) setBlockMenu(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [blockMenu]);
 
   return (
     <section className="panel flex-1" aria-label="Lista de emisión">
@@ -140,6 +175,7 @@ export function PlaylistZone({
         <span className="col-num">#</span>
         <span className="col-cover" />
         <span className="col-main">TÍTULO</span>
+        <span className="col-blocks">BLOQUES</span>
         <span className="col-dur">DURACIÓN</span>
         <span className="col-acts" />
       </div>
@@ -178,6 +214,11 @@ export function PlaylistZone({
                 setDragIndex(null);
                 setOverIndex(null);
                 setExtOver(false);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCtx({ index: i, x: e.clientX, y: e.clientY });
               }}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -232,6 +273,66 @@ export function PlaylistZone({
                 </span>
                 <span className="plrow-sub">{r.artist}</span>
               </button>
+              <div className="plrow-blocks" ref={blockMenu === r.id ? blockMenuRef : undefined}>
+                {r.blocks.map((blockId) => (
+                  <button
+                    key={blockId}
+                    type="button"
+                    className="plrow-block"
+                    title={`Quitar «${blockName(blockId)}» (clic para quitar, clic derecho para más)`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleBlock(r.id, blockId);
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onToggleBlock(r.id, blockId);
+                    }}
+                  >
+                    {blockName(blockId)}
+                    <span className="plrow-block-x">×</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="plrow-block plrow-block-add"
+                  title="Añadir a un bloque"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setBlockMenu((prev) => (prev === r.id ? null : r.id));
+                  }}
+                >
+                  <IconPlus size={11} />
+                </button>
+                {blockMenu === r.id && (
+                  <div className="plrow-block-menu" role="menu">
+                    {blocks.length === 0 && (
+                      <span className="hint">Todavía no hay bloques. Créalos en Música.</span>
+                    )}
+                    {blocks.map((block) => {
+                      const inside = r.blocks.includes(block.id);
+                      return (
+                        <button
+                          key={block.id}
+                          type="button"
+                          className="plrow-block-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleBlock(r.id, block.id);
+                            setBlockMenu(null);
+                          }}
+                        >
+                          <span className={inside ? "plrow-block-check on" : "plrow-block-check"}>
+                            {inside ? "✓" : ""}
+                          </span>
+                          {block.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <span className="col-dur">{fmtDur(r.durationSecs)}</span>
               <div className="plrow-acts">
                 <button type="button" className="act-btn" onClick={() => onReorder(i, i - 1)} disabled={i === 0} aria-label={`Subir ${r.title}`}>
@@ -246,6 +347,69 @@ export function PlaylistZone({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {ctx && rows[ctx.index] && (
+        <div
+          className="ctx-backdrop"
+          onClick={() => setCtx(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setCtx(null);
+          }}
+        >
+          <div
+            className="ctx-menu"
+            style={{ left: ctx.x, top: ctx.y }}
+            onClick={(e) => e.stopPropagation()}
+            role="menu"
+          >
+            <div className="ctx-title" title={rows[ctx.index].title}>
+              {rows[ctx.index].title}
+            </div>
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onPreview(ctx.index);
+                setCtx(null);
+              }}
+            >
+              <IconPlay size={13} /> Preescucha
+            </button>
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onEditCuts(ctx.index);
+                setCtx(null);
+              }}
+            >
+              <IconWave size={13} /> Cortes y puntos
+            </button>
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onEditMeta(ctx.index);
+                setCtx(null);
+              }}
+            >
+              <IconTag size={13} /> Editar metadatos
+            </button>
+            <div className="ctx-sep" />
+            <button
+              type="button"
+              className="ctx-item ctx-danger"
+              onClick={() => {
+                onRemove(ctx.index);
+                setCtx(null);
+              }}
+            >
+              <IconX size={13} /> Quitar de la lista
+            </button>
+          </div>
         </div>
       )}
 

@@ -133,6 +133,8 @@ export interface PlaylistRow {
   album: string;
   durationSecs: number;
   cover: string;
+  /** Bloques musicales a los que pertenece */
+  blocks: string[];
 }
 
 export type CampaignKind = "ads" | "jingle";

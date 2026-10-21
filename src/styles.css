@@ -580,7 +580,9 @@ body {
   padding-left: 10px;
   padding-right: 6px;
 }
-.pl-head, .plrow { grid-template-columns: 52px 24px 36px minmax(0, 1fr) 58px auto; }
+.pl-head, .plrow {
+  grid-template-columns: 52px 24px 36px minmax(0, 1fr) minmax(0, 200px) 58px auto;
+}
 .pl-head {
   display: grid;
   gap: 8px;
@@ -1039,6 +1041,85 @@ body {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* chips de bloques en la lista de emision */
+.plrow-blocks {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: 190px;
+  overflow: visible;
+}
+.plrow-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 130px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plrow-block:hover { color: var(--text); border-color: var(--accent); }
+.plrow-block-x { opacity: 0.55; font-size: 11px; }
+.plrow-block-add {
+  padding: 2px 5px;
+  border-style: dashed;
+  color: var(--text-faint);
+}
+.plrow-block-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 130;
+  min-width: 170px;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 12px 30px #000a;
+}
+.plrow-block-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.plrow-block-item:hover { background: var(--panel-2); }
+.plrow-block-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  color: #fff;
+}
+.plrow-block-check.on { background: var(--accent); border-color: var(--accent); }
 
 /* ---------- ajustes ---------- */
 
