@@ -179,6 +179,8 @@ export default function App() {
   const playerRef = useRef<RadioPlayer | null>(null);
   const mixerRef = useRef<SoundMixer | null>(null);
   const streamEncoderRef = useRef<StreamEncoder | null>(null);
+  const userPausedRef = useRef(false);
+  const autoPlayStartedRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
@@ -376,9 +378,10 @@ export default function App() {
     if (p) {
       p.fadeSeconds = settings.fadeSeconds;
       p.loop = false;
+      p.silenceSkip = settings.silenceDetection;
       p.setVolume(settings.masterVolume);
     }
-  }, [settings.fadeSeconds, settings.masterVolume]);
+  }, [settings.fadeSeconds, settings.masterVolume, settings.silenceDetection]);
 
   // La mesa de sonido se reconfigura en caliente.
   useEffect(() => {
@@ -671,12 +674,20 @@ export default function App() {
   }, [active, playlists, showToast]);
 
   // ---- audio ----
-  const playRow = useCallback(async (i: number) => {
-    const p = playerRef.current;
-    if (!p) return;
-    await p.playAt(i);
-    setPaused(!p.isPlaying);
-  }, []);
+  const playRow = useCallback(
+    async (i: number) => {
+      const p = playerRef.current;
+      if (!p) return;
+      userPausedRef.current = false;
+      try {
+        await p.playAt(i);
+        setPaused(!p.isPlaying);
+      } catch (error) {
+        showToast(`No se pudo reproducir: ${String(error)}`);
+      }
+    },
+    [showToast],
+  );
   playRowRef.current = (i) => {
     void playRow(i);
   };
@@ -684,8 +695,10 @@ export default function App() {
   const togglePlay = useCallback(async () => {
     const p = playerRef.current;
     if (!p) return;
+    const wasPlaying = p.isPlaying;
     await p.toggle();
     setPaused(!p.isPlaying);
+    userPausedRef.current = wasPlaying && !p.isPlaying;
   }, []);
 
   const next = useCallback(async () => {
@@ -693,6 +706,7 @@ export default function App() {
     if (!p) return;
     await p.next();
     setPaused(!p.isPlaying);
+    userPausedRef.current = false;
   }, []);
 
   const prev = useCallback(async () => {
@@ -700,7 +714,29 @@ export default function App() {
     if (!p) return;
     await p.prev();
     setPaused(!p.isPlaying);
+    userPausedRef.current = false;
   }, []);
+
+  // Arranque automatico al abrir la app (solo una vez por sesion).
+  useEffect(() => {
+    if (autoPlayStartedRef.current) return;
+    if (!settings.autoPlayOnStart) return;
+    if (!active || rows.length === 0 || !playerRef.current) return;
+    autoPlayStartedRef.current = true;
+    void playRowRef.current(0);
+  }, [settings.autoPlayOnStart, active, rows.length]);
+
+  // Deteccion de silencio: si la reproduccion esta parada, la reanuda.
+  useEffect(() => {
+    if (!settings.silenceDetection) return;
+    if (playingRow >= 0 || userPausedRef.current) return;
+    if (!active || rows.length === 0) return;
+    const timer = window.setTimeout(() => {
+      if (userPausedRef.current || playingRowRef.current >= 0) return;
+      void playRowRef.current(0);
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [settings.silenceDetection, playingRow, active, rows.length]);
 
   const seek = useCallback((seconds: number) => {
     void playerRef.current?.seek(seconds);

@@ -79,14 +79,20 @@ export class RadioPlayer {
   private preloadedFor = -1;
   private fadeAttemptFor = -1;
   private decoding = new Map<string, Promise<AudioBuffer | null>>();
+  private silenceAnalyser: AnalyserNode | null = null;
+  private silenceData: Float32Array<ArrayBuffer> | null = null;
+  private silentSince = 0;
 
   /** Buffers PCM que se conservan en memoria (uno son ~85 MB en f32) */
   private static readonly CACHE_LIMIT = 4;
   /** Antelacion con la que se decodifica la siguiente pista */
   private static readonly PRELOAD_LEAD = 30;
+  private static readonly SILENCE_RMS = 0.0018;
+  private static readonly SILENCE_SECONDS = 3;
 
   fadeSeconds = 6;
   loop = false;
+  silenceSkip = false;
 
   private index = -1;
   /** Posicion del buffer donde quedo la reproduccion al pausar */
@@ -228,6 +234,10 @@ export class RadioPlayer {
     if (this.decks.b) this.hardStop(this.decks.b);
     this.decks = { a: null, b: null };
     this.pausedOffset = null;
+    this.silenceAnalyser?.disconnect();
+    this.silenceAnalyser = null;
+    this.silenceData = null;
+    this.silentSince = 0;
     this.master = null;
     this.ctx = null;
   }
@@ -267,6 +277,7 @@ export class RadioPlayer {
     this.fading = false;
     this.preloadedFor = -1;
     this.fadeAttemptFor = -1;
+    this.silentSince = 0;
     this.startRaf();
   }
 
@@ -307,7 +318,26 @@ export class RadioPlayer {
     if (!this.ctx) {
       this.ctx = this.mixer.ctx;
       this.master = this.mixer.musicInput;
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 512;
+      this.silenceAnalyser = analyser;
+      this.silenceData = new Float32Array(new ArrayBuffer(analyser.fftSize * 4));
+      this.master.connect(analyser);
+      const silent = this.ctx.createGain();
+      silent.gain.value = 0;
+      analyser.connect(silent);
+      silent.connect(this.ctx.destination);
     }
+  }
+
+  private isSilent(): boolean {
+    const analyser = this.silenceAnalyser;
+    const data = this.silenceData;
+    if (!analyser || !data) return false;
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+    return Math.sqrt(sum / data.length) < RadioPlayer.SILENCE_RMS;
   }
 
   private async decodeSafe(track: Track): Promise<AudioBuffer | null> {
@@ -432,6 +462,25 @@ export class RadioPlayer {
     if (pos < deck.offset) {
       this.onTick?.(0, total);
       return;
+    }
+
+    if (this.silenceSkip && this.isSilent()) {
+      const now = performance.now();
+      if (this.silentSince === 0) {
+        this.silentSince = now;
+      } else if (now - this.silentSince >= RadioPlayer.SILENCE_SECONDS * 1000) {
+        this.silentSince = 0;
+        if (this.index >= 0 && this.index + 1 < this.playlist.length) {
+          void this.playAt(this.index + 1);
+        } else if (this.loop && this.playlist.length > 1) {
+          void this.playAt(0);
+        } else {
+          this.finish(deck);
+        }
+        return;
+      }
+    } else {
+      this.silentSince = 0;
     }
 
     const nextIdx =

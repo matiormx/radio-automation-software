@@ -240,6 +240,7 @@ export function SettingsPanel({
             {tab === "general" && (
               <GeneralTab
                 settings={s}
+                blocks={blocks}
                 onChange={onChange}
                 onPickMusicFolder={onPickMusicFolder}
                 onPickLogo={onPickLogo}
@@ -277,17 +278,22 @@ export function SettingsPanel({
 
 function GeneralTab({
   settings: s,
+  blocks,
   onChange,
   onPickMusicFolder,
   onPickLogo,
   onClearLogo,
 }: {
   settings: Settings;
+  blocks: Block[];
   onChange: (s: Settings) => void;
   onPickMusicFolder: () => Promise<void>;
   onPickLogo: () => Promise<void>;
   onClearLogo: () => Promise<void>;
 }) {
+  const defaultBlock = blocks.some((block) => block.id === s.defaultBlockId)
+    ? s.defaultBlockId
+    : "";
   return (
     <>
       <fieldset className="fieldset">
@@ -317,6 +323,45 @@ function GeneralTab({
             />
           </label>
         </div>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Inicio y automatización</legend>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={s.autoPlayOnStart}
+            onChange={(e) => onChange({ ...s, autoPlayOnStart: e.target.checked })}
+          />
+          Reproducir automáticamente al iniciar el programa
+        </label>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={s.silenceDetection}
+            onChange={(e) => onChange({ ...s, silenceDetection: e.target.checked })}
+          />
+          Detección de silencio (pasa a la siguiente canción o activa la reproducción)
+        </label>
+        <label className="field">
+          <span className="field-label">Bloque musical por defecto del AutoDJ</span>
+          <select
+            value={defaultBlock}
+            onChange={(e) => onChange({ ...s, defaultBlockId: e.target.value })}
+          >
+            <option value="">Automático (según Música)</option>
+            {blocks.map((block) => (
+              <option key={block.id} value={block.id}>
+                {block.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint">
+          Si eliges un bloque, el AutoDJ saca las próximas canciones de ahí. En «Automático»
+          usa los bloques marcados con el rayo en Música; si no hay ninguno, toda la biblioteca.
+          Un evento activo tiene prioridad sobre esta selección.
+        </p>
       </fieldset>
 
       <fieldset className="fieldset">

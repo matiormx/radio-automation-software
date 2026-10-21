@@ -297,6 +297,10 @@ export interface StreamProbe {
 
 export interface Settings {
   fadeSeconds: number;
+  /** Reproducir la lista automaticamente al abrir la app */
+  autoPlayOnStart: boolean;
+  /** Pasar a la siguiente pista (o reanudar) si hay silencio */
+  silenceDetection: boolean;
   autopilotEnabled: boolean;
   autopilotMinUpcoming: number;
   autopilotFillTo: number;
@@ -309,6 +313,8 @@ export interface Settings {
   musicPath: string;
   /** Bloques de los que elige el piloto automatico; [] = toda la biblioteca */
   autoBlocks: string[];
+  /** Bloque por defecto del AutoDJ; "" = usar autoBlocks o toda la biblioteca */
+  defaultBlockId: string;
   /** Objetivo de sonoridad de la normalizacion (LUFS) */
   targetLufs: number;
   /** Techo de pico real (dBTP) */
@@ -330,6 +336,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   fadeSeconds: 6,
+  autoPlayOnStart: false,
+  silenceDetection: false,
   autopilotEnabled: false,
   autopilotMinUpcoming: 4,
   autopilotFillTo: 10,
@@ -340,6 +348,7 @@ export const DEFAULT_SETTINGS: Settings = {
   masterVolume: 1,
   musicPath: "",
   autoBlocks: [],
+  defaultBlockId: "",
   targetLufs: -9,
   truePeakDb: -1,
   radioName: "MiRadio",

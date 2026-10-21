@@ -15,6 +15,10 @@ const MAX_HISTORY: usize = 800;
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub fade_seconds: u32,
+    /// Reproducir la lista automaticamente al abrir la app.
+    pub auto_play_on_start: bool,
+    /// Pasar a la siguiente pista (o reanudar) si hay silencio.
+    pub silence_detection: bool,
     pub autopilot_enabled: bool,
     /// Rellenar la lista cuando queden menos pistas por delante que este numero
     pub autopilot_min_upcoming: u32,
@@ -35,6 +39,8 @@ pub struct Settings {
     /// Bloques musicales de los que elige el piloto automatico.
     /// Vacio = toda la biblioteca.
     pub auto_blocks: Vec<String>,
+    /// Bloque por defecto del AutoDJ. Vacio = usar auto_blocks o toda la biblioteca.
+    pub default_block_id: String,
     /// Objetivo de sonoridad integrada para la normalizacion.
     pub target_lufs: f64,
     /// Techo de pico real al aplicar la ganancia de normalizacion.
@@ -392,6 +398,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             fade_seconds: 6,
+            auto_play_on_start: false,
+            silence_detection: false,
             autopilot_enabled: false,
             autopilot_min_upcoming: 4,
             autopilot_fill_to: 10,
@@ -402,6 +410,7 @@ impl Default for Settings {
             master_volume: 1.0,
             music_path: String::new(),
             auto_blocks: Vec::new(),
+            default_block_id: String::new(),
             target_lufs: -9.0,
             true_peak_db: -1.0,
             radio_name: "MiRadio".to_string(),
@@ -579,7 +588,11 @@ pub fn auto_pick(
     // Bloques activos del piloto automatico: vacio = toda la biblioteca.
     // Un evento activo puede sustituirlos por un bloque concreto o por una
     // de las dos bibliotecas.
-    let mut pick_blocks: HashSet<String> = s.auto_blocks.iter().cloned().collect();
+    let mut pick_blocks: HashSet<String> = if s.default_block_id.trim().is_empty() {
+        s.auto_blocks.iter().cloned().collect()
+    } else {
+        std::iter::once(s.default_block_id.clone()).collect()
+    };
     let mut pick_library: Option<String> = None;
     match scope_kind.as_deref() {
         Some("block") => {
