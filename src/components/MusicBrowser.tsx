@@ -23,6 +23,7 @@ import {
   IconChevron,
   IconMore,
   IconTag,
+  IconWave,
 } from "../icons";
 
 type Mode = "folders" | "artists" | "blocks" | "genres" | "tags" | "history";
@@ -43,6 +44,7 @@ interface MusicBrowserProps {
   onAdd: (track: Track) => void;
   onDelete: (track: Track) => void;
   onTrackSaved: () => Promise<void>;
+  onEditCuts: (track: Track) => void;
   showToast: (msg: string) => void;
 }
 
@@ -239,6 +241,7 @@ export function MusicBrowser({
   onAdd,
   onDelete,
   onTrackSaved,
+  onEditCuts,
   showToast,
 }: MusicBrowserProps) {
   const [mode, setMode] = useState<Mode>("folders");
@@ -1072,6 +1075,16 @@ export function MusicBrowser({
               }}
             >
               <IconEdit size={13} /> Editar metadatos
+            </button>
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onEditCuts(ctx.track);
+                closeCtx();
+              }}
+            >
+              <IconWave size={13} /> Cortes y puntos
             </button>
             <button
               type="button"

@@ -43,6 +43,7 @@ pub fn run() {
             library::import_playlist,
             library::set_track_library,
             library::save_track_trim,
+            library::save_track_markers,
             library::auto_track_trim,
             analysis::analyze_track,
             analysis::track_waveform,

@@ -51,6 +51,7 @@ import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
 import { StreamEncoder } from "./streaming";
 import { LiveBar } from "./components/LiveBar";
+import { TrackEditor } from "./components/TrackEditor";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -194,8 +195,10 @@ export default function App() {
   const [manualAuto, setManualAuto] = useState<{ id: string; until: number } | null>(null);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [cutsTrackId, setCutsTrackId] = useState("");
   const [streamBusy, setStreamBusy] = useState(false);
   const autopilotOn = settings.autopilotEnabled;
+  const cutsTrack = tracks.find((track) => track.id === cutsTrackId) ?? null;
   const defaultBlockId = blocks.some((block) => block.id === settings.defaultBlockId)
     ? settings.defaultBlockId
     : "";
@@ -1779,6 +1782,7 @@ export default function App() {
           onAdd={addTrack}
           onDelete={(t) => void removeTrack(t)}
           onTrackSaved={refreshTracksAndBlocks}
+          onEditCuts={(t) => setCutsTrackId(t.id)}
           showToast={showToast}
         />
 
@@ -1900,6 +1904,18 @@ export default function App() {
           tab={settingsTab}
           onTabChange={setSettingsTab}
           mixer={mixerRef.current}
+        />
+      )}
+
+      {cutsTrackId && cutsTrack && (
+        <TrackEditor
+          track={cutsTrack}
+          mixer={mixerRef.current}
+          onClose={() => setCutsTrackId("")}
+          onSaved={() => {
+            void refreshTracksAndBlocks();
+          }}
+          showToast={showToast}
         />
       )}
 

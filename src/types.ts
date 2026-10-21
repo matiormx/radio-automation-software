@@ -25,6 +25,10 @@ export interface Track {
   autoTrimStart: number;
   autoTrimEnd: number | null;
   trimManual: boolean;
+  /** Punto de mezcla: donde termina la intro y entra la siguiente cancion (0 = ninguno) */
+  mixPoint: number;
+  /** Punto donde empieza el fade out hacia el final (0 = ninguno) */
+  fadeOutStart: number;
   analyzedAt: number;
   /** Se calcula al listar: el registro vive aunque falte el archivo */
   missing: boolean;
@@ -49,6 +53,10 @@ export interface AnalysisResult {
   autoTrimStart: number;
   autoTrimEnd: number | null;
   trimManual: boolean;
+  /** Punto de mezcla: donde termina la intro y entra la siguiente cancion (0 = ninguno) */
+  mixPoint: number;
+  /** Punto donde empieza el fade out hacia el final (0 = ninguno) */
+  fadeOutStart: number;
   analyzedAt: number;
 }
 

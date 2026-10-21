@@ -73,6 +73,14 @@ pub struct Track {
     /// El operador ajustó el recorte a mano.
     #[serde(default)]
     pub trim_manual: bool,
+    /// Punto de mezcla: donde termina la intro y empieza la siguiente cancion.
+    /// 0 = sin punto de mezcla.
+    #[serde(default)]
+    pub mix_point: f64,
+    /// Punto donde empieza el fade out hacia el final de la pista.
+    /// 0 = sin fade out.
+    #[serde(default)]
+    pub fade_out_start: f64,
     /// Firma del archivo analizado (tamaño + fecha).
     #[serde(default)]
     pub analysis_sig: String,
@@ -571,6 +579,8 @@ pub struct TrackResolved {
     pub auto_trim_start: f64,
     pub auto_trim_end: Option<f64>,
     pub trim_manual: bool,
+    pub mix_point: f64,
+    pub fade_out_start: f64,
     pub analyzed_at: u64,
     pub cover: String,
 }
@@ -602,6 +612,8 @@ impl TrackResolved {
             auto_trim_start: t.auto_trim_start,
             auto_trim_end: t.auto_trim_end,
             trim_manual: t.trim_manual,
+            mix_point: t.mix_point,
+            fade_out_start: t.fade_out_start,
             analyzed_at: t.analyzed_at,
             cover: cover_abs(data_dir, &t.cover),
         }
@@ -682,6 +694,8 @@ pub fn import_files(
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            mix_point: 0.0,
+            fade_out_start: 0.0,
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),
@@ -771,6 +785,8 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            mix_point: 0.0,
+            fade_out_start: 0.0,
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),
@@ -1110,6 +1126,36 @@ pub fn save_track_trim(
         Some((end * 1000.0).round() / 1000.0)
     };
     t.trim_manual = true;
+    write_library(&state.data_dir, &tracks)
+}
+
+/// Guarda los puntos de mezcla y de fade out de una pista.
+#[tauri::command]
+pub fn save_track_markers(
+    state: State<'_, AppState>,
+    id: String,
+    mix_point: f64,
+    fade_out_start: f64,
+) -> Result<(), String> {
+    if !mix_point.is_finite() || !fade_out_start.is_finite() {
+        return Err("Puntos no validos".to_string());
+    }
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(&state.data_dir);
+    let Some(t) = tracks.iter_mut().find(|t| t.id == id) else {
+        return Err("La cancion ya no existe en la biblioteca".to_string());
+    };
+    let duration = if t.duration_secs > 0.0 { t.duration_secs } else { 0.0 };
+    t.mix_point = if mix_point > 0.0 {
+        (mix_point.min(duration) * 1000.0).round() / 1000.0
+    } else {
+        0.0
+    };
+    t.fade_out_start = if fade_out_start > 0.0 {
+        (fade_out_start.min(duration) * 1000.0).round() / 1000.0
+    } else {
+        0.0
+    };
     write_library(&state.data_dir, &tracks)
 }
 
@@ -1476,6 +1522,8 @@ pub fn import_playlist(
             auto_trim_start: 0.0,
             auto_trim_end: None,
             trim_manual: false,
+            mix_point: 0.0,
+            fade_out_start: 0.0,
             analysis_sig: String::new(),
             analyzed_at: 0,
             cover: String::new(),

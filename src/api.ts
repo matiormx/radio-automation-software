@@ -57,6 +57,14 @@ export function saveTrackTrim(id: string, start: number, end: number): Promise<v
   return invoke("save_track_trim", { id, start, end });
 }
 
+export function saveTrackMarkers(
+  id: string,
+  mixPoint: number,
+  fadeOutStart: number,
+): Promise<void> {
+  return invoke("save_track_markers", { id, mixPoint, fadeOutStart });
+}
+
 export function autoTrackTrim(id: string): Promise<void> {
   return invoke("auto_track_trim", { id });
 }

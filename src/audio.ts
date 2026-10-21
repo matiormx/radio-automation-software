@@ -58,17 +58,20 @@ const EMPTY_TRACK: Track = {
   autoTrimStart: 0,
   autoTrimEnd: null,
   trimManual: false,
+  mixPoint: 0,
+  fadeOutStart: 0,
   analyzedAt: 0,
   missing: false,
   cover: "",
 };
 
-type Slot = "a" | "b";
+type Slot = "a" | "b" | "c";
+const SLOTS: Slot[] = ["a", "b", "c"];
 
 export class RadioPlayer {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private decks: Record<Slot, Deck | null> = { a: null, b: null };
+  private decks: Record<Slot, Deck | null> = { a: null, b: null, c: null };
   private currentSlot: Slot = "a";
   private cache = new Map<string, AudioBuffer>();
   private playlist: Track[] = [];
@@ -261,9 +264,10 @@ export class RadioPlayer {
     this.playlist = [];
     this.cache.clear();
     this.decoding.clear();
-    if (this.decks.a) this.hardStop(this.decks.a);
-    if (this.decks.b) this.hardStop(this.decks.b);
-    this.decks = { a: null, b: null };
+    for (const slot of SLOTS) {
+      if (this.decks[slot]) this.hardStop(this.decks[slot]);
+    }
+    this.decks = { a: null, b: null, c: null };
     this.pausedOffset = null;
     this.silenceAnalyser?.disconnect();
     this.silenceAnalyser = null;
@@ -302,7 +306,7 @@ export class RadioPlayer {
     gain.gain.setValueAtTime(1.0, now);
 
     const deck: Deck = { source, gain, norm, buffer, startedAt: now, offset: start, end };
-    this.decks = { a: null, b: null };
+    this.decks = { a: null, b: null, c: null };
     this.decks.a = deck;
     this.currentSlot = "a";
     this.fading = false;
@@ -325,9 +329,10 @@ export class RadioPlayer {
     const pos = ctx.currentTime - deck.startedAt + deck.offset;
     this.pausedOffset = Math.max(deck.offset, Math.min(deck.end, pos));
     this.onTick?.(this.pausedOffset - deck.offset, deck.end - deck.offset);
-    if (this.decks.a) this.hardStop(this.decks.a);
-    if (this.decks.b) this.hardStop(this.decks.b);
-    this.decks = { a: null, b: null };
+    for (const slot of SLOTS) {
+      if (this.decks[slot]) this.hardStop(this.decks[slot]);
+    }
+    this.decks = { a: null, b: null, c: null };
     this.currentSlot = "a";
     this.fading = false;
     this.stopRaf();
@@ -365,6 +370,22 @@ export class RadioPlayer {
       analyser.connect(silent);
       silent.connect(this.ctx.destination);
     }
+  }
+
+  /** Punto de mezcla de la pista: donde entra la siguiente cancion. */
+  private mixPointOf(index: number): number {
+    const track = this.playlist[index];
+    if (!track) return 0;
+    const point = track.mixPoint ?? 0;
+    return point > 0 ? point : 0;
+  }
+
+  /** Punto de fade out de la pista: desde ahi baja hasta el final. */
+  private fadeOutOf(index: number): number {
+    const track = this.playlist[index];
+    if (!track) return 0;
+    const point = track.fadeOutStart ?? 0;
+    return point > 0 ? point : 0;
   }
 
   private isSilent(): boolean {
@@ -433,13 +454,11 @@ export class RadioPlayer {
   }
 
   private async stopAll(fadeDur: number) {
-    const a = this.decks.a;
-    const b = this.decks.b;
-    this.decks = { a: null, b: null };
+    const old = SLOTS.map((slot) => this.decks[slot]).filter((d): d is Deck => d !== null);
+    this.decks = { a: null, b: null, c: null };
     this.fading = false;
     if (this.ctx) {
-      if (a) this.fadeOutAndStop(a, fadeDur);
-      if (b) this.fadeOutAndStop(b, fadeDur);
+      for (const deck of old) this.fadeOutAndStop(deck, fadeDur);
     }
     if (fadeDur > 0) await new Promise((r) => setTimeout(r, fadeDur * 1000 + 80));
   }
@@ -545,18 +564,41 @@ export class RadioPlayer {
       return;
     }
 
-    if (!this.fading && this.index >= 0 && this.fadeSeconds > 0 && remaining <= this.fadeSeconds) {
-      if (nextIdx >= 0 && nextIdx !== this.index) {
-        void this.beginCrossfade(deck, remaining, nextIdx);
-        return;
-      }
+    // Fade out: desde su punto hasta el final, la pista baja hasta el silencio.
+    const fadeOut = this.fadeOutOf(this.index);
+    if (!this.fading && fadeOut > 0 && pos >= fadeOut && pos < deck.end) {
+      const span = Math.max(0.2, deck.end - fadeOut);
+      const ratio = Math.max(0, Math.min(1, (pos - fadeOut) / span));
+      const target = Math.max(0.0001, 1 - ratio);
+      deck.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.08);
+    }
+
+    // Punto de mezcla: la siguiente cancion entra en ese punto y la actual
+    // sigue sonando (su intro queda debajo). Sin punto, se cruza al final.
+    const mixPoint = this.mixPointOf(this.index);
+    const crossfadeAt = mixPoint > 0 ? Math.max(mixPoint, deck.offset) : deck.end - this.fadeSeconds;
+    if (
+      !this.fading &&
+      this.index >= 0 &&
+      this.fadeSeconds > 0 &&
+      pos >= crossfadeAt &&
+      nextIdx >= 0 &&
+      nextIdx !== this.index
+    ) {
+      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0);
+      return;
     }
 
     this.onTick?.(pos - deck.offset, total);
   }
 
   /** Empieza la cancion siguiente por abajo y baja la actual. */
-  private async beginCrossfade(deck: Deck, remaining: number, nextIdx: number) {
+  private async beginCrossfade(
+    deck: Deck,
+    remaining: number,
+    nextIdx: number,
+    keepCurrent = false,
+  ) {
     if (!this.ctx) return;
     if (this.fadeAttemptFor === nextIdx) return;
     const generation = this.playGeneration;
@@ -606,6 +648,8 @@ export class RadioPlayer {
         end: nextEnd,
       };
 
+      const oldSlot = this.currentSlot;
+
       if (available <= 0.05) {
         // La decodificacion tardo mas que la pista: empalme limpio, sin hueco.
         this.hardStop(deck);
@@ -615,20 +659,27 @@ export class RadioPlayer {
         const overlap = Math.min(fadeTarget, available);
         gain.gain.setValueAtTime(0.001, startAt);
         gain.gain.linearRampToValueAtTime(1, startAt + overlap);
-        deck.gain.gain.cancelScheduledValues(now);
-        deck.gain.gain.setValueAtTime(Math.max(deck.gain.gain.value, 0.001), now);
-        deck.gain.gain.linearRampToValueAtTime(0.001, now + overlap);
-        try {
-          deck.source.stop(now + overlap + 0.1);
-        } catch {
-          /* ya detenido */
+        if (keepCurrent) {
+          // Punto de mezcla: la pista actual sigue sonando (su intro queda
+          // debajo de la siguiente) hasta que se acaba.
+          deck.source.onended = () => {
+            this.decks[oldSlot] = null;
+          };
+        } else {
+          deck.gain.gain.cancelScheduledValues(now);
+          deck.gain.gain.setValueAtTime(Math.max(deck.gain.gain.value, 0.001), now);
+          deck.gain.gain.linearRampToValueAtTime(0.001, now + overlap);
+          try {
+            deck.source.stop(now + overlap + 0.1);
+          } catch {
+            /* ya detenido */
+          }
         }
         this.fadeOverlap = overlap;
       }
 
-      const oldSlot = this.currentSlot;
-      this.currentSlot = this.otherSlot();
-      this.decks[oldSlot] = null;
+      this.currentSlot = this.freeSlot();
+      if (!keepCurrent) this.decks[oldSlot] = null;
       this.decks[this.currentSlot] = newDeck;
       this.index = nextIdx;
       this.fadeAttemptFor = -1;
@@ -638,12 +689,19 @@ export class RadioPlayer {
     }
   }
 
-  private otherSlot(): Slot {
-    return this.currentSlot === "a" ? "b" : "a";
+  /** Slot donde colocar la siguiente pista: uno libre o el mas antiguo. */
+  private freeSlot(): Slot {
+    const free = SLOTS.find((slot) => slot !== this.currentSlot && !this.decks[slot]);
+    if (free) return free;
+    const others = SLOTS.filter((slot) => slot !== this.currentSlot);
+    return others[0] ?? "b";
   }
 
   private finish(deck: Deck) {
     this.hardStop(deck);
+    for (const slot of SLOTS) {
+      if (slot !== this.currentSlot && this.decks[slot]) this.hardStop(this.decks[slot]);
+    }
     this.decks[this.currentSlot] = null;
     this.currentSlot = "a";
     this.fading = false;

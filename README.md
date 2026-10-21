@@ -93,6 +93,9 @@ biblioteca y reglas de rotación).
   hora). La barra auxiliar está siempre visible: en gris con el programa
   preparado y en rojo cuando LIVE está activo, con sus metadatos
   sustituyendo a los de la canción en el archivo `live.txt`.
+- **Editor de cortes y puntos**: con el botón derecho sobre una canción se
+  abre el editor, con la forma de onda, el corte inicial y final, el punto
+  de mezcla (donde entra la siguiente canción) y el punto de fade out.
 - **Historial de emisión**: las canciones que ya han sonado se guardan y se
   ven en gris en la pestaña «Historial» de Música, con la hora de emisión.
 - **Continuar donde se quedó**: al reabrir la app, la lista activa, la
@@ -249,6 +252,28 @@ selector **BLOQUE AUTO**: muestra el bloque que se está usando y permite
 asignar otro sin abrir los ajustes. Cuando hay un evento de franja
 activo, la etiqueta muestra el origen del evento, que manda sobre el
 bloque elegido.
+
+## Cortes y puntos de una canción
+
+Con el botón derecho sobre cualquier canción de la biblioteca, elige
+**Cortes y puntos**. Se abre el editor con la forma de onda y cuatro marcas:
+
+| Marca | Para qué sirve |
+| --- | --- |
+| **Corte inicial** (verde) | Por dónde empieza a sonar la pista. |
+| **Corte final** (naranja) | Por dónde termina. |
+| **Punto mix / intro** (cian) | Donde termina la introducción y entra la siguiente canción: la actual sigue sonando debajo. |
+| **Fade out** (violeta) | Desde ese punto la pista baja de volumen hasta el final. |
+
+Se arrastran sobre la onda o se escriben en los campos (con botones de
+±0,1 s). La barra de herramientas tiene *Escuchar (preescucha)* —suena por
+la salida de monitorización de la mesa de sonido—, *Mix aquí*, *Fade aquí*,
+*Recorte automático* (vuelve al recorte que calculó el analizador) y
+*Guardar*.
+
+En la reproducción, el punto de mezcla hace que la siguiente canción entre
+en ese momento mientras la actual sigue sonando, y el fade out baja la
+pista hasta el final.
 
 ## Historial y reanudación
 
