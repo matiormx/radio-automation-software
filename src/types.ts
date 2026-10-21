@@ -137,6 +137,10 @@ export interface Campaign {
   times: string[];
   hourly: boolean;
   minute: number;
+  /** Inicio de la campaña (fecha y hora local); "" = sin límite */
+  startAt: string;
+  /** Fin de la campaña (fecha y hora local); "" = permanente */
+  endAt: string;
   trackIds: string[];
   cursor: number;
   lastFired: string;

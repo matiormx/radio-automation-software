@@ -148,6 +148,10 @@ pub struct Campaign {
     pub times: Vec<String>,
     pub hourly: bool,
     pub minute: u8,
+    /// Inicio de la campana (fecha y hora local, YYYY-MM-DDTHH:MM).
+    pub start_at: String,
+    /// Fin de la campana; vacio = permanente.
+    pub end_at: String,
     pub track_ids: Vec<String>,
     pub cursor: usize,
     pub last_fired: String,
@@ -164,6 +168,8 @@ impl Default for Campaign {
             times: Vec::new(),
             hourly: false,
             minute: 0,
+            start_at: String::new(),
+            end_at: String::new(),
             track_ids: Vec::new(),
             cursor: 0,
             last_fired: String::new(),

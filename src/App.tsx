@@ -111,6 +111,12 @@ function dayIso(d: Date): number {
   return n === 0 ? 7 : n;
 }
 
+function campaignTime(value: string): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 function extOk(path: string): boolean {
   const dot = path.lastIndexOf(".");
   if (dot < 0) return false;
@@ -716,8 +722,13 @@ export default function App() {
       const due: { campaign: Campaign; key: string; spotId: string; cursor: number }[] = [];
 
       const dayMs = 24 * 60 * 60 * 1000;
+      const nowMs = now.getTime();
       for (const c of s.campaigns) {
         if (!c.enabled || c.trackIds.length === 0) continue;
+        const startsAt = campaignTime(c.startAt);
+        const endsAt = campaignTime(c.endAt);
+        if (startsAt != null && nowMs < startsAt) continue;
+        if (endsAt != null && nowMs > endsAt) continue;
         const occurrences = c.hourly ? [`${pad2(now.getHours())}:${pad2(c.minute)}`] : c.times;
         let dueAt: { when: number; key: string } | null = null;
         for (const t of occurrences) {
@@ -729,12 +740,14 @@ export default function App() {
           }
           const scheduled = new Date(now);
           scheduled.setHours(h, m, 0, 0);
-          let delta = now.getTime() - scheduled.getTime();
+          let delta = nowMs - scheduled.getTime();
           if (delta < 0) {
             scheduled.setTime(scheduled.getTime() - dayMs);
-            delta = now.getTime() - scheduled.getTime();
+            delta = nowMs - scheduled.getTime();
           }
           if (delta > CAMPAIGN_GRACE_MS) continue;
+          if (startsAt != null && scheduled.getTime() < startsAt) continue;
+          if (endsAt != null && scheduled.getTime() > endsAt) continue;
           if (!c.days.includes(dayIso(scheduled))) continue;
           const key = `${dayKey(scheduled)} ${pad2(h)}:${pad2(m)}`;
           if (c.lastFired === key) continue;

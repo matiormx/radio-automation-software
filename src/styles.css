@@ -943,7 +943,7 @@ body {
 .field-row { display: flex; gap: 12px; }
 .field-row .field { flex: 1; flex-direction: column; align-items: stretch; gap: 4px; }
 .field-row .field-year { flex: 0 0 80px; }
-.field input[type="text"], .field input:not([type]) {
+.field input[type="text"], .field input:not([type]), .field input[type="datetime-local"] {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -954,6 +954,8 @@ body {
   padding: 6px 9px;
   outline: none;
 }
+.field input[type="datetime-local"] { color-scheme: dark; }
+.field input[type="datetime-local"]:disabled { opacity: 0.45; }
 .field input:focus { border-color: var(--accent); }
 
 .edit-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2048,6 +2050,45 @@ body {
 }
 .camp-minute:disabled { opacity: 0.4; }
 
+.camp-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.camp-dates .field { flex-direction: column; align-items: stretch; gap: 4px; }
+
+.camp-hour-picker { display: flex; flex-direction: column; gap: 7px; }
+.camp-hour-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.camp-slot-minute {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.camp-slot-minute input {
+  width: 58px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 6px;
+  font-family: var(--mono);
+  text-align: right;
+}
+.camp-hours { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; }
+.camp-hour {
+  height: 26px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-dim);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.camp-hour:hover { border-color: var(--accent); color: var(--text); }
+.camp-hour-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
 .camp-time-add { display: flex; align-items: center; gap: 8px; }
 .camp-time-add input[type="time"] {
   border: 1px solid var(--line-strong);
@@ -2359,4 +2400,6 @@ body {
   .settings-nav-btn { flex: 0 0 auto; }
   .settings-nav-btn span { display: none; }
   .field-row { flex-direction: column; }
+  .camp-dates { grid-template-columns: 1fr; }
+  .camp-hours { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }

@@ -52,6 +52,56 @@ function daysText(c: Campaign): string {
     .join(" ");
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toLocalInput(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(
+    d.getHours(),
+  )}:${pad2(d.getMinutes())}`;
+}
+
+function todayStartInput(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return toLocalInput(d);
+}
+
+function campaignDate(value: string): number | null {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function fmtCampaignDate(value: string): string {
+  const t = campaignDate(value);
+  if (t == null) return "";
+  return new Date(t).toLocaleString("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function defaultEndAt(startAt: string): string {
+  const start = campaignDate(startAt);
+  const d = start == null ? new Date() : new Date(start);
+  d.setDate(d.getDate() + 7);
+  return toLocalInput(d);
+}
+
+function campaignWindowText(c: Campaign): string {
+  const start = c.startAt ? fmtCampaignDate(c.startAt) : "";
+  const end = c.endAt ? fmtCampaignDate(c.endAt) : "";
+  if (start && end) return `Del ${start} al ${end}`;
+  if (start) return `Desde ${start} · permanente`;
+  if (end) return `Hasta ${end}`;
+  return "Sin límites de fecha";
+}
+
 function MinField({
   label,
   value,
@@ -378,7 +428,6 @@ function CampaignsTab({
   const [draft, setDraft] = useState<Campaign | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [timeInput, setTimeInput] = useState("12:00");
   const [importing, setImporting] = useState(false);
 
   const byId = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
@@ -386,7 +435,6 @@ function CampaignsTab({
   const newCampaign = () => {
     setError("");
     setSearch("");
-    setTimeInput("12:00");
     setDraft({
       id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
       name: "",
@@ -396,6 +444,8 @@ function CampaignsTab({
       times: [],
       hourly: false,
       minute: 0,
+      startAt: todayStartInput(),
+      endAt: "",
       trackIds: [],
       cursor: 0,
       lastFired: "",
@@ -421,6 +471,20 @@ function CampaignsTab({
     }
     if (draft.days.length === 0) {
       setError("Selecciona al menos un día.");
+      return;
+    }
+    const start = campaignDate(draft.startAt);
+    const end = campaignDate(draft.endAt);
+    if (draft.startAt && start == null) {
+      setError("La fecha de inicio no es válida.");
+      return;
+    }
+    if (draft.endAt && end == null) {
+      setError("La fecha de fin no es válida.");
+      return;
+    }
+    if (start != null && end != null && end <= start) {
+      setError("La fecha de fin debe ser posterior a la de inicio.");
       return;
     }
     if (draft.trackIds.length === 0) {
@@ -458,8 +522,6 @@ function CampaignsTab({
         error={error}
         search={search}
         setSearch={setSearch}
-        timeInput={timeInput}
-        setTimeInput={setTimeInput}
         byId={byId}
         onSave={save}
         onCancel={() => {
@@ -529,6 +591,7 @@ function CampaignsTab({
                   <div className="camp-card-meta">
                     <span>{scheduleText(c)}</span>
                     <span>{daysText(c)}</span>
+                    <span>{campaignWindowText(c)}</span>
                     <span>
                       {spots.length} {spots.length === 1 ? "spot" : "spots"} · {fmtDur(total)}
                     </span>
@@ -565,8 +628,6 @@ function CampaignEditor({
   error,
   search,
   setSearch,
-  timeInput,
-  setTimeInput,
   byId,
   onSave,
   onCancel,
@@ -578,8 +639,6 @@ function CampaignEditor({
   error: string;
   search: string;
   setSearch: (v: string) => void;
-  timeInput: string;
-  setTimeInput: (v: string) => void;
   byId: Map<string, Track>;
   onSave: () => void;
   onCancel: () => void;
@@ -601,12 +660,16 @@ function CampaignEditor({
   );
 
   const set = (patch: Partial<Campaign>) => setDraft({ ...draft, ...patch });
+  const [slotMinute, setSlotMinute] = useState(0);
+  const minuteSafe = Math.max(0, Math.min(59, Math.floor(slotMinute) || 0));
 
-  const addTime = () => {
-    const v = timeInput.trim();
-    if (!/^\d{2}:\d{2}$/.test(v)) return;
-    if (draft.times.includes(v)) return;
-    set({ times: [...draft.times, v].sort() });
+  const toggleHour = (hour: number) => {
+    const value = `${pad2(hour)}:${pad2(minuteSafe)}`;
+    set({
+      times: draft.times.includes(value)
+        ? draft.times.filter((x) => x !== value)
+        : [...draft.times, value].sort(),
+    });
   };
 
   const moveSpot = (index: number, dir: -1 | 1) => {
@@ -683,6 +746,37 @@ function CampaignEditor({
           ))}
         </div>
 
+        <div className="camp-dates">
+          <label className="field">
+            <span className="field-label">Inicio</span>
+            <input
+              type="datetime-local"
+              value={draft.startAt}
+              onChange={(e) => set({ startAt: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Fin</span>
+            <input
+              type="datetime-local"
+              value={draft.endAt}
+              min={draft.startAt || undefined}
+              disabled={!draft.endAt}
+              onChange={(e) => set({ endAt: e.target.value })}
+            />
+          </label>
+        </div>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={!draft.endAt}
+            onChange={(e) =>
+              set({ endAt: e.target.checked ? "" : defaultEndAt(draft.startAt) })
+            }
+          />
+          Sin fecha de fin (continuidad permanente)
+        </label>
+
         <label className="check-field">
           <input
             type="checkbox"
@@ -704,16 +798,38 @@ function CampaignEditor({
         </label>
 
         {!draft.hourly && (
-          <>
-            <div className="camp-time-add">
-              <input
-                type="time"
-                value={timeInput}
-                onChange={(e) => setTimeInput(e.target.value)}
-              />
-              <button type="button" className="btn btn-sm" onClick={addTime}>
-                Añadir hora
-              </button>
+          <div className="camp-hour-picker">
+            <div className="camp-hour-head">
+              <span className="field-label">Seleccionar horas</span>
+              <label className="camp-slot-minute">
+                <span>Minuto</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={slotMinute}
+                  onChange={(e) =>
+                    setSlotMinute(Math.max(0, Math.min(59, Number(e.target.value) || 0)))
+                  }
+                />
+              </label>
+            </div>
+            <div className="camp-hours">
+              {Array.from({ length: 24 }, (_, hour) => hour).map((hour) => {
+                const value = `${pad2(hour)}:${pad2(minuteSafe)}`;
+                const on = draft.times.includes(value);
+                return (
+                  <button
+                    key={hour}
+                    type="button"
+                    className={`camp-hour ${on ? "camp-hour-on" : ""}`}
+                    title={on ? `Quitar ${value}` : `Añadir ${value}`}
+                    onClick={() => toggleHour(hour)}
+                  >
+                    {pad2(hour)}
+                  </button>
+                );
+              })}
             </div>
             <div className="camp-times">
               {draft.times.length === 0 && <span className="hint">Sin horas todavía.</span>}
@@ -730,11 +846,15 @@ function CampaignEditor({
                 </span>
               ))}
             </div>
-          </>
+            <p className="hint">
+              Haz clic en una hora para añadirla con el minuto elegido. Vuelve a pulsarla para
+              quitarla.
+            </p>
+          </div>
         )}
         <p className="hint">
-          Si la app está cerrada a esa hora no se emite; al abrirla solo se recupera la emisión si
-          han pasado menos de 15 minutos.
+          La campaña solo emite entre las fechas indicadas. Si la app está cerrada a esa hora no se
+          emite; al abrirla solo se recupera la emisión si han pasado menos de 15 minutos.
         </p>
       </fieldset>
 
