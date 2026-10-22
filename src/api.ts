@@ -335,3 +335,36 @@ export async function guardWindowClose(getMessage: () => string): Promise<() => 
     }
   });
 }
+
+
+// ---- API compatible con RadioBOSS ----
+
+export interface ApiStatus {
+  running: boolean;
+  address: string;
+  error: string | null;
+  lastUpdate: string | null;
+  user: string;
+  hasPassword: boolean;
+  hasToken: boolean;
+  hasUpdateToken: boolean;
+}
+
+export function apiApply(config: import("./types").ApiSettings): Promise<ApiStatus> {
+  return invoke<ApiStatus>("api_apply", { config });
+}
+export function apiStatus(): Promise<ApiStatus> {
+  return invoke<ApiStatus>("api_status");
+}
+export function apiSetLogin(user: string, pass: string): Promise<ApiStatus> {
+  return invoke<ApiStatus>("api_set_login", { user, pass });
+}
+export function apiNewToken(): Promise<string> {
+  return invoke<string>("api_new_token");
+}
+export function apiSetUpdateToken(token: string): Promise<ApiStatus> {
+  return invoke<ApiStatus>("api_set_update_token", { token });
+}
+export function apiPublish(published: unknown): Promise<void> {
+  return invoke("api_publish", { published });
+}

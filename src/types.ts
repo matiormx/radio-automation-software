@@ -216,6 +216,18 @@ export interface InsertSettings {
 }
 
 /** Envio de un canal a un bus (ademas de su salida principal). */
+/** API compatible con RadioBOSS (las claves van aparte, en secretos). */
+export interface ApiSettings {
+  enabled: boolean;
+  port: number;
+  /** Escuchar en toda la red (si no, solo en este equipo, para el tunel) */
+  bindAll: boolean;
+  /** status-json.xsl de Icecast; vacio = el de la primera emision Icecast */
+  icecastStatusUrl: string;
+  /** Aviso de cambio de cancion (p. ej. https://core.ngradio.es/update) */
+  updateUrl: string;
+}
+
 export interface MixerSend {
   busId: string;
   gainDb: number;
@@ -397,6 +409,8 @@ export interface Settings {
   silenceThresholdDb: number;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
+  /** API compatible con RadioBOSS para ngradio.es */
+  api: ApiSettings;
   autopilotEnabled: boolean;
   autopilotMinUpcoming: number;
   autopilotFillTo: number;
@@ -451,6 +465,7 @@ export const DEFAULT_SETTINGS: Settings = {
   silenceDetection: false,
   silenceThresholdDb: -55,
   audioEngine: "web",
+  api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,
   autopilotMinUpcoming: 4,
   autopilotFillTo: 10,

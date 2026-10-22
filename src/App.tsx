@@ -72,6 +72,7 @@ import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
 import { openToolWindow, publishState, serveMain } from "./bridge";
+import { apiApply, apiPublish } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
@@ -231,6 +232,8 @@ export default function App() {
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
   const [native, setNative] = useState<NativePlayer | null>(null);
+  /** Posicion exacta (segundos) para la API de ngradio */
+  const exactPosRef = useRef({ cur: 0, total: 0 });
   const mixerRef = useRef<SoundMixer | null>(null);
   const streamEncoderRef = useRef<StreamEncoder | null>(null);
   const userPausedRef = useRef(false);
@@ -337,6 +340,7 @@ export default function App() {
       setPaused(true);
     };
     player.onTick = (cur, total) => {
+      exactPosRef.current = { cur, total };
       const curS = Math.floor(cur);
       const totalS = Math.floor(total);
       if (curS !== posRef.current.cur || totalS !== posRef.current.total) {
@@ -1835,6 +1839,51 @@ export default function App() {
     }
     return out;
   }, [rows, playingRow, pos]);
+
+  // ---- API compatible con RadioBOSS (ngradio.es) ----
+  // Configuracion: la URL de oyentes sale de la primera emision Icecast si no se indica.
+  useEffect(() => {
+    const api = settings.api;
+    if (!api) return;
+    const ice = settings.streaming.icecast.find((x) => x.enabled) ?? settings.streaming.icecast[0];
+    const icecastStatusUrl =
+      api.icecastStatusUrl.trim() ||
+      (ice ? `${ice.tls ? "https" : "http"}://${ice.host}:${ice.port}/status-json.xsl` : "");
+    void apiApply({ ...api, icecastStatusUrl }).catch(() => undefined);
+  }, [settings.api, settings.streaming.icecast]);
+
+  // Estado de la emision: en cada cambio y cada 2 s (la API extrapola la posicion).
+  const pausedNowRef = useRef(paused);
+  pausedNowRef.current = paused;
+  const publishApiState = useCallback(() => {
+    const idx = playingRowRef.current;
+    const list = rowsRef.current;
+    const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
+    const toPub = (id: string | undefined) => {
+      const t = id ? byId.get(id) : undefined;
+      return t
+        ? { id: t.id, artist: t.artist, title: t.title, album: t.album, file: t.file, durationSecs: t.durationSecs, cover: t.cover }
+        : null;
+    };
+    const current = idx >= 0 ? toPub(list[idx]?.id) : null;
+    const pos = exactPosRef.current;
+    void apiPublish({
+      state: !current ? "stop" : pausedNowRef.current ? "pause" : "play",
+      posMs: current ? Math.max(0, pos.cur * 1000) : 0,
+      lenMs: current ? Math.max(0, pos.total * 1000) : 0,
+      current,
+      next: idx >= 0 ? toPub(list[idx + 1]?.id) : null,
+      queue: list.flatMap((r) => toPub(r.id) ?? []),
+      currentIndex: idx,
+    }).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    publishApiState();
+  }, [playingRow, paused, rows, tracks, publishApiState]);
+  useEffect(() => {
+    const t = window.setInterval(publishApiState, 2000);
+    return () => window.clearInterval(t);
+  }, [publishApiState]);
 
   // ---- ventanas de herramientas (Ajustes...) ----
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});

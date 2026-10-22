@@ -1,3 +1,4 @@
+import { ApiTab } from "./ApiTab";
 import { useMemo, useState } from "react";
 import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
 import { effectiveDuration } from "../types";
@@ -162,7 +163,8 @@ export type SettingsTab =
   | "sound"
   | "video"
   | "streaming"
-  | "calls";
+  | "calls"
+  | "api";
 
 export function SettingsPanel({
   settings,
@@ -296,6 +298,14 @@ export function SettingsPanel({
               Llamadas
               <span>Oyentes al aire desde NGRADIO</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "api" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("api")}
+            >
+              API
+              <span>Datos para ngradio.es (como RadioBOSS)</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -338,6 +348,7 @@ export function SettingsPanel({
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
+            {tab === "api" && <ApiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "calls" && (
               <StudioCallsTab
                 settings={s}

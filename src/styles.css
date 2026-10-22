@@ -3410,3 +3410,6 @@ body {
 .tool-window .norm-overlay { position: absolute; z-index: auto; }
 .norm-head .win-controls { align-self: stretch; margin: -10px -14px -10px 4px; }
 .norm-head .top-drag { min-width: 8px; }
+
+.api-token { font-size: 11.5px; padding: 3px 6px; border-radius: 4px; background: #05070a; color: #9fe3b0; user-select: all; overflow-wrap: anywhere; }
+.hint-error { color: #f87171; }

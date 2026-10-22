@@ -24,6 +24,7 @@ pub struct Settings {
     pub silence_threshold_db: f32,
     /// Motor de audio: "web" o "native" (beta).
     pub audio_engine: String,
+    pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
     /// Rellenar la lista cuando queden menos pistas por delante que este numero
     pub autopilot_min_upcoming: u32,
@@ -518,6 +519,7 @@ impl Default for Settings {
             silence_detection: false,
             silence_threshold_db: -55.0,
             audio_engine: "web".to_string(),
+            api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,
             autopilot_min_upcoming: 4,
             autopilot_fill_to: 10,
