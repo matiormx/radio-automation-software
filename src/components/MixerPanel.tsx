@@ -74,6 +74,7 @@ interface Device {
   kind: "audioinput" | "audiooutput";
 }
 
+/** Paleta fija de 16 colores: más fácil igualar canales entre sí. */
 const COLORS = [
   "#4f8cff",
   "#59d98c",
@@ -83,7 +84,42 @@ const COLORS = [
   "#22d3ee",
   "#f472b6",
   "#a3e635",
+  "#2563eb",
+  "#16a34a",
+  "#f97316",
+  "#dc2626",
+  "#9333ea",
+  "#0891b2",
+  "#db2777",
+  "#94a3b8",
 ];
+
+function ColorSwatches({
+  value,
+  label,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  onChange: (color: string) => void;
+}) {
+  return (
+    <div className="mixer-swatches" role="radiogroup" aria-label={`Color de ${label}`}>
+      {COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={c.toLowerCase() === value.toLowerCase()}
+          className={`mixer-swatch ${c.toLowerCase() === value.toLowerCase() ? "mixer-swatch-on" : ""}`}
+          style={{ background: c }}
+          title={c}
+          onClick={() => onChange(c)}
+        />
+      ))}
+    </div>
+  );
+}
 
 function nextColor(count: number): string {
   return COLORS[count % COLORS.length];
@@ -348,11 +384,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
 
                     <div className="mixer-color-row">
                       <span>Color</span>
-                      <input
-                        type="color"
+                      <ColorSwatches
                         value={ch.color}
-                        aria-label={`Color de ${ch.name}`}
-                        onChange={(e) => patchChannel(ch.id, { color: e.target.value })}
+                        label={ch.name}
+                        onChange={(color) => patchChannel(ch.id, { color })}
                       />
                     </div>
 
@@ -454,6 +489,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         step={0.5}
                         value={ch.gainDb}
                         aria-label={`Volumen de ${ch.name}`}
+                        title="Doble clic: 0 dB"
+                        onDoubleClick={() => patchChannel(ch.id, { gainDb: 0 })}
                         onChange={(e) =>
                           patchChannel(ch.id, { gainDb: Number(e.target.value) || 0 })
                         }
@@ -517,14 +554,13 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       </div>
 
                       <div className="mixer-color-row">
-                        <span>Color</span>
-                        <input
-                          type="color"
-                          value={bus.color}
-                          aria-label={`Color de ${bus.name}`}
-                          onChange={(e) => patchBus(bus.id, { color: e.target.value })}
-                        />
-                      </div>
+                      <span>Color</span>
+                      <ColorSwatches
+                        value={bus.color}
+                        label={bus.name}
+                        onChange={(color) => patchBus(bus.id, { color })}
+                      />
+                    </div>
 
                       <label className="mixer-field">
                         <span>Salida</span>
@@ -560,6 +596,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           step={0.5}
                           value={bus.gainDb}
                           aria-label={`Volumen de ${bus.name}`}
+                        title="Doble clic: 0 dB"
+                        onDoubleClick={() => patchBus(bus.id, { gainDb: 0 })}
                           onChange={(e) =>
                             patchBus(bus.id, { gainDb: Number(e.target.value) || 0 })
                           }
