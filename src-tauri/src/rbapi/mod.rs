@@ -120,6 +120,8 @@ struct Secrets {
 }
 
 const SECRETS_FILE: &str = "api_secrets.json";
+/// Largo minimo de la clave de la API
+const MIN_PASS: usize = 6;
 
 fn sha_hex(parts: &[&[u8]]) -> String {
     let mut h = Sha256::new();
@@ -783,8 +785,8 @@ pub fn api_status(app: State<'_, AppState>, state: State<'_, ApiState>) -> ApiSt
 #[tauri::command]
 pub fn api_set_login(app: State<'_, AppState>, state: State<'_, ApiState>, user: String, pass: String) -> Result<ApiStatus, String> {
     let user = user.trim().to_string();
-    if user.is_empty() || pass.chars().count() < 8 {
-        return Err("Usuario obligatorio y clave de al menos 8 caracteres".into());
+    if user.is_empty() || pass.chars().count() < MIN_PASS {
+        return Err("Usuario obligatorio y clave de al menos 6 caracteres".into());
     }
     let core = state.core(&app.data_dir);
     {

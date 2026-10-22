@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiNewToken, apiSetLogin, apiSetUpdateToken, apiStatus, type ApiStatus } from "../api";
 import type { ApiSettings, Settings } from "../types";
 
+const MIN_PASS = 6;
+
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
@@ -104,13 +106,28 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
           </label>
           <label className="field">
             <span className="field-label">{status?.hasPassword ? "Nueva clave" : "Clave"}</span>
-            <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" />
+            <input
+              type="password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              autoComplete="new-password"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && user.trim() && pass.length >= MIN_PASS) {
+                  void apiSetLogin(user, pass)
+                    .then((s) => {
+                      setStatus(s);
+                      setPass("");
+                      showToast("Credenciales de la API guardadas");
+                    })
+                    .catch((err) => showToast(String(err)));
+                }
+              }}
+            />
           </label>
           <button
             type="button"
             className="btn btn-sm"
-            disabled={!user.trim() || pass.length < 8}
-            title={pass.length < 8 ? "Mínimo 8 caracteres" : undefined}
+            disabled={!user.trim() || pass.length < MIN_PASS}
             onClick={() =>
               void apiSetLogin(user, pass)
                 .then((s) => {
@@ -124,6 +141,13 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
             Guardar
           </button>
         </div>
+        <p className={`hint ${status?.hasPassword ? "" : "hint-error"}`}>
+          {status?.hasPassword
+            ? "✔ Clave guardada en este equipo (no se muestra por seguridad; escribe otra para cambiarla)."
+            : "Aún no hay clave guardada: la API rechaza todas las peticiones."}
+          {pass.length > 0 && pass.length < MIN_PASS ? ` La clave debe tener al menos ${MIN_PASS} caracteres para poder guardarla.` : ""}
+          {pass.length >= MIN_PASS ? " Pulsa Guardar (o Enter) para aplicarla." : ""}
+        </p>
         <div className="field-row">
           <button
             type="button"

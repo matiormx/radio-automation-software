@@ -6,7 +6,7 @@ que el worker `core.ngradio.es` solo tiene que cambiar `API_BASE`.
 ## Puesta en marcha
 
 1. MiRadio → Ajustes → **API**: activar, puerto (por defecto 9000), usuario y clave
-   (mínimo 8 caracteres) y, si se quiere, un token Bearer.
+   (mínimo 6 caracteres) y, si se quiere, un token Bearer.
 2. Publicar el puerto con Cloudflare Tunnel, por ejemplo:
    `cloudflared tunnel --url http://127.0.0.1:9000` (prueba rápida) o un túnel con
    nombre que apunte `rb-direct.ngradio.es` (o `api.ngradio.es`) a `http://127.0.0.1:9000`.
