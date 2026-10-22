@@ -1430,6 +1430,42 @@ pub fn set_track_blocks(
     }
 }
 
+/// Pasa canciones de un bloque a otro (o las copia): añade `add_block` y,
+/// si se indica, quita `remove_block`. Devuelve cuantas cambiaron.
+#[tauri::command]
+pub fn move_tracks_block(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    add_block: String,
+    remove_block: Option<String>,
+) -> Result<usize, String> {
+    let add = add_block.trim().to_string();
+    if add.is_empty() {
+        return Err("Falta el bloque de destino".to_string());
+    }
+    let remove = remove_block.map(|r| r.trim().to_string()).filter(|r| !r.is_empty() && *r != add);
+    let wanted: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(&state.data_dir);
+    let mut changed = 0;
+    for t in tracks.iter_mut().filter(|t| wanted.contains(t.id.as_str())) {
+        let before = t.blocks.clone();
+        if let Some(r) = &remove {
+            t.blocks.retain(|b| b != r);
+        }
+        if !t.blocks.contains(&add) {
+            t.blocks.push(add.clone());
+        }
+        if t.blocks != before {
+            changed += 1;
+        }
+    }
+    if changed > 0 {
+        write_library(&state.data_dir, &tracks)?;
+    }
+    Ok(changed)
+}
+
 /// ---- Listas M3U / M3U8 ----
 
 /// Entradas de una lista M3U/M3U8: se ignoran comentarios y directivas

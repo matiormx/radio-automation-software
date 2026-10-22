@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   analyzeTrack,
   autoTrackTrim,
   getTrackWaveform,
+  moveTracksBlock,
   saveTrackTrim,
 } from "../api";
 import type { AnalysisResult, Block, Track, Waveform } from "../types";
@@ -67,12 +68,24 @@ function fmtGain(v: number | null): string {
   return `${v >= 0 ? "+" : "-"}${s}`;
 }
 
+/** Lo que muestra una columna: si es un bloque, se le pueden pasar canciones. */
+export interface PaneView {
+  blockId: string | null;
+  label: string;
+}
+
 interface PaneProps {
   side: Side;
   tracks: Track[];
   blocks: Block[];
+  /** Bloque que se abre al empezar (vacio = toda la musica) */
+  initialBlock: string;
+  onView: (side: Side, view: PaneView) => void;
+  /** Lo que muestra la otra columna */
+  other: PaneView;
   selected: Set<string>;
   onSelected: (next: Set<string>) => void;
+  /** Pasar canciones a la columna `to` (a su bloque) */
   onMove: (ids: string[], to: Side) => void;
   onAnalyze: (ids: string[]) => void;
   onTrim: (id: string) => void;
@@ -87,6 +100,9 @@ function Pane({
   side,
   tracks,
   blocks,
+  initialBlock,
+  onView,
+  other,
   selected,
   onSelected,
   onMove,
@@ -98,11 +114,40 @@ function Pane({
   skipAnalyzed,
   onSkipAnalyzed,
 }: PaneProps) {
-  const [mode, setMode] = useState<Mode>("folders");
+  const [mode, setMode] = useState<Mode>("blocks");
   const [search, setSearch] = useState("");
-  const [pick, setPick] = useState("");
+  const [pick, setPick] = useState(initialBlock);
+  const firstMode = useRef(true);
+  const touched = useRef(false);
+  const choose = (v: string) => {
+    touched.current = true;
+    setPick(v);
+  };
+  // Los bloques llegan despues del primer render: abrir el inicial al llegar.
+  useEffect(() => {
+    if (!touched.current && !pick && initialBlock) setPick(initialBlock);
+  }, [initialBlock, pick]);
 
-  useEffect(() => setPick(""), [mode]);
+  useEffect(() => {
+    if (firstMode.current) {
+      firstMode.current = false;
+      return;
+    }
+    setPick("");
+  }, [mode]);
+
+  // Que ve esta columna (para el titulo y para poder pasarle canciones).
+  const view: PaneView = useMemo(() => {
+    if (mode === "blocks" && pick && pick !== "__none__") {
+      const b = blocks.find((x) => x.id === pick);
+      if (b) return { blockId: b.id, label: b.name };
+    }
+    if (!pick) return { blockId: null, label: "Toda la música" };
+    if (mode === "blocks") return { blockId: null, label: "Sin bloque" };
+    if (mode === "folders") return { blockId: null, label: pick.split("/").pop() || pick };
+    return { blockId: null, label: pick };
+  }, [mode, pick, blocks]);
+  useEffect(() => onView(side, view), [side, view, onView]);
 
   const q = search.trim().toLowerCase();
 
@@ -205,15 +250,15 @@ function Pane({
 
   const dragStart = (e: DragEvent, id: string) => {
     const ids = selected.has(id) ? Array.from(selected) : [id];
-    e.dataTransfer.setData("text/miradio-ids", JSON.stringify(ids));
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/miradio-ids", JSON.stringify({ from: side, ids }));
+    e.dataTransfer.effectAllowed = "copyMove";
   };
 
   const drop = (e: DragEvent) => {
     e.preventDefault();
     try {
-      const ids = JSON.parse(e.dataTransfer.getData("text/miradio-ids")) as string[];
-      if (Array.isArray(ids) && ids.length > 0) onMove(ids, side);
+      const data = JSON.parse(e.dataTransfer.getData("text/miradio-ids")) as { from: Side; ids: string[] };
+      if (data.from !== side && Array.isArray(data.ids) && data.ids.length > 0) onMove(data.ids, side);
     } catch {
       /* sin datos */
     }
@@ -226,7 +271,7 @@ function Pane({
           <button
             type="button"
             className={`nside-item ${pick === NO_FOLDER ? "nside-on" : ""}`}
-            onClick={() => setPick(NO_FOLDER)}
+            onClick={() => choose(NO_FOLDER)}
           >
             <span className="nside-name">Todas las carpetas</span>
             <span className="nside-count">{tracks.length}</span>
@@ -240,7 +285,7 @@ function Pane({
                 className={`nside-item ${pick === f.path ? "nside-on" : ""}`}
                 style={{ paddingLeft: 8 + Math.min(5, depth) * 9 }}
                 title={f.path}
-                onClick={() => setPick(f.path)}
+                onClick={() => choose(f.path)}
               >
                 <span className="nside-name">{f.path.split("/").pop() || f.path}</span>
                 <span className="nside-count">{f.count}</span>
@@ -257,7 +302,7 @@ function Pane({
           type="button"
           className={`nside-item ${pick === name ? "nside-on" : ""}`}
           title={name}
-          onClick={() => setPick(name)}
+          onClick={() => choose(name)}
         >
           <span className="nside-name">{name}</span>
           <span className="nside-count">{count}</span>
@@ -271,7 +316,7 @@ function Pane({
           type="button"
           className={`nside-item ${pick === name ? "nside-on" : ""}`}
           title={name}
-          onClick={() => setPick(name)}
+          onClick={() => choose(name)}
         >
           <span className="nside-name">{name}</span>
           <span className="nside-count">{count}</span>
@@ -286,7 +331,7 @@ function Pane({
           type="button"
           className={`nside-item ${pick === name ? "nside-on" : ""}`}
           title={name}
-          onClick={() => setPick(name)}
+          onClick={() => choose(name)}
         >
           <span className="nside-name">{name}</span>
           <span className="nside-count">{count}</span>
@@ -299,7 +344,7 @@ function Pane({
         <button
           type="button"
           className={`nside-item ${pick === NO_FOLDER ? "nside-on" : ""}`}
-          onClick={() => setPick(NO_FOLDER)}
+          onClick={() => choose(NO_FOLDER)}
         >
           <span className="nside-name">Todos los bloques</span>
           <span className="nside-count">{tracks.length}</span>
@@ -310,7 +355,7 @@ function Pane({
             type="button"
             className={`nside-item ${pick === b.id ? "nside-on" : ""}`}
             title={b.name}
-            onClick={() => setPick(b.id)}
+            onClick={() => choose(b.id)}
           >
             <span className="nside-name">{b.name}</span>
             <span className="nside-count">{blockCounts.get(b.id) ?? 0}</span>
@@ -319,7 +364,7 @@ function Pane({
         <button
           type="button"
           className={`nside-item ${pick === "__none__" ? "nside-on" : ""}`}
-          onClick={() => setPick("__none__")}
+          onClick={() => choose("__none__")}
         >
           <span className="nside-name">Sin bloque</span>
           <span className="nside-count">{none}</span>
@@ -328,14 +373,14 @@ function Pane({
     );
   };
 
-  const title = side === "a" ? "Biblioteca A" : "Biblioteca B";
+  const title = view.blockId ? `Bloque «${view.label}»` : view.label;
 
   return (
     <section className="npane" onDragOver={(e) => e.preventDefault()} onDrop={drop}>
       <div className="npane-head">
-        <strong>{title}</strong>
-        <span className="npane-count">{tracks.length} canciones</span>
-        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onPick(side)}>
+        <strong title={title}>{title}</strong>
+        <span className="npane-count">{visible.length} canciones</span>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onPick("a")}>
           Importar
         </button>
       </div>
@@ -346,7 +391,10 @@ function Pane({
             key={m.id}
             type="button"
             className={`ntab ${mode === m.id ? "ntab-on" : ""}`}
-            onClick={() => setMode(m.id)}
+            onClick={() => {
+              touched.current = true;
+              setMode(m.id);
+            }}
           >
             {m.label}
           </button>
@@ -443,8 +491,10 @@ function Pane({
             {visible.length === 0 && (
               <span className="empty-note">
                 {tracks.length === 0
-                  ? "Esta biblioteca está vacía. Importa canciones o arrástralas desde el explorador."
-                  : "Ninguna canción coincide con el filtro."}
+                  ? "La biblioteca está vacía. Importa canciones o arrástralas desde el explorador."
+                  : view.blockId
+                    ? "Este bloque está vacío. Pasa canciones desde la otra columna."
+                    : "Ninguna canción coincide con el filtro."}
               </span>
             )}
           </div>
@@ -477,8 +527,14 @@ function Pane({
         >
           Analizar selección
         </button>
-        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onMove(Array.from(selected), side === "a" ? "b" : "a")}>
-          {side === "a" ? "Pasar a B →" : "← Pasar a A"}
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={busy || selected.size === 0 || !other.blockId}
+          title={other.blockId ? undefined : "Elige un bloque en la otra columna"}
+          onClick={() => onMove(Array.from(selected), side === "a" ? "b" : "a")}
+        >
+          {side === "a" ? `A «${other.blockId ? other.label : "…"}» →` : `← A «${other.blockId ? other.label : "…"}»`}
         </button>
       </div>
     </section>
@@ -895,7 +951,6 @@ export function Normalizer({
   apiRef,
   onRefresh,
   onPick,
-  onMove,
   onTarget,
   showToast,
   mixer,
@@ -949,8 +1004,6 @@ export function Normalizer({
     return () => onStatus(null);
   }, [onStatus]);
 
-  const libA = useMemo(() => all.filter((t) => t.library !== "b"), [all]);
-  const libB = useMemo(() => all.filter((t) => t.library === "b"), [all]);
   const trimTrack = useMemo(() => all.find((t) => t.id === trimId) ?? null, [all, trimId]);
 
   const commitTarget = () => {
@@ -961,26 +1014,50 @@ export function Normalizer({
     if (lufs !== targetLufs || tp !== truePeakDb) onTarget(lufs, tp);
   };
 
+  // Cada columna muestra lo que elijas; pasar canciones = meterlas en el
+  // bloque de la otra columna (moviendo o copiando).
+  const [views, setViews] = useState<Record<Side, PaneView>>({
+    a: { blockId: null, label: "Toda la música" },
+    b: { blockId: null, label: "Toda la música" },
+  });
+  const onView = useCallback((side: Side, v: PaneView) => {
+    setViews((prev) =>
+      prev[side].blockId === v.blockId && prev[side].label === v.label ? prev : { ...prev, [side]: v },
+    );
+  }, []);
+  const [transfer, setTransfer] = useState<"move" | "copy">("move");
+
   const move = async (ids: string[], to: Side) => {
+    const target = views[to].blockId;
+    if (!target) {
+      showToast("Elige un bloque en la columna de destino para pasarle canciones");
+      return;
+    }
+    const from = views[to === "a" ? "b" : "a"].blockId;
+    const remove = transfer === "move" && from ? from : null;
     const valid = ids.filter((id) => all.some((t) => t.id === id));
-    const targets = new Set(valid);
-    const count = await onMove(valid, to);
-    if (count > 0) {
+    if (valid.length === 0) return;
+    try {
+      const count = await moveTracksBlock(valid, target, remove);
+      const set = new Set(valid);
       setAll((prev) =>
-        prev.map((t) => (targets.has(t.id) ? { ...t, library: to } : t)),
+        prev.map((t) =>
+          set.has(t.id)
+            ? { ...t, blocks: [...t.blocks.filter((b) => b !== remove && b !== target), target] }
+            : t,
+        ),
       );
       if (to === "b") setSelA(new Set());
       else setSelB(new Set());
+      const verb = remove ? (count === 1 ? "movida" : "movidas") : count === 1 ? "copiada" : "copiadas";
       showToast(
-        count === 1
-          ? `1 canción movida a la biblioteca ${to.toUpperCase()}`
-          : `${count} canciones movidas a la biblioteca ${to.toUpperCase()}`,
+        count === 0
+          ? `Ya estaban en «${views[to].label}»`
+          : `${count} ${count === 1 ? "canción" : "canciones"} ${verb} a «${views[to].label}»`,
       );
       void onRefresh();
-    } else if (targets.size > 0) {
-      setAll((prev) => prev.map((t) => (targets.has(t.id) ? { ...t, library: to } : t)));
-      if (to === "b") setSelA(new Set());
-      else setSelB(new Set());
+    } catch (e) {
+      showToast(`No se pudieron pasar: ${String(e)}`);
     }
   };
 
@@ -1165,8 +1242,11 @@ export function Normalizer({
       <div className="norm-body">
         <Pane
           side="a"
-          tracks={libA}
+          tracks={all}
           blocks={blocks}
+          initialBlock={blocks[0]?.id ?? ""}
+          onView={onView}
+          other={views.b}
           selected={selA}
           onSelected={setSelA}
           onMove={(ids, to) => void move(ids, to)}
@@ -1183,28 +1263,53 @@ export function Normalizer({
           <button
             type="button"
             className="nmove-btn"
-            disabled={running !== null || selA.size === 0}
+            disabled={running !== null || selA.size === 0 || !views.b.blockId}
             onClick={() => void move(Array.from(selA), "b")}
-            title="Mover selección de A a B"
+            title={views.b.blockId ? `Pasar la selección a «${views.b.label}»` : "Elige un bloque a la derecha"}
           >
             →
           </button>
           <button
             type="button"
             className="nmove-btn"
-            disabled={running !== null || selB.size === 0}
+            disabled={running !== null || selB.size === 0 || !views.a.blockId}
             onClick={() => void move(Array.from(selB), "a")}
-            title="Mover selección de B a A"
+            title={views.a.blockId ? `Pasar la selección a «${views.a.label}»` : "Elige un bloque a la izquierda"}
           >
             ←
           </button>
-          <span className="nmove-hint">Arrastra<br />entre<br />bibliotecas</span>
+          <div className="nmove-mode" role="radiogroup" aria-label="Al pasar canciones">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={transfer === "move"}
+              className={transfer === "move" ? "on" : ""}
+              onClick={() => setTransfer("move")}
+              title="Salen del bloque de origen y entran en el de destino"
+            >
+              Mover
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={transfer === "copy"}
+              className={transfer === "copy" ? "on" : ""}
+              onClick={() => setTransfer("copy")}
+              title="Quedan en los dos bloques"
+            >
+              Copiar
+            </button>
+          </div>
+          <span className="nmove-hint">Arrastra<br />entre<br />columnas</span>
         </div>
 
         <Pane
           side="b"
-          tracks={libB}
+          tracks={all}
           blocks={blocks}
+          initialBlock={blocks[1]?.id ?? ""}
+          onView={onView}
+          other={views.a}
           selected={selB}
           onSelected={setSelB}
           onMove={(ids, to) => void move(ids, to)}
@@ -1244,10 +1349,10 @@ export function Normalizer({
 
       <div className="norm-foot">
         <span>
-          Biblioteca A: {libA.length} · Biblioteca B: {libB.length}. Mover canciones no mueve ni
-          borra archivos.
+          {all.length} canciones en la biblioteca. Pasar canciones entre bloques no mueve ni borra
+          archivos.
         </span>
-        <span>Suelta audio desde el explorador sobre la mitad izquierda (A) o derecha (B).</span>
+        <span>Cada columna muestra lo que elijas: un bloque, una carpeta, un estilo…</span>
       </div>
 
       {trimTrack && (

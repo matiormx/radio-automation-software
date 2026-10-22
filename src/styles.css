@@ -3420,3 +3420,8 @@ body {
 .plrow-next { background: rgba(79, 140, 255, 0.08); box-shadow: inset 3px 0 0 #4f8cff; }
 .badge-next { margin-left: 8px; padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; color: #bcd3ff; background: rgba(79, 140, 255, 0.18); border: 1px solid rgba(79, 140, 255, 0.4); }
 .pl-nextelse { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; padding: 5px 10px; border-radius: 6px; font-size: 12px; color: #bcd3ff; background: rgba(79, 140, 255, 0.1); border: 1px solid rgba(79, 140, 255, 0.3); }
+
+/* Librería: mover o copiar entre bloques */
+.nmove-mode { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.nmove-mode button { padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: var(--text-faint); font-size: 10.5px; cursor: pointer; }
+.nmove-mode button.on { background: #2b3b5c; border-color: #3d5585; color: #dbe6ff; }

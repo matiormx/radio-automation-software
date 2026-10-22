@@ -368,3 +368,8 @@ export function apiSetUpdateToken(token: string): Promise<ApiStatus> {
 export function apiPublish(published: unknown): Promise<void> {
   return invoke("api_publish", { published });
 }
+
+/** Pasa (o copia) canciones a un bloque; con removeBlock las saca del de origen. */
+export function moveTracksBlock(ids: string[], addBlock: string, removeBlock: string | null): Promise<number> {
+  return invoke<number>("move_tracks_block", { ids, addBlock, removeBlock });
+}
