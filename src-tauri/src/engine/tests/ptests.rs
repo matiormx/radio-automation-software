@@ -10,7 +10,7 @@ impl Loader for TL {
     fn get(&mut self, t: &TrackInfo) -> Load {
         if self.fail.contains(&t.id) { return Load::Failed("roto".into()); }
         if let Some(d) = self.delay.get_mut(&t.id) { if *d > 0 { *d -= 1; return Load::Pending; } }
-        Load::Ready(self.pcms[&t.id].clone())
+        match self.pcms.get(&t.id) { Some(p) => Load::Ready(p.clone()), None => Load::Pending }
     }
     fn keep(&mut self, _ids: &[&str]) {}
 }
@@ -195,4 +195,20 @@ fn trims_and_gain() {
     assert!((s.at(0.5).0 - 0.25).abs() < 0.01);
     s.run(10.5);
     assert!(s.ev.contains(&Event::Ended));
+}
+
+#[test]
+fn intro_overlay_sounds_over_the_intro_gap() {
+    let mut a = track("a", 20.0);
+    a.intro_overlay = Some(Overlay { file: "x.wav".into(), at: 4.0, gain_db: 0.0, key: String::new() });
+    let mut s = Sim::new(vec![(a, tone(20.0, 0.2))]);
+    s.ld.pcms.insert("ovl:x.wav".into(), tone(2.0, 0.4));
+    s.p.play_at(0, &mut s.core, &mut s.ld);
+    s.run(8.0);
+    let (p1, v1) = s.at(2.0);
+    assert!((p1 - 0.2).abs() < 0.01 && v1 == 2, "solo la cancion {p1} {v1}");
+    let (p2, v2) = s.at(5.0);
+    assert!((p2 - 0.6).abs() < 0.01 && v2 == 2, "cancion + intro {p2} {v2}");
+    let (p3, v3) = s.at(7.0);
+    assert!((p3 - 0.2).abs() < 0.01 && v3 == 1, "el intro termino {p3} {v3}");
 }

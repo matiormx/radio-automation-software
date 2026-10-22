@@ -49,7 +49,8 @@ import type {
   StationEvent,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
+import { DEFAULT_SETTINGS, effectiveDuration, type IntroOverlay } from "./types";
+import { pickIntro } from "./intros";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
 import { StudioCalls, type StudioSnapshot } from "./studioCalls";
@@ -645,6 +646,12 @@ export default function App() {
   const nextPickRef = useRef(nextPick);
   nextPickRef.current = nextPick;
   const virtMapRef = useRef<{ listId: string; row: number }[]>([]);
+  const virtIdsRef = useRef<string[]>([]);
+  // Intros: canciones desde el ultimo intro, plan por pista y ultimo audio usado.
+  const introSinceRef = useRef(1000);
+  const introPlanRef = useRef<Map<string, IntroOverlay>>(new Map());
+  const lastIntroFileRef = useRef("");
+  const lastStartedIdRef = useRef("");
   const pendingPlayRef = useRef<{ listId: string; row: number } | null>(null);
   useEffect(() => {
     if (!active) return;
@@ -657,7 +664,27 @@ export default function App() {
       );
     }
     virtMapRef.current = entries.map(({ listId, row }) => ({ listId, row }));
-    playerRef.current?.setPlaylist(entries.flatMap((e) => byId.get(e.id) ?? []));
+    // Intros: se reparten por adelantado; la pista que ya suena conserva el suyo.
+    const cfg = settingsRef.current.intros;
+    const plan = new Map<string, IntroOverlay>();
+    let since = introSinceRef.current;
+    const ids = entries.map((e) => e.id);
+    virtIdsRef.current = ids;
+    const out = entries.flatMap((e, i) => {
+      const t = byId.get(e.id);
+      if (!t) return [];
+      let ov: IntroOverlay | undefined;
+      if (cur >= 0 && i <= cur) {
+        ov = introPlanRef.current.get(e.id);
+      } else {
+        ov = cfg?.enabled ? pickIntro(t, cfg, since, tracks, lastIntroFileRef.current) : undefined;
+        since = ov ? 0 : since + 1;
+      }
+      if (ov) plan.set(e.id, ov);
+      return ov ? [{ ...t, introOverlay: ov }] : [t];
+    });
+    introPlanRef.current = plan;
+    playerRef.current?.setPlaylist(out);
     const pending = pendingPlayRef.current;
     if (pending) {
       const idx = entries.findIndex((e) => e.listId === pending.listId && e.row === pending.row);
@@ -666,7 +693,7 @@ export default function App() {
         playRowRef.current(idx);
       }
     }
-  }, [active, rows, tracks, nextPick, pickRows, playingRow]);
+  }, [active, rows, tracks, nextPick, pickRows, playingRow, settings.intros]);
 
   // Indice del reproductor -> lista y fila. Al llegar a una siguiente de otra
   // lista, esa lista pasa a ser la activa.
@@ -678,6 +705,17 @@ export default function App() {
       return;
     }
     if (m.listId !== activeIdRef.current) setActiveId(m.listId);
+    const startedId = virtIdsRef.current[i] ?? "";
+    if (startedId && startedId !== lastStartedIdRef.current) {
+      lastStartedIdRef.current = startedId;
+      const ov = introPlanRef.current.get(startedId);
+      if (ov) {
+        introSinceRef.current = 0;
+        lastIntroFileRef.current = ov.file;
+      } else {
+        introSinceRef.current += 1;
+      }
+    }
     setPlayingRow(m.row);
     const pick = nextPickRef.current;
     if (pick && pick.listId === m.listId && pick.index === m.row) setNextPick(null);

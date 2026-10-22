@@ -50,6 +50,35 @@ pub struct TrackInfo {
     pub mix_point: f64,
     pub fade_out_start: f64,
     pub duration_secs: f64,
+    /// Intro superpuesto (audio de un bloque de intros) sobre esta pista
+    pub intro_overlay: Option<Overlay>,
+}
+
+/// Audio que suena encima del hueco inicio→intro de una pista.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Overlay {
+    pub file: String,
+    /// Segundo del archivo de la pista donde empieza
+    pub at: f64,
+    pub gain_db: f64,
+    #[serde(skip)]
+    pub key: String,
+}
+
+impl Overlay {
+    /// Ficha para pedirlo al cargador (mismo cache que las pistas).
+    fn as_track(&self) -> TrackInfo {
+        TrackInfo { id: self.key.clone(), file: self.file.clone(), ..Default::default() }
+    }
+}
+
+/// Pide la pista y su intro, sin esperar.
+fn want_all(ld: &mut dyn Loader, t: &TrackInfo) {
+    ld.want(t);
+    if let Some(o) = &t.intro_overlay {
+        ld.want(&o.as_track());
+    }
 }
 
 fn trim_start_of(t: &TrackInfo) -> f64 {
@@ -191,8 +220,13 @@ impl Player {
             None
         };
         self.playlist = tracks;
+        for t in self.playlist.iter_mut() {
+            if let Some(o) = t.intro_overlay.as_mut() {
+                o.key = format!("ovl:{}", o.file);
+            }
+        }
         for t in self.playlist.iter().take(2) {
-            ld.want(t);
+            want_all(ld, t);
         }
         if let Some(id) = prev_id {
             self.index = self.playlist.iter().position(|t| t.id == id).map(|i| i as i64).unwrap_or(-1);
@@ -349,9 +383,13 @@ impl Player {
                             self.events.push(Event::Index(self.index));
                         }
                         let delay = if fast { 0.03 } else { 0.05 };
-                        self.start_deck(&track, pcm, at, delay, core);
+                        let ovl = track.intro_overlay.as_ref().and_then(|o| match ld.get(&o.as_track()) {
+                            Load::Ready(p) => Some(p),
+                            _ => None,
+                        });
+                        self.start_deck(&track, pcm, at, delay, core, ovl);
                         if let Some(next) = self.playlist.get(idx + 1) {
-                            ld.want(next);
+                            want_all(ld, next);
                         }
                     }
                 }
@@ -393,7 +431,7 @@ impl Player {
         }
     }
 
-    fn start_deck(&mut self, track: &TrackInfo, pcm: Arc<Pcm>, position: f64, delay: f64, core: &mut PlayCore) {
+    fn start_deck(&mut self, track: &TrackInfo, pcm: Arc<Pcm>, position: f64, delay: f64, core: &mut PlayCore, ovl: Option<Arc<Pcm>>) {
         let dur = pcm.duration();
         let end = trim_end_of(track, dur);
         let start = trim_start_of(track).max((end - 0.3).min(position));
@@ -418,10 +456,32 @@ impl Player {
             duration: dur,
             fade_out_set: false,
         });
+        self.add_overlay(track, ovl, start, start_at, core);
         self.fading_until = None;
         self.preloaded_for = -1;
         self.fade_attempt_for = -1;
         self.silent_since = None;
+    }
+
+    /// Programa el intro sobre la pista que arranca en `start_at` desde `from`.
+    fn add_overlay(&mut self, track: &TrackInfo, pcm: Option<Arc<Pcm>>, from: f64, start_at: u64, core: &mut PlayCore) {
+        let (Some(o), Some(pcm)) = (track.intro_overlay.as_ref(), pcm) else { return };
+        let delay = o.at - from;
+        if delay < -0.05 {
+            return; // ya se paso el momento
+        }
+        let begin = start_at + core.frames(delay.max(0.0));
+        let end = pcm.frames();
+        core.voices.add(Voice {
+            id: 0,
+            pcm,
+            start_at: begin,
+            from: 0,
+            end,
+            stop_at: None,
+            gain: Env::constant(1.0),
+            norm: (10f64.powf(o.gain_db / 20.0)).clamp(0.01, 16.0) as f32,
+        });
     }
 
     fn mix_point_of(&self, idx: i64) -> f64 {
@@ -500,7 +560,7 @@ impl Player {
         if next >= 0 && next != self.index && remaining <= PRELOAD_LEAD.max(self.fade_seconds + 15.0) && self.preloaded_for != next {
             self.preloaded_for = next;
             if let Some(t) = self.playlist.get(next as usize) {
-                ld.want(t);
+                want_all(ld, t);
             }
         }
 
@@ -619,13 +679,18 @@ impl Player {
             duration: dur,
             fade_out_set: false,
         });
+        let ovl = track.intro_overlay.as_ref().and_then(|o| match ld.get(&o.as_track()) {
+            Load::Ready(p) => Some(p),
+            _ => None,
+        });
+        self.add_overlay(&track, ovl, next_start, start_at, core);
         self.fading_until = Some(start_at + core.frames(overlap + 0.2));
         self.index = next as i64;
         self.fade_attempt_for = -1;
         self.silent_since = None;
         self.events.push(Event::Index(self.index));
         if let Some(t) = self.playlist.get(next + 1) {
-            ld.want(t);
+            want_all(ld, t);
         }
     }
 
@@ -676,6 +741,9 @@ impl Player {
             let i = self.index as usize;
             for t in self.playlist.iter().skip(i).take(2) {
                 ids.push(t.id.as_str());
+                if let Some(o) = &t.intro_overlay {
+                    ids.push(o.key.as_str());
+                }
             }
         }
         if let Some(t) = self.playlist.first() {

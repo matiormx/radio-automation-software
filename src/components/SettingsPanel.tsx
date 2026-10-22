@@ -2,7 +2,7 @@ import { ApiTab } from "./ApiTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { useMemo, useState } from "react";
 import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
-import { effectiveDuration } from "../types";
+import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
@@ -336,7 +336,7 @@ export function SettingsPanel({
             )}
             {tab === "sound" && <MixerPanel settings={s} mixer={mixer} onChange={onChange} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
-            {tab === "autodj" && <AutoDjTab settings={s} onChange={onChange} />}
+            {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab
                 settings={s}
@@ -667,11 +667,15 @@ function GeneralTab({
 
 function AutoDjTab({
   settings: s,
+  blocks,
   onChange,
 }: {
   settings: Settings;
+  blocks: Block[];
   onChange: (s: Settings) => void;
 }) {
+  const intros = s.intros ?? DEFAULT_SETTINGS.intros;
+  const setIntros = (patch: Partial<typeof intros>) => onChange({ ...s, intros: { ...intros, ...patch } });
   const langs = s.languages ?? [];
   const weights = s.languageWeights ?? {};
   const toggleLang = (code: string) => {
@@ -687,6 +691,70 @@ function AutoDjTab({
   const sumW = langs.reduce((a, c) => a + (weights[c] ?? 0), 0);
   return (
     <>
+      <fieldset className="fieldset">
+        <legend>Intros</legend>
+        <p className="hint">
+          Audios de un bloque especial (presentaciones, identificadores…) que suenan encima del hueco entre el
+          inicio de una canción y su punto de intro, sin pisar la voz. Solo se usan en canciones que tengan el
+          intro marcado en el editor de cortes, y solo si el audio cabe en ese hueco.
+        </p>
+        <label className="check-field">
+          <input type="checkbox" checked={intros.enabled} onChange={(e) => setIntros({ enabled: e.target.checked })} />
+          Poner intros sobre las canciones
+        </label>
+        {intros.enabled && (
+          <>
+            <label className="field">
+              <span className="field-label">Bloque de intros</span>
+              <select value={intros.blockId} onChange={(e) => setIntros({ blockId: e.target.value })}>
+                <option value="">— elige un bloque —</option>
+                {blocks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Dónde cae en el hueco</span>
+              <select value={intros.align} onChange={(e) => setIntros({ align: e.target.value as "start" | "end" })}>
+                <option value="start">Al principio (empieza con la canción)</option>
+                <option value="end">Al final (termina justo cuando empieza la voz)</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Canciones de espera entre intros</span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                value={intros.gapSongs}
+                onChange={(e) => setIntros({ gapSongs: Math.max(0, Math.min(50, Math.round(Number(e.target.value) || 0))) })}
+              />
+              <span className="hint">
+                Tras poner un intro, esas canciones suenan sin intro aunque lo tengan marcado; después se vuelve a
+                intentar en la primera que lo tenga.
+              </span>
+            </label>
+            <label className="field">
+              <span className="field-label">Volumen del intro: {intros.gainDb > 0 ? "+" : ""}{intros.gainDb} dB</span>
+              <input
+                type="range"
+                min={-18}
+                max={6}
+                step={1}
+                value={intros.gainDb}
+                onChange={(e) => setIntros({ gainDb: Number(e.target.value) })}
+              />
+            </label>
+            <p className="hint">
+              El bloque de intros no entra en la rotación normal del AutoDJ. Los cambios valen para las canciones
+              que aún no han empezado a sonar.
+            </p>
+          </>
+        )}
+      </fieldset>
+
       <fieldset className="fieldset">
         <legend>Idiomas</legend>
         <p className="hint">

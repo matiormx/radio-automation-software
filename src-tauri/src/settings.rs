@@ -12,6 +12,28 @@ const HISTORY_FILE: &str = "history.json";
 const SESSION_FILE: &str = "session.json";
 const MAX_HISTORY: usize = 800;
 
+/// Intros: audios de un bloque especial que suenan sobre el hueco entre el
+/// inicio de la cancion y su punto de intro.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IntroSettings {
+    pub enabled: bool,
+    /// Bloque con los audios de intro
+    pub block_id: String,
+    /// "start" (al principio del hueco) o "end" (acabando en el punto de intro)
+    pub align: String,
+    /// Canciones que deben sonar antes de volver a poner un intro
+    pub gap_songs: u32,
+    /// Volumen del intro respecto al archivo (dB)
+    pub gain_db: f64,
+}
+
+impl Default for IntroSettings {
+    fn default() -> Self {
+        IntroSettings { enabled: false, block_id: String::new(), align: "end".into(), gap_songs: 3, gain_db: 0.0 }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -31,6 +53,8 @@ pub struct Settings {
     pub language_weights: HashMap<String, f64>,
     /// Avisos GET/POST ante eventos (cambio de cancion, errores...)
     pub notifications: Vec<crate::notify::Notification>,
+    /// Intros superpuestos sobre el hueco inicio→intro de las canciones
+    pub intros: IntroSettings,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -530,6 +554,7 @@ impl Default for Settings {
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),
             notifications: Vec::new(),
+            intros: IntroSettings::default(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,
@@ -879,9 +904,16 @@ pub fn pick_tracks(
     let in_playlist: HashSet<&str> = playlist_track_ids.iter().map(|x| x.as_str()).collect();
     let salt = now ^ u64::from(std::process::id());
 
+    // El bloque de intros no entra en la rotacion normal.
+    let intro_block = s.intros.block_id.as_str();
+    let is_intro = |t: &Track| !intro_block.is_empty() && t.blocks.iter().any(|b| b == intro_block) && !pick_blocks.contains(intro_block);
+
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut in_scope: HashSet<&str> = HashSet::new();
     for t in library {
+        if is_intro(t) {
+            continue;
+        }
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
             continue;
         }
@@ -914,7 +946,7 @@ pub fn pick_tracks(
         && (!pick_blocks.is_empty() || pick_library.is_some())
     {
         for t in library {
-            if in_playlist.contains(t.id.as_str()) {
+            if in_playlist.contains(t.id.as_str()) || is_intro(t) {
                 continue;
             }
             candidates.push(Candidate {

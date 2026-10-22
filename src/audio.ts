@@ -21,6 +21,8 @@ interface Deck {
   from: number;
   /** Posicion absoluta del buffer donde termina la pista */
   end: number;
+  /** Intro superpuesto sobre esta pista */
+  overlay?: { source: AudioBufferSourceNode; gain: GainNode };
 }
 
 function trimStartOf(t: Track): number {
@@ -146,6 +148,7 @@ export class RadioPlayer {
     for (const track of tracks.slice(0, 2)) {
       if (!this.cache.has(track.id)) void this.decodeSafe(track);
     }
+    for (const track of tracks.slice(Math.max(0, this.index), Math.max(0, this.index) + 3)) void this.preloadOverlay(track);
     if (prevId) {
       this.index = tracks.findIndex((t) => t.id === prevId);
     } else if (this.index >= tracks.length) {
@@ -314,6 +317,67 @@ export class RadioPlayer {
     return this.decks[this.currentSlot];
   }
 
+  private ovlCache = new Map<string, AudioBuffer>();
+
+  /** Decodifica el audio del intro por adelantado (suena sin esperas). */
+  private async preloadOverlay(track: Track | undefined) {
+    const o = track?.introOverlay;
+    if (!o || this.ovlCache.has(o.file)) return;
+    this.ensureCtx();
+    if (!this.ctx) return;
+    try {
+      const res = await fetch(convertFileSrc(o.file));
+      if (!res.ok) return;
+      const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      this.ovlCache.set(o.file, buf);
+      while (this.ovlCache.size > 8) this.ovlCache.delete(this.ovlCache.keys().next().value as string);
+    } catch {
+      /* sin intro esta vez */
+    }
+  }
+
+  /** Programa el intro sobre la pista que acaba de arrancar en `startedAt` desde `from`. */
+  private attachOverlay(deck: Deck, track: Track) {
+    const o = track.introOverlay;
+    const ctx = this.ctx;
+    if (!o || !ctx || !this.master) return;
+    const buf = this.ovlCache.get(o.file);
+    if (!buf) {
+      void this.preloadOverlay(track);
+      return;
+    }
+    const delay = o.at - deck.from;
+    if (delay < -0.05) return; // ya se paso el momento
+    const when = deck.startedAt + Math.max(0, delay);
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+    const gain = ctx.createGain();
+    gain.gain.value = Math.pow(10, (o.gainDb || 0) / 20);
+    source.connect(gain);
+    gain.connect(this.master);
+    source.start(when);
+    deck.overlay = { source, gain };
+  }
+
+  private stopOverlay(deck: Deck, fade = 0) {
+    const ov = deck.overlay;
+    if (!ov || !this.ctx) return;
+    deck.overlay = undefined;
+    try {
+      if (fade > 0) {
+        const now = this.ctx.currentTime;
+        ov.gain.gain.cancelScheduledValues(now);
+        ov.gain.gain.setValueAtTime(ov.gain.gain.value, now);
+        ov.gain.gain.linearRampToValueAtTime(0.001, now + fade);
+        ov.source.stop(now + fade + 0.05);
+      } else {
+        ov.source.stop();
+      }
+    } catch {
+      /* ya terminado */
+    }
+  }
+
   private startDeck(track: Track, buffer: AudioBuffer, position: number) {
     const ctx = this.ctx;
     if (!ctx || !this.master) return;
@@ -346,6 +410,7 @@ export class RadioPlayer {
       from: start,
       end,
     };
+    this.attachOverlay(deck, track);
     this.decks = { a: null, b: null, c: null };
     this.decks.a = deck;
     this.currentSlot = "a";
@@ -493,6 +558,7 @@ export class RadioPlayer {
   private prefetchNext(index: number) {
     const next = this.playlist[index + 1];
     if (!next) return;
+    void this.preloadOverlay(next);
     if (this.cache.has(next.id)) return;
     void this.decodeSafe(next);
   }
@@ -523,6 +589,7 @@ export class RadioPlayer {
   private hardStop(deck: Deck) {
     try {
       deck.source.onended = null;
+      this.stopOverlay(deck);
       deck.source.stop();
     } catch {
       /* ya detenido */
@@ -532,6 +599,7 @@ export class RadioPlayer {
   private fadeOutAndStop(deck: Deck, dur: number) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
+    this.stopOverlay(deck, dur);
     try {
       deck.gain.gain.cancelScheduledValues(now);
       deck.gain.gain.setValueAtTime(Math.max(deck.gain.gain.value, 0.001), now);
@@ -708,6 +776,7 @@ export class RadioPlayer {
         from: nextStart,
         end: nextEnd,
       };
+      this.attachOverlay(newDeck, nextTrack);
 
       const oldSlot = this.currentSlot;
 

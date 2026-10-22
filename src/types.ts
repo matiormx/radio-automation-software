@@ -37,6 +37,17 @@ export interface Track {
   cover: string;
   /** Codigo de idioma de la cancion ("es", "en"…); vacio = sin indicar */
   language?: string;
+  /** Intro superpuesto que el reproductor mezcla sobre esta pista (lo calcula la app) */
+  introOverlay?: IntroOverlay;
+}
+
+/** Audio de un bloque de intros que suena sobre el hueco inicio→intro de una pista. */
+export interface IntroOverlay {
+  file: string;
+  durationSecs: number;
+  /** Segundo del archivo de la pista donde empieza el intro */
+  at: number;
+  gainDb: number;
 }
 
 export function effectiveDuration(t: Track): number {
@@ -416,6 +427,17 @@ export interface NotificationRule {
   titleSource: "currentsong" | "live";
 }
 
+export interface IntroSettings {
+  enabled: boolean;
+  /** Bloque con los audios de intro */
+  blockId: string;
+  /** Donde cae el audio dentro del hueco inicio→intro */
+  align: "start" | "end";
+  /** Canciones de espera antes de volver a poner un intro */
+  gapSongs: number;
+  gainDb: number;
+}
+
 export interface Settings {
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
@@ -432,6 +454,7 @@ export interface Settings {
   languageWeights: Record<string, number>;
   /** Avisos GET/POST ante eventos */
   notifications: NotificationRule[];
+  intros: IntroSettings;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -493,6 +516,7 @@ export const DEFAULT_SETTINGS: Settings = {
   languages: ["es", "en", "pt", "de", "fr"],
   languageWeights: {},
   notifications: [],
+  intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,
