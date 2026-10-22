@@ -3140,7 +3140,6 @@ body {
   z-index: 2;
 }
 
-.mixer-swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; flex: 1; }
 .mixer-swatch { aspect-ratio: 1; min-width: 14px; border-radius: 4px; border: 2px solid transparent; padding: 0; cursor: pointer; }
 .mixer-swatch:hover { transform: scale(1.12); }
 .mixer-swatch-on { border-color: var(--text, #fff); box-shadow: 0 0 0 1px rgba(0,0,0,.6) inset; }
@@ -3177,3 +3176,30 @@ body {
 .win-btn:active { background: rgba(255, 255, 255, 0.04); }
 .win-close:hover { background: #c42b1c; color: #fff; }
 .win-close:active { background: #b22a1b; }
+
+/* Barra de color de la tira: al pulsarla abre la paleta (3 x 5) */
+.mixer-colorbar-wrap { position: relative; }
+.mixer-colorbar { display: block; width: 100%; padding: 4px 0; border: 0; background: transparent; cursor: pointer; }
+.mixer-colorbar span { display: block; height: 4px; border-radius: 999px; box-shadow: 0 0 10px #00000055; transition: height 0.12s; }
+.mixer-colorbar:hover span, .mixer-colorbar[aria-expanded="true"] span { height: 6px; }
+.mixer-palette {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-2, #1b1f27);
+  box-shadow: 0 8px 24px #0009;
+}
+.mixer-palette .mixer-swatch { width: 22px; height: 22px; }
+
+/* Editor de cancion: caratula */
+.edit-cover { display: flex; gap: 14px; align-items: center; }
+.edit-cover-img { width: 96px; height: 96px; flex: 0 0 96px; border-radius: 6px; overflow: hidden; display: grid; place-items: center; background: var(--panel-2, #1b1f27); border: 1px solid var(--line); }
+.edit-cover-img img { width: 100%; height: 100%; object-fit: cover; }
+.edit-cover-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }

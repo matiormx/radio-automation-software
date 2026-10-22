@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   InsertSettings,
   LevelerSettings,
@@ -175,7 +175,7 @@ interface Device {
   kind: "audioinput" | "audiooutput";
 }
 
-/** Paleta fija de 16 colores: más fácil igualar canales entre sí. */
+/** Paleta fija de 15 colores (3 filas de 5): más fácil igualar canales. */
 const COLORS = [
   "#4f8cff",
   "#59d98c",
@@ -185,17 +185,19 @@ const COLORS = [
   "#22d3ee",
   "#f472b6",
   "#a3e635",
+  "#f97316",
+  "#94a3b8",
   "#2563eb",
   "#16a34a",
-  "#f97316",
   "#dc2626",
   "#9333ea",
   "#0891b2",
-  "#db2777",
-  "#94a3b8",
 ];
 
-function ColorSwatches({
+/**
+ * Barra de color de la tira: al pulsarla se abre una paleta de 15 colores.
+ */
+function ColorBar({
   value,
   label,
   onChange,
@@ -204,24 +206,56 @@ function ColorSwatches({
   label: string;
   onChange: (color: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
   return (
-    <div
-      className="mixer-swatches"
-      role="radiogroup"
-      aria-label={`Color de ${label}`}
-    >
-      {COLORS.map((c) => (
-        <button
-          key={c}
-          type="button"
-          role="radio"
-          aria-checked={c.toLowerCase() === value.toLowerCase()}
-          className={`mixer-swatch ${c.toLowerCase() === value.toLowerCase() ? "mixer-swatch-on" : ""}`}
-          style={{ background: c }}
-          title={c}
-          onClick={() => onChange(c)}
-        />
-      ))}
+    <div className="mixer-colorbar-wrap" ref={ref}>
+      <button
+        type="button"
+        className="mixer-colorbar"
+        title="Cambiar color"
+        aria-label={`Color de ${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span style={{ background: value }} />
+      </button>
+      {open && (
+        <div className="mixer-palette" role="radiogroup" aria-label={`Color de ${label}`}>
+          {COLORS.map((c) => {
+            const on = c.toLowerCase() === value.toLowerCase();
+            return (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                className={`mixer-swatch ${on ? "mixer-swatch-on" : ""}`}
+                style={{ background: c }}
+                onClick={() => {
+                  onChange(c);
+                  setOpen(false);
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -501,9 +535,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
               <div className="mixer-strips">
                 {channels.map((ch) => (
                   <article className="mixer-strip" key={ch.id}>
-                    <div
-                      className="mixer-strip-color"
-                      style={{ background: ch.color }}
+                    <ColorBar
+                      value={ch.color}
+                      label={ch.name}
+                      onChange={(color) => patchChannel(ch.id, { color })}
                     />
                     <div className="mixer-strip-head">
                       <input
@@ -526,14 +561,6 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       </button>
                     </div>
 
-                    <div className="mixer-color-row">
-                      <span>Color</span>
-                      <ColorSwatches
-                        value={ch.color}
-                        label={ch.name}
-                        onChange={(color) => patchChannel(ch.id, { color })}
-                      />
-                    </div>
 
                     <label className="mixer-field">
                       <span>Entrada</span>
@@ -710,9 +737,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                   ).length;
                   return (
                     <article className="mixer-strip" key={bus.id}>
-                      <div
-                        className="mixer-strip-color"
-                        style={{ background: bus.color }}
+                      <ColorBar
+                        value={bus.color}
+                        label={bus.name}
+                        onChange={(color) => patchBus(bus.id, { color })}
                       />
                       <div className="mixer-strip-head">
                         <input
@@ -733,14 +761,6 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         </button>
                       </div>
 
-                      <div className="mixer-color-row">
-                        <span>Color</span>
-                        <ColorSwatches
-                          value={bus.color}
-                          label={bus.name}
-                          onChange={(color) => patchBus(bus.id, { color })}
-                        />
-                      </div>
 
                       <label className="mixer-field">
                         <span>Salida</span>
