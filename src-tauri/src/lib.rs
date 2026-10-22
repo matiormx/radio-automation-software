@@ -5,6 +5,7 @@ use tauri::Manager;
 pub mod analysis;
 pub mod deezer;
 pub mod engine;
+pub mod rbapi;
 pub mod library;
 pub mod playlists;
 pub mod settings;
@@ -32,6 +33,7 @@ pub fn run() {
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             app.manage(engine::EngineState::default());
+            app.manage(rbapi::ApiState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -81,6 +83,12 @@ pub fn run() {
             engine::engine_stop,
             engine::engine_cmd,
             engine::engine_devices,
+            rbapi::api_publish,
+            rbapi::api_apply,
+            rbapi::api_status,
+            rbapi::api_set_login,
+            rbapi::api_new_token,
+            rbapi::api_set_update_token,
             update::app_version,
             update::open_url,
             nowplaying::write_now_playing,

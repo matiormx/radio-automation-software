@@ -578,6 +578,10 @@ pub fn read_settings_public(data_dir: &PathBuf) -> Settings {
     read_settings(data_dir)
 }
 
+pub fn read_history_public(data_dir: &PathBuf) -> Vec<HistoryEntry> {
+    read_history(data_dir)
+}
+
 fn read_history(data_dir: &PathBuf) -> Vec<HistoryEntry> {
     std::fs::read(data_dir.join(HISTORY_FILE))
         .ok()

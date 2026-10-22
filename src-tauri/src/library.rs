@@ -123,7 +123,7 @@ fn covers_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("covers")
 }
 
-fn cover_abs(data_dir: &Path, cover: &str) -> String {
+pub(crate) fn cover_abs(data_dir: &Path, cover: &str) -> String {
     if cover.trim().is_empty() {
         return String::new();
     }
@@ -861,8 +861,13 @@ pub fn update_track(
     id: String,
     patch: TrackPatch,
 ) -> Result<(), String> {
+    apply_patch(&state.data_dir, &id, patch)
+}
+
+/// Aplica una edicion de metadatos (la usan la app y la API).
+pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), String> {
     let _guard = lock_library();
-    let mut tracks = read_library_internal(&state.data_dir);
+    let mut tracks = read_library_internal(data_dir);
     let mut keys: HashSet<String> = HashSet::new();
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
         keys.insert(cover_key(t));
@@ -891,10 +896,10 @@ pub fn update_track(
         return Err("La cancion ya no existe en la biblioteca".to_string());
     }
     for key in &keys {
-        sync_album_cover(&state.data_dir, &mut tracks, key);
+        sync_album_cover(data_dir, &mut tracks, key);
     }
-    cleanup_covers(&state.data_dir, &tracks);
-    write_library(&state.data_dir, &tracks)
+    cleanup_covers(data_dir, &tracks);
+    write_library(data_dir, &tracks)
 }
 
 /// Extension de imagen por su firma (para portadas descargadas).
