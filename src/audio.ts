@@ -101,12 +101,13 @@ export class RadioPlayer {
   private static readonly CACHE_LIMIT = 4;
   /** Antelacion con la que se decodifica la siguiente pista */
   private static readonly PRELOAD_LEAD = 30;
-  private static readonly SILENCE_RMS = 0.0018;
   private static readonly SILENCE_SECONDS = 3;
 
   fadeSeconds = 6;
   loop = false;
   silenceSkip = false;
+  /** Umbral de silencio (dBFS, RMS). */
+  silenceThresholdDb = -55;
 
   private index = -1;
   /** Posicion del buffer donde quedo la reproduccion al pausar */
@@ -443,7 +444,7 @@ export class RadioPlayer {
     analyser.getFloatTimeDomainData(data);
     let sum = 0;
     for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
-    return Math.sqrt(sum / data.length) < RadioPlayer.SILENCE_RMS;
+    return Math.sqrt(sum / data.length) < 10 ** (this.silenceThresholdDb / 20);
   }
 
   private async decodeSafe(track: Track): Promise<AudioBuffer | null> {

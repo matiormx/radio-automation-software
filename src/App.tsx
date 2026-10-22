@@ -591,9 +591,15 @@ export default function App() {
       p.fadeSeconds = settings.fadeSeconds;
       p.loop = false;
       p.silenceSkip = settings.silenceDetection;
+      p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
       p.setVolume(settings.masterVolume);
     }
-  }, [settings.fadeSeconds, settings.masterVolume, settings.silenceDetection]);
+  }, [
+    settings.fadeSeconds,
+    settings.masterVolume,
+    settings.silenceDetection,
+    settings.silenceThresholdDb,
+  ]);
 
   // La mesa de sonido se reconfigura en caliente.
   useEffect(() => {

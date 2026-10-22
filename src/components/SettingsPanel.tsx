@@ -420,6 +420,25 @@ function GeneralTab({
           />
           Detección de silencio (pasa a la siguiente canción o activa la reproducción)
         </label>
+        {s.silenceDetection && (
+          <label className="field">
+            <span className="field-label">
+              Umbral de silencio: {s.silenceThresholdDb ?? -55} dBFS
+            </span>
+            <input
+              type="range"
+              min={-80}
+              max={-20}
+              step={1}
+              value={s.silenceThresholdDb ?? -55}
+              onChange={(e) => onChange({ ...s, silenceThresholdDb: Number(e.target.value) })}
+            />
+            <span className="hint">
+              Por debajo de este nivel se considera silencio (3 s seguidos). Súbelo si salta
+              con pasajes suaves; bájalo si no detecta silencios con ruido de fondo.
+            </span>
+          </label>
+        )}
         <label className="field">
           <span className="field-label">Bloque musical por defecto del AutoDJ</span>
           <select

@@ -367,6 +367,8 @@ export interface Settings {
   autoPlayOnStart: boolean;
   /** Pasar a la siguiente pista (o reanudar) si hay silencio */
   silenceDetection: boolean;
+  /** Umbral de silencio en dBFS (RMS); por debajo se considera silencio */
+  silenceThresholdDb: number;
   autopilotEnabled: boolean;
   autopilotMinUpcoming: number;
   autopilotFillTo: number;
@@ -419,6 +421,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fadeSeconds: 6,
   autoPlayOnStart: false,
   silenceDetection: false,
+  silenceThresholdDb: -55,
   autopilotEnabled: false,
   autopilotMinUpcoming: 4,
   autopilotFillTo: 10,
