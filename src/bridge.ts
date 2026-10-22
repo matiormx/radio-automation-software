@@ -21,6 +21,44 @@ const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: numbe
   mixer: { title: "Mixer — MiRadio", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
 };
 
+/**
+ * Crea la ventana oculta y ya cargada, para que abrirla despues sea
+ * instantaneo (arrancar un WebView desde cero tarda segundos).
+ */
+export async function prewarmToolWindow(kind: ToolKind): Promise<void> {
+  try {
+    if (await WebviewWindow.getByLabel(kind)) return;
+    const size = TOOL_SIZES[kind];
+    new WebviewWindow(kind, {
+      url: `index.html?w=${kind}`,
+      title: size.title,
+      width: size.width,
+      height: size.height,
+      minWidth: size.minWidth,
+      minHeight: size.minHeight,
+      decorations: false,
+      shadow: true,
+      center: true,
+      visible: false,
+      dragDropEnabled: false,
+    });
+  } catch {
+    /* se creara al abrirla */
+  }
+}
+
+const SNAPSHOT_KEY = "miradio.bridge.state";
+
+/** Ultimo estado compartido guardado: permite pintar la ventana al instante. */
+export function readStateSnapshot<T>(): T | null {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Abre (o trae al frente) una ventana de herramienta. */
 export async function openToolWindow(kind: ToolKind): Promise<boolean> {
   try {
@@ -94,6 +132,10 @@ const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Err
 
 /** Ventana de herramienta: pide una accion a la principal. */
 export async function callMain<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
+  return callMainTimeout<T>(120000, name, ...args);
+}
+
+export async function callMainTimeout<T = unknown>(timeoutMs: number, name: string, ...args: unknown[]): Promise<T> {
   if (!replyListener) {
     replyListener = listen<ReplyMsg>("bridge://reply", (event) => {
       const r = event.payload;
@@ -110,7 +152,7 @@ export async function callMain<T = unknown>(name: string, ...args: unknown[]): P
     const timer = window.setTimeout(() => {
       pending.delete(id);
       reject(new Error("La ventana principal no responde"));
-    }, 120000);
+    }, timeoutMs);
     pending.set(id, {
       resolve: (v) => {
         window.clearTimeout(timer);
@@ -129,6 +171,11 @@ export async function callMain<T = unknown>(name: string, ...args: unknown[]): P
 
 /** Ventana principal: publica el estado compartido. */
 export function publishState<T>(state: T): void {
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(state));
+  } catch {
+    /* sin almacenamiento: solo se pierde la pintura instantanea */
+  }
   void emit("bridge://state", state);
 }
 

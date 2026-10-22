@@ -72,7 +72,7 @@ import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
-import { openToolWindow, publishState, serveMain } from "./bridge";
+import { openToolWindow, prewarmToolWindow, publishState, serveMain } from "./bridge";
 import { apiApply, apiPublish, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
@@ -2224,6 +2224,11 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // Ajustes se carga oculta poco despues de arrancar: abrirla es instantaneo.
+  useEffect(() => {
+    const t = window.setTimeout(() => void prewarmToolWindow("settings"), 4000);
+    return () => window.clearTimeout(t);
+  }, []);
   // Medidores de la mesa web para la ventana Mixer (el motor nativo manda los suyos).
   const [metersOn, setMetersOn] = useState(false);
   useEffect(() => {

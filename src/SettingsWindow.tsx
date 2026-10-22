@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { WindowControls } from "./components/WindowControls";
-import { callMain, onMainState } from "./bridge";
+import { callMainTimeout, onMainState, readStateSnapshot } from "./bridge";
 import { listBlocks, listTracks } from "./api";
 import type { Block, Settings, StationEvent, Track } from "./types";
 import type { StudioSnapshot } from "./studioCalls";
@@ -20,7 +20,8 @@ export interface SharedState {
  * cada cambio se le envia; el estado vuelve por `bridge://state`.
  */
 export function SettingsWindow() {
-  const [shared, setShared] = useState<SharedState | null>(null);
+  // Se pinta ya con el ultimo estado conocido; la principal lo confirma enseguida.
+  const [shared, setShared] = useState<SharedState | null>(() => readStateSnapshot<SharedState>());
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tab, setTab] = useState<SettingsTab>(() => {
@@ -57,11 +58,29 @@ export function SettingsWindow() {
       }),
     );
     offs.push(listen("library://changed", () => void refreshLibrary()));
-    void callMain<SharedState>("getState")
-      .then(setShared)
-      .catch((e) => showToast(String(e)));
+    // Cerrar solo oculta: asi vuelve a abrirse al instante.
+    offs.push(
+      getCurrentWindow().onCloseRequested(async (event) => {
+        event.preventDefault();
+        await getCurrentWindow().hide();
+      }),
+    );
+    // Pide el estado real; si la principal esta ocupada, reintenta en vez de esperar.
+    let alive = true;
+    let got = false;
+    const ask = () => {
+      if (!alive || got) return;
+      void callMainTimeout<SharedState>(2500, "getState")
+        .then((s) => {
+          got = true;
+          setShared((prev) => (prev && Date.now() - lastLocalEdit.current < 800 ? { ...s, settings: prev.settings } : s));
+        })
+        .catch(() => window.setTimeout(ask, 300));
+    };
+    ask();
     void refreshLibrary();
     return () => {
+      alive = false;
       for (const off of offs) void off.then((fn) => fn());
     };
   }, [refreshLibrary, showToast]);
@@ -69,7 +88,7 @@ export function SettingsWindow() {
   const call = useCallback(
     async <T,>(name: string, ...args: unknown[]): Promise<T | undefined> => {
       try {
-        return await callMain<T>(name, ...args);
+        return await callMainTimeout<T>(120000, name, ...args);
       } catch (e) {
         showToast(String(e instanceof Error ? e.message : e));
         return undefined;
@@ -106,7 +125,7 @@ export function SettingsWindow() {
         blocks={blocks}
         hidden={false}
         onChange={onChange}
-        onClose={() => void getCurrentWindow().close()}
+        onClose={() => void getCurrentWindow().hide()}
         onPickMusicFolder={async () => {
           await call("chooseMusicFolder");
         }}

@@ -38,6 +38,15 @@ pub fn run() {
             app.manage(notify::NotifyState::default());
             Ok(())
         })
+        // Las ventanas de herramientas se ocultan al cerrarse: al cerrar la
+        // principal la aplicacion termina del todo.
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::Destroyed = event {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             library::import_files,
             deezer::deezer_search,
