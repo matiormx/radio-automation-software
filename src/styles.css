@@ -3405,3 +3405,8 @@ body {
 }
 .pb-mixer:hover { background: #26324a; border-color: #3d5585; color: #dbe6ff; }
 .pb-mixer:active { transform: translateY(calc(-50% + 1px)); }
+
+/* Librería en su propia ventana: la cabecera es la barra de título */
+.tool-window .norm-overlay { position: absolute; z-index: auto; }
+.norm-head .win-controls { align-self: stretch; margin: -10px -14px -10px 4px; }
+.norm-head .top-drag { min-width: 8px; }

@@ -10,6 +10,7 @@ import type { AnalysisResult, Block, Track, Waveform } from "../types";
 import { effectiveDuration } from "../types";
 import { IconWave, IconX } from "../icons";
 import type { SoundMixer } from "../mixer";
+import { WindowControls } from "./WindowControls";
 
 type Mode = "folders" | "artists" | "blocks" | "genres" | "tags";
 type Side = "a" | "b";
@@ -493,7 +494,7 @@ function effectiveDurationLabel(tracks: Track[]): string {
 
 interface TrimEditorProps {
   track: Track;
-  mixer: SoundMixer | null;
+  mixer: PreviewPlayer | null;
   active: boolean;
   onClose: () => void;
   onSaved: (track: Track) => void;
@@ -861,8 +862,13 @@ interface NormalizerProps {
   onMove: (ids: string[], to: Side) => Promise<number>;
   onTarget: (lufs: number, peak: number) => void;
   showToast: (msg: string) => void;
-  mixer: SoundMixer | null;
+  mixer: PreviewPlayer | null;
+  /** En su propia ventana: la cabecera hace de barra de titulo */
+  windowed?: boolean;
 }
+
+/** Lo que el normalizador necesita para la preescucha. */
+export type PreviewPlayer = Pick<SoundMixer, "playPreview" | "stopPreview">;
 
 export interface NormalizerStatus {
   total: number;
@@ -893,6 +899,7 @@ export function Normalizer({
   onTarget,
   showToast,
   mixer,
+  windowed = false,
 }: NormalizerProps) {
   const [all, setAll] = useState<Track[]>(tracks);
   const [selA, setSelA] = useState<Set<string>>(new Set());
@@ -1060,8 +1067,8 @@ export function Normalizer({
 
   return (
     <div className={`norm-overlay ${hidden ? "norm-hidden" : ""}`} aria-hidden={hidden}>
-      <header className="norm-head">
-        <div className="norm-brand">
+      <header className="norm-head" data-tauri-drag-region={windowed || undefined}>
+        <div className="norm-brand" data-tauri-drag-region={windowed || undefined}>
           <IconWave size={20} />
           <div>
             <strong>Normalizador de bibliotecas</strong>
@@ -1138,14 +1145,21 @@ export function Normalizer({
             {paused ? "Reanudar" : "Pausar"}
           </button>
         )}
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={onHide}
-          title="Ocultar la librería; el análisis sigue en segundo plano"
-        >
-          <IconX size={18} />
-        </button>
+        {windowed ? (
+          <>
+            <div className="top-drag" data-tauri-drag-region />
+            <WindowControls />
+          </>
+        ) : (
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onHide}
+            title="Ocultar la librería; el análisis sigue en segundo plano"
+          >
+            <IconX size={18} />
+          </button>
+        )}
       </header>
 
       <div className="norm-body">

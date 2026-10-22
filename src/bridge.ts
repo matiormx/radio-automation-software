@@ -8,15 +8,16 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
  * acciones con `callMain` y reciben el estado compartido por `onMainState`.
  */
 
-export type ToolKind = "settings" | "mixer";
+export type ToolKind = "settings" | "mixer" | "library";
 
 export function toolKind(): ToolKind | null {
   const w = new URLSearchParams(window.location.search).get("w");
-  return w === "settings" || w === "mixer" ? w : null;
+  return w === "settings" || w === "mixer" || w === "library" ? w : null;
 }
 
 const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: number; minWidth: number; minHeight: number }> = {
   settings: { title: "Ajustes — MiRadio", width: 1180, height: 820, minWidth: 820, minHeight: 560 },
+  library: { title: "Librería — MiRadio", width: 1360, height: 860, minWidth: 900, minHeight: 560 },
   mixer: { title: "Mixer — MiRadio", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
 };
 

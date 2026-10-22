@@ -72,7 +72,7 @@ import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
 import { openToolWindow, publishState, serveMain } from "./bridge";
-import { emit as emitEvent } from "@tauri-apps/api/event";
+import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
@@ -781,11 +781,22 @@ export default function App() {
   }, []);
 
   const openNormalizer = useCallback(() => {
-    normalizerRef.current = true;
-    setNormalizerMounted(true);
-    setNormalizerOpen(true);
-    if (!normStatus) void refreshTracksAndBlocks();
+    // La librería va en su propia ventana; si no se puede abrir, como panel.
+    void openToolWindow("library").then((ok) => {
+      if (ok) return;
+      normalizerRef.current = true;
+      setNormalizerMounted(true);
+      setNormalizerOpen(true);
+      if (!normStatus) void refreshTracksAndBlocks();
+    });
   }, [normStatus, refreshTracksAndBlocks]);
+
+  /** Pausar, reanudar o cancelar el análisis, esté en panel o en ventana. */
+  const normControl = useCallback((what: "pause" | "resume" | "cancel") => {
+    const api = normApiRef.current;
+    if (api) api[what]();
+    else void emitEvent("library://control", what);
+  }, []);
 
   const hideNormalizer = useCallback(() => {
     normalizerRef.current = false;
@@ -1839,6 +1850,21 @@ export default function App() {
     importForCampaign: () => importForCampaign(),
     launchEvent: (event: StationEvent) => launchEvent(event),
     muteCaller: (muted: boolean) => muteCaller(muted),
+    refreshLibrary: () => refreshTracksAndBlocks(),
+    pickFilesFor: (side: "a" | "b") => pickFilesFor(side),
+    moveTracks: (ids: string[], to: "a" | "b") => moveTracks(ids, to),
+    playPreview: async (file: string, start: number, end: number) => {
+      const mixer = mixerRef.current;
+      if (!mixer) throw new Error("La mesa de sonido todavía no está lista");
+      await mixer.playPreview(
+        file,
+        start,
+        end,
+        (pos) => void emitEvent("preview://pos", pos),
+        () => void emitEvent("preview://end"),
+      );
+    },
+    stopPreview: () => mixerRef.current?.stopPreview(),
     liveVolume: (v: number) => {
       const p = playerRef.current;
       p?.setVolume(v);
@@ -1884,6 +1910,13 @@ export default function App() {
   useEffect(() => {
     void emitEvent("library://changed");
   }, [tracks, blocks]);
+  // Progreso del análisis de la librería cuando va en su propia ventana.
+  useEffect(() => {
+    const off = listen<NormalizerStatus | null>("library://status", (e) => setNormStatus(e.payload));
+    return () => {
+      void off.then((fn) => fn());
+    };
+  }, []);
 
   const deckRow = rows[playingRow] ?? null;
   const nextRow = playingRow >= 0 && playingRow + 1 < rows.length ? rows[playingRow + 1] : null;
@@ -2212,16 +2245,14 @@ export default function App() {
           <button
             type="button"
             className="btn btn-sm"
-            onClick={() =>
-              normStatus.paused ? normApiRef.current?.resume() : normApiRef.current?.pause()
-            }
+            onClick={() => normControl(normStatus.paused ? "resume" : "pause")}
           >
             {normStatus.paused ? "Reanudar" : "Pausar"}
           </button>
           <button
             type="button"
             className="ghost-btn norm-mini-cancel"
-            onClick={() => normApiRef.current?.cancel()}
+            onClick={() => normControl("cancel")}
           >
             Cancelar
           </button>
