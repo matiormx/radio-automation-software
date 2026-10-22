@@ -53,6 +53,11 @@ export class SoundMixer {
   readonly musicInput: GainNode;
   /** Entrada de la preescucha del normalizador */
   readonly previewInput: GainNode;
+  /**
+   * Medidor de la musica (deteccion de silencio). Vive aqui porque apply()
+   * desconecta musicInput al reconfigurar la mesa y lo reconecta.
+   */
+  readonly musicAnalyser: AnalyserNode;
   /** Entrada de la voz de los oyentes que llaman al aire */
   readonly callInput: GainNode;
 
@@ -96,6 +101,12 @@ export class SoundMixer {
     this.musicInput = this.ctx.createGain();
     this.previewInput = this.ctx.createGain();
     this.callInput = this.ctx.createGain();
+    this.musicAnalyser = this.ctx.createAnalyser();
+    this.musicAnalyser.fftSize = 512;
+    const musicSilent = this.ctx.createGain();
+    musicSilent.gain.value = 0;
+    this.musicAnalyser.connect(musicSilent);
+    musicSilent.connect(this.ctx.destination);
     this.returnMix = this.ctx.createGain();
     this.returnDest = this.ctx.createMediaStreamDestination();
     this.programTap = this.ctx.createGain();
@@ -133,6 +144,7 @@ export class SoundMixer {
       this.monitorTap = null;
     }
     this.musicInput.disconnect();
+    this.musicInput.connect(this.musicAnalyser);
     this.previewInput.disconnect();
     this.callInput.disconnect();
     this.returnMix.disconnect();

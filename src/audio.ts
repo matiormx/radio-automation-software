@@ -300,7 +300,6 @@ export class RadioPlayer {
     }
     this.decks = { a: null, b: null, c: null };
     this.pausedOffset = null;
-    this.silenceAnalyser?.disconnect();
     this.silenceAnalyser = null;
     this.silenceData = null;
     this.silentSince = 0;
@@ -400,15 +399,11 @@ export class RadioPlayer {
     if (!this.ctx) {
       this.ctx = this.mixer.ctx;
       this.master = this.mixer.musicInput;
-      const analyser = this.ctx.createAnalyser();
-      analyser.fftSize = 512;
+      // El medidor lo mantiene la mesa: apply() desconecta musicInput al
+      // reconfigurarse y un medidor propio se quedaba mudo (falso silencio).
+      const analyser = this.mixer.musicAnalyser;
       this.silenceAnalyser = analyser;
       this.silenceData = new Float32Array(new ArrayBuffer(analyser.fftSize * 4));
-      this.master.connect(analyser);
-      const silent = this.ctx.createGain();
-      silent.gain.value = 0;
-      analyser.connect(silent);
-      silent.connect(this.ctx.destination);
     }
   }
 
