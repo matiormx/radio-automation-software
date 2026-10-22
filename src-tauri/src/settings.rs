@@ -825,6 +825,21 @@ pub fn auto_pick(
     Ok(pick_tracks(&s, &library, &history, &playlist_track_ids, count, scope_kind, scope_id, now_epoch()))
 }
 
+/// Artistas de una ficha: "Alicia Keys, John Mayer" son dos. Minusculas y sin
+/// espacios sobrantes; un campo vacio cuenta como un solo artista vacio.
+pub fn artists_of(artist: &str) -> Vec<String> {
+    let v: Vec<String> = artist
+        .split(|c| c == ',' || c == ';')
+        .map(|a| a.trim().to_lowercase())
+        .filter(|a| !a.is_empty())
+        .collect();
+    if v.is_empty() {
+        vec![artist.trim().to_lowercase()]
+    } else {
+        v
+    }
+}
+
 /// Eleccion del AutoDJ (sin estado: se puede probar).
 #[allow(clippy::too_many_arguments)]
 pub fn pick_tracks(
@@ -874,15 +889,16 @@ pub fn pick_tracks(
     let mut last_title: HashMap<String, u64> = HashMap::new();
     for h in history {
         if let Some(t) = by_id.get(h.track_id.as_str()) {
-            let ta = t.artist.to_lowercase();
             let ti = t.title.to_lowercase();
             let e = last_track.entry(t.id.as_str()).or_insert(0);
             if h.played_at > *e {
                 *e = h.played_at;
             }
-            let e = last_artist.entry(ta).or_insert(0);
-            if h.played_at > *e {
-                *e = h.played_at;
+            for ta in artists_of(&t.artist) {
+                let e = last_artist.entry(ta).or_insert(0);
+                if h.played_at > *e {
+                    *e = h.played_at;
+                }
             }
             let e = last_title.entry(ti).or_insert(0);
             if h.played_at > *e {
@@ -893,12 +909,12 @@ pub fn pick_tracks(
 
     // Artistas de las ultimas pistas de la lista actual, para no poner
     // dos del mismo artista seguidos.
-    let tail_artists: Vec<String> = playlist_track_ids
+    let tail_artists: Vec<Vec<String>> = playlist_track_ids
         .iter()
         .rev()
         .take(3)
         .filter_map(|id| by_id.get(id.as_str()))
-        .map(|t| t.artist.to_lowercase())
+        .map(|t| artists_of(&t.artist))
         .collect();
 
     let in_playlist: HashSet<&str> = playlist_track_ids.iter().map(|x| x.as_str()).collect();
@@ -928,8 +944,10 @@ pub fn pick_tracks(
         in_scope.insert(t.id.as_str());
         let ok_track =
             now.saturating_sub(*last_track.get(t.id.as_str()).unwrap_or(&0)) >= mins(s.repeat_track_minutes);
-        let ok_artist = now.saturating_sub(*last_artist.get(&t.artist.to_lowercase()).unwrap_or(&0))
-            >= mins(s.repeat_artist_minutes);
+        // Todos los artistas de la ficha deben cumplir el tiempo.
+        let ok_artist = artists_of(&t.artist)
+            .iter()
+            .all(|a| now.saturating_sub(*last_artist.get(a).unwrap_or(&0)) >= mins(s.repeat_artist_minutes));
         let ok_title = now.saturating_sub(*last_title.get(&t.title.to_lowercase()).unwrap_or(&0))
             >= mins(s.repeat_title_minutes);
         candidates.push(Candidate {
@@ -960,12 +978,7 @@ pub fn pick_tracks(
     // Orden: mas reglas cumplidas primero, luego pseudoaleatorio.
     candidates.sort_by(|a, b| b.ok_rules.cmp(&a.ok_rules).then(a.salt.cmp(&b.salt)));
 
-    let artist_of = |id: &str| -> String {
-        by_id
-            .get(id)
-            .map(|t| t.artist.to_lowercase())
-            .unwrap_or_default()
-    };
+    let artist_of = |id: &str| -> Vec<String> { by_id.get(id).map(|t| artists_of(&t.artist)).unwrap_or_default() };
 
     // Probabilidad de cada idioma (%). Sin pesos: todos los idiomas igual.
     let weights: HashMap<String, f64> = s
@@ -998,7 +1011,7 @@ pub fn pick_tracks(
                 .filter(|c| {
                     relax
                         || !s.avoid_consecutive_artist
-                        || tail.last().map(|a| a.as_str()) != Some(artist_of(&c.id).as_str())
+                        || tail.last().map(|a| !a.iter().any(|x| artist_of(&c.id).contains(x))).unwrap_or(true)
                 })
                 .collect();
             let Some(first) = eligible.first() else { break };
@@ -1149,5 +1162,47 @@ mod language_tests {
         s.language_weights.insert("de".into(), 100.0); // nadie en aleman
         let p = pick_tracks(&s, &library, &[], &[], 10, None, None, 7);
         assert_eq!(p.len(), 10, "no deja la lista sin canciones");
+    }
+}
+
+#[cfg(test)]
+mod artist_tests {
+    use super::*;
+
+    #[test]
+    fn split_artists() {
+        assert_eq!(artists_of("Alicia Keys, John Mayer"), vec!["alicia keys", "john mayer"]);
+        assert_eq!(artists_of("  John Mayer "), vec!["john mayer"]);
+        assert_eq!(artists_of(""), vec![""]);
+    }
+
+    fn t(id: &str, artist: &str) -> Track {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "title": id, "artist": artist, "durationSecs": 200.0, "file": "", "blocks": [], "tags": []
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn collaboration_counts_for_each_artist() {
+        let library = vec![t("a", "John Mayer"), t("b", "Alicia Keys, John Mayer"), t("c", "Queen")];
+        let now = 10_000_000u64;
+        let history = vec![HistoryEntry { track_id: "a".into(), played_at: now - 600 }];
+        let mut s = Settings::default();
+        s.repeat_artist_minutes = 120;
+        s.repeat_track_minutes = 0;
+        s.repeat_title_minutes = 0;
+        let p = pick_tracks(&s, &library, &history, &[], 1, None, None, now);
+        assert_eq!(p, vec!["c".to_string()], "con Mayer reciente no puede salir el feat.");
+    }
+
+    #[test]
+    fn no_consecutive_with_collaborator() {
+        let library = vec![t("a", "John Mayer"), t("b", "Alicia Keys, John Mayer"), t("c", "Queen")];
+        let mut s = Settings::default();
+        s.repeat_artist_minutes = 0;
+        s.avoid_consecutive_artist = true;
+        let p = pick_tracks(&s, &library, &[], &["a".to_string()], 1, None, None, 5);
+        assert_ne!(p, vec!["b".to_string()]);
     }
 }

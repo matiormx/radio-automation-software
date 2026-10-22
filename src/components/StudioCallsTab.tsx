@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Settings, StudioCallsSettings } from "../types";
 import { studioSocketUrl, type StudioSnapshot } from "../studioCalls";
 
@@ -22,6 +23,9 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
     onChange({ ...settings, studioCalls: { ...cfg, ...patch } });
   const urlOk = studioSocketUrl(cfg.serverUrl) !== null;
   const tokenOk = cfg.token.trim().length >= 24;
+  // Los datos de conexion son delicados: bloqueados hasta que se confirme.
+  const [locked, setLocked] = useState(true);
+  const [warn, setWarn] = useState(false);
 
   return (
     <>
@@ -36,8 +40,47 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
         </div>
       </div>
 
-      <fieldset className="fieldset">
-        <legend>Conexión</legend>
+      <fieldset className="fieldset" disabled={locked}>
+        <legend>
+          Conexión{" "}
+          <button
+            type="button"
+            className="ghost-btn"
+            style={{ pointerEvents: "auto" }}
+            title={locked ? "Desbloquear" : "Bloquear"}
+            aria-label={locked ? "Desbloquear los ajustes de conexión" : "Bloquear los ajustes de conexión"}
+            aria-pressed={!locked}
+            onClick={() => {
+              if (locked) setWarn(true);
+              else setLocked(true);
+            }}
+          >
+            {locked ? "🔒" : "🔓"}
+          </button>
+        </legend>
+        {warn && locked && (
+          <div className="form-error" role="alertdialog" style={{ pointerEvents: "auto" }}>
+            <p>
+              <strong>Parámetro delicado.</strong> La dirección y el token de estudio son los que dan acceso a las
+              llamadas de NGRADIO. Un valor incorrecto cortará las llamadas o expondrá el acceso. ¿Quieres editarlos?
+            </p>
+            <div className="field-row">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  setLocked(false);
+                  setWarn(false);
+                }}
+              >
+                Sí, desbloquear
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => setWarn(false)}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
         <label className="check-row">
           <input
             type="checkbox"
