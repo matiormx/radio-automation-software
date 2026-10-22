@@ -55,6 +55,7 @@ pub fn run() {
             library::delete_block,
             library::set_track_blocks,
             library::move_tracks_block,
+            library::set_tracks_language,
             library::import_playlist,
             library::set_track_library,
             library::save_track_trim,

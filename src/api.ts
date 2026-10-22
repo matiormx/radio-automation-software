@@ -47,6 +47,10 @@ export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
 }
 
+export function setTracksLanguage(ids: string[], language: string): Promise<number> {
+  return invoke<number>("set_tracks_language", { ids, language });
+}
+
 /** Cambia la caratula (imagen local o URL); vale para todo el album. */
 export function setTrackCover(id: string, source: string): Promise<string> {
   return invoke<string>("set_track_cover", { id, source });

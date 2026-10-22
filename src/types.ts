@@ -35,6 +35,8 @@ export interface Track {
   /** Se calcula al listar: el registro vive aunque falte el archivo */
   missing: boolean;
   cover: string;
+  /** Codigo de idioma de la cancion ("es", "en"…); vacio = sin indicar */
+  language?: string;
 }
 
 export function effectiveDuration(t: Track): number {
@@ -77,6 +79,7 @@ export interface TrackPatch {
   genre?: string;
   year?: string;
   tags?: string[];
+  language?: string;
 }
 
 export interface TrackDetails {
@@ -407,6 +410,12 @@ export interface Settings {
   silenceDetection: boolean;
   /** Umbral de silencio en dBFS (RMS); por debajo se considera silencio */
   silenceThresholdDb: number;
+  /** Canciones ya emitidas que siguen visibles (opacas) en la lista */
+  pastVisible: number;
+  /** Idiomas habilitados para las canciones (codigos) */
+  languages: string[];
+  /** Probabilidad (%) de que el AutoDJ elija cada idioma; sin datos = sin filtro */
+  languageWeights: Record<string, number>;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -464,6 +473,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoPlayOnStart: false,
   silenceDetection: false,
   silenceThresholdDb: -55,
+  pastVisible: 5,
+  languages: ["es", "en", "pt", "de", "fr"],
+  languageWeights: {},
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,

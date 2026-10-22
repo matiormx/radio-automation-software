@@ -35,10 +35,12 @@ interface PlaylistZoneProps {
   onSetNext: (index: number) => void;
   onClearNext: () => void;
   onGenerate: () => void;
+  /** Canciones emitidas que siguen visibles (opacas) antes de ocultarse */
+  pastVisible: number;
+  /** Fila que sale de la lista cuando termine de sonar */
+  leavingRow: number;
 }
 
-/** Canciones ya emitidas que siguen a la vista por encima de la que suena */
-const PAST_VISIBLE = 5;
 
 function fmtDur(secs: number): string {
   if (!secs || secs <= 0) return "--:--";
@@ -74,7 +76,10 @@ export function PlaylistZone({
   onSetNext,
   onClearNext,
   onGenerate,
+  pastVisible,
+  leavingRow,
 }: PlaylistZoneProps) {
+  const PAST_VISIBLE = Math.max(0, Math.round(pastVisible));
   const isAir = activeId === airId;
   const active = playlists.find((p) => p.id === activeId) ?? playlists[0];
   const [editing, setEditing] = useState(false);
@@ -271,7 +276,7 @@ export function PlaylistZone({
             <div
               key={`${r.id}-${i}`}
               data-row={i}
-              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
+              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${i === leavingRow ? "plrow-leaving" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
               draggable
               onDragStart={(e) => {
                 setDragIndex(i);
@@ -338,6 +343,7 @@ export function PlaylistZone({
                   {autoIds.has(r.id) && <span className="badge-auto">AUTO</span>}
                   {i === playingRow && <span className="badge-live">AL AIRE</span>}
                   {i === nextRow && <span className="badge-next">SIGUIENTE</span>}
+                  {i === leavingRow && <span className="badge-leaving">SALE AL TERMINAR</span>}
                 </span>
                 <span className="plrow-sub">{r.artist}</span>
               </button>
@@ -445,7 +451,7 @@ export function PlaylistZone({
                   setCtx(null);
                 }}
               >
-                <IconNext size={13} /> Siguiente
+                <IconNext size={13} /> Marcar como siguiente
               </button>
             )}
             <button

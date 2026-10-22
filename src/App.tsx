@@ -261,6 +261,8 @@ export default function App() {
   const userPausedRef = useRef(false);
   const autoPlayStartedRef = useRef(false);
   const pausedRef = useRef(true);
+  /** Estado de pausa real (pausedRef no siempre se actualiza) */
+  const pausedStateRef = useRef(true);
   const sessionRef = useRef<SessionState | null>(null);
   const sessionRestoredRef = useRef(false);
   const restoringRef = useRef(false);
@@ -626,6 +628,7 @@ export default function App() {
   rowsRef.current = rows;
   const playingRowRef = useRef(playingRow);
   playingRowRef.current = playingRow;
+  pausedStateRef.current = paused;
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const settingsRef = useRef(settings);
@@ -779,8 +782,10 @@ export default function App() {
     if (index < 0) return;
     sessionRestoredRef.current = true;
     restoringRef.current = true;
+    // Si estaba sonando al cerrar, sigue sonando; si estaba en pausa, queda
+    // preparada en ese punto (salvo que este activo "reproducir al iniciar").
     void player
-      .restoreAt(index, session.positionSecs, settings.autoPlayOnStart)
+      .restoreAt(index, session.positionSecs, session.playing || settings.autoPlayOnStart)
       .then(() => {
         setPaused(!player.isPlaying);
         pausedRef.current = !player.isPlaying;
@@ -872,12 +877,13 @@ export default function App() {
         playlistId: activeIdRef.current,
         trackId: row?.id ?? "",
         positionSecs: posRef.current.cur,
-        playing: !pausedRef.current,
+        playing: index >= 0 && !pausedStateRef.current,
         updatedAt: Date.now(),
       };
       void saveSession(session).catch(() => undefined);
     };
-    const timer = window.setInterval(save, 5000);
+    // Cada 2 s: al reabrir, como mucho se pierden 2 s de posicion.
+    const timer = window.setInterval(save, 2000);
     return () => {
       window.clearInterval(timer);
       save();
@@ -1211,12 +1217,44 @@ export default function App() {
     [refreshTracksAndBlocks, showToast],
   );
 
+  // Quitar la que esta sonando: sigue sonando hasta el final, la siguiente
+  // ya esta preparada y la fila desaparece en cuanto entra la siguiente.
+  const [removeAfter, setRemoveAfter] = useState<{ listId: string; trackId: string } | null>(null);
   const removeRow = useCallback(
     (i: number) => {
+      const listId = viewIdRef.current;
+      if (listId === activeIdRef.current && i === playingRowRef.current) {
+        const id = viewRowsRef.current[i]?.id;
+        if (id) {
+          setRemoveAfter({ listId, trackId: id });
+          showToast("Se quitará de la lista cuando termine de sonar");
+        }
+        return;
+      }
       void mutateView((ids) => ids.filter((_, idx) => idx !== i));
     },
-    [mutateView],
+    [mutateView, showToast],
   );
+  useEffect(() => {
+    if (!removeAfter) return;
+    const currentId = playingRow >= 0 && active?.id === removeAfter.listId ? rows[playingRow]?.id : undefined;
+    if (currentId === removeAfter.trackId) return; // aun suena
+    const { listId, trackId } = removeAfter;
+    setRemoveAfter(null);
+    void mutateById(listId, (ids) => {
+      // Quita la aparicion que ya no suena (la anterior a la actual si se repite).
+      const cur = active?.id === listId && playingRow >= 0 ? playingRow : ids.length;
+      let at = -1;
+      for (let k = Math.min(cur, ids.length - 1); k >= 0; k -= 1) {
+        if (ids[k] === trackId) {
+          at = k;
+          break;
+        }
+      }
+      if (at < 0) at = ids.indexOf(trackId);
+      return at < 0 ? ids : ids.filter((_, k) => k !== at);
+    });
+  }, [removeAfter, playingRow, rows, active, mutateById]);
 
   const reorderRow = useCallback(
     (from: number, to: number) => {
@@ -1358,6 +1396,12 @@ export default function App() {
     if (autoPlayStartedRef.current) return;
     if (!settings.autoPlayOnStart) return;
     if (!active || rows.length === 0 || !playerRef.current) return;
+    // Si hay una sesion que continuar, la restauracion ya arranca donde se quedo.
+    const session = sessionRef.current;
+    if (session?.trackId && rows.some((row) => row.id === session.trackId)) {
+      autoPlayStartedRef.current = true;
+      return;
+    }
     autoPlayStartedRef.current = true;
     void playRowRef.current(0);
   }, [settings.autoPlayOnStart, active, rows.length]);
@@ -2271,6 +2315,7 @@ export default function App() {
           blocks={blocks}
           history={history}
           autoBlocks={settings.autoBlocks}
+          languages={settings.languages ?? DEFAULT_SETTINGS.languages}
           onToggleAutoBlock={toggleAutoBlock}
           onCreateBlock={handleCreateBlock}
           onRenameBlock={handleRenameBlock}
@@ -2353,6 +2398,12 @@ export default function App() {
             onSetNext={setNextRow}
             onClearNext={() => setNextPick(null)}
             onGenerate={() => void generateView()}
+            pastVisible={settings.pastVisible ?? 5}
+            leavingRow={
+              removeAfter && view?.id === removeAfter.listId && view.id === active?.id && playingRow >= 0
+                ? playingRow
+                : -1
+            }
             onNew={() => void newPlaylist()}
             onRemovePlaylist={() => void removeActivePlaylist()}
             onClearPlaylist={() => void clearActivePlaylist()}

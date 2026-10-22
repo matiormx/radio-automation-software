@@ -1,5 +1,6 @@
 import { DeezerSearch } from "./DeezerSearch";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { languageFlag, languageName } from "../languages";
 import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
@@ -40,6 +41,7 @@ interface MusicBrowserProps {
   blocks: Block[];
   history: HistoryEntry[];
   autoBlocks: string[];
+  languages: string[];
   onToggleAutoBlock: (blockId: string) => void;
   onCreateBlock: (name: string) => Promise<void>;
   onRenameBlock: (id: string, name: string) => Promise<void>;
@@ -64,6 +66,7 @@ interface EditState {
   genre: string;
   year: string;
   tagsText: string;
+  language: string;
   blocks: string[];
   busy: boolean;
   /** Caratula actual (ruta) */
@@ -244,6 +247,7 @@ export function MusicBrowser({
   blocks,
   history,
   autoBlocks,
+  languages,
   onToggleAutoBlock,
   onCreateBlock,
   onRenameBlock,
@@ -459,6 +463,7 @@ export function MusicBrowser({
         genre: t.genre,
         year: t.year,
         tagsText: t.tags.join(", "),
+      language: t.language ?? "",
         blocks: [...t.blocks],
         busy: false,
         cover: t.cover,
@@ -477,6 +482,7 @@ export function MusicBrowser({
       genre: t.genre,
       year: t.year,
       tagsText: t.tags.join(", "),
+      language: t.language ?? "",
       blocks: [...t.blocks],
       busy: false,
       cover: t.cover,
@@ -494,6 +500,7 @@ export function MusicBrowser({
         album: edit.album.trim(),
         genre: edit.genre.trim(),
         year: edit.year.trim(),
+        language: edit.language,
         tags: edit.tagsText
           .split(",")
           .map((s) => s.trim())
@@ -664,6 +671,11 @@ export function MusicBrowser({
                   <div className="bcell bcol-name">
                     <span className="brow-title">
                       {t.title}
+                      {t.language && (
+                        <span className="lang-flag" title={languageName(t.language)}>
+                          {languageFlag(t.language)}
+                        </span>
+                      )}
                       {t.library === "b" && <span className="chip chip-lib">B</span>}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
                     </span>
@@ -1272,6 +1284,17 @@ export function MusicBrowser({
                   <input value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} />
                 </label>
               </div>
+              <label className="field">
+                <span className="field-label">Idioma</span>
+                <select value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })}>
+                  <option value="">Sin indicar</option>
+                  {[...new Set([...languages, ...(edit.language ? [edit.language] : [])])].map((c) => (
+                    <option key={c} value={c}>
+                      {languageFlag(c)} {languageName(c)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="field">
                 <span className="field-label">Etiquetas</span>
                 <input

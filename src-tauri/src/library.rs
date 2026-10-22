@@ -94,6 +94,9 @@ pub struct Track {
     pub cover: String,
     #[serde(default)]
     pub cover_checked: bool,
+    /// Idioma de la cancion (codigo: es, en, pt, de, fr…); vacio = sin especificar
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub language: String,
 }
 
 fn default_library() -> String {
@@ -601,6 +604,7 @@ pub struct TrackResolved {
     pub fade_out_start: f64,
     pub analyzed_at: u64,
     pub cover: String,
+    pub language: String,
 }
 
 impl TrackResolved {
@@ -635,6 +639,7 @@ impl TrackResolved {
             fade_out_start: t.fade_out_start,
             analyzed_at: t.analyzed_at,
             cover: cover_abs(data_dir, &t.cover),
+            language: t.language,
         }
     }
 }
@@ -720,6 +725,7 @@ pub fn import_files(
             analyzed_at: 0,
             cover: String::new(),
             cover_checked: false,
+            language: String::new(),
         };
         imported_ids.push(id);
         tracks.push(rec);
@@ -812,6 +818,7 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
             analyzed_at: 0,
             cover: String::new(),
             cover_checked: false,
+            language: String::new(),
         };
         added_keys.insert(cover_key(&rec));
         tracks.push(rec);
@@ -851,6 +858,8 @@ pub struct TrackPatch {
     pub genre: Option<String>,
     pub year: Option<String>,
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// Edita los metadatos de una cancion. El archivo queda intacto:
@@ -890,6 +899,9 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), S
         }
         if let Some(tags) = patch.tags {
             t.tags = clean_tags(tags);
+        }
+        if let Some(lang) = patch.language {
+            t.language = clean_language(&lang);
         }
         keys.insert(cover_key(t));
     } else {
@@ -1001,6 +1013,36 @@ pub fn clear_track_cover(state: State<'_, AppState>, id: String) -> Result<(), S
     }
     cleanup_covers(&state.data_dir, &tracks);
     write_library(&state.data_dir, &tracks)
+}
+
+/// Codigo de idioma limpio (minusculas, 2-3 letras); otro valor = sin idioma.
+pub fn clean_language(lang: &str) -> String {
+    let l = lang.trim().to_ascii_lowercase();
+    if (2..=3).contains(&l.len()) && l.chars().all(|c| c.is_ascii_lowercase()) {
+        l
+    } else {
+        String::new()
+    }
+}
+
+/// Idioma de varias canciones a la vez (vacio = sin especificar).
+#[tauri::command]
+pub fn set_tracks_language(state: State<'_, AppState>, ids: Vec<String>, language: String) -> Result<usize, String> {
+    let lang = clean_language(&language);
+    let wanted: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(&state.data_dir);
+    let mut changed = 0;
+    for t in tracks.iter_mut().filter(|t| wanted.contains(t.id.as_str())) {
+        if t.language != lang {
+            t.language = lang.clone();
+            changed += 1;
+        }
+    }
+    if changed > 0 {
+        write_library(&state.data_dir, &tracks)?;
+    }
+    Ok(changed)
 }
 
 fn clean_tags(tags: Vec<String>) -> Vec<String> {
@@ -1704,6 +1746,7 @@ pub fn import_playlist(
             analyzed_at: 0,
             cover: String::new(),
             cover_checked: false,
+            language: String::new(),
         };
         added_keys.insert(cover_key(&rec));
         index.insert(normalize_path(&rec.file), tracks.len());

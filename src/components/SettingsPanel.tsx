@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
 import { effectiveDuration } from "../types";
 import { trackUrl } from "../api";
+import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerPanel } from "./MixerPanel";
 import { EventsTab } from "./EventsTab";
@@ -440,6 +441,22 @@ function GeneralTab({
           />
           Detección de silencio (pasa a la siguiente canción o activa la reproducción)
         </label>
+        <label className="field">
+          <span className="field-label">
+            Canciones emitidas visibles en la lista: {s.pastVisible ?? 5}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={s.pastVisible ?? 5}
+            onChange={(e) => onChange({ ...s, pastVisible: Number(e.target.value) })}
+          />
+          <span className="hint">
+            Las que ya sonaron se ven en gris por encima de la actual; las más antiguas se ocultan.
+          </span>
+        </label>
         {s.silenceDetection && (
           <label className="field">
             <span className="field-label">
@@ -644,8 +661,64 @@ function AutoDjTab({
   settings: Settings;
   onChange: (s: Settings) => void;
 }) {
+  const langs = s.languages ?? [];
+  const weights = s.languageWeights ?? {};
+  const toggleLang = (code: string) => {
+    const on = langs.includes(code);
+    const next = on ? langs.filter((c) => c !== code) : [...langs, code];
+    const w = { ...weights };
+    if (on) delete w[code];
+    onChange({ ...s, languages: next, languageWeights: w });
+  };
+  const setWeight = (code: string, v: number) =>
+    onChange({ ...s, languageWeights: { ...weights, [code]: Math.max(0, Math.min(100, v)) } });
+  const anyWeight = Object.values(weights).some((v) => v > 0);
+  const sumW = langs.reduce((a, c) => a + (weights[c] ?? 0), 0);
   return (
     <>
+      <fieldset className="fieldset">
+        <legend>Idiomas</legend>
+        <p className="hint">
+          Idiomas que puedes asignar a cada canción (se ven con su bandera en los metadatos). Activa los que uses.
+        </p>
+        <div className="edit-blocks">
+          {LANGUAGE_CATALOG.map((l) => (
+            <button
+              key={l.code}
+              type="button"
+              className={`chip chip-toggle ${langs.includes(l.code) ? "chip-on" : ""}`}
+              onClick={() => toggleLang(l.code)}
+            >
+              {l.flag} {l.name}
+            </button>
+          ))}
+        </div>
+        <h4 style={{ marginTop: 12 }}>Probabilidad en el AutoDJ</h4>
+        <p className="hint">
+          Porcentaje de canciones de cada idioma que elige el AutoDJ. Con todos a 0 no filtra por idioma. Las
+          canciones sin idioma solo entran si no hay porcentajes.
+        </p>
+        {langs.map((c) => (
+          <label key={c} className="field field-inline">
+            <span className="field-label">
+              {languageFlag(c)} {languageName(c)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={weights[c] ?? 0}
+              onChange={(e) => setWeight(c, Number(e.target.value))}
+            />
+            <span className="hint" style={{ minWidth: 70 }}>
+              {weights[c] ?? 0}%
+              {anyWeight && sumW > 0 ? ` (${Math.round(((weights[c] ?? 0) / sumW) * 100)}% real)` : ""}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
       <fieldset className="fieldset">
         <legend>Reglas de rotación</legend>
         <p className="hint">

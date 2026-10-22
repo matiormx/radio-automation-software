@@ -23,6 +23,12 @@ pub struct Settings {
     /// Umbral de silencio en dBFS (RMS).
     pub silence_threshold_db: f32,
     /// Motor de audio: "web" o "native" (beta).
+    /// Canciones emitidas que siguen visibles en la lista.
+    pub past_visible: u32,
+    /// Idiomas habilitados para clasificar canciones (codigos)
+    pub languages: Vec<String>,
+    /// Probabilidad (%) de cada idioma en el AutoDJ; "" = sin idioma
+    pub language_weights: HashMap<String, f64>,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -518,6 +524,9 @@ impl Default for Settings {
             auto_play_on_start: false,
             silence_detection: false,
             silence_threshold_db: -55.0,
+            past_visible: 5,
+            languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
+            language_weights: HashMap::new(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,
@@ -784,11 +793,25 @@ pub fn auto_pick(
     }
     let s = read_settings(&state.data_dir);
     let library = crate::library::read_library_public(&state.data_dir);
-    if library.is_empty() {
-        return Ok(vec![]);
-    }
     let history = read_history(&state.data_dir);
-    let now = now_epoch();
+    Ok(pick_tracks(&s, &library, &history, &playlist_track_ids, count, scope_kind, scope_id, now_epoch()))
+}
+
+/// Eleccion del AutoDJ (sin estado: se puede probar).
+#[allow(clippy::too_many_arguments)]
+pub fn pick_tracks(
+    s: &Settings,
+    library: &[Track],
+    history: &[HistoryEntry],
+    playlist_track_ids: &[String],
+    count: u32,
+    scope_kind: Option<String>,
+    scope_id: Option<String>,
+    now: u64,
+) -> Vec<String> {
+    if library.is_empty() || count == 0 {
+        return vec![];
+    }
     let mins = |m: u32| u64::from(m) * 60;
 
     let by_id: HashMap<&str, &Track> = library
@@ -799,7 +822,7 @@ pub fn auto_pick(
     // Bloques activos del piloto automatico: vacio = toda la biblioteca.
     // Un evento activo puede sustituirlos por un bloque concreto o por una
     // de las dos bibliotecas.
-    let mut pick_blocks = pick_block_ids(&s);
+    let mut pick_blocks = pick_block_ids(s);
     let mut pick_library: Option<String> = None;
     match scope_kind.as_deref() {
         Some("block") => {
@@ -821,7 +844,7 @@ pub fn auto_pick(
     let mut last_track: HashMap<&str, u64> = HashMap::new();
     let mut last_artist: HashMap<String, u64> = HashMap::new();
     let mut last_title: HashMap<String, u64> = HashMap::new();
-    for h in &history {
+    for h in history {
         if let Some(t) = by_id.get(h.track_id.as_str()) {
             let ta = t.artist.to_lowercase();
             let ti = t.title.to_lowercase();
@@ -855,7 +878,7 @@ pub fn auto_pick(
 
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut in_scope: HashSet<&str> = HashSet::new();
-    for t in &library {
+    for t in library {
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
             continue;
         }
@@ -887,7 +910,7 @@ pub fn auto_pick(
         && in_scope.is_empty()
         && (!pick_blocks.is_empty() || pick_library.is_some())
     {
-        for t in &library {
+        for t in library {
             if in_playlist.contains(t.id.as_str()) {
                 continue;
             }
@@ -909,23 +932,73 @@ pub fn auto_pick(
             .unwrap_or_default()
     };
 
+    // Probabilidad de cada idioma (%). Sin pesos: todos los idiomas igual.
+    let weights: HashMap<String, f64> = s
+        .language_weights
+        .iter()
+        .filter(|(_, w)| w.is_finite() && **w > 0.0)
+        .map(|(k, w)| (k.trim().to_ascii_lowercase(), *w))
+        .collect();
+    let lang_of = |id: &str| -> String { by_id.get(id).map(|t| t.language.clone()).unwrap_or_default() };
+    let mut rng = salt | 1;
+    let mut next_rand = move || {
+        // xorshift64: suficiente para repartir idiomas
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        (rng >> 11) as f64 / (1u64 << 53) as f64
+    };
+
     // Pasada 1: respetando artistas consecutivos. Pasada 2: relajada
     // (biblioteca pequena).
     let mut result: Vec<String> = Vec::new();
     for relax in [false, true] {
         let mut picked: Vec<String> = Vec::new();
         let mut tail = tail_artists.clone();
-        for c in &candidates {
-            if picked.len() >= count as usize {
-                break;
-            }
-            if !relax && s.avoid_consecutive_artist {
-                if tail.last().map(|a| a.as_str()) == Some(artist_of(&c.id).as_str()) {
-                    continue;
+        let mut used: HashSet<&str> = HashSet::new();
+        while picked.len() < count as usize {
+            let eligible: Vec<&Candidate> = candidates
+                .iter()
+                .filter(|c| !used.contains(c.id.as_str()))
+                .filter(|c| {
+                    relax
+                        || !s.avoid_consecutive_artist
+                        || tail.last().map(|a| a.as_str()) != Some(artist_of(&c.id).as_str())
+                })
+                .collect();
+            let Some(first) = eligible.first() else { break };
+            let mut chosen: &Candidate = first;
+            if !weights.is_empty() {
+                // Idiomas disponibles ahora mismo, con su peso.
+                let mut avail: Vec<(String, f64)> = Vec::new();
+                for c in &eligible {
+                    let l = lang_of(&c.id);
+                    if avail.iter().any(|(x, _)| *x == l) {
+                        continue;
+                    }
+                    if let Some(w) = weights.get(&l) {
+                        avail.push((l, *w));
+                    }
+                }
+                let total: f64 = avail.iter().map(|(_, w)| w).sum();
+                if total > 0.0 {
+                    let mut r = next_rand() * total;
+                    let mut lang = avail[0].0.clone();
+                    for (l, w) in &avail {
+                        if r < *w {
+                            lang = l.clone();
+                            break;
+                        }
+                        r -= w;
+                    }
+                    if let Some(c) = eligible.iter().find(|c| lang_of(&c.id) == lang) {
+                        chosen = c;
+                    }
                 }
             }
-            picked.push(c.id.clone());
-            tail.push(artist_of(&c.id));
+            used.insert(chosen.id.as_str());
+            picked.push(chosen.id.clone());
+            tail.push(artist_of(&chosen.id));
         }
         if result.len() < picked.len() {
             result = picked;
@@ -934,7 +1007,7 @@ pub fn auto_pick(
             break;
         }
     }
-    Ok(result)
+    result
 }
 
 /// Bloques de los que saca canciones el AutoDJ. El bloque por defecto
@@ -978,5 +1051,68 @@ mod tests {
     fn sin_bloques_la_biblioteca_esta_libre() {
         let s = settings_with(&[], "");
         assert!(pick_block_ids(&s).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    fn lib() -> Vec<Track> {
+        (0..300)
+            .map(|i| {
+                let mut t: Track = serde_json::from_value(serde_json::json!({
+                    "id": format!("t{i}"), "title": format!("T{i}"), "artist": format!("A{i}"),
+                    "durationSecs": 200.0, "file": "", "blocks": [], "tags": []
+                }))
+                .unwrap();
+                t.language = if i % 3 == 0 { "en".into() } else if i % 3 == 1 { "es".into() } else { String::new() };
+                t
+            })
+            .collect()
+    }
+
+    fn count(picked: &[String], lib: &[Track], lang: &str) -> usize {
+        picked.iter().filter(|id| lib.iter().any(|t| &t.id == *id && t.language == lang)).count()
+    }
+
+    #[test]
+    fn weights_shape_the_mix() {
+        let library = lib();
+        let mut s = Settings::default();
+        s.language_weights.insert("es".into(), 80.0);
+        s.language_weights.insert("en".into(), 20.0);
+        let mut es = 0;
+        let mut en = 0;
+        let mut none = 0;
+        for k in 0..20u64 {
+            let p = pick_tracks(&s, &library, &[], &[], 50, None, None, 1_000_000 + k * 7919);
+            assert_eq!(p.len(), 50);
+            es += count(&p, &library, "es");
+            en += count(&p, &library, "en");
+            none += count(&p, &library, "");
+        }
+        let total = (es + en + none) as f64;
+        assert!(none == 0, "sin idioma con peso 0 no entra mientras haya otros: {none}");
+        let pct = es as f64 / total * 100.0;
+        assert!((70.0..90.0).contains(&pct), "es {pct:.1}% (en {en})");
+    }
+
+    #[test]
+    fn no_weights_keeps_everything() {
+        let library = lib();
+        let s = Settings::default();
+        let p = pick_tracks(&s, &library, &[], &[], 90, None, None, 42);
+        assert_eq!(p.len(), 90);
+        assert!(count(&p, &library, "") > 0 && count(&p, &library, "en") > 0);
+    }
+
+    #[test]
+    fn falls_back_when_language_runs_out() {
+        let library = lib();
+        let mut s = Settings::default();
+        s.language_weights.insert("de".into(), 100.0); // nadie en aleman
+        let p = pick_tracks(&s, &library, &[], &[], 10, None, None, 7);
+        assert_eq!(p.len(), 10, "no deja la lista sin canciones");
     }
 }
