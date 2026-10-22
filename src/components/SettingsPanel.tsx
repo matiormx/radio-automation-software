@@ -42,6 +42,8 @@ interface SettingsPanelProps {
   studio: StudioSnapshot;
   callMuted: boolean;
   onCallMute: (muted: boolean) => void;
+  /** En su propia ventana: sin fondo modal ni cabecera de dialogo */
+  windowed?: boolean;
 }
 
 const DAYS: { value: number; label: string; long: string }[] = [
@@ -184,23 +186,29 @@ export function SettingsPanel({
   studio,
   callMuted,
   onCallMute,
+  windowed = false,
 }: SettingsPanelProps) {
   const s = settings;
   return (
     <div
-      className={`modal-backdrop ${hidden ? "modal-hidden" : ""}`}
-      onClick={onClose}
+      className={windowed ? "settings-windowed" : `modal-backdrop ${hidden ? "modal-hidden" : ""}`}
+      onClick={windowed ? undefined : onClose}
       aria-hidden={hidden}
     >
       <div
-        className={`modal settings-modal ${
-          tab === "sound" || tab === "video" || tab === "streaming" ? "settings-modal-wide" : ""
-        }`}
+        className={
+          windowed
+            ? "settings-window-body"
+            : `modal settings-modal ${
+                tab === "sound" || tab === "video" || tab === "streaming" ? "settings-modal-wide" : ""
+              }`
+        }
         onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
+        role={windowed ? undefined : "dialog"}
+        aria-modal={windowed ? undefined : true}
         aria-label="Ajustes"
       >
+        {!windowed && (
         <div className="modal-head">
           <h3>Ajustes</h3>
           <button
@@ -212,6 +220,7 @@ export function SettingsPanel({
             Ocultar
           </button>
         </div>
+        )}
 
         <div className="settings-body">
           <nav className="settings-nav">

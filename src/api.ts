@@ -1,3 +1,4 @@
+import { getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -324,6 +325,13 @@ export async function guardWindowClose(getMessage: () => string): Promise<() => 
       okLabel: "Cerrar",
       cancelLabel: "Cancelar",
     }).catch(() => true);
-    if (ok) await win.destroy();
+    if (ok) {
+      // Las ventanas de herramientas se cierran con la principal.
+      const all = await getAllWebviewWindows().catch(() => []);
+      for (const w of all) {
+        if (w.label !== win.label) await w.destroy().catch(() => undefined);
+      }
+      await win.destroy();
+    }
   });
 }

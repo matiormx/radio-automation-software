@@ -71,6 +71,8 @@ import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
+import { openToolWindow, publishState, serveMain } from "./bridge";
+import { emit as emitEvent } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
@@ -770,8 +772,12 @@ export default function App() {
   );
 
   const openSettings = useCallback(() => {
-    setSettingsMounted(true);
-    setSettingsOpen(true);
+    // Ajustes en su propia ventana; si no se puede abrir, como panel.
+    void openToolWindow("settings").then((ok) => {
+      if (ok) return;
+      setSettingsMounted(true);
+      setSettingsOpen(true);
+    });
   }, []);
 
   const openNormalizer = useCallback(() => {
@@ -1818,6 +1824,34 @@ export default function App() {
     }
     return out;
   }, [rows, playingRow, pos]);
+
+  // ---- ventanas de herramientas (Ajustes...) ----
+  const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});
+  bridgeRef.current = {
+    getState: () => ({ settings, studio, callMuted }),
+    updateSettings: (s: Settings) => updateSettings(s),
+    chooseMusicFolder: () => chooseMusicFolder(),
+    chooseLogo: () => chooseLogo(),
+    chooseNowPlayingFile: () => chooseNowPlayingFile(),
+    chooseLiveFile: () => chooseLiveFile(),
+    writeNowPlayingNow: () => writeNowPlayingNow(),
+    removeLogo: () => removeLogo(),
+    importForCampaign: () => importForCampaign(),
+    launchEvent: (event: StationEvent) => launchEvent(event),
+    muteCaller: (muted: boolean) => muteCaller(muted),
+  };
+  useEffect(() => {
+    const off = serveMain(() => bridgeRef.current);
+    return () => {
+      void off.then((fn) => fn());
+    };
+  }, []);
+  useEffect(() => {
+    publishState({ settings, studio, callMuted });
+  }, [settings, studio, callMuted]);
+  useEffect(() => {
+    void emitEvent("library://changed");
+  }, [tracks, blocks]);
 
   const deckRow = rows[playingRow] ?? null;
   const nextRow = playingRow >= 0 && playingRow + 1 < rows.length ? rows[playingRow + 1] : null;
