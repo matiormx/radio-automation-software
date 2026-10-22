@@ -15,6 +15,8 @@ pub struct Core {
     pub monitor_ms: f32,
     /// Pico reciente del VU (decae)
     pub monitor_peak: f32,
+    /// Nivel de lo que va a los encoders de streaming
+    pub stream_ms: f32,
 }
 
 /// Constante de tiempo de los medidores (s).
@@ -44,6 +46,7 @@ impl Core {
             call: vec![0.0; MAX_BLOCK * 2],
             monitor_ms: 0.0,
             monitor_peak: 0.0,
+            stream_ms: 0.0,
         }
     }
 
@@ -87,6 +90,7 @@ impl Core {
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));
             let decay = (-(n as f32) / (0.3 * rate as f32)).exp();
             self.monitor_peak = (self.monitor_peak * decay).max(peak);
+            self.stream_ms = ema(self.stream_ms, mean_square(&self.plan.program[..s]), n, rate);
             sink(&self.plan, done, n);
             self.play.now += n as u64;
             done += n;
@@ -95,7 +99,18 @@ impl Core {
 
     /// Nivel del VU como en la version web: 0..1 sobre 48 dB y dBFS.
     pub fn monitor_level(&self) -> (f32, f32) {
-        let rms = self.monitor_ms.max(0.0).sqrt();
+        level_of(self.monitor_ms)
+    }
+
+    /// Nivel de la salida de streaming (lo que reciben los encoders).
+    pub fn stream_level(&self) -> (f32, f32) {
+        level_of(self.stream_ms)
+    }
+}
+
+fn level_of(ms: f32) -> (f32, f32) {
+    {
+        let rms = ms.max(0.0).sqrt();
         let db = 20.0 * rms.max(1e-6).log10();
         (((db + 48.0) / 48.0).clamp(0.0, 1.0), db.max(-60.0))
     }

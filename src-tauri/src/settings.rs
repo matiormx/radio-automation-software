@@ -55,6 +55,8 @@ pub struct Settings {
     pub notifications: Vec<crate::notify::Notification>,
     /// Intros superpuestos sobre el hueco inicio→intro de las canciones
     pub intros: IntroSettings,
+    /// VU de la pantalla principal: "master" o "streaming"
+    pub vu_source: String,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -555,6 +557,7 @@ impl Default for Settings {
             language_weights: HashMap::new(),
             notifications: Vec::new(),
             intros: IntroSettings::default(),
+            vu_source: "master".into(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,

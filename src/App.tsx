@@ -2445,7 +2445,11 @@ export default function App() {
           showToast={showToast}
         />
 
-        <VuMeter mixer={native ?? mixer} />
+        <VuMeter
+          mixer={native ?? mixer}
+          source={settings.vuSource ?? "master"}
+          onSourceChange={(vuSource) => updateSettings({ ...settingsRef.current, vuSource })}
+        />
 
         <div className="right-col">
           {studio.calls.length > 0 && (

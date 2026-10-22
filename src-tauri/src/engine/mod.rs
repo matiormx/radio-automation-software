@@ -74,6 +74,8 @@ struct StatePayload {
     paused: bool,
     level: f32,
     db: f32,
+    stream_level: f32,
+    stream_db: f32,
 }
 
 #[derive(Deserialize)]
@@ -186,7 +188,7 @@ fn control_loop(
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(15));
         let mut strips: Option<Vec<(String, f32, f32)>> = None;
-        let (events, index, playing, paused, level, db) = {
+        let (events, index, playing, paused, level, db, slevel, sdb) = {
             let mut c = lock_ctl(&ctl);
             let Ctl { player, loader } = &mut *c;
             let mut g = lock(&shared);
@@ -194,6 +196,7 @@ fn control_loop(
             // Las voces terminadas se liberan aqui, fuera del hilo de audio.
             std::mem::swap(&mut g.core.play.voices.dead, &mut spare);
             let (level, db) = g.core.monitor_level();
+            let (slevel, sdb) = g.core.stream_level();
             let playing = player.is_playing(&g.core.play);
             if meters_on.load(Ordering::Relaxed) && last_emit.elapsed() >= Duration::from_millis(33) {
                 let mut list = g.core.plan.take_meters();
@@ -202,7 +205,7 @@ fn control_loop(
                 strips = Some(list);
             }
             drop(g);
-            (player.drain_events(), player.index(), playing, player.is_paused(), level, db)
+            (player.drain_events(), player.index(), playing, player.is_paused(), level, db, slevel, sdb)
         };
         spare.clear();
         for e in events {
@@ -234,7 +237,7 @@ fn control_loop(
             if let Some(t) = last_tick {
                 out.push(t);
             }
-            let _ = app.emit("engine://state", StatePayload { events: out, index, playing, paused, level, db });
+            let _ = app.emit("engine://state", StatePayload { events: out, index, playing, paused, level, db, stream_level: slevel, stream_db: sdb });
             if let Some(list) = strips.take() {
                 let list: Vec<StripMeter> = list.into_iter().map(|(key, l, r)| StripMeter { key, l, r }).collect();
                 let _ = app.emit("engine://meters", list);
@@ -309,11 +312,13 @@ mod contract_tests {
             paused: false,
             level: 0.5,
             db: -12.0,
+            stream_level: 0.25,
+            stream_db: -30.0,
         };
         let j = serde_json::to_string(&p).unwrap();
         assert_eq!(
             j,
-            r#"{"events":[{"type":"tick","pos":1.0,"total":2.0},{"type":"index","index":2},{"type":"ended"},{"type":"diag","message":"x"}],"index":2,"playing":true,"paused":false,"level":0.5,"db":-12.0}"#
+            r#"{"events":[{"type":"tick","pos":1.0,"total":2.0},{"type":"index","index":2},{"type":"ended"},{"type":"diag","message":"x"}],"index":2,"playing":true,"paused":false,"level":0.5,"db":-12.0,"streamLevel":0.25,"streamDb":-30.0}"#
         );
     }
 }

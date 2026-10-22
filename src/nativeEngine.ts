@@ -20,6 +20,8 @@ interface StatePayload {
   paused: boolean;
   level: number;
   db: number;
+  streamLevel?: number;
+  streamDb?: number;
 }
 
 type MixerSlice = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
@@ -185,6 +187,11 @@ export class NativePlayer {
 
   getMonitorLevel(): { level: number; db: number } {
     return { level: this.state.level, db: this.state.db };
+  }
+
+  /** Nivel de lo que va a los encoders de streaming. */
+  getStreamLevel(): { level: number; db: number } {
+    return { level: this.state.streamLevel ?? 0, db: this.state.streamDb ?? -60 };
   }
 
   // ------------------------------------------------------------ internals

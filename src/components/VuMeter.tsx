@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+type Level = { level: number; db: number };
+
 interface VuMeterProps {
-  mixer: { getMonitorLevel(): { level: number; db: number } } | null;
+  mixer: { getMonitorLevel(): Level; getStreamLevel?(): Level } | null;
+  /** Que mide: la salida general o lo que va al streaming */
+  source?: "master" | "streaming";
+  onSourceChange?: (s: "master" | "streaming") => void;
 }
 
-export function VuMeter({ mixer }: VuMeterProps) {
+export function VuMeter({ mixer, source = "master", onSourceChange }: VuMeterProps) {
   const [level, setLevel] = useState(0);
   const [peak, setPeak] = useState(0);
   const [db, setDb] = useState(-60);
@@ -27,7 +32,7 @@ export function VuMeter({ mixer }: VuMeterProps) {
       if (time - last < 33) return;
       last = time;
 
-      const next = mixer.getMonitorLevel();
+      const next = source === "streaming" && mixer.getStreamLevel ? mixer.getStreamLevel() : mixer.getMonitorLevel();
       const raw = next.level;
       smooth.current =
         raw > smooth.current
@@ -41,14 +46,21 @@ export function VuMeter({ mixer }: VuMeterProps) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mixer]);
+  }, [mixer, source]);
 
   const pct = Math.round(level * 100);
   const peakPct = Math.round(peak * 100);
 
   return (
-    <aside className="vu-rail" aria-label="Nivel de salida">
-      <span className="vu-title">VU</span>
+    <aside className="vu-rail" aria-label={source === "streaming" ? "Nivel de la salida de streaming" : "Nivel de salida"}>
+      <button
+        type="button"
+        className={`vu-title vu-switch ${source === "streaming" ? "vu-switch-on" : ""}`}
+        title={source === "streaming" ? "Midiendo la salida de streaming (clic: salida general)" : "Midiendo la salida general (clic: salida de streaming)"}
+        onClick={() => onSourceChange?.(source === "streaming" ? "master" : "streaming")}
+      >
+        {source === "streaming" ? "STR" : "VU"}
+      </button>
       <div className="vu-track">
         <div className="vu-fill" style={{ height: `${pct}%` }} />
         <div className="vu-peak" style={{ bottom: `${peakPct}%` }} />

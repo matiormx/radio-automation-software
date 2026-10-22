@@ -118,6 +118,8 @@ export class SoundMixer {
   private previewJob = 0;
   private disposed = false;
   private monitorAnalyser: AnalyserNode;
+  private streamAnalyser: AnalyserNode;
+  private streamData: Float32Array<ArrayBuffer>;
   private monitorData: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
   private readonly programTap: GainNode;
@@ -171,6 +173,13 @@ export class SoundMixer {
     silent.gain.value = 0;
     this.monitorAnalyser.connect(silent);
     silent.connect(this.ctx.destination);
+    // VU de la salida de streaming: lo que reciben los encoders.
+    this.streamAnalyser = this.ctx.createAnalyser();
+    this.streamAnalyser.fftSize = 1024;
+    this.streamAnalyser.smoothingTimeConstant = 0.7;
+    this.streamData = new Float32Array(new ArrayBuffer(this.streamAnalyser.fftSize * 4));
+    this.programTap.connect(this.streamAnalyser);
+    this.streamAnalyser.connect(silent);
     this.apply(this.config);
   }
 
@@ -543,15 +552,13 @@ export class SoundMixer {
 
   getMonitorLevel(): { level: number; db: number } {
     if (this.disposed) return { level: 0, db: -60 };
-    this.monitorAnalyser.getFloatTimeDomainData(this.monitorData);
-    let sum = 0;
-    for (const sample of this.monitorData) sum += sample * sample;
-    const rms = Math.sqrt(sum / this.monitorData.length);
-    const db = 20 * Math.log10(Math.max(rms, 0.000001));
-    return {
-      level: Math.max(0, Math.min(1, (db + 48) / 48)),
-      db: Math.max(-60, db),
-    };
+    return levelOf(this.monitorAnalyser, this.monitorData);
+  }
+
+  /** Nivel de lo que va a los encoders de streaming. */
+  getStreamLevel(): { level: number; db: number } {
+    if (this.disposed) return { level: 0, db: -60 };
+    return levelOf(this.streamAnalyser, this.streamData);
   }
 
   setMasterVolume(v: number) {
@@ -933,4 +940,13 @@ export class SoundMixer {
       if (ret.deviceId === deviceId) return true;
     return false;
   }
+}
+
+function levelOf(an: AnalyserNode, data: Float32Array<ArrayBuffer>): { level: number; db: number } {
+  an.getFloatTimeDomainData(data);
+  let sum = 0;
+  for (const sample of data) sum += sample * sample;
+  const rms = Math.sqrt(sum / data.length);
+  const db = 20 * Math.log10(Math.max(rms, 0.000001));
+  return { level: Math.max(0, Math.min(1, (db + 48) / 48)), db: Math.max(-60, db) };
 }

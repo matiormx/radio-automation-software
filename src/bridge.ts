@@ -1,5 +1,5 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, LogicalSize, type Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /**
@@ -21,6 +21,55 @@ const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: numbe
   mixer: { title: "Mixer — MiRadio", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
 };
 
+/** Area util de la pantalla (sin barra de tareas), en pixeles logicos. */
+export async function workArea(): Promise<{ width: number; height: number } | null> {
+  try {
+    const m = await currentMonitor();
+    if (!m) return null;
+    const wa = m.workArea ?? { size: m.size };
+    return { width: wa.size.width / m.scaleFactor, height: wa.size.height / m.scaleFactor };
+  } catch {
+    return null;
+  }
+}
+
+/** Tamaño de una ventana de herramienta que cabe en la pantalla. */
+async function fittedSize(kind: ToolKind) {
+  const size = TOOL_SIZES[kind];
+  const wa = await workArea();
+  if (!wa) return size;
+  const width = Math.min(size.width, Math.round(wa.width - 24));
+  const height = Math.min(size.height, Math.round(wa.height - 24));
+  return {
+    ...size,
+    width,
+    height,
+    minWidth: Math.min(size.minWidth, width),
+    minHeight: Math.min(size.minHeight, height),
+  };
+}
+
+/** Si la ventana es mas grande que la pantalla, la ajusta (o la maximiza). */
+export async function fitToScreen(win: Window = getCurrentWindow(), maximizeIfSmall = false): Promise<void> {
+  try {
+    const wa = await workArea();
+    if (!wa) return;
+    const sf = await win.scaleFactor();
+    const outer = await win.outerSize();
+    const w = outer.width / sf;
+    const h = outer.height / sf;
+    if (w > wa.width || h > wa.height) {
+      await win.setSize(new LogicalSize(Math.min(w, wa.width - 16), Math.min(h, wa.height - 16)));
+      await win.center();
+    }
+    if (maximizeIfSmall && (wa.width < 1500 || wa.height < 900)) {
+      await win.maximize();
+    }
+  } catch {
+    /* sin permisos o sin monitor: se queda como esta */
+  }
+}
+
 /**
  * Crea la ventana oculta y ya cargada, para que abrirla despues sea
  * instantaneo (arrancar un WebView desde cero tarda segundos).
@@ -28,7 +77,7 @@ const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: numbe
 export async function prewarmToolWindow(kind: ToolKind): Promise<void> {
   try {
     if (await WebviewWindow.getByLabel(kind)) return;
-    const size = TOOL_SIZES[kind];
+    const size = await fittedSize(kind);
     new WebviewWindow(kind, {
       url: `index.html?w=${kind}`,
       title: size.title,
@@ -65,11 +114,12 @@ export async function openToolWindow(kind: ToolKind): Promise<boolean> {
     const existing = await WebviewWindow.getByLabel(kind);
     if (existing) {
       await existing.unminimize().catch(() => undefined);
+      await fitToScreen(existing as unknown as Window);
       await existing.show().catch(() => undefined);
       await existing.setFocus().catch(() => undefined);
       return true;
     }
-    const size = TOOL_SIZES[kind];
+    const size = await fittedSize(kind);
     const win = new WebviewWindow(kind, {
       url: `index.html?w=${kind}`,
       title: size.title,

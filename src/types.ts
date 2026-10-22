@@ -455,6 +455,8 @@ export interface Settings {
   /** Avisos GET/POST ante eventos */
   notifications: NotificationRule[];
   intros: IntroSettings;
+  /** El VU de la pantalla principal mide la salida general o la de streaming */
+  vuSource: "master" | "streaming";
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -517,6 +519,7 @@ export const DEFAULT_SETTINGS: Settings = {
   languageWeights: {},
   notifications: [],
   intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
+  vuSource: "master",
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,

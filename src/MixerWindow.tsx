@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { WindowControls } from "./components/WindowControls";
 import {
@@ -263,9 +263,47 @@ function Pop({ open, onClose, children }: { open: boolean; onClose: () => void; 
       document.removeEventListener("keydown", onKey);
     };
   }, [open, onClose]);
+  // Se coloca en la pantalla (position: fixed) hacia el lado con sitio:
+  // a la derecha de su tira o, si no cabe, a la izquierda; y hacia arriba
+  // si no cabe por debajo. Asi no lo recorta el borde de la ventana.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const place = () => {
+      const el = ref.current;
+      const anchor = el?.parentElement;
+      if (!el || !anchor) return;
+      const a = anchor.getBoundingClientRect();
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = a.left + 4;
+      if (left + w > vw - 8) left = a.right - w - 4;
+      left = Math.max(8, Math.min(left, vw - w - 8));
+      let top = a.top + 30;
+      if (top + h > vh - 8) top = a.top - h + 26;
+      top = Math.max(8, Math.min(top, vh - h - 8));
+      setPos({ left, top });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
   if (!open) return null;
   return (
-    <div className="mx-pop" ref={ref}>
+    <div
+      className="mx-pop"
+      ref={ref}
+      style={pos ? { position: "fixed", left: pos.left, top: pos.top, right: "auto" } : { visibility: "hidden" }}
+    >
       {children}
     </div>
   );
