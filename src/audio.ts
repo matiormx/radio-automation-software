@@ -29,8 +29,15 @@ function trimStartOf(t: Track): number {
 
 function trimEndOf(t: Track, duration: number): number {
   const start = trimStartOf(t);
-  const raw = t.trimEnd ?? duration;
+  let raw = t.trimEnd ?? duration;
+  // Un recorte automatico que se come mas de la mitad de la cancion es un
+  // error del analisis, no silencio: se ignora. El recorte manual se respeta.
+  if (!t.trimManual && t.trimEnd != null && raw < duration / 2) raw = duration;
   return Math.max(start + 0.2, Math.min(duration, raw));
+}
+
+function fmtDiag(secs: number): string {
+  return `${secs.toFixed(1)} s`;
 }
 
 function normGainOf(t: Track): number {
@@ -110,6 +117,8 @@ export class RadioPlayer {
   onTick: ((current: number, total: number) => void) | null = null;
   onIndexChange: ((index: number) => void) | null = null;
   onEnded: (() => void) | null = null;
+  /** Avisa cuando una pista se acaba mucho antes de lo esperado, con el motivo. */
+  onDiag: ((message: string) => void) | null = null;
 
   constructor(private mixer: SoundMixer) {}
 
@@ -578,6 +587,7 @@ export class RadioPlayer {
         this.silentSince = now;
       } else if (now - this.silentSince >= RadioPlayer.SILENCE_SECONDS * 1000) {
         this.silentSince = 0;
+        this.reportEarlyChange(deck, "Silencio detectado", pos);
         if (this.index >= 0 && this.index + 1 < this.playlist.length) {
           void this.playAt(this.index + 1);
         } else if (this.loop && this.playlist.length > 1) {
@@ -612,6 +622,7 @@ export class RadioPlayer {
     }
 
     if (pos >= deck.end) {
+      this.reportEarlyChange(deck, "Fin de pista", pos);
       this.finish(deck);
       return;
     }
@@ -637,6 +648,7 @@ export class RadioPlayer {
       nextIdx >= 0 &&
       nextIdx !== this.index
     ) {
+      this.reportEarlyChange(deck, mixPoint > 0 ? "Cruce por punto Mix" : "Cruce", pos);
       void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0);
       return;
     }
@@ -769,6 +781,22 @@ export class RadioPlayer {
     }
     this.onTick?.(0, 0);
     this.callEnded();
+  }
+
+  /** Si la pista no llega al 80 % de su duracion, explica por que se cambio. */
+  private reportEarlyChange(deck: Deck, reason: string, pos: number) {
+    const total = deck.buffer.duration;
+    if (!(total > 0) || pos >= total * 0.8) return;
+    const track = this.playlist[this.index];
+    if (!track) return;
+    const parts = [
+      `${reason} a los ${fmtDiag(pos)} de ${fmtDiag(total)}`,
+      `recorte ${fmtDiag(track.trimStart || 0)}–${track.trimEnd == null ? "fin" : fmtDiag(track.trimEnd)}${track.trimManual ? " (manual)" : " (auto)"}`,
+      `mix ${fmtDiag(track.mixPoint || 0)}`,
+      `fade ${fmtDiag(track.fadeOutStart || 0)}`,
+      `ficha ${fmtDiag(track.durationSecs || 0)}`,
+    ];
+    this.onDiag?.(`${track.title || "Pista"}: ${parts.join(" · ")}`);
   }
 
   private callEnded() {

@@ -293,6 +293,7 @@ export default function App() {
     setMixer(mixer);
     const player = new RadioPlayer(mixer);
     player.onIndexChange = (i) => setPlayingRow(i);
+    player.onDiag = (msg) => showToast(msg);
     player.onEnded = () => {
       setPlayingRow(-1);
       setPaused(true);
@@ -310,6 +311,7 @@ export default function App() {
       player.onIndexChange = null;
       player.onTick = null;
       player.onEnded = null;
+      player.onDiag = null;
       player.dispose();
       playerRef.current = null;
       mixer.dispose();
