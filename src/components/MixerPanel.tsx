@@ -619,6 +619,11 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             ))}
                           </optgroup>
                         )}
+                        <optgroup label="Emisión">
+                          <option value="device:streaming">
+                            Streaming (encoders)
+                          </option>
+                        </optgroup>
                         <optgroup label="Tarjetas de salida">
                           <option value="device:default">
                             Salida predeterminada
@@ -630,6 +635,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           ))}
                           {ch.output.kind === "device" &&
                             ch.output.id !== "default" &&
+                            ch.output.id !== "streaming" &&
                             !outputs.some((d) => d.id === ch.output.id) && (
                               <option value={`device:${ch.output.id}`}>
                                 Salida no disponible
@@ -744,6 +750,9 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             patchBus(bus.id, { outputDeviceId: e.target.value })
                           }
                         >
+                          <option value="streaming">
+                            Streaming (encoders)
+                          </option>
                           <option value="default">Salida predeterminada</option>
                           {outputs.map((d) => (
                             <option key={d.id} value={d.id}>
@@ -751,6 +760,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             </option>
                           ))}
                           {bus.outputDeviceId !== "default" &&
+                            bus.outputDeviceId !== "streaming" &&
                             !outputs.some(
                               (d) => d.id === bus.outputDeviceId,
                             ) && (

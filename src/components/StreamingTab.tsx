@@ -68,8 +68,9 @@ export function StreamingTab({ settings, onChange }: Props) {
           <p className="hint">
             Emisión de audio a Icecast en FLAC o AAC y salida de vídeo por RTSP
             a un servidor externo. El motor usa FFmpeg y se inicia con el botón
-            EMITIR de la cabecera. La captura toma el mismo bus que el VU de
-            salida en PCM 48 kHz estéreo.
+            EMITIR de la cabecera. La captura toma lo que envíes a la salida
+            Streaming de la mesa (canales o buses); si nada va a ella, toma el
+            mismo bus que el VU de salida. PCM 48 kHz estéreo.
           </p>
         </div>
       </div>

@@ -15,6 +15,8 @@ import { Leveler, levelerOf } from "./leveler";
  */
 
 const DEFAULT_DEVICE = "default";
+/** Salida virtual: lo que entra a los encoders de streaming */
+export const STREAM_DEVICE = "streaming";
 export const MIN_GAIN_DB = -60;
 export const MAX_GAIN_DB = 12;
 
@@ -113,6 +115,8 @@ export class SoundMixer {
   private monitorData: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
   private readonly programTap: GainNode;
+  /** Suma de lo enrutado a la salida Streaming (sin volumen maestro) */
+  private readonly streamMix: GainNode;
   /**
    * Retorno para el oyente que llama (mix-minus): el programa sin su propia voz.
    * Suma la musica y los canales que no son de llamada, ya con su fader.
@@ -147,6 +151,7 @@ export class SoundMixer {
     this.returnMix = this.ctx.createGain();
     this.returnDest = this.ctx.createMediaStreamDestination();
     this.programTap = this.ctx.createGain();
+    this.streamMix = this.ctx.createGain();
     this.monitorAnalyser = this.ctx.createAnalyser();
     this.monitorAnalyser.fftSize = 1024;
     this.monitorAnalyser.smoothingTimeConstant = 0.7;
@@ -182,6 +187,7 @@ export class SoundMixer {
       }
       this.monitorTap = null;
     }
+    this.streamMix.disconnect();
     this.musicInput.disconnect();
     this.musicInput.connect(this.musicAnalyser);
     this.previewInput.disconnect();
@@ -285,7 +291,18 @@ export class SoundMixer {
       : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorAnalyser);
-    monitorTap.connect(this.programTap);
+    // Los encoders toman la salida Streaming si algo va a ella; si no, el VU.
+    const streamUsed =
+      cfg.mixerBuses.some(
+        (b) => normDevice(b.outputDeviceId) === STREAM_DEVICE,
+      ) ||
+      cfg.mixerChannels.some(
+        (ch) =>
+          ch.output.kind === "device" &&
+          normDevice(ch.output.id) === STREAM_DEVICE,
+      );
+    if (streamUsed) this.streamMix.connect(this.programTap);
+    else monitorTap.connect(this.programTap);
     this.monitorTap = monitorTap;
 
     for (const ch of cfg.mixerChannels) {
@@ -441,7 +458,8 @@ export class SoundMixer {
     const next = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 1));
     this.volume = next;
     const now = this.ctx.currentTime;
-    for (const mix of this.deviceMixes.values()) {
+    for (const [id, mix] of this.deviceMixes) {
+      if (id === STREAM_DEVICE) continue;
       mix.gain.gain.cancelScheduledValues(now);
       mix.gain.gain.setTargetAtTime(next, now, 0.012);
     }
@@ -593,6 +611,13 @@ export class SoundMixer {
     if (existing) return existing.gain;
 
     const gain = this.ctx.createGain();
+    if (id === STREAM_DEVICE) {
+      // El volumen maestro es la escucha local: no debe cambiar la emision.
+      gain.gain.value = 1;
+      gain.connect(this.streamMix);
+      this.deviceMixes.set(id, { gain });
+      return gain;
+    }
     gain.gain.value = this.volume;
     if (id === DEFAULT_DEVICE || !this.canSink) {
       gain.connect(this.ctx.destination);
