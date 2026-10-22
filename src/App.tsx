@@ -32,6 +32,7 @@ import {
   writeNowPlayingImage,
   pickNowPlayingFile,
   getStreamStatus,
+  guardWindowClose,
   startStreaming,
   stopStreaming,
 } from "./api";
@@ -615,6 +616,35 @@ export default function App() {
   useEffect(() => {
     studioRef.current?.configure(settings.studioCalls);
   }, [settings.studioCalls.enabled, settings.studioCalls.serverUrl, settings.studioCalls.token]);
+  // Confirmacion al cerrar la ventana, para no cortar la emision sin querer.
+  const closeInfoRef = useRef({ playing: false, streaming: false, calls: 0 });
+  closeInfoRef.current = {
+    playing: playingRow >= 0 && !paused,
+    streaming: !!streamStatus?.running,
+    calls: studio.calls.length,
+  };
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    void guardWindowClose(() => {
+      const i = closeInfoRef.current;
+      const extra = [
+        i.calls > 0 ? "hay una llamada al aire" : "",
+        i.streaming ? "se está emitiendo por streaming" : "",
+        i.playing ? "está sonando la emisión" : "",
+      ].filter(Boolean);
+      return extra.length > 0
+        ? `¿Cerrar MiRadio? Ahora mismo ${extra.join(", ")} y se cortará.`
+        : "¿Cerrar MiRadio?";
+    }).then((fn) => {
+      if (cancelled) fn();
+      else off = fn;
+    });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
   const lastCallCount = useRef(0);
   useEffect(() => {
     if (studio.calls.length > lastCallCount.current) {

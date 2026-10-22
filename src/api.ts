@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type {
   Block,
   Playlist,
@@ -291,4 +291,22 @@ export async function onWindowFileDrop(
     }
   });
   return unlisten;
+}
+
+/**
+ * Pide confirmacion antes de cerrar la ventana. `message` puede cambiar segun
+ * el estado (emitiendo, llamada al aire...). Devuelve la funcion para quitarlo.
+ */
+export async function guardWindowClose(getMessage: () => string): Promise<() => void> {
+  const win = getCurrentWindow();
+  return win.onCloseRequested(async (event) => {
+    event.preventDefault();
+    const ok = await ask(getMessage(), {
+      title: "Cerrar MiRadio",
+      kind: "warning",
+      okLabel: "Cerrar",
+      cancelLabel: "Cancelar",
+    }).catch(() => true);
+    if (ok) await win.destroy();
+  });
 }
