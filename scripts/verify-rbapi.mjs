@@ -116,60 +116,74 @@ function diffShape(a, b, path = "") {
 }
 
 // ---------- comprobaciones por accion ----------
+// Formatos capturados de RadioBOSS 7.2 (docs/radioboss-referencia.md).
+
+const INFO = "ARTIST TITLE ALBUM YEAR GENRE COMMENT FILENAME DURATION PLAYCOUNT LASTPLAYED INTRO OUTRO LANGUAGE RATING BPM TAGS PUBLISHER ALBUMARTIST COMPOSER COPYRIGHT TRACKNUMBER F1 F2 F3 F4 F5";
+const PL2 = "STARTTIME CASTTITLE DURATION FILENAME TRACKFILENAME RATING PLAYCOUNT INTRO OUTRO BPM PLAYLISTINDEX INDEX FT_IDX ITEMTYPE PQUEUE ARTIST TITLE ALBUM YEAR GENRE COMMENT LASTPLAYED LANGUAGE F1 F2 F3 F4 F5";
+const FILE = "FN Duration Artist Title Album Year Genre Comment BPM Rating Playcount LastPlayed Added UserField1 UserField2 UserField3 UserField4 UserField5 TypeIdentifier TagsList Intro Outro FadeIn FadeOut Mix Level Start End PlayedHistory Artwork_Base64 HookIn HookOut";
+const DUR = /^\d+:\d{2}(:\d{2})?$/;
+const kid = (n, name) => n?.children.find((c) => c.name === name);
 
 const VALIDATE = {
   playbackinfo(doc) {
     const info = doc.children[0];
     check(info?.name === "Info", "raíz <Info>");
-    const order = info.children.map((c) => c.name).join(",");
-    check(order === "Playback,CurrentTrack,NextTrack,Listeners", `orden de elementos (${order})`);
-    const pb = info.children[0];
-    check(names(pb) === "state pos len", `Playback: atributos "state pos len" (${names(pb)})`);
+    const order = info.children.map((c) => c.name).filter((n) => n !== "Overlay").join(",");
+    check(order === "CurrentTrack,Playback,Options,Features,Streaming,Relay,PrevTrack,NextTrack", `orden de elementos (${order})`);
+    const pb = kid(info, "Playback");
+    check(names(pb) === "pos len state playlistpos streams netstream playingtimeleft timestamp volume", `Playback: ${names(pb)}`);
     check(/^(play|pause|stop)$/.test(attr(pb, "state")), `state = ${attr(pb, "state")}`);
-    check(/^\d+$/.test(attr(pb, "pos")) && /^\d+$/.test(attr(pb, "len")), "pos y len enteros (ms)");
-    check(Number(attr(pb, "pos")) <= Number(attr(pb, "len")) || attr(pb, "len") === "0", "pos <= len");
-    const cur = info.children[1].children[0];
+    check(DATE.test(attr(pb, "timestamp")), `timestamp ${attr(pb, "timestamp")}`);
+    const cur = kid(info, "CurrentTrack").children[0];
     if (cur) {
-      check(names(cur) === "ARTIST TITLE FILENAME ALBUM DURATION STARTTIME", `CurrentTrack/TRACK: ${names(cur)}`);
-      check(!!attr(cur, "ARTIST") && !!attr(cur, "TITLE"), "ARTIST y TITLE no vacíos");
-      check(/^\d+:\d{2}(:\d{2})?$/.test(attr(cur, "DURATION")), `DURATION ${attr(cur, "DURATION")}`);
-      check(DATE.test(attr(cur, "STARTTIME")), `STARTTIME ${attr(cur, "STARTTIME")}`);
+      check(names(cur) === `${INFO} CASTTITLE LISTENERS LYRICS ITEMTITLE FT_IDX`, "CurrentTrack/TRACK con todos los atributos en orden");
+      check(DUR.test(attr(cur, "DURATION")), `DURATION ${attr(cur, "DURATION")}`);
     } else ok("sin pista activa: CurrentTrack vacío");
-    const nxt = info.children[2].children[0];
-    if (nxt) check(names(nxt) === "ARTIST TITLE FILENAME", `NextTrack/TRACK: ${names(nxt)}`);
-    check(/^\d+$/.test(info.children[3].text.trim()), `Listeners entero (${info.children[3].text.trim()})`);
+    for (const n of ["PrevTrack", "NextTrack"]) {
+      const t = kid(info, n).children[0];
+      if (t) check(names(t) === `${INFO} LYRICS CASTTITLE ITEMTITLE FT_IDX`, `${n}/TRACK con todos los atributos en orden`);
+    }
+  },
+  status(doc) {
+    const p = doc.children[0]?.children[0];
+    check(doc.children[0]?.name === "Status" && names(p) === "version uptime", "Status/Player version uptime");
   },
   encoderstatus(doc) {
     const root = doc.children[0];
     check(root?.name === "Encoders", "raíz <Encoders>");
-    for (const e of root.children) check(e.name === "Encoder" && names(e) === "name listeners" && /^\d+$/.test(attr(e, "listeners")), `Encoder ${attr(e, "name")}`);
+    for (const e of root.children) check(names(e) === "index status error name listeners", `Encoder ${attr(e, "name")}`);
   },
   getlastplayed(doc) {
     const items = doc.children[0]?.children ?? [];
     check(items.length > 0, `${items.length} pistas`);
+    check(items.every((t) => names(t) === `${INFO} LYRICS STARTTIME CASTTITLE TRACKTITLE ARTWORKID TITLESENT FT_IDX`), "TRACK con todos los atributos en orden");
     let prev = "9999";
+    let sorted = true;
     for (const t of items) {
-      if (names(t) !== "ARTIST TITLE FILENAME LASTPLAYED") bad(`Track: ${names(t)}`);
-      if (!DATE.test(attr(t, "LASTPLAYED"))) bad(`LASTPLAYED ${attr(t, "LASTPLAYED")}`);
-      if (attr(t, "LASTPLAYED") > prev) bad("no está ordenado (más reciente primero)");
-      prev = attr(t, "LASTPLAYED");
+      if (attr(t, "STARTTIME") > prev) sorted = false;
+      prev = attr(t, "STARTTIME");
     }
-    ok("Track ARTIST TITLE FILENAME LASTPLAYED, más recientes primero");
+    check(sorted, "más recientes primero");
   },
   library(doc) {
     const items = doc.children[0]?.children ?? [];
     check(items.length > 0, `${items.length} canciones`);
-    check(items.every((t) => names(t).startsWith("ARTIST TITLE FILENAME ALBUM")), "Track ARTIST TITLE FILENAME ALBUM …");
-    const fns = items.map((t) => attr(t, "FILENAME"));
-    check(new Set(fns).size === fns.length, "FILENAME únicos");
     return attr(items[0] ?? { attrs: [] }, "FILENAME");
   },
   getplaylist2(doc) {
-    const items = doc.children[0]?.children ?? [];
-    check(items.every((t) => names(t) === "ARTIST TITLE FILENAME ITEMTYPE STARTTIME"), `${items.length} TRACK ARTIST TITLE FILENAME ITEMTYPE STARTTIME`);
+    const root = doc.children[0];
+    check(names(root) === "COUNT TS FILE", `Playlist ${names(root)}`);
+    const items = root?.children ?? [];
+    check(items.every((t) => names(t) === PL2), `${items.length} TRACK con todos los atributos en orden`);
+    check(items.every((t) => /^\d{2}:\d{2}:\d{2}$/.test(attr(t, "STARTTIME"))), "STARTTIME hh:mm:ss");
+  },
+  trackinfo(doc) {
+    const t = doc.children[0]?.children[0]?.children[0];
+    if (t) check(names(t) === `${INFO} LYRICS FT_IDX`, "Info/Track/TRACK en orden");
+    else ok("posición vacía: <Info></Info>");
   },
   songrequestlist(doc) {
-    check(doc.children.length === 1, `raíz <${doc.children[0]?.name}>`);
+    check(doc.children[0]?.name === "SongRequest", `raíz <${doc.children[0]?.name}>`);
   },
 };
 
@@ -194,7 +208,8 @@ async function compare(name, params, mine) {
   try {
     const theirs = await call(CMP.base, CMP, { action: name, ...params });
     if (theirs.status !== 200) return bad(`RadioBOSS respondió ${theirs.status}`);
-    const diffs = diffShape(shape(mine), shape(parseXml(theirs.body)));
+    const strip = (n) => ({ ...n, children: n.children.filter((c) => c.name !== "Overlay").map(strip) });
+    const diffs = diffShape(shape(strip(mine)), shape(strip(parseXml(theirs.body))));
     if (diffs.length === 0) ok("misma estructura que RadioBOSS");
     else for (const d of diffs) bad(`distinto de RadioBOSS: ${d}`);
   } catch (e) {
@@ -207,39 +222,47 @@ async function main() {
 
   console.log("\nautenticación");
   const anon = await call(BASE, AUTH, { action: "playbackinfo" }, { noAuth: true });
-  check(anon.status === 401, `sin credenciales → ${anon.status}`);
+  check(anon.status === 401 && anon.body === "E001: Wrong password", `sin credenciales → ${anon.status} ${anon.body}`);
   const wrong = await call(BASE, { user: AUTH.user || "x", pass: "incorrecta-123" }, { action: "playbackinfo" });
   check(wrong.status === 401, `clave incorrecta → ${wrong.status}`);
 
   await action("playbackinfo");
+  await action("status");
   await action("encoderstatus");
   await action("getlastplayed");
   const firstFile = await action("library");
   await action("getplaylist2");
+  await action("getplaylist2", { cnt: "3" });
+  await action("trackinfo", { pos: "1" });
   await action("songrequestlist");
 
   console.log("\nreadtag");
-  if (firstFile) {
-    const r = await call(BASE, AUTH, { action: "readtag", fn: args.fn || firstFile, artwork: "1" });
-    check(r.status === 200 || r.status === 404, `HTTP ${r.status} (${r.ms.toFixed(0)} ms)`);
-    if (r.status === 200) {
+  if (firstFile || args.fn) {
+    for (const art of ["0", "1"]) {
+      const r = await call(BASE, AUTH, { action: "readtag", fn: args.fn || firstFile, artwork: art });
+      check(r.status === 200, `artwork=${art}: HTTP ${r.status} (${r.ms.toFixed(0)} ms)`);
       const f = parseXml(r.body).children[0]?.children[0];
-      check(f?.name === "File" && names(f).startsWith("FN ARTIST TITLE ALBUM"), `File: ${f && names(f)}`);
+      check(f?.name === "File" && names(f) === FILE, `File con todos los atributos en orden`);
+      if (art === "1") ok(`Artwork_Base64: ${(attr(f, "Artwork_Base64") || "").length} caracteres`);
     }
   } else bad("no hay canciones para probar readtag");
   const outside = await call(BASE, AUTH, { action: "readtag", fn: "C:\\Windows\\win.ini" });
-  check(outside.status === 404, `archivo fuera de la biblioteca rechazado (${outside.status})`);
+  check(outside.status === 200 && /Duration="0" Artist=""/.test(outside.body), "archivo fuera de la biblioteca: ficha vacía, sin leerlo");
 
-  for (const a of ["trackartwork", "nexttrackartwork"]) {
+  for (const a of ["trackartwork", "nexttrackartwork", "prevtrackartwork"]) {
     console.log(`\n${a}`);
     const r = await call(BASE, AUTH, { action: a }, { raw: true });
-    if (r.status === 200) check(/^image\//.test(r.type) && r.body.length > 0, `${r.type}, ${r.body.length} bytes`);
-    else check(r.status === 404, `sin carátula → ${r.status}`);
+    check(r.status === 200, `HTTP ${r.status}, ${r.type}, ${r.body.length} bytes`);
+  }
+
+  for (const [a, extra] of [["mic", {}], ["streamarchivestatus", {}]]) {
+    const r = await call(BASE, AUTH, { action: a, ...extra });
+    check(r.status === 200 && /^[01]$/.test(r.body), `${a} → ${r.body}`);
   }
 
   console.log("\nun fallo no tira el resto");
   const err = await call(BASE, AUTH, { action: "no-existe" });
-  check(err.status === 400, `acción desconocida → ${err.status}`);
+  check(err.status === 400 && err.body === "E005: Unknown action", `acción desconocida → ${err.status} ${err.body}`);
   const after = await call(BASE, AUTH, { action: "playbackinfo" });
   check(after.status === 200, "playbackinfo sigue respondiendo");
 

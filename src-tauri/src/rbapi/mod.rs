@@ -6,6 +6,7 @@
 //! memoria: `playbackinfo` no toca disco ni red.
 
 pub mod listeners;
+pub mod rb;
 pub mod tags;
 pub mod xml;
 
@@ -23,7 +24,7 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 
 use self::listeners::Poller;
-use self::xml::{duration, empty_tag, norm};
+use self::xml::norm;
 use crate::library::{cover_abs, read_library_internal, Track};
 use crate::AppState;
 
@@ -53,6 +54,35 @@ pub struct Published {
     /// Lista de emision completa y posicion de la actual en ella
     pub queue: Vec<PubTrack>,
     pub current_index: i64,
+    /// Texto que se envia a las emisiones (CASTTITLE de la actual)
+    pub cast_title: String,
+    /// Volumen general 0..1
+    pub volume: f64,
+    /// Nombre de la lista que suena
+    pub list_name: String,
+    /// Eventos (programador) activados
+    pub scheduler: bool,
+    /// Salidas de emision, en orden
+    pub encoders: Vec<PubEncoder>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PubEncoder {
+    pub name: String,
+    /// active | idle | off
+    pub status: String,
+    pub error: String,
+    pub host: String,
+    pub port: u16,
+    pub mount: String,
+    pub tls: bool,
+    pub codec: String,
+    pub bitrate_kbps: u32,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub public: bool,
+    pub enabled: bool,
 }
 
 struct Now {
@@ -103,9 +133,6 @@ fn local_time(t: SystemTime) -> String {
     dt.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-fn epoch_time(secs: u64) -> String {
-    local_time(UNIX_EPOCH + Duration::from_secs(secs))
-}
 
 // ------------------------------------------------------------ secretos
 
@@ -205,6 +232,22 @@ pub struct Core {
     poller: Poller,
     last_notified: Mutex<String>,
     notify_log: Mutex<Option<String>>,
+    started: Instant,
+    cache: Mutex<Cache>,
+}
+
+/// Biblioteca, historial y etiquetas leidas, recargados solo si cambian.
+#[derive(Default)]
+struct Cache {
+    lib_mtime: Option<SystemTime>,
+    lib: Arc<Vec<Track>>,
+    hist_mtime: Option<SystemTime>,
+    hist: Arc<Vec<crate::settings::HistoryEntry>>,
+    extra: HashMap<String, (Option<SystemTime>, rb::Extra)>,
+}
+
+fn mtime(p: &Path) -> Option<SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
 impl Core {
@@ -220,6 +263,8 @@ impl Core {
             update_url: Mutex::new(String::new()),
             last_notified: Mutex::new(String::new()),
             notify_log: Mutex::new(None),
+            started: Instant::now(),
+            cache: Mutex::new(Cache::default()),
         })
     }
 
@@ -302,179 +347,458 @@ impl Core {
         }
     }
 
+    // -------------------------------------------------------- datos
+
+    fn library(&self) -> Arc<Vec<Track>> {
+        let path = self.data_dir.join("library.json");
+        let m = mtime(&path);
+        let mut c = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.lib_mtime != m || (m.is_none() && c.lib.is_empty()) {
+            c.lib = Arc::new(read_library_internal(&self.data_dir));
+            c.lib_mtime = m;
+        }
+        c.lib.clone()
+    }
+
+    fn history(&self) -> Arc<Vec<crate::settings::HistoryEntry>> {
+        let path = self.data_dir.join("history.json");
+        let m = mtime(&path);
+        let mut c = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.hist_mtime != m || m.is_none() {
+            c.hist = Arc::new(crate::settings::read_history_public(&self.data_dir));
+            c.hist_mtime = m;
+        }
+        c.hist.clone()
+    }
+
+    /// Etiquetas del archivo (comentario, BPM, letra…), con cache por fecha.
+    fn extra(&self, file: &str) -> rb::Extra {
+        let file = file.trim();
+        if file.is_empty() {
+            return rb::Extra::default();
+        }
+        let p = Path::new(file);
+        let m = mtime(p);
+        if m.is_none() {
+            return rb::Extra::default();
+        }
+        if let Some((t, e)) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).extra.get(file) {
+            if *t == m {
+                return e.clone();
+            }
+        }
+        let e = rb::read_extra(p);
+        let mut c = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.extra.len() > 3000 {
+            c.extra.clear();
+        }
+        c.extra.insert(file.to_string(), (m, e.clone()));
+        e
+    }
+
+    /// Ficha completa de una pista publicada (por id o por archivo).
+    /// `exclude_last` quita la ultima vez que sono (la que esta en curso).
+    fn info_of(&self, t: &PubTrack, lib: &[Track], plays: &HashMap<&str, Vec<u64>>, with_extra: bool, upto: Option<u64>) -> rb::Info {
+        let found = lib
+            .iter()
+            .find(|x| !t.id.is_empty() && x.id == t.id)
+            .or_else(|| lib.iter().find(|x| !t.file.is_empty() && filename_of(&x.file) == filename_of(&t.file)));
+        let empty: Vec<u64> = Vec::new();
+        let mut p: Vec<u64> = found.and_then(|x| plays.get(x.id.as_str())).unwrap_or(&empty).clone();
+        if let Some(limit) = upto {
+            p.retain(|x| *x < limit);
+        }
+        let mut info = match found {
+            Some(x) => rb::info_from_track(x, &p),
+            None => rb::Info {
+                artist: norm(&t.artist),
+                title: norm(&t.title),
+                album: norm(&t.album),
+                filename: filename_of(&t.file),
+                dur: t.duration_secs,
+                eff: t.duration_secs,
+                rating: "0".into(),
+                ..Default::default()
+            },
+        };
+        if with_extra {
+            info.extra = self.extra(&t.file);
+            if info.language.is_empty() {
+                info.language = info.extra.language.clone();
+            }
+        }
+        info
+    }
+
+    fn lib_track_by_file(&self, fname: &str) -> Option<Track> {
+        let want = filename_of(fname).to_lowercase();
+        if want.is_empty() {
+            return None;
+        }
+        self.library().iter().find(|t| !t.file.trim().is_empty() && filename_of(&t.file).to_lowercase() == want).cloned()
+    }
+
     // -------------------------------------------------------- acciones
 
-    fn library(&self) -> Vec<Track> {
-        read_library_internal(&self.data_dir)
+    pub fn status_xml(&self) -> String {
+        rb::doc(
+            "<Status>",
+            "Status",
+            &[rb::tag("Player", &[("version", env!("CARGO_PKG_VERSION").to_string()), ("uptime", self.started.elapsed().as_secs().to_string())])],
+        )
     }
 
     pub fn playbackinfo(&self) -> String {
         let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
-        let state = match now.p.state.as_str() {
-            "play" | "pause" => now.p.state.as_str(),
+        let p = now.p.clone();
+        let pos = now.pos_ms();
+        let started = now.started;
+        drop(now);
+        let lib = self.library();
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let listeners = self.poller.snapshot().total;
+        let has = p.current.is_some();
+        let state = match (has, p.state.as_str()) {
+            (true, "play") => "play",
+            (true, "pause") => "pause",
             _ => "stop",
         };
-        let has_track = now.p.current.is_some();
-        let state = if has_track { state } else { "stop" };
-        let pos = if has_track { now.pos_ms() } else { 0 };
-        let len = if has_track { now.p.len_ms.max(0.0).round() as u64 } else { 0 };
-        let mut out = String::with_capacity(512);
-        out.push_str("<Info>\n  ");
-        out.push_str(&empty_tag("Playback", &[("state", state), ("pos", &pos.to_string()), ("len", &len.to_string())]));
-        out.push_str("\n  <CurrentTrack>");
-        if let Some(t) = &now.p.current {
-            let start = now.started.map(local_time).unwrap_or_default();
-            let dur = if len > 0 { duration(len as f64 / 1000.0) } else { duration(t.duration_secs) };
-            out.push_str(&empty_tag(
-                "TRACK",
-                &[
-                    ("ARTIST", &norm(&t.artist)),
-                    ("TITLE", &norm(&t.title)),
-                    ("FILENAME", &filename_of(&t.file)),
-                    ("ALBUM", &norm(&t.album)),
-                    ("DURATION", &dur),
-                    ("STARTTIME", &start),
-                ],
-            ));
+        let len = if has { p.len_ms.max(0.0).round() as u64 } else { 0 };
+        let pos = if has { pos } else { 0 };
+        let mut lines = Vec::new();
+
+        lines.push("<CurrentTrack>".to_string());
+        if let Some(t) = &p.current {
+            let i = self.info_of(t, &lib, &plays, true, None);
+            let mut i2 = i.clone();
+            // La que suena cuenta su reproduccion actual.
+            if let Some(st) = started {
+                let st_epoch = st.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                let latest = plays_of(&lib, &plays, t).last().copied().unwrap_or(0);
+                if latest + 2 < st_epoch {
+                    i2.playcount += 1; // aun no esta en el historial
+                }
+                i2.lastplayed = rb::local(st);
+            }
+            let cast = if p.cast_title.trim().is_empty() { i.cast_title() } else { norm(&p.cast_title) };
+            let mut a = i2.base_attrs();
+            a.push(("CASTTITLE", cast));
+            a.push(("LISTENERS", listeners.to_string()));
+            a.push(("LYRICS", i.extra.lyrics.clone()));
+            a.push(("ITEMTITLE", i.item_title()));
+            a.push(("FT_IDX", "1".into()));
+            lines.push(rb::track_tag(&a));
         }
-        out.push_str("</CurrentTrack>\n  <NextTrack>");
-        if let Some(t) = &now.p.next {
-            out.push_str(&empty_tag(
-                "TRACK",
-                &[("ARTIST", &norm(&t.artist)), ("TITLE", &norm(&t.title)), ("FILENAME", &filename_of(&t.file))],
-            ));
+        lines.push("</CurrentTrack>".to_string());
+
+        // Tiempo que queda de lista desde ahora.
+        let left = if p.current_index >= 0 && has {
+            let rest: f64 = p.queue.iter().skip(p.current_index as usize + 1).map(|t| t.duration_secs.max(0.0) * 1000.0).sum();
+            (len.saturating_sub(pos) as f64 + rest).round() as u64
+        } else {
+            0
+        };
+        lines.push(rb::tag(
+            "Playback",
+            &[
+                ("pos", pos.to_string()),
+                ("len", len.to_string()),
+                ("state", state.to_string()),
+                ("playlistpos", if has && p.current_index >= 0 { (p.current_index + 1).to_string() } else { "0".into() }),
+                ("streams", if state == "play" { "1" } else { "0" }.to_string()),
+                ("netstream", "n/a".to_string()),
+                ("playingtimeleft", left.to_string()),
+                ("timestamp", rb::local(SystemTime::now())),
+                ("volume", ((p.volume.clamp(0.0, 1.0) * 100.0).round() as u32).to_string()),
+            ],
+        ));
+        lines.push(rb::tag("Options", &[("repeat_list", "0".into()), ("shuffle", "0".into()), ("queuemode", "0".into())]));
+        lines.push(rb::tag("Features", &[("scheduler", if p.scheduler { "1" } else { "0" }.to_string())]));
+        lines.push(rb::tag("Streaming", &[("listeners", listeners.to_string())]));
+        lines.push(rb::tag("Relay", &[("On", "0".into()), ("Active", "0".into())]));
+
+        let neighbour = |t: &PubTrack, exclude_latest: bool| -> String {
+            let upto = if exclude_latest {
+                plays_of(&lib, &plays, t).last().copied()
+            } else {
+                None
+            };
+            let i = self.info_of(t, &lib, &plays, true, upto);
+            let mut a = i.base_attrs();
+            a.push(("LYRICS", i.extra.lyrics.clone()));
+            a.push(("CASTTITLE", i.cast_title()));
+            a.push(("ITEMTITLE", i.item_title()));
+            a.push(("FT_IDX", "1".into()));
+            rb::track_tag(&a)
+        };
+        lines.push("<PrevTrack>".to_string());
+        if let Some(t) = self.previous(&p, &lib, &hist, started) {
+            lines.push(neighbour(&t, true));
         }
-        out.push_str("</NextTrack>\n  <Listeners>");
-        drop(now);
-        out.push_str(&self.poller.snapshot().total.to_string());
-        out.push_str("</Listeners>\n</Info>");
-        out
+        lines.push("</PrevTrack>".to_string());
+        lines.push("<NextTrack>".to_string());
+        if let Some(t) = &p.next {
+            lines.push(neighbour(t, false));
+        }
+        lines.push("</NextTrack>".to_string());
+        rb::doc("<Info>", "Info", &lines)
     }
 
-    pub fn encoderstatus(&self) -> String {
-        let snap = self.poller.snapshot();
-        let mut out = String::from("<Encoders>");
-        for m in &snap.mounts {
-            out.push_str("\n  ");
-            out.push_str(&empty_tag("Encoder", &[("name", &m.name), ("listeners", &m.listeners.to_string())]));
+    /// La que sono antes de la actual: la anterior de la lista o, si no hay,
+    /// la ultima del historial antes de que empezara la actual.
+    fn previous(&self, p: &Published, lib: &[Track], hist: &[crate::settings::HistoryEntry], started: Option<SystemTime>) -> Option<PubTrack> {
+        if p.current_index > 0 {
+            if let Some(t) = p.queue.get(p.current_index as usize - 1) {
+                return Some(t.clone());
+            }
         }
-        out.push_str("\n</Encoders>");
-        out
+        let limit = started.and_then(|s| s.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(u64::MAX);
+        hist.iter()
+            .rev()
+            .find(|h| h.played_at.saturating_add(2) < limit)
+            .and_then(|h| lib.iter().find(|t| t.id == h.track_id))
+            .map(|t| PubTrack { id: t.id.clone(), artist: t.artist.clone(), title: t.title.clone(), album: t.album.clone(), file: t.file.clone(), duration_secs: t.duration_secs, cover: t.cover.clone() })
+    }
+
+    pub fn trackinfo(&self, pos: i64) -> String {
+        let t = {
+            let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
+            if pos >= 1 { now.p.queue.get(pos as usize - 1).cloned() } else { None }
+        };
+        let Some(t) = t else { return rb::doc("<Info>", "Info", &[]) };
+        let lib = self.library();
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let i = self.info_of(&t, &lib, &plays, true, None);
+        let mut a = i.base_attrs();
+        a.push(("LYRICS", i.extra.lyrics.clone()));
+        a.push(("FT_IDX", "1".into()));
+        rb::doc("<Info>", "Info", &["<Track>".into(), rb::track_tag(&a), "</Track>".into()])
+    }
+
+    /// `getplaylist` (antigua): de `from` a `to`, base 1 e inclusivo.
+    pub fn getplaylist(&self, from: Option<usize>, to: Option<usize>) -> String {
+        let queue = self.now.lock().unwrap_or_else(|e| e.into_inner()).p.queue.clone();
+        let lib = self.library();
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let (a, b) = match (from, to) {
+            (Some(f), Some(t)) => (f.max(1), t),
+            (Some(f), None) => (f.max(1), queue.len()),
+            _ => (1, queue.len()),
+        };
+        let mut lines = Vec::new();
+        for t in queue.iter().take(b.min(queue.len())).skip(a - 1) {
+            let i = self.info_of(t, &lib, &plays, true, None);
+            let mut at = i.base_attrs();
+            at.push(("LYRICS", i.extra.lyrics.clone()));
+            lines.push(rb::track_tag(&at));
+        }
+        rb::doc("<Playlist>", "Playlist", &lines)
+    }
+
+    pub fn getplaylist2(&self, cnt: usize) -> String {
+        let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
+        let p = now.p.clone();
+        let pos_ms = now.pos_ms() as f64;
+        let started = now.started;
+        drop(now);
+        let lib = self.library();
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let cur = p.current_index;
+        let infos: Vec<rb::Info> = p.queue.iter().map(|t| self.info_of(t, &lib, &plays, false, None)).collect();
+        // Horas de inicio: hacia atras y hacia delante desde la actual.
+        let n = infos.len();
+        let mut starts: Vec<Option<SystemTime>> = vec![None; n];
+        if cur >= 0 && (cur as usize) < n {
+            let c = cur as usize;
+            let cur_start = started.unwrap_or_else(|| SystemTime::now() - Duration::from_secs_f64(pos_ms / 1000.0));
+            starts[c] = Some(cur_start);
+            let mut t = cur_start;
+            for i in (0..c).rev() {
+                t -= Duration::from_secs_f64(infos[i].eff.max(0.0));
+                starts[i] = Some(t);
+            }
+            let cur_len = if p.len_ms > 0.0 { p.len_ms / 1000.0 } else { infos[c].eff };
+            let mut t = cur_start + Duration::from_secs_f64(cur_len.max(0.0));
+            for (i, info) in infos.iter().enumerate().skip(c + 1) {
+                starts[i] = Some(t);
+                t += Duration::from_secs_f64(info.eff.max(0.0));
+            }
+        } else {
+            let mut t = SystemTime::now();
+            for (i, info) in infos.iter().enumerate() {
+                starts[i] = Some(t);
+                t += Duration::from_secs_f64(info.eff.max(0.0));
+            }
+        }
+        let (from, take) = if cnt == 0 || cnt >= n {
+            (0, n)
+        } else {
+            let c = cur.max(0) as usize;
+            let before = (cnt - 1) / 2;
+            let from = c.saturating_sub(before).min(n.saturating_sub(cnt));
+            (from, cnt)
+        };
+        let mut lines = Vec::new();
+        for i in from..(from + take).min(n) {
+            let played = cur >= 0 && i as i64 <= cur;
+            let st = starts[i].map(rb::clock).unwrap_or_default();
+            lines.push(rb::tag("TRACK", &infos[i].playlist2_attrs(&st, i, played)));
+        }
+        // TS cambia cuando cambia la lista.
+        let mut h: u64 = 1469598103934665603;
+        for t in &p.queue {
+            for b in t.id.bytes().chain(t.file.bytes()) {
+                h ^= b as u64;
+                h = h.wrapping_mul(1099511628211);
+            }
+        }
+        let open = format!(
+            "<Playlist COUNT=\"{n}\" TS=\"{}\" FILE=\"{}\">",
+            h % 1_000_000_000,
+            rb::esc(&if p.list_name.is_empty() { "MiRadio".to_string() } else { format!("MiRadio\\{}", p.list_name) })
+        );
+        rb::doc(&open, "Playlist", &lines)
     }
 
     pub fn getlastplayed(&self, count: usize) -> String {
-        let mut hist = crate::settings::read_history_public(&self.data_dir);
-        hist.reverse(); // mas recientes primero
         let lib = self.library();
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
         let by_id: HashMap<&str, &Track> = lib.iter().map(|t| (t.id.as_str(), t)).collect();
-        let mut out = String::from("<LastPlayed>");
-        for e in hist.iter().take(count) {
+        let mut lines = Vec::new();
+        let total = hist.len();
+        for (k, e) in hist.iter().enumerate().rev().take(count) {
             let Some(t) = by_id.get(e.track_id.as_str()) else { continue };
-            out.push_str("\n  ");
-            out.push_str(&empty_tag(
-                "Track",
-                &[
-                    ("ARTIST", &norm(&t.artist)),
-                    ("TITLE", &norm(&t.title)),
-                    ("FILENAME", &filename_of(&t.file)),
-                    ("LASTPLAYED", &epoch_time(e.played_at)),
-                ],
-            ));
+            let before: Vec<u64> = plays.get(t.id.as_str()).map(|v| v.iter().copied().filter(|x| *x < e.played_at).collect()).unwrap_or_default();
+            let mut i = rb::info_from_track(t, &before);
+            i.extra = self.extra(&t.file);
+            if i.language.is_empty() {
+                i.language = i.extra.language.clone();
+            }
+            let mut a = i.base_attrs();
+            a.push(("LYRICS", i.extra.lyrics.clone()));
+            a.push(("STARTTIME", rb::local_epoch(e.played_at)));
+            a.push(("CASTTITLE", i.cast_title()));
+            a.push(("TRACKTITLE", i.item_title()));
+            a.push(("ARTWORKID", (k + 1).to_string()));
+            a.push(("TITLESENT", "True".into()));
+            a.push(("FT_IDX", "1".into()));
+            lines.push(rb::track_tag(&a));
+            let _ = total;
         }
-        out.push_str("\n</LastPlayed>");
-        out
+        rb::doc("<LastPlayed>", "LastPlayed", &lines)
     }
 
     pub fn library_xml(&self) -> String {
         let lib = self.library();
-        let mut out = String::with_capacity(lib.len() * 160 + 32);
-        out.push_str("<Library>");
-        for t in &lib {
-            out.push_str("\n  ");
-            out.push_str(&empty_tag(
-                "Track",
-                &[
-                    ("ARTIST", &norm(&t.artist)),
-                    ("TITLE", &norm(&t.title)),
-                    ("FILENAME", &filename_of(&t.file)),
-                    ("ALBUM", &norm(&t.album)),
-                    ("GENRE", &norm(&t.genre)),
-                    ("YEAR", &norm(&t.year)),
-                    ("DURATION", &duration(t.duration_secs)),
-                ],
-            ));
-        }
-        out.push_str("\n</Library>");
-        out
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let empty = Vec::new();
+        let lines: Vec<String> = lib
+            .iter()
+            .map(|t| {
+                let i = rb::info_from_track(t, plays.get(t.id.as_str()).unwrap_or(&empty));
+                rb::track_tag(&i.base_attrs())
+            })
+            .collect();
+        rb::doc("<Library>", "Library", &lines)
     }
 
-    pub fn getplaylist2(&self) -> String {
-        let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
-        let cur = now.p.current_index;
-        let cur_len = now.p.len_ms.max(0.0) / 1000.0;
-        // Hora de inicio estimada de cada pista desde la actual.
-        let mut next_start: Option<SystemTime> = match (now.p.state.as_str(), now.started) {
-            ("play", Some(s)) => Some(s + Duration::from_secs_f64(cur_len)),
-            (_, _) if cur >= 0 => Some(SystemTime::now() + Duration::from_secs_f64((cur_len - now.pos_ms() as f64 / 1000.0).max(0.0))),
-            _ => None,
+    pub fn encoderstatus(&self) -> String {
+        let encs = self.now.lock().unwrap_or_else(|e| e.into_inner()).p.encoders.clone();
+        let snap = self.poller.snapshot();
+        let lines: Vec<String> = encs
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let mount = if e.mount.starts_with('/') { e.mount.clone() } else { format!("/{}", e.mount) };
+                let listeners = snap.mounts.iter().filter(|m| m.name == mount).map(|m| m.listeners).sum::<u64>();
+                rb::tag(
+                    "Encoder",
+                    &[
+                        ("index", i.to_string()),
+                        ("status", e.status.clone()),
+                        ("error", e.error.clone()),
+                        ("name", e.name.clone()),
+                        ("listeners", listeners.to_string()),
+                    ],
+                )
+            })
+            .collect();
+        rb::doc("<Encoders>", "Encoders", &lines)
+    }
+
+    /// Configuracion de una salida. Las claves nunca se envian.
+    pub fn getencoder(&self, id: usize) -> Option<String> {
+        let e = self.now.lock().unwrap_or_else(|e| e.into_inner()).p.encoders.get(id).cloned()?;
+        let b = |v: bool| if v { "True" } else { "False" }.to_string();
+        let mount = e.mount.trim_start_matches('/');
+        let attrs = [
+            ("Server", format!("{}:{}/{}", e.host, e.port, mount)),
+            ("Password", String::new()),
+            ("Public", b(e.public)),
+            ("Format", e.codec.clone()),
+            ("Bitrate", e.bitrate_kbps.to_string()),
+            ("Encoding", e.codec.clone()),
+            ("SampleRate", e.sample_rate.to_string()),
+            ("Channels", e.channels.to_string()),
+            ("StatPassword", String::new()),
+            ("DisplayName", e.name.clone()),
+            ("Enabled", b(e.enabled)),
+            ("UseStatsRelay", "False".to_string()),
+            ("RelayAddress", ":".to_string()),
+            ("RelayType", "0".to_string()),
+            ("RelayMount", String::new()),
+            ("RelaySSL", b(e.tls)),
+        ];
+        let mut s = String::from(rb::XML_HEAD);
+        s.push_str("<Encoder");
+        for (k, v) in attrs {
+            s.push_str(&format!(" {k}=\"{}\"", rb::esc(&v)));
+        }
+        s.push_str(" ></Encoder>\r\n");
+        Some(s)
+    }
+
+    /// `readtag`: solo archivos de la biblioteca; cualquier otra ruta recibe
+    /// la ficha vacia (como RadioBOSS con un archivo que no existe), sin
+    /// leer nada del disco.
+    pub fn readtag(&self, fname: &str, artwork: bool) -> String {
+        let t = self.lib_track_by_file(fname);
+        let hist = self.history();
+        let plays = rb::plays_by_track(&hist);
+        let (info, p): (Option<rb::Info>, Vec<u64>) = match &t {
+            Some(t) if Path::new(t.file.trim()).is_file() => {
+                let p = plays.get(t.id.as_str()).cloned().unwrap_or_default();
+                let mut i = rb::info_from_track(t, &p);
+                i.extra = self.extra(&t.file);
+                (Some(i), p)
+            }
+            Some(t) => (None, plays.get(t.id.as_str()).cloned().unwrap_or_default()),
+            None => (None, Vec::new()),
         };
-        let mut out = String::from("<Playlist>");
-        for (i, t) in now.p.queue.iter().enumerate() {
-            let i = i as i64;
-            let start = if i == cur {
-                now.started.map(local_time).unwrap_or_default()
-            } else if i > cur && cur >= 0 {
-                let s = next_start.map(local_time).unwrap_or_default();
-                next_start = next_start.map(|x| x + Duration::from_secs_f64(t.duration_secs.max(0.0)));
-                s
-            } else {
-                String::new()
-            };
-            out.push_str("\n  ");
-            out.push_str(&empty_tag(
-                "TRACK",
-                &[
-                    ("ARTIST", &norm(&t.artist)),
-                    ("TITLE", &norm(&t.title)),
-                    ("FILENAME", &filename_of(&t.file)),
-                    ("ITEMTYPE", "song"),
-                    ("STARTTIME", &start),
-                ],
-            ));
-        }
-        out.push_str("\n</Playlist>");
-        out
-    }
-
-    /// Solo se aceptan archivos de la biblioteca: desde fuera no se puede
-    /// leer ni escribir ningun otro archivo del equipo.
-    fn library_file(&self, fname: &str) -> Result<(PathBuf, Track), ApiError> {
-        let want = filename_of(fname).to_lowercase();
-        if want.is_empty() {
-            return Err(ApiError::bad("Falta el parámetro fn"));
-        }
-        let t = self
-            .library()
-            .into_iter()
-            .find(|t| !t.file.trim().is_empty() && filename_of(&t.file).to_lowercase() == want)
-            .ok_or_else(|| ApiError::not_found("El archivo no está en la biblioteca"))?;
-        let p = PathBuf::from(t.file.trim());
-        if !p.is_file() {
-            return Err(ApiError::not_found("El archivo de la canción no está disponible"));
-        }
-        Ok((p, t))
-    }
-
-    pub fn readtag(&self, fname: &str, artwork: bool) -> Result<String, ApiError> {
-        let (p, _) = self.library_file(fname)?;
-        tags::read(&p, artwork).map_err(ApiError::internal)
+        let art = if artwork && info.is_some() {
+            t.as_ref().and_then(|t| self.art_of_file(&t.file, &t.cover)).map(|(b, _)| rb::b64(&b)).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let attrs = rb::readtag_attrs(fname, t.as_ref().filter(|_| info.is_some()), info.as_ref(), &p, art);
+        rb::doc("<TagInfo>", "TagInfo", &[rb::tag("File", &attrs)])
     }
 
     pub fn writetag(&self, fname: &str, data: &str) -> Result<String, ApiError> {
-        let (p, t) = self.library_file(fname)?;
+        let t = self.lib_track_by_file(fname).ok_or_else(|| ApiError::bad("E010: File not found"))?;
+        let p = PathBuf::from(t.file.trim());
+        if !p.is_file() {
+            return Err(ApiError::bad("E010: File not found"));
+        }
         let attrs = xml::parse_attrs(data, "File")
             .or_else(|| xml::parse_attrs(data, "TagInfo"))
-            .ok_or_else(|| ApiError::bad("El parámetro data no es un XML válido (<File ARTIST=\"…\" …/>)"))?;
+            .ok_or_else(|| ApiError::bad("E011: Invalid data"))?;
         let written = tags::write(&p, &attrs).map_err(ApiError::internal)?;
         // La ficha de la biblioteca manda en MiRadio: se actualiza igual.
         let mut patch = crate::library::TrackPatch::default();
@@ -489,33 +813,59 @@ impl Core {
             }
         }
         crate::library::apply_patch(&self.data_dir, &t.id, patch).map_err(ApiError::internal)?;
-        Ok("<Result>OK</Result>".to_string())
+        Ok("OK".to_string())
     }
 
-    pub fn artwork(&self, next: bool) -> Result<(Vec<u8>, &'static str), ApiError> {
-        let t = {
-            let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
-            if next { now.p.next.clone() } else { now.p.current.clone() }
-        }
-        .ok_or_else(|| ApiError::not_found("No hay pista"))?;
-        let cover = if t.cover.trim().is_empty() { String::new() } else { cover_abs(&self.data_dir, &t.cover) };
-        let cover = if cover.is_empty() && !t.cover.trim().is_empty() && Path::new(t.cover.trim()).is_file() {
-            t.cover.trim().to_string()
-        } else {
-            cover
-        };
-        if !cover.is_empty() {
-            if let Ok(bytes) = std::fs::read(&cover) {
-                return Ok((bytes, mime_from_path(&cover)));
+    fn art_of_file(&self, file: &str, cover: &str) -> Option<(Vec<u8>, &'static str)> {
+        let c = cover.trim();
+        if !c.is_empty() {
+            let abs = cover_abs(&self.data_dir, c);
+            for cand in [abs.as_str(), c] {
+                if !cand.is_empty() && Path::new(cand).is_file() {
+                    if let Ok(bytes) = std::fs::read(cand) {
+                        return Some((bytes, mime_from_path(cand)));
+                    }
+                }
             }
         }
-        let p = PathBuf::from(t.file.trim());
-        tags::embedded_picture(&p).ok_or_else(|| ApiError::not_found("La pista no tiene carátula"))
+        rb::embedded_art(Path::new(file.trim()))
+    }
+
+    /// Caratula de la actual (0), siguiente (1) o anterior (-1).
+    pub fn artwork(&self, which: i8) -> Option<(Vec<u8>, &'static str)> {
+        let now = self.now.lock().unwrap_or_else(|e| e.into_inner());
+        let p = now.p.clone();
+        let started = now.started;
+        drop(now);
+        let t = match which {
+            0 => p.current.clone(),
+            1 => p.next.clone(),
+            _ => {
+                let lib = self.library();
+                let hist = self.history();
+                self.previous(&p, &lib, &hist, started)
+            }
+        }?;
+        let cover = if t.cover.is_empty() {
+            self.library().iter().find(|x| x.id == t.id).map(|x| x.cover.clone()).unwrap_or_default()
+        } else {
+            t.cover.clone()
+        };
+        self.art_of_file(&t.file, &cover)
     }
 
     pub fn status_line(&self) -> Option<String> {
         self.notify_log.lock().ok().and_then(|g| g.clone())
     }
+}
+
+fn plays_of<'a>(lib: &[Track], plays: &'a HashMap<&str, Vec<u64>>, t: &PubTrack) -> &'a [u64] {
+    let id = lib
+        .iter()
+        .find(|x| (!t.id.is_empty() && x.id == t.id) || (!t.file.is_empty() && filename_of(&x.file) == filename_of(&t.file)))
+        .map(|x| x.id.as_str())
+        .unwrap_or("");
+    plays.get(id).map(|v| v.as_slice()).unwrap_or(&[])
 }
 
 fn mime_from_path(p: &str) -> &'static str {
@@ -545,67 +895,90 @@ impl ApiError {
     fn bad(m: &str) -> Self {
         ApiError { status: 400, message: m.to_string() }
     }
-    fn not_found(m: &str) -> Self {
-        ApiError { status: 404, message: m.to_string() }
-    }
     fn internal(m: String) -> Self {
         ApiError { status: 500, message: m }
     }
 }
 
 pub enum Reply {
+    /// XML (text/xml)
     Xml(u16, String),
+    /// Texto plano como RadioBOSS: "OK", "0", "E001: Wrong password"…
+    Text(u16, String),
     Bytes(Vec<u8>, &'static str),
 }
 
 /// Atiende una peticion (sin red: se puede probar directamente).
 pub fn handle(core: &Core, method: &str, url: &str, bearer: Option<&str>) -> Reply {
-    if method != "GET" && method != "HEAD" {
-        return Reply::Xml(405, "<Error>Solo GET</Error>".into());
+    if method != "GET" && method != "HEAD" && method != "POST" {
+        return Reply::Text(405, "E002: Method not allowed".into());
     }
     let (path, query) = url.split_once('?').unwrap_or((url, ""));
     if path != "/" && !path.is_empty() {
-        return Reply::Xml(404, "<Error>No encontrado</Error>".into());
+        return Reply::Text(404, "E004: Not found".into());
     }
     let q: HashMap<String, String> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
     if !core.authorized(&q, bearer) {
-        return Reply::Xml(401, "<Error>Credenciales no válidas</Error>".into());
+        return Reply::Text(401, "E001: Wrong password".into());
     }
     let action = q.get("action").map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+    if action.is_empty() {
+        return if q.contains_key("cmd") {
+            // Los comandos de control (play, next…) no estan disponibles.
+            Reply::Text(400, "E005: Unknown action".into())
+        } else {
+            Reply::Text(400, "E003: Nothing to do".into())
+        };
+    }
+    let num = |k: &str| q.get(k).and_then(|v| v.trim().parse::<i64>().ok());
     // Cada accion aislada: un fallo (o un panico) solo afecta a esta peticion.
     let res = std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<Reply, ApiError> {
         let fname = q.get("fn").map(|s| s.as_str()).unwrap_or("");
+        let art = |r: Option<(Vec<u8>, &'static str)>| match r {
+            Some((b, m)) => Reply::Bytes(b, m),
+            None => Reply::Text(200, String::new()),
+        };
         Ok(match action.as_str() {
             "playbackinfo" => Reply::Xml(200, core.playbackinfo()),
-            "encoderstatus" => Reply::Xml(200, core.encoderstatus()),
+            "status" => Reply::Xml(200, core.status_xml()),
+            "trackinfo" => Reply::Xml(200, core.trackinfo(num("pos").unwrap_or(0))),
+            "getplaylist2" => Reply::Xml(200, core.getplaylist2(num("cnt").unwrap_or(0).max(0) as usize)),
+            "getplaylist" => Reply::Xml(
+                200,
+                core.getplaylist(num("from").map(|v| v.max(1) as usize), num("to").map(|v| v.max(0) as usize)),
+            ),
             "getlastplayed" => {
-                let n = q.get("count").or_else(|| q.get("limit")).and_then(|v| v.parse().ok()).unwrap_or(20usize);
-                Reply::Xml(200, core.getlastplayed(n.clamp(1, 500)))
+                let n = num("count").or_else(|| num("cnt")).unwrap_or(101).clamp(1, 1000) as usize;
+                Reply::Xml(200, core.getlastplayed(n))
             }
             "library" => Reply::Xml(200, core.library_xml()),
-            "getplaylist2" => Reply::Xml(200, core.getplaylist2()),
             "readtag" => {
-                let art = matches!(q.get("artwork").map(|s| s.as_str()), Some("1") | Some("true"));
-                Reply::Xml(200, core.readtag(fname, art)?)
+                let want_art = matches!(q.get("artwork").map(|s| s.as_str()), Some("1") | Some("true"));
+                Reply::Xml(200, core.readtag(fname, want_art))
             }
-            "writetag" => Reply::Xml(200, core.writetag(fname, q.get("data").map(|s| s.as_str()).unwrap_or(""))?),
-            "trackartwork" => {
-                let (b, m) = core.artwork(false)?;
-                Reply::Bytes(b, m)
+            "writetag" => Reply::Text(200, core.writetag(fname, q.get("data").map(|s| s.as_str()).unwrap_or(""))?),
+            "trackartwork" => art(core.artwork(0)),
+            "nexttrackartwork" => art(core.artwork(1)),
+            "prevtrackartwork" => art(core.artwork(-1)),
+            "encoderstatus" => Reply::Xml(200, core.encoderstatus()),
+            "getencoder" => match core.getencoder(num("id").unwrap_or(0).max(0) as usize) {
+                Some(x) => Reply::Xml(200, x),
+                None => Reply::Text(400, "E009: Encoder not found".into()),
+            },
+            "songrequestlist" => Reply::Xml(200, rb::doc("<SongRequest>", "SongRequest", &[])),
+            "mic" if !q.contains_key("on") => Reply::Text(200, "0".into()),
+            "streamarchivestatus" => Reply::Text(200, "0".into()),
+            "schedulecontrol" if q.get("type").map(|s| s.as_str()) == Some("state") && !q.contains_key("set") => {
+                let on = core.now.lock().unwrap_or_else(|e| e.into_inner()).p.scheduler;
+                Reply::Text(200, if on { "on" } else { "off" }.into())
             }
-            "nexttrackartwork" => {
-                let (b, m) = core.artwork(true)?;
-                Reply::Bytes(b, m)
-            }
-            "songrequestlist" => Reply::Xml(200, "<Requests>\n</Requests>".into()),
-            "" => return Err(ApiError::bad("Falta el parámetro action")),
-            _ => return Err(ApiError::bad("Acción no soportada")),
+            _ => return Err(ApiError::bad("E005: Unknown action")),
         })
     }));
     match res {
         Ok(Ok(r)) => r,
-        Ok(Err(e)) => Reply::Xml(e.status, format!("<Error>{}</Error>", xml::esc(&e.message))),
-        Err(_) => Reply::Xml(500, "<Error>Error interno</Error>".into()),
+        Ok(Err(e)) => Reply::Text(e.status, e.message),
+        Err(_) => Reply::Text(500, "E999: Internal error".into()),
     }
 }
 
@@ -668,27 +1041,25 @@ fn respond(core: &Core, req: tiny_http::Request) {
     let method = req.method().as_str().to_string();
     let reply = handle(core, &method, req.url(), bearer.as_deref());
     let header = |k: &str, v: &str| tiny_http::Header::from_bytes(k.as_bytes(), v.as_bytes()).expect("cabecera");
+    let text = |status: u16, ct: &str, body: Vec<u8>| {
+        tiny_http::Response::new(
+            tiny_http::StatusCode(status),
+            vec![header("Content-Type", ct), header("Cache-Control", "no-store")],
+            Cursor::new(body),
+            None,
+            None,
+        )
+    };
     let resp = match reply {
-        Reply::Xml(status, body) => {
-            let mut r = tiny_http::Response::new(
-                tiny_http::StatusCode(status),
-                vec![header("Content-Type", "text/xml; charset=utf-8"), header("Cache-Control", "no-store")],
-                Cursor::new(body.into_bytes()),
-                None,
-                None,
-            );
+        Reply::Xml(status, body) => text(status, "text/xml; charset=UTF-8", body.into_bytes()),
+        Reply::Text(status, body) => {
+            let mut r = text(status, "text/html; charset=UTF-8", body.into_bytes());
             if status == 401 {
                 r.add_header(header("WWW-Authenticate", "Bearer"));
             }
             r
         }
-        Reply::Bytes(bytes, mime) => tiny_http::Response::new(
-            tiny_http::StatusCode(200),
-            vec![header("Content-Type", mime), header("Cache-Control", "no-store")],
-            Cursor::new(bytes),
-            None,
-            None,
-        ),
+        Reply::Bytes(bytes, mime) => text(200, mime, bytes),
     };
     // La URL (con la clave) no se registra nunca.
     let _ = req.respond(resp);

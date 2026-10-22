@@ -39,7 +39,7 @@ fn fixture(tag: &str) -> (Arc<Core>, PathBuf, String) {
 
 fn get(core: &Core, url: &str) -> (u16, String) {
     match handle(core, "GET", url, None) {
-        Reply::Xml(s, b) => (s, b),
+        Reply::Xml(s, b) | Reply::Text(s, b) => (s, b),
         Reply::Bytes(b, _) => (200, format!("<{} bytes>", b.len())),
     }
 }
@@ -58,51 +58,66 @@ fn playing(core: &Arc<Core>, file: &str) {
             PubTrack { id: "t2".into(), artist: "Otro".into(), title: "Segunda".into(), file: "/no/existe.mp3".into(), duration_secs: 61.0, ..Default::default() },
         ],
         current_index: 0,
+        cast_title: "Café del Mar - Tom".into(),
+        volume: 0.8,
+        list_name: "Mañana".into(),
+        scheduler: true,
+        encoders: vec![PubEncoder { name: "ngradio - mp3".into(), status: "active".into(), host: "h".into(), port: 8000, mount: "/live".into(), codec: "mp3".into(), bitrate_kbps: 128, sample_rate: 44100, channels: 2, enabled: true, ..Default::default() }],
     });
 }
+
+
+/// Nombres de los atributos de la primera etiqueta `<name …>`.
+fn attr_names(x: &str, name: &str) -> Vec<String> {
+    let start = x.find(&format!("<{name} ")).unwrap_or_else(|| panic!("falta <{name}> en {x}"));
+    let body = &x[start..x[start..].find("/>").unwrap() + start];
+    body.split('"').step_by(2).filter_map(|p| p.trim().strip_suffix('=').map(|k| k.split_whitespace().last().unwrap().to_string())).collect()
+}
+
+const INFO_ATTRS: &str = "ARTIST TITLE ALBUM YEAR GENRE COMMENT FILENAME DURATION PLAYCOUNT LASTPLAYED INTRO OUTRO LANGUAGE RATING BPM TAGS PUBLISHER ALBUMARTIST COMPOSER COPYRIGHT TRACKNUMBER F1 F2 F3 F4 F5";
 
 #[test]
 fn auth_required_and_both_methods_work() {
     let (core, _, _) = fixture("auth");
-    assert_eq!(get(&core, "/?action=playbackinfo").0, 401);
+    assert_eq!(get(&core, "/?action=playbackinfo"), (401, "E001: Wrong password".to_string()));
     assert_eq!(get(&core, "/?action=playbackinfo&user=radio&pass=mal").0, 401);
     assert_eq!(get(&core, "/?action=playbackinfo&user=otro&pass=clave-secreta").0, 401);
     assert_eq!(get(&core, &format!("/?action=playbackinfo&{AUTH}")).0, 200);
-    match handle(&core, "GET", "/?action=playbackinfo", Some("tok123")) {
-        Reply::Xml(s, _) => assert_eq!(s, 200),
-        _ => panic!(),
-    }
-    match handle(&core, "GET", "/?action=playbackinfo", Some("tok124")) {
-        Reply::Xml(s, _) => assert_eq!(s, 401),
-        _ => panic!(),
-    }
-    // Sin credenciales configuradas, nadie entra.
+    assert!(matches!(handle(&core, "GET", "/?action=playbackinfo", Some("tok123")), Reply::Xml(200, _)));
+    assert!(matches!(handle(&core, "GET", "/?action=playbackinfo", Some("tok124")), Reply::Text(401, _)));
     let empty = Core::new(tmpdir("noauth"));
     assert_eq!(get(&empty, "/?action=playbackinfo&user=&pass=").0, 401);
 }
 
 #[test]
-fn playbackinfo_exact_format() {
+fn playbackinfo_like_radioboss() {
     let (core, _, file) = fixture("pbi");
     let (_, idle) = get(&core, &format!("/?action=playbackinfo&{AUTH}"));
-    assert_eq!(
-        idle,
-        "<Info>\n  <Playback state=\"stop\" pos=\"0\" len=\"0\"/>\n  <CurrentTrack></CurrentTrack>\n  <NextTrack></NextTrack>\n  <Listeners>0</Listeners>\n</Info>"
-    );
+    assert!(idle.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<Info>\r\n<CurrentTrack>\r\n</CurrentTrack>\r\n<Playback pos=\"0\" len=\"0\" state=\"stop\" playlistpos=\"0\""), "{idle}");
     playing(&core, &file);
     std::thread::sleep(Duration::from_millis(120));
     let (s, x) = get(&core, &format!("/?action=playbackinfo&{AUTH}"));
     assert_eq!(s, 200);
-    let fname = xml::esc(&filename_of(&file));
-    let start = core.now.lock().unwrap().started.map(local_time).unwrap();
-    // pos avanza con el tiempo (milisegundos) y no pasa de len.
+    assert!(x.ends_with("</Info>\r\n"));
+    let order: Vec<&str> = x.lines().filter_map(|l| l.trim().strip_prefix('<')).map(|l| l.split([' ', '>', '/']).next().unwrap()).filter(|n| !n.is_empty() && *n != "?xml" && *n != "TRACK").collect();
+    assert_eq!(order, ["Info", "CurrentTrack", "", "Playback", "Options", "Features", "Streaming", "Relay", "PrevTrack", "", "NextTrack", "", ""].iter().copied().filter(|n| !n.is_empty()).collect::<Vec<_>>(), "{x}");
+    let cur = attr_names(&x, "TRACK").join(" ");
+    assert_eq!(cur, format!("{INFO_ATTRS} CASTTITLE LISTENERS LYRICS ITEMTITLE FT_IDX"));
+    assert!(x.contains("ARTIST=\"Café del Mar\" TITLE=\"Tom &amp; &quot;Jerry&quot;\" ALBUM=\"Uno\""), "{x}");
+    assert!(x.contains("DURATION=\"03:20\"  PLAYCOUNT=\"2\""), "dos espacios y cuenta la actual: {x}");
+    assert!(x.contains("CASTTITLE=\"Café del Mar - Tom\" LISTENERS=\"0\""));
+    assert!(x.contains("ITEMTITLE=\"Café del Mar - Tom &amp; &quot;Jerry&quot; ()\" FT_IDX=\"1\" />"));
     let pos: u64 = x.split("pos=\"").nth(1).unwrap().split('"').next().unwrap().parse().unwrap();
     assert!((5100..5500).contains(&pos), "pos {pos}");
-    let expected = format!(
-        "<Info>\n  <Playback state=\"play\" pos=\"{pos}\" len=\"200000\"/>\n  <CurrentTrack><TRACK ARTIST=\"Café del Mar\" TITLE=\"Tom &amp; &quot;Jerry&quot;\" FILENAME=\"{fname}\" ALBUM=\"Uno\" DURATION=\"03:20\" STARTTIME=\"{start}\"/></CurrentTrack>\n  <NextTrack><TRACK ARTIST=\"Otro\" TITLE=\"Segunda\" FILENAME=\"/no/existe.mp3\"/></NextTrack>\n  <Listeners>0</Listeners>\n</Info>"
-    );
-    assert_eq!(x, expected);
-    assert!(start.len() == 19 && start.as_bytes()[4] == b'-' && start.as_bytes()[13] == b':');
+    assert!(x.contains("len=\"200000\" state=\"play\" playlistpos=\"1\" streams=\"1\" netstream=\"n/a\" playingtimeleft=\""));
+    assert!(x.contains("volume=\"80\" />\r\n<Options repeat_list=\"0\" shuffle=\"0\" queuemode=\"0\" />\r\n<Features scheduler=\"1\" />"));
+    // Siguiente: ficha con LYRICS CASTTITLE ITEMTITLE FT_IDX
+    let next = &x[x.find("<NextTrack>").unwrap()..];
+    assert_eq!(attr_names(next, "TRACK").join(" "), format!("{INFO_ATTRS} LYRICS CASTTITLE ITEMTITLE FT_IDX"));
+    // Anterior: la ultima del historial antes de que empezara la actual
+    // (en la prueba, la propia Tom sono por ultima vez hace un año).
+    let prev = &x[x.find("<PrevTrack>").unwrap()..x.find("</PrevTrack>").unwrap()];
+    assert!(prev.contains("TITLE=\"Tom &amp;") && prev.contains("PLAYCOUNT=\"0\""), "{prev}");
     // pausa: la posicion se congela
     let mut p = core.now.lock().unwrap().p.clone();
     p.state = "pause".into();
@@ -110,7 +125,7 @@ fn playbackinfo_exact_format() {
     core.publish(p);
     std::thread::sleep(Duration::from_millis(60));
     let (_, x) = get(&core, &format!("/?action=playbackinfo&{AUTH}"));
-    assert!(x.contains("<Playback state=\"pause\" pos=\"7000\" len=\"200000\"/>"), "{x}");
+    assert!(x.contains("<Playback pos=\"7000\" len=\"200000\" state=\"pause\""), "{x}");
 }
 
 #[test]
@@ -123,65 +138,92 @@ fn identity_is_stable() {
 }
 
 #[test]
-fn lastplayed_library_playlist() {
+fn lists_like_radioboss() {
     let (core, _, file) = fixture("lists");
     let (_, x) = get(&core, &format!("/?action=getlastplayed&{AUTH}"));
-    let lines: Vec<&str> = x.lines().collect();
-    assert_eq!(lines[0], "<LastPlayed>");
-    assert!(lines[1].starts_with("  <Track ARTIST=\"Café del Mar\" TITLE=\"Tom &amp; &quot;Jerry&quot;\" FILENAME=\""), "{}", lines[1]);
-    assert!(lines[1].contains(&format!("LASTPLAYED=\"{}\"/>", epoch_time(1761153600))), "más reciente primero");
-    assert!(lines[2].contains("TITLE=\"Segunda\""));
-    assert_eq!(*lines.last().unwrap(), "</LastPlayed>");
+    assert!(x.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<LastPlayed>\r\n<TRACK ARTIST=\"Café del Mar\""), "más reciente primero: {x}");
+    assert_eq!(attr_names(&x, "TRACK").join(" "), format!("{INFO_ATTRS} LYRICS STARTTIME CASTTITLE TRACKTITLE ARTWORKID TITLESENT FT_IDX"));
+    assert!(x.contains(&format!("STARTTIME=\"{}\"", rb::local_epoch(1761153600))));
+    assert!(x.contains("PLAYCOUNT=\"0\" LASTPLAYED=\"\""), "la cuenta es la de antes de esa vez");
+    assert_eq!(x.matches("<TRACK ").count(), 2);
     let (_, x) = get(&core, &format!("/?action=getlastplayed&count=1&{AUTH}"));
-    assert_eq!(x.lines().count(), 3);
-
-    let (_, x) = get(&core, &format!("/?action=library&{AUTH}"));
-    assert!(x.starts_with("<Library>\n  <Track ARTIST=\"Café del Mar\" TITLE=\"Tom &amp; &quot;Jerry&quot;\" FILENAME=\""));
-    assert!(x.contains("ALBUM=\"Uno\" GENRE=\"\" YEAR=\"\" DURATION=\"03:20\"/>"));
+    assert_eq!(x.matches("<TRACK ").count(), 1);
 
     playing(&core, &file);
     let (_, x) = get(&core, &format!("/?action=getplaylist2&{AUTH}"));
-    let rows: Vec<&str> = x.lines().filter(|l| l.contains("<TRACK")).collect();
-    assert_eq!(rows.len(), 2);
-    assert!(rows[0].contains("ITEMTYPE=\"song\" STARTTIME=\"20"), "{}", rows[0]);
-    assert!(rows[1].contains("TITLE=\"Segunda\" FILENAME=\"/no/existe.mp3\" ITEMTYPE=\"song\" STARTTIME=\"20"));
+    assert!(x.contains("<Playlist COUNT=\"2\" TS=\""), "{x}");
+    assert!(x.contains("FILE=\"MiRadio\\Mañana\">\r\n"));
+    assert_eq!(
+        attr_names(&x, "TRACK").join(" "),
+        "STARTTIME CASTTITLE DURATION FILENAME TRACKFILENAME RATING PLAYCOUNT INTRO OUTRO BPM PLAYLISTINDEX INDEX FT_IDX ITEMTYPE PQUEUE ARTIST TITLE ALBUM YEAR GENRE COMMENT LASTPLAYED LANGUAGE F1 F2 F3 F4 F5"
+    );
+    assert!(x.contains("PLAYLISTINDEX=\"0\" INDEX=\"1\" FT_IDX=\"-1\" ITEMTYPE=\"TRACK_PLAYED\""));
+    assert!(x.contains("PLAYLISTINDEX=\"1\" INDEX=\"2\" FT_IDX=\"-1\" ITEMTYPE=\"TRACK\""));
+    let st = x.split("STARTTIME=\"").nth(1).unwrap().split('"').next().unwrap();
+    assert!(st.len() == 8 && st.as_bytes()[2] == b':', "hora sola: {st}");
+    let (_, x) = get(&core, &format!("/?action=getplaylist2&cnt=1&{AUTH}"));
+    assert_eq!(x.matches("<TRACK ").count(), 1);
+    assert!(x.contains("INDEX=\"1\""));
 
+    let (_, x) = get(&core, &format!("/?action=trackinfo&pos=2&{AUTH}"));
+    assert!(x.contains("<Info>\r\n<Track>\r\n<TRACK ARTIST=\"Otro\" TITLE=\"Segunda\""), "{x}");
+    assert_eq!(attr_names(&x, "TRACK").join(" "), format!("{INFO_ATTRS} LYRICS FT_IDX"));
+    let (_, x) = get(&core, &format!("/?action=trackinfo&pos=9&{AUTH}"));
+    assert_eq!(x, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<Info>\r\n</Info>\r\n");
+    let (_, x) = get(&core, &format!("/?action=getplaylist&from=2&to=2&{AUTH}"));
+    assert_eq!(x.matches("<TRACK ").count(), 1);
+    assert!(x.contains("TITLE=\"Segunda\""));
+
+    let (_, x) = get(&core, &format!("/?action=status&{AUTH}"));
+    assert!(x.contains("<Status>\r\n<Player version=\""), "{x}");
     let (_, x) = get(&core, &format!("/?action=songrequestlist&{AUTH}"));
-    assert_eq!(x, "<Requests>\n</Requests>");
+    assert_eq!(x, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<SongRequest>\r\n</SongRequest>\r\n");
     let (_, x) = get(&core, &format!("/?action=encoderstatus&{AUTH}"));
-    assert_eq!(x, "<Encoders>\n</Encoders>");
+    assert!(x.contains("<Encoder index=\"0\" status=\"active\" error=\"\" name=\"ngradio - mp3\" listeners=\"0\" />"), "{x}");
+    let (_, x) = get(&core, &format!("/?action=getencoder&id=0&{AUTH}"));
+    assert!(x.contains("Server=\"h:8000/live\" Password=\"\""), "nunca la clave: {x}");
+    assert_eq!(get(&core, &format!("/?action=mic&{AUTH}")), (200, "0".to_string()));
+    assert_eq!(get(&core, &format!("/?action=streamarchivestatus&{AUTH}")), (200, "0".to_string()));
+    assert_eq!(get(&core, &format!("/?action=schedulecontrol&type=state&{AUTH}")), (200, "on".to_string()));
+    let (_, x) = get(&core, &format!("/?action=library&{AUTH}"));
+    assert!(x.contains("<Library>\r\n<TRACK ARTIST=\"Café del Mar\""));
 }
 
 #[test]
 fn tags_only_inside_library_and_roundtrip() {
     let (core, _, file) = fixture("tags");
     let enc = |s: &str| form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
-    // Fuera de la biblioteca: rechazado, y el resto de acciones sigue igual.
+    // Fuera de la biblioteca: ficha vacia, sin leer el archivo.
     let (s, x) = get(&core, &format!("/?action=readtag&fn={}&{AUTH}", enc("/etc/passwd")));
-    assert_eq!(s, 404, "{x}");
-    let (s, _) = get(&core, &format!("/?action=playbackinfo&{AUTH}"));
     assert_eq!(s, 200);
+    assert!(x.contains("<File FN=\"/etc/passwd\" Duration=\"0\" Artist=\"\""), "{x}");
     let (s, x) = get(&core, &format!("/?action=readtag&fn={}&{AUTH}", enc(&file)));
     assert_eq!(s, 200, "{x}");
-    assert!(x.starts_with("<TagInfo>\n  <File FN=\""));
-    assert!(x.contains("ARTIST=\"Viejo\" TITLE=\"Antes\""), "{x}");
-    let data = r#"<TagInfo><File ARTIST="Nuevo &amp; Mejor" TITLE="Después" YEAR="2026"/></TagInfo>"#;
+    assert_eq!(
+        attr_names(&x, "File").join(" "),
+        "FN Duration Artist Title Album Year Genre Comment BPM Rating Playcount LastPlayed Added UserField1 UserField2 UserField3 UserField4 UserField5 TypeIdentifier TagsList Intro Outro FadeIn FadeOut Mix Level Start End PlayedHistory Artwork_Base64 HookIn HookOut"
+    );
+    assert!(x.contains("Duration=\"2000\" Artist=\"Café del Mar\""), "{x}");
+    assert!(x.contains(&format!("PlayedHistory=\"{}&#13;&#10;\"", rb::local_epoch(1761153600))));
+    let data = r#"<TagInfo><File Artist="Nuevo &amp; Mejor" Title="Después" Year="2026"/></TagInfo>"#;
     let (s, x) = get(&core, &format!("/?action=writetag&fn={}&data={}&{AUTH}", enc(&file), enc(data)));
-    assert_eq!((s, x.as_str()), (200, "<Result>OK</Result>"));
-    let (_, x) = get(&core, &format!("/?action=readtag&fn={}&{AUTH}", enc(&file)));
-    assert!(x.contains("ARTIST=\"Nuevo &amp; Mejor\" TITLE=\"Después\""), "{x}");
+    assert_eq!((s, x.as_str()), (200, "OK"));
     let lib = crate::library::read_library_internal(&core.data_dir);
     assert_eq!(lib[0].artist, "Nuevo & Mejor", "la ficha de la biblioteca se actualiza");
+    let (_, x) = get(&core, &format!("/?action=readtag&fn={}&{AUTH}", enc(&file)));
+    assert!(x.contains("Artist=\"Nuevo &amp; Mejor\" Title=\"Después\""), "{x}");
     let (s, _) = get(&core, &format!("/?action=writetag&fn={}&data=basura&{AUTH}", enc(&file)));
     assert_eq!(s, 400);
+    let (s, _) = get(&core, &format!("/?action=writetag&fn={}&data={}&{AUTH}", enc("/etc/passwd"), enc(data)));
+    assert_eq!(s, 400, "nunca fuera de la biblioteca");
 }
 
 #[test]
 fn errors_are_isolated() {
     let (core, _, _) = fixture("iso");
-    assert_eq!(get(&core, &format!("/?action=nada&{AUTH}")).0, 400);
-    assert_eq!(get(&core, &format!("/?{AUTH}")).0, 400);
-    assert_eq!(get(&core, &format!("/?action=trackartwork&{AUTH}")).0, 404);
+    assert_eq!(get(&core, &format!("/?action=nada&{AUTH}")), (400, "E005: Unknown action".to_string()));
+    assert_eq!(get(&core, &format!("/?{AUTH}")), (400, "E003: Nothing to do".to_string()));
+    assert_eq!(get(&core, &format!("/?action=trackartwork&{AUTH}")), (200, String::new()), "sin caratula: vacio");
     assert_eq!(get(&core, &format!("/otra?action=playbackinfo&{AUTH}")).0, 404);
     assert_eq!(get(&core, &format!("/?action=playbackinfo&{AUTH}")).0, 200);
 }
@@ -197,14 +239,17 @@ fn real_http_server_is_fast() {
     let t0 = Instant::now();
     for _ in 0..20 {
         let r = ureq::get(&format!("{base}?action=playbackinfo&{AUTH}")).call().unwrap();
-        assert_eq!(r.header("Content-Type"), Some("text/xml; charset=utf-8"));
-        assert!(r.into_string().unwrap().starts_with("<Info>"));
+        assert_eq!(r.header("Content-Type"), Some("text/xml; charset=UTF-8"));
+        assert!(r.into_string().unwrap().starts_with("<?xml"));
     }
     assert!(t0.elapsed() < Duration::from_millis(1000), "20 peticiones en {:?}", t0.elapsed());
     let r = ureq::get(&format!("{base}?action=playbackinfo")).set("Authorization", "Bearer tok123").call().unwrap();
     assert_eq!(r.status(), 200);
     match ureq::get(&format!("{base}?action=playbackinfo")).call() {
-        Err(ureq::Error::Status(401, r)) => assert_eq!(r.header("WWW-Authenticate"), Some("Bearer")),
+        Err(ureq::Error::Status(401, r)) => {
+            assert_eq!(r.header("Content-Type"), Some("text/html; charset=UTF-8"));
+            assert_eq!(r.into_string().unwrap(), "E001: Wrong password");
+        }
         other => panic!("{:?}", other.map(|r| r.status())),
     }
     srv.shutdown();
@@ -243,4 +288,16 @@ fn update_notified_once_per_change() {
     assert_eq!(got.len(), 2, "{got:?}");
     assert!(got[0].starts_with("GET /update?token=a+b%26c "), "{}", got[0]);
     assert!(core.status_line().unwrap().contains("aviso enviado"));
+}
+
+/// Servidor de prueba para scripts/verify-rbapi.mjs (cargo test serve_for_script -- --ignored).
+#[test]
+#[ignore]
+fn serve_for_script() {
+    let (core, _, file) = fixture("script");
+    playing(&core, &file);
+    let cfg = ApiConfig { enabled: true, port: 19555, ..Default::default() };
+    let srv = start_server(core.clone(), &cfg).expect("servidor");
+    std::thread::sleep(Duration::from_secs(40));
+    srv.shutdown();
 }

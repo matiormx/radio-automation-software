@@ -19,23 +19,23 @@ que el worker `core.ngradio.es` solo tiene que cambiar `API_BASE`.
 ## Peticiones
 
 `GET /?action=<acción>&user=<usuario>&pass=<clave>` o con `Authorization: Bearer <token>`.
-Sin credenciales válidas: 401. Las URL no se registran (la clave nunca acaba en un log).
-Las credenciales se guardan con hash en `api_secrets.json` (carpeta de datos de MiRadio).
+Sin credenciales válidas: `401 E001: Wrong password`. Las URL no se registran (la clave nunca
+acaba en un log). Las credenciales se guardan con hash en `api_secrets.json`.
 
-| Acción | Respuesta |
-| --- | --- |
-| `playbackinfo` | `<Info><Playback state pos len/><CurrentTrack><TRACK ARTIST TITLE FILENAME ALBUM DURATION STARTTIME/></CurrentTrack><NextTrack><TRACK ARTIST TITLE FILENAME/></NextTrack><Listeners>N</Listeners></Info>` (pos y len en ms) |
-| `encoderstatus` | `<Encoders><Encoder name listeners/>…</Encoders>` (mounts de Icecast) |
-| `getlastplayed` | `<LastPlayed><Track ARTIST TITLE FILENAME LASTPLAYED/>…</LastPlayed>`, más recientes primero; `count=N` (20 por defecto) |
-| `library` | `<Library><Track ARTIST TITLE FILENAME ALBUM GENRE YEAR DURATION/>…</Library>` |
-| `getplaylist2` | `<Playlist><TRACK ARTIST TITLE FILENAME ITEMTYPE STARTTIME/>…</Playlist>` |
-| `readtag&fn=<ruta>[&artwork=1]` | `<TagInfo><File FN ARTIST TITLE ALBUM YEAR GENRE COMMENT DURATION/>[<Artwork MIME>base64</Artwork>]</TagInfo>` |
-| `writetag&fn=<ruta>&data=<xml>` | `data` = `<File ARTIST="…" TITLE="…" …/>`; escribe en el archivo y en la ficha. Respuesta `<Result>OK</Result>` |
-| `trackartwork` / `nexttrackartwork` | bytes de la imagen (404 si no hay) |
-| `songrequestlist` | `<Requests></Requests>` (MiRadio no tiene peticiones de oyentes) |
+Las respuestas copian RadioBOSS 7.2 byte a byte en estructura (elementos, atributos y su orden,
+CRLF, errores `E00x`): ver [radioboss-referencia.md](radioboss-referencia.md). Acciones de
+lectura: `playbackinfo`, `status`, `getplaylist2`, `getplaylist`, `trackinfo`, `getlastplayed`,
+`library`, `readtag` (con y sin `artwork=1`), `trackartwork`, `nexttrackartwork`,
+`prevtrackartwork`, `encoderstatus`, `getencoder`, `songrequestlist`, `mic`,
+`streamarchivestatus`, `schedulecontrol&type=state`. Escritura: `writetag` (responde `OK`).
 
-`readtag` y `writetag` solo aceptan archivos que estén en la biblioteca.
-Un error en una acción devuelve `<Error>…</Error>` con 400/404/500 solo en esa petición.
+Diferencias con RadioBOSS:
+- `readtag`/`writetag` solo leen o escriben archivos de la biblioteca; otra ruta recibe la ficha
+  vacía (como un archivo inexistente) y `writetag` la rechaza.
+- `getencoder` nunca envía las claves (`Password=""`).
+- Las carátulas se envían con su tipo real (`image/jpeg`…), no como `text/html`.
+- No hay `Overlay` en `playbackinfo`, ni comandos de control (`cmd=…`), ni `generalinfo`/`getlog`.
+- `RATING`, `Added` y `F1`…`F5` van vacíos o a 0 (MiRadio no los guarda).
 
 ## Identidad de las canciones (FILENAME)
 

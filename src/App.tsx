@@ -2100,6 +2100,7 @@ export default function App() {
   }, [settings.api, settings.streaming.icecast]);
 
   // Estado de la emision: en cada cambio y cada 2 s (la API extrapola la posicion).
+  const streamStatusRef = useRef<StreamStatus | null>(null);
   const pausedNowRef = useRef(paused);
   pausedNowRef.current = paused;
   const publishApiState = useCallback(() => {
@@ -2129,6 +2130,32 @@ export default function App() {
       })(),
       queue: list.flatMap((r) => toPub(r.id) ?? []),
       currentIndex: idx,
+      castTitle: nowPlayingTextRef.current ?? "",
+      volume: settingsRef.current.masterVolume ?? 1,
+      listName: playlistsRef.current.find((pl) => pl.id === activeIdRef.current)?.name ?? "",
+      scheduler: settingsRef.current.eventsEnabled !== false,
+      encoders: (() => {
+        const st = streamStatusRef.current;
+        return settingsRef.current.streaming.icecast.map((c) => {
+          const out = st?.outputs.find((o) => o.id === `icecast:${c.id}`);
+          const status = !c.enabled ? "off" : st?.running && out?.running ? "active" : "idle";
+          return {
+            name: c.name || `${c.host}:${c.port}${c.mount}`,
+            status,
+            error: c.enabled && st?.running && !out?.running ? (st?.lastError ?? "") : "",
+            host: c.host,
+            port: c.port,
+            mount: c.mount,
+            tls: c.tls,
+            codec: c.codec,
+            bitrateKbps: c.bitrateKbps,
+            sampleRate: c.sampleRate,
+            channels: c.channels,
+            public: c.public,
+            enabled: c.enabled,
+          };
+        });
+      })(),
     }).catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -2152,13 +2179,14 @@ export default function App() {
     }).catch(() => undefined);
   }, [nowPlayingText, liveText, songFields, nowPlayingTrack]);
 
-  // Notificaciones: servidor de emision conectado / caido.
+  // Estado de la emision (API y notificaciones): servidor conectado / caido.
   const streamWasRef = useRef<boolean | null>(null);
   useEffect(() => {
     const t = window.setInterval(() => {
-      if (!settingsRef.current.notifications?.some((n) => n.enabled && n.events.includes("server"))) return;
       void getStreamStatus()
         .then((st) => {
+          streamStatusRef.current = st;
+          if (!settingsRef.current.notifications?.some((n) => n.enabled && n.events.includes("server"))) return;
           const prev = streamWasRef.current;
           streamWasRef.current = st.running;
           if (prev !== null && prev !== st.running) {
