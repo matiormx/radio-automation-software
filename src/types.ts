@@ -205,6 +205,16 @@ export interface LevelerSettings {
   maxGainDb: number;
 }
 
+/**
+ * Insert de un canal o bus: la senal sale por una tarjeta (send), pasa por un
+ * procesador externo (plugin host, SuperRack...) y vuelve por una entrada (return).
+ */
+export interface InsertSettings {
+  enabled: boolean;
+  sendDeviceId: string;
+  returnDeviceId: string;
+}
+
 export interface MixerChannel {
   id: string;
   name: string;
@@ -214,6 +224,7 @@ export interface MixerChannel {
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
+  insert?: InsertSettings;
 }
 
 export interface MixerBus {
@@ -224,6 +235,7 @@ export interface MixerBus {
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
+  insert?: InsertSettings;
 }
 
 export type VideoInputKind = "file" | "rtsp" | "ndi";

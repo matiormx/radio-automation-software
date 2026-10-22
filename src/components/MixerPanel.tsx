@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LevelerSettings, MixerBus, MixerChannel, MixerInput, Settings } from "../types";
+import type {
+  InsertSettings,
+  LevelerSettings,
+  MixerBus,
+  MixerChannel,
+  MixerInput,
+  Settings,
+} from "../types";
 import { levelerOf } from "../leveler";
 import { IconPlus, IconTrash } from "../icons";
 import type { SoundMixer } from "../mixer";
@@ -22,7 +29,8 @@ function LevelerControls({
   onChange: (leveler: LevelerSettings) => void;
 }) {
   const lv = levelerOf(owner);
-  const set = (patch: Partial<LevelerSettings>) => onChange({ ...lv, ...patch });
+  const set = (patch: Partial<LevelerSettings>) =>
+    onChange({ ...lv, ...patch });
   return (
     <div className="mixer-leveler">
       <label className="check-row">
@@ -45,7 +53,12 @@ function LevelerControls({
               step={1}
               value={lv.targetLufs}
               onChange={(e) =>
-                set({ targetLufs: Math.max(-30, Math.min(-8, Number(e.target.value) || -16)) })
+                set({
+                  targetLufs: Math.max(
+                    -30,
+                    Math.min(-8, Number(e.target.value) || -16),
+                  ),
+                })
               }
             />
           </label>
@@ -58,10 +71,98 @@ function LevelerControls({
               step={1}
               value={lv.maxGainDb}
               onChange={(e) =>
-                set({ maxGainDb: Math.max(0, Math.min(18, Number(e.target.value) || 0)) })
+                set({
+                  maxGainDb: Math.max(
+                    0,
+                    Math.min(18, Number(e.target.value) || 0),
+                  ),
+                })
               }
             />
           </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InsertControls({
+  owner,
+  label,
+  inputs,
+  outputs,
+  onChange,
+}: {
+  owner: { insert?: InsertSettings };
+  label: string;
+  inputs: Device[];
+  outputs: Device[];
+  onChange: (insert: InsertSettings) => void;
+}) {
+  const ins: InsertSettings = {
+    enabled: !!owner.insert?.enabled,
+    sendDeviceId: owner.insert?.sendDeviceId ?? "",
+    returnDeviceId: owner.insert?.returnDeviceId ?? "",
+  };
+  const set = (patch: Partial<InsertSettings>) =>
+    onChange({ ...ins, ...patch });
+  const incomplete = ins.enabled && (!ins.sendDeviceId || !ins.returnDeviceId);
+  return (
+    <div className="mixer-leveler">
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={ins.enabled}
+          aria-label={`Insert de ${label}`}
+          onChange={(e) => set({ enabled: e.target.checked })}
+        />
+        <span>Insert (envío / retorno)</span>
+      </label>
+      {ins.enabled && (
+        <div className="mixer-insert">
+          <label className="mixer-field">
+            <span>Envío</span>
+            <select
+              value={ins.sendDeviceId}
+              onChange={(e) => set({ sendDeviceId: e.target.value })}
+            >
+              <option value="">Elige salida…</option>
+              {outputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+              {ins.sendDeviceId &&
+                !outputs.some((d) => d.id === ins.sendDeviceId) && (
+                  <option value={ins.sendDeviceId}>Salida no disponible</option>
+                )}
+            </select>
+          </label>
+          <label className="mixer-field">
+            <span>Retorno</span>
+            <select
+              value={ins.returnDeviceId}
+              onChange={(e) => set({ returnDeviceId: e.target.value })}
+            >
+              <option value="">Elige entrada…</option>
+              {inputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+              {ins.returnDeviceId &&
+                !inputs.some((d) => d.id === ins.returnDeviceId) && (
+                  <option value={ins.returnDeviceId}>
+                    Entrada no disponible
+                  </option>
+                )}
+            </select>
+          </label>
+          <p className="mixer-insert-hint">
+            {incomplete
+              ? "Elige envío y retorno; mientras tanto el canal suena directo."
+              : "Usa un cable virtual hacia el procesador (p. ej. SuperRack) y otro de vuelta. Añade algo de latencia."}
+          </p>
         </div>
       )}
     </div>
@@ -104,7 +205,11 @@ function ColorSwatches({
   onChange: (color: string) => void;
 }) {
   return (
-    <div className="mixer-swatches" role="radiogroup" aria-label={`Color de ${label}`}>
+    <div
+      className="mixer-swatches"
+      role="radiogroup"
+      aria-label={`Color de ${label}`}
+    >
       {COLORS.map((c) => (
         <button
           key={c}
@@ -126,7 +231,10 @@ function nextColor(count: number): string {
 }
 
 function newId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `mixer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -138,7 +246,10 @@ function fmtDb(db: number): string {
   return `${db > 0 ? "+" : ""}${value} dB`;
 }
 
-function deviceLabel(kind: "audioinput" | "audiooutput", index: number): string {
+function deviceLabel(
+  kind: "audioinput" | "audiooutput",
+  index: number,
+): string {
   return `${kind === "audioinput" ? "Entrada" : "Salida"} de audio ${index + 1}`;
 }
 
@@ -197,7 +308,9 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
       await refreshDevices();
       mixer?.retryInputs();
     } catch (e) {
-      setDeviceError(`No se concedió acceso a las entradas de audio: ${String(e)}`);
+      setDeviceError(
+        `No se concedió acceso a las entradas de audio: ${String(e)}`,
+      );
     } finally {
       setAsking(false);
     }
@@ -206,15 +319,22 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   const channels = settings.mixerChannels ?? [];
   const buses = settings.mixerBuses ?? [];
   const inputs = devices.filter((d) => d.kind === "audioinput");
-  const outputs = devices.filter((d) => d.kind === "audiooutput" && d.id !== "default");
+  const outputs = devices.filter(
+    (d) => d.kind === "audiooutput" && d.id !== "default",
+  );
   const canChooseOutputs =
-    typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+    typeof HTMLMediaElement !== "undefined" &&
+    "setSinkId" in HTMLMediaElement.prototype;
 
-  const setChannels = (next: MixerChannel[]) => onChange({ ...settings, mixerChannels: next });
-  const setBuses = (next: MixerBus[]) => onChange({ ...settings, mixerBuses: next });
+  const setChannels = (next: MixerChannel[]) =>
+    onChange({ ...settings, mixerChannels: next });
+  const setBuses = (next: MixerBus[]) =>
+    onChange({ ...settings, mixerBuses: next });
 
   const patchChannel = (id: string, patch: Partial<MixerChannel>) => {
-    setChannels(channels.map((ch) => (ch.id === id ? { ...ch, ...patch } : ch)));
+    setChannels(
+      channels.map((ch) => (ch.id === id ? { ...ch, ...patch } : ch)),
+    );
   };
 
   const patchBus = (id: string, patch: Partial<MixerBus>) => {
@@ -263,7 +383,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   };
 
   const musicChannels = channels.filter(
-    (ch) => ch.input.kind === "app" && ch.input.app !== "preview" && ch.input.app !== "call",
+    (ch) =>
+      ch.input.kind === "app" &&
+      ch.input.app !== "preview" &&
+      ch.input.app !== "call",
   ).length;
   const previewChannels = channels.filter(
     (ch) => ch.input.kind === "app" && ch.input.app === "preview",
@@ -275,8 +398,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         <div className="mixer-toolbar-text">
           <strong>Mesa de sonido</strong>
           <span>
-            Cada canal recibe una fuente y la envía a un bus o directamente a una tarjeta. Los
-            buses suman varios canales antes de salir.
+            Cada canal recibe una fuente y la envía a un bus o directamente a
+            una tarjeta. Los buses suman varios canales antes de salir.
           </span>
         </div>
         <div className="mixer-toolbar-actions">
@@ -298,7 +421,11 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
           >
             {asking ? "Solicitando…" : "Ver entradas"}
           </button>
-          <button type="button" className="btn btn-sm btn-accent" onClick={addChannel}>
+          <button
+            type="button"
+            className="btn btn-sm btn-accent"
+            onClick={addChannel}
+          >
             <IconPlus size={13} /> Canal
           </button>
           <button type="button" className="btn btn-sm" onClick={addBus}>
@@ -310,26 +437,33 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
       {deviceError && <div className="form-error">{deviceError}</div>}
       {!canChooseOutputs && (
         <div className="form-error">
-          Este WebView no permite enrutar a varias tarjetas de salida. La mesa funcionará, pero
-          todo saldrá por la salida predeterminada del sistema.
+          Este WebView no permite enrutar a varias tarjetas de salida. La mesa
+          funcionará, pero todo saldrá por la salida predeterminada del sistema.
         </div>
       )}
 
       <p className="hint">
-        Las entradas y salidas son las tarjetas físicas o virtuales del equipo. Las fuentes
-        «aplicación» son la reproducción de la radio y la preescucha del normalizador.
-        {!navigator.mediaDevices && " Este WebView no permite seleccionar dispositivos."}
+        Las entradas y salidas son las tarjetas físicas o virtuales del equipo.
+        Las fuentes «aplicación» son la reproducción de la radio y la preescucha
+        del normalizador.
+        {!navigator.mediaDevices &&
+          " Este WebView no permite seleccionar dispositivos."}
       </p>
 
       <div className="mixer-monitor-row">
         <div className="mixer-monitor-text">
           <strong>VU de salida</strong>
-          <span>Elige la señal que muestra el medidor vertical de la pantalla principal.</span>
+          <span>
+            Elige la señal que muestra el medidor vertical de la pantalla
+            principal.
+          </span>
         </div>
         <select
           value={settings.monitorBusId}
           aria-label="Bus de monitorización del VU"
-          onChange={(e) => onChange({ ...settings, monitorBusId: e.target.value })}
+          onChange={(e) =>
+            onChange({ ...settings, monitorBusId: e.target.value })
+          }
         >
           <option value="">Salida general (master)</option>
           {buses.map((bus) => (
@@ -337,9 +471,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
               {bus.name}
             </option>
           ))}
-          {settings.monitorBusId && !buses.some((bus) => bus.id === settings.monitorBusId) && (
-            <option value={settings.monitorBusId}>Bus no disponible</option>
-          )}
+          {settings.monitorBusId &&
+            !buses.some((bus) => bus.id === settings.monitorBusId) && (
+              <option value={settings.monitorBusId}>Bus no disponible</option>
+            )}
         </select>
       </div>
 
@@ -347,8 +482,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         <div className="mixer-empty">
           <strong>Sin canales configurados</strong>
           <span>
-            La reproducción y la preescucha salen por la salida predeterminada del sistema. Crea
-            un canal para asignar fuentes y tarjetas.
+            La reproducción y la preescucha salen por la salida predeterminada
+            del sistema. Crea un canal para asignar fuentes y tarjetas.
           </span>
         </div>
       ) : (
@@ -359,24 +494,33 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
               <span>{channels.length}</span>
             </header>
             {channels.length === 0 ? (
-              <p className="hint">Sin canales. Añade uno para enrutar una fuente.</p>
+              <p className="hint">
+                Sin canales. Añade uno para enrutar una fuente.
+              </p>
             ) : (
               <div className="mixer-strips">
                 {channels.map((ch) => (
                   <article className="mixer-strip" key={ch.id}>
-                    <div className="mixer-strip-color" style={{ background: ch.color }} />
+                    <div
+                      className="mixer-strip-color"
+                      style={{ background: ch.color }}
+                    />
                     <div className="mixer-strip-head">
                       <input
                         className="mixer-name"
                         value={ch.name}
                         aria-label="Nombre del canal"
-                        onChange={(e) => patchChannel(ch.id, { name: e.target.value })}
+                        onChange={(e) =>
+                          patchChannel(ch.id, { name: e.target.value })
+                        }
                       />
                       <button
                         type="button"
                         className="ghost-btn mixer-remove"
                         title="Eliminar canal"
-                        onClick={() => setChannels(channels.filter((c) => c.id !== ch.id))}
+                        onClick={() =>
+                          setChannels(channels.filter((c) => c.id !== ch.id))
+                        }
                       >
                         <IconTrash size={13} />
                       </button>
@@ -407,7 +551,11 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                               ? {
                                   kind: "app",
                                   app:
-                                    value === "preview" ? "preview" : value === "call" ? "call" : "music",
+                                    value === "preview"
+                                      ? "preview"
+                                      : value === "call"
+                                        ? "call"
+                                        : "music",
                                   deviceId: "",
                                 }
                               : { kind: "device", app: "", deviceId: value };
@@ -415,8 +563,12 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         }}
                       >
                         <optgroup label="Aplicación">
-                          <option value="app:music">Reproducción de música</option>
-                          <option value="app:preview">Preescucha de canciones</option>
+                          <option value="app:music">
+                            Reproducción de música
+                          </option>
+                          <option value="app:preview">
+                            Preescucha de canciones
+                          </option>
                           <option value="app:call">Llamadas de oyentes</option>
                         </optgroup>
                         <optgroup label="Tarjetas de entrada">
@@ -426,8 +578,12 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             </option>
                           ))}
                           {ch.input.kind === "device" &&
-                            !inputs.some((d) => d.id === (ch.input.deviceId || "default")) && (
-                              <option value={`device:${ch.input.deviceId || "default"}`}>
+                            !inputs.some(
+                              (d) => d.id === (ch.input.deviceId || "default"),
+                            ) && (
+                              <option
+                                value={`device:${ch.input.deviceId || "default"}`}
+                              >
                                 Entrada no disponible
                               </option>
                             )}
@@ -464,7 +620,9 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           </optgroup>
                         )}
                         <optgroup label="Tarjetas de salida">
-                          <option value="device:default">Salida predeterminada</option>
+                          <option value="device:default">
+                            Salida predeterminada
+                          </option>
                           {outputs.map((d) => (
                             <option key={d.id} value={`device:${d.id}`}>
                               {d.label}
@@ -492,11 +650,21 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         title="Doble clic: 0 dB"
                         onDoubleClick={() => patchChannel(ch.id, { gainDb: 0 })}
                         onChange={(e) =>
-                          patchChannel(ch.id, { gainDb: Number(e.target.value) || 0 })
+                          patchChannel(ch.id, {
+                            gainDb: Number(e.target.value) || 0,
+                          })
                         }
                       />
                       <span>{fmtDb(ch.gainDb)}</span>
                     </div>
+
+                    <InsertControls
+                      owner={ch}
+                      label={ch.name}
+                      inputs={inputs}
+                      outputs={outputs}
+                      onChange={(insert) => patchChannel(ch.id, { insert })}
+                    />
 
                     <LevelerControls
                       owner={ch}
@@ -525,7 +693,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
             </header>
             {buses.length === 0 ? (
               <p className="hint">
-                Sin buses. Los canales pueden salir directamente a una tarjeta o sumarse a un bus.
+                Sin buses. Los canales pueden salir directamente a una tarjeta o
+                sumarse a un bus.
               </p>
             ) : (
               <div className="mixer-strips">
@@ -535,13 +704,18 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                   ).length;
                   return (
                     <article className="mixer-strip" key={bus.id}>
-                      <div className="mixer-strip-color" style={{ background: bus.color }} />
+                      <div
+                        className="mixer-strip-color"
+                        style={{ background: bus.color }}
+                      />
                       <div className="mixer-strip-head">
                         <input
                           className="mixer-name"
                           value={bus.name}
                           aria-label="Nombre del bus"
-                          onChange={(e) => patchBus(bus.id, { name: e.target.value })}
+                          onChange={(e) =>
+                            patchBus(bus.id, { name: e.target.value })
+                          }
                         />
                         <button
                           type="button"
@@ -554,13 +728,13 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       </div>
 
                       <div className="mixer-color-row">
-                      <span>Color</span>
-                      <ColorSwatches
-                        value={bus.color}
-                        label={bus.name}
-                        onChange={(color) => patchBus(bus.id, { color })}
-                      />
-                    </div>
+                        <span>Color</span>
+                        <ColorSwatches
+                          value={bus.color}
+                          label={bus.name}
+                          onChange={(color) => patchBus(bus.id, { color })}
+                        />
+                      </div>
 
                       <label className="mixer-field">
                         <span>Salida</span>
@@ -577,8 +751,12 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             </option>
                           ))}
                           {bus.outputDeviceId !== "default" &&
-                            !outputs.some((d) => d.id === bus.outputDeviceId) && (
-                              <option value={bus.outputDeviceId}>Salida no disponible</option>
+                            !outputs.some(
+                              (d) => d.id === bus.outputDeviceId,
+                            ) && (
+                              <option value={bus.outputDeviceId}>
+                                Salida no disponible
+                              </option>
                             )}
                         </select>
                       </label>
@@ -596,14 +774,24 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           step={0.5}
                           value={bus.gainDb}
                           aria-label={`Volumen de ${bus.name}`}
-                        title="Doble clic: 0 dB"
-                        onDoubleClick={() => patchBus(bus.id, { gainDb: 0 })}
+                          title="Doble clic: 0 dB"
+                          onDoubleClick={() => patchBus(bus.id, { gainDb: 0 })}
                           onChange={(e) =>
-                            patchBus(bus.id, { gainDb: Number(e.target.value) || 0 })
+                            patchBus(bus.id, {
+                              gainDb: Number(e.target.value) || 0,
+                            })
                           }
                         />
                         <span>{fmtDb(bus.gainDb)}</span>
                       </div>
+
+                      <InsertControls
+                        owner={bus}
+                        label={bus.name}
+                        inputs={inputs}
+                        outputs={outputs}
+                        onChange={(insert) => patchBus(bus.id, { insert })}
+                      />
 
                       <LevelerControls
                         owner={bus}
@@ -628,17 +816,19 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         </div>
       )}
 
-      {channels.length > 0 && (musicChannels === 0 || previewChannels === 0) && (
-        <p className="hint mixer-warning">
-          {musicChannels === 0 && "La reproducción no tiene canal: sonará por la salida predeterminada. "}
-          {previewChannels === 0 &&
-            "La preescucha no tiene canal: sonará por la salida predeterminada."}
-        </p>
-      )}
+      {channels.length > 0 &&
+        (musicChannels === 0 || previewChannels === 0) && (
+          <p className="hint mixer-warning">
+            {musicChannels === 0 &&
+              "La reproducción no tiene canal: sonará por la salida predeterminada. "}
+            {previewChannels === 0 &&
+              "La preescucha no tiene canal: sonará por la salida predeterminada."}
+          </p>
+        )}
 
       <p className="hint">
-        Reproducción asignada a {musicChannels} canal(es) · Preescucha asignada a{" "}
-        {previewChannels} canal(es).
+        Reproducción asignada a {musicChannels} canal(es) · Preescucha asignada
+        a {previewChannels} canal(es).
       </p>
     </div>
   );

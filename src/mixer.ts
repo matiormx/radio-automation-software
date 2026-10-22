@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Settings } from "./types";
+import type { InsertSettings, Settings } from "./types";
 import { Leveler, levelerOf } from "./leveler";
 
 /**
@@ -46,6 +46,26 @@ interface InputSource {
   node: MediaStreamAudioSourceNode;
 }
 
+/** Insert util: activado y con ambas tarjetas elegidas. */
+export function insertOf(
+  x: { insert?: Partial<InsertSettings> } | undefined,
+): InsertSettings | null {
+  const i = x?.insert;
+  if (!i?.enabled) return null;
+  const sendDeviceId = (i.sendDeviceId || "").trim();
+  const returnDeviceId = (i.returnDeviceId || "").trim();
+  if (!sendDeviceId || !returnDeviceId) return null;
+  return { enabled: true, sendDeviceId, returnDeviceId };
+}
+
+interface InsertReturn {
+  deviceId: string;
+  /** Donde vuelve la senal procesada (nivelador o fader) */
+  target: AudioNode;
+  /** Camino directo: suena hasta que el retorno esta vivo, para no dejar el canal mudo */
+  bypass: GainNode;
+}
+
 type Config = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
 
 export class SoundMixer {
@@ -64,7 +84,11 @@ export class SoundMixer {
 
   onError: ((message: string) => void) | null = null;
 
-  private config: Config = { mixerChannels: [], mixerBuses: [], monitorBusId: "" };
+  private config: Config = {
+    mixerChannels: [],
+    mixerBuses: [],
+    monitorBusId: "",
+  };
   private volume = 1;
   private channelGains = new Map<string, GainNode>();
   private busGains = new Map<string, GainNode>();
@@ -72,6 +96,9 @@ export class SoundMixer {
   private busFaders = new Map<string, GainNode>();
   private faders: GainNode[] = [];
   private levelers = new Map<string, Leveler>();
+  /** Salidas de envio de los inserts (sin volumen maestro: van a un procesador) */
+  private insertSinks = new Map<string, { deviceId: string; sink: Sink }>();
+  private insertReturns = new Map<string, InsertReturn>();
   private deviceMixes = new Map<string, DeviceMix>();
   private sinks = new Map<string, Sink>();
   private inputSources = new Map<string, InputSource>();
@@ -92,15 +119,20 @@ export class SoundMixer {
    */
   private readonly returnMix: GainNode;
   private readonly returnDest: MediaStreamAudioDestinationNode;
-  private callSources = new Map<string, { node: MediaStreamAudioSourceNode; el: HTMLAudioElement }>();
+  private callSources = new Map<
+    string,
+    { node: MediaStreamAudioSourceNode; el: HTMLAudioElement }
+  >();
 
   private readonly canSink =
-    typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+    typeof HTMLMediaElement !== "undefined" &&
+    "setSinkId" in HTMLMediaElement.prototype;
 
   constructor() {
     const Ctor =
       window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
     if (!Ctor) throw new Error("Este equipo no tiene Web Audio");
     this.ctx = new Ctor();
     this.musicInput = this.ctx.createGain();
@@ -118,7 +150,9 @@ export class SoundMixer {
     this.monitorAnalyser = this.ctx.createAnalyser();
     this.monitorAnalyser.fftSize = 1024;
     this.monitorAnalyser.smoothingTimeConstant = 0.7;
-    this.monitorData = new Float32Array(new ArrayBuffer(this.monitorAnalyser.fftSize * 4));
+    this.monitorData = new Float32Array(
+      new ArrayBuffer(this.monitorAnalyser.fftSize * 4),
+    );
     const silent = this.ctx.createGain();
     silent.gain.value = 0;
     this.monitorAnalyser.connect(silent);
@@ -161,7 +195,10 @@ export class SoundMixer {
     const wantedLevelers = new Set<string>();
     // Nivelador de un canal o bus: se reutiliza entre reconfiguraciones para no
     // perder lo que ya ha medido (cambiar un fader no debe reiniciarlo).
-    const levelerFor = (key: string, owner: Parameters<typeof levelerOf>[0]): Leveler | null => {
+    const levelerFor = (
+      key: string,
+      owner: Parameters<typeof levelerOf>[0],
+    ): Leveler | null => {
       const cfg = levelerOf(owner);
       if (!cfg.enabled) return null;
       wantedLevelers.add(key);
@@ -174,6 +211,42 @@ export class SoundMixer {
       lv.output.disconnect();
       return lv;
     };
+    let musicUsed = false;
+    let previewUsed = false;
+    let callUsed = false;
+    const inputDevices = new Set<string>();
+    const wantedInserts = new Set<string>();
+    this.insertReturns.clear();
+    // Insert: entrada -> envio (tarjeta) ... procesador externo ... retorno -> next.
+    // Mientras el retorno no llega, la senal pasa directa para no enmudecer.
+    const insertFor = (
+      key: string,
+      owner: { insert?: Partial<InsertSettings> },
+      next: GainNode,
+    ): GainNode => {
+      const ins = insertOf(owner);
+      if (!ins) return next;
+      wantedInserts.add(key);
+      const send = this.ctx.createGain();
+      const bypass = this.ctx.createGain();
+      this.faders.push(send, bypass);
+      send.connect(bypass);
+      bypass.connect(next);
+      const sink = this.insertSink(key, ins.sendDeviceId);
+      if (!sink || sink.failed || !sink.ready) return send;
+      send.connect(sink.dest);
+      const returnId = normDevice(ins.returnDeviceId);
+      inputDevices.add(returnId);
+      this.insertReturns.set(key, { deviceId: returnId, target: next, bypass });
+      const src = this.inputSources.get(returnId);
+      if (src) {
+        src.node.connect(next);
+        bypass.gain.value = 0;
+      } else {
+        this.requestInput(returnId);
+      }
+      return send;
+    };
     for (const mix of this.deviceMixes.values()) mix.gain.disconnect();
     this.channelGains.clear();
     this.busGains.clear();
@@ -181,9 +254,11 @@ export class SoundMixer {
 
     const busById = new Map(cfg.mixerBuses.map((b) => [b.id, b]));
     const usedDevices = new Set<string>([DEFAULT_DEVICE]);
-    for (const bus of cfg.mixerBuses) usedDevices.add(normDevice(bus.outputDeviceId));
+    for (const bus of cfg.mixerBuses)
+      usedDevices.add(normDevice(bus.outputDeviceId));
     for (const ch of cfg.mixerChannels) {
-      if (ch.output.kind === "device") usedDevices.add(normDevice(ch.output.id));
+      if (ch.output.kind === "device")
+        usedDevices.add(normDevice(ch.output.id));
       if (ch.output.kind === "bus" && busById.has(ch.output.id)) {
         const bus = busById.get(ch.output.id);
         if (bus) usedDevices.add(normDevice(bus.outputDeviceId));
@@ -199,19 +274,19 @@ export class SoundMixer {
       this.busFaders.set(bus.id, gain);
       const lv = levelerFor(`bus:${bus.id}`, bus);
       if (lv) lv.output.connect(gain);
-      this.busGains.set(bus.id, lv ? lv.input : gain);
+      this.busGains.set(
+        bus.id,
+        insertFor(`bus:${bus.id}`, bus, lv ? lv.input : gain),
+      );
     }
 
-    const monitorSource = cfg.monitorBusId ? this.busFaders.get(cfg.monitorBusId) : null;
+    const monitorSource = cfg.monitorBusId
+      ? this.busFaders.get(cfg.monitorBusId)
+      : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorAnalyser);
     monitorTap.connect(this.programTap);
     this.monitorTap = monitorTap;
-
-    let musicUsed = false;
-    let previewUsed = false;
-    let callUsed = false;
-    const inputDevices = new Set<string>();
 
     for (const ch of cfg.mixerChannels) {
       const gain = this.ctx.createGain();
@@ -219,8 +294,8 @@ export class SoundMixer {
       this.faders.push(gain);
       const lv = levelerFor(`ch:${ch.id}`, ch);
       if (lv) lv.output.connect(gain);
-      // La senal entra por el nivelador (si lo hay) y luego pasa por el fader.
-      const entry = lv ? lv.input : gain;
+      // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
+      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : gain);
       this.channelGains.set(ch.id, entry);
 
       if (ch.input.kind === "app") {
@@ -241,7 +316,8 @@ export class SoundMixer {
       }
 
       // Todo lo que no es la voz del que llama alimenta su retorno.
-      if (!(ch.input.kind === "app" && ch.input.app === "call")) gain.connect(this.returnMix);
+      if (!(ch.input.kind === "app" && ch.input.app === "call"))
+        gain.connect(this.returnMix);
 
       if (ch.output.kind === "bus") {
         const busGain = this.busGains.get(ch.output.id);
@@ -277,6 +353,12 @@ export class SoundMixer {
     }
     for (const id of this.inputFailed) {
       if (!inputDevices.has(id)) this.inputFailed.delete(id);
+    }
+
+    for (const [key, entry] of Array.from(this.insertSinks)) {
+      if (wantedInserts.has(key)) continue;
+      this.closeSink(entry.sink);
+      this.insertSinks.delete(key);
     }
 
     // Liberar salidas que ya no se usan.
@@ -324,7 +406,11 @@ export class SoundMixer {
 
   /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la mesa. */
   setCallMuted(muted: boolean) {
-    this.callInput.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.015);
+    this.callInput.gain.setTargetAtTime(
+      muted ? 0 : 1,
+      this.ctx.currentTime,
+      0.015,
+    );
   }
 
   /** Pista con el retorno (programa menos la voz del que llama), una copia por llamada. */
@@ -372,6 +458,7 @@ export class SoundMixer {
       ]);
     }
     for (const sink of this.sinks.values()) this.playSink(sink);
+    for (const { sink } of this.insertSinks.values()) this.playSink(sink);
   }
 
   /** Reintenta entradas que fallaron (por ejemplo tras conceder permiso). */
@@ -382,6 +469,11 @@ export class SoundMixer {
 
   /** Reintenta tarjetas de salida que no estaban disponibles. */
   retryOutputs() {
+    for (const [key, entry] of Array.from(this.insertSinks)) {
+      if (!entry.sink.failed) continue;
+      this.closeSink(entry.sink);
+      this.insertSinks.delete(key);
+    }
     for (const [id, sink] of this.sinks) {
       if (!sink.failed) continue;
       sink.el.pause();
@@ -410,7 +502,10 @@ export class SoundMixer {
     const buffer = await this.ctx.decodeAudioData(bytes);
     if (job !== this.previewJob) return;
     const from = Math.max(0, Math.min(buffer.duration - 0.05, start));
-    const duration = Math.max(0.05, Math.min(buffer.duration - from, end - start));
+    const duration = Math.max(
+      0.05,
+      Math.min(buffer.duration - from, end - start),
+    );
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(this.previewInput);
@@ -470,7 +565,8 @@ export class SoundMixer {
     }
     for (const lv of this.levelers.values()) lv.dispose();
     this.levelers.clear();
-    for (const id of Array.from(this.callSources.keys())) this.detachCallSource(id);
+    for (const id of Array.from(this.callSources.keys()))
+      this.detachCallSource(id);
     for (const src of this.inputSources.values()) {
       src.node.disconnect();
       for (const track of src.stream.getTracks()) track.stop();
@@ -482,6 +578,8 @@ export class SoundMixer {
       sink.el.remove();
     }
     this.sinks.clear();
+    for (const { sink } of this.insertSinks.values()) this.closeSink(sink);
+    this.insertSinks.clear();
     this.deviceMixes.clear();
     this.programTap.disconnect();
     void this.ctx.close().catch(() => undefined);
@@ -548,6 +646,62 @@ export class SoundMixer {
   }
 
   /**
+   * Salida de envio de un insert. Al confirmarse la tarjeta (o fallar) se
+   * reconfigura la mesa para conectar el retorno o dejar el canal en directo.
+   */
+  private insertSink(key: string, deviceId: string): Sink | null {
+    if (!this.canSink) return null;
+    const existing = this.insertSinks.get(key);
+    if (existing && existing.deviceId === deviceId) return existing.sink;
+    if (existing) this.closeSink(existing.sink);
+    const dest = this.ctx.createMediaStreamDestination();
+    const el = document.createElement("audio");
+    el.autoplay = false;
+    el.srcObject = dest.stream;
+    el.style.display = "none";
+    el.setAttribute("aria-hidden", "true");
+    document.body.appendChild(el);
+    const sink: Sink = { dest, el, ready: false, failed: false };
+    this.insertSinks.set(key, { deviceId, sink });
+    const withSink = el as HTMLAudioElement & {
+      setSinkId?: (id: string) => Promise<void>;
+    };
+    if (typeof withSink.setSinkId !== "function") {
+      this.failSink(sink);
+      return sink;
+    }
+    const target = deviceId === DEFAULT_DEVICE ? "" : deviceId;
+    void withSink
+      .setSinkId(target)
+      .then(() => {
+        if (this.disposed || this.insertSinks.get(key)?.sink !== sink) return;
+        sink.ready = true;
+        this.playSink(sink);
+        this.apply(this.config);
+      })
+      .catch(() => {
+        if (this.disposed || this.insertSinks.get(key)?.sink !== sink) return;
+        this.failSink(sink);
+        this.onError?.(
+          "No se pudo abrir la tarjeta de envío del insert; el canal suena directo.",
+        );
+        this.apply(this.config);
+      });
+    return sink;
+  }
+
+  private closeSink(sink: Sink) {
+    sink.el.pause();
+    sink.el.srcObject = null;
+    sink.el.remove();
+    try {
+      sink.dest.disconnect();
+    } catch {
+      /* ya desconectado */
+    }
+  }
+
+  /**
    * Un sink que no se pudo abrir no debe quedarse reproduciendo en la salida
    * predeterminada: el mismo audio saldria dos veces.
    */
@@ -576,7 +730,12 @@ export class SoundMixer {
   }
 
   private requestInput(deviceId: string) {
-    if (this.disposed || this.inputPending.has(deviceId) || this.inputFailed.has(deviceId)) return;
+    if (
+      this.disposed ||
+      this.inputPending.has(deviceId) ||
+      this.inputFailed.has(deviceId)
+    )
+      return;
     const media = navigator.mediaDevices;
     if (!media?.getUserMedia) {
       this.inputFailed.add(deviceId);
@@ -587,9 +746,14 @@ export class SoundMixer {
     const constraints: MediaStreamConstraints = {
       audio:
         deviceId === DEFAULT_DEVICE
-          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+          ? {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            }
           : {
               deviceId: { exact: deviceId },
+              channelCount: { ideal: 2 },
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
@@ -615,18 +779,33 @@ export class SoundMixer {
           const gain = this.channelGains.get(ch.id);
           if (gain) node.connect(gain);
         }
+        for (const ret of this.insertReturns.values()) {
+          if (ret.deviceId !== deviceId) continue;
+          node.connect(ret.target);
+          ret.bypass.gain.setTargetAtTime(0, this.ctx.currentTime, 0.01);
+        }
       })
       .catch(() => {
         this.inputPending.delete(deviceId);
         if (this.disposed) return;
         this.inputFailed.add(deviceId);
-        this.onError?.("No se pudo abrir una entrada de audio. Revisa los permisos.");
+        this.onError?.(
+          "No se pudo abrir una entrada de audio. Revisa los permisos.",
+        );
       });
   }
 
   private usesInput(deviceId: string): boolean {
-    return this.config.mixerChannels.some(
-      (ch) => ch.input.kind === "device" && normDevice(ch.input.deviceId) === deviceId,
-    );
+    if (
+      this.config.mixerChannels.some(
+        (ch) =>
+          ch.input.kind === "device" &&
+          normDevice(ch.input.deviceId) === deviceId,
+      )
+    )
+      return true;
+    for (const ret of this.insertReturns.values())
+      if (ret.deviceId === deviceId) return true;
+    return false;
   }
 }

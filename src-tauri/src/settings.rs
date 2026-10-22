@@ -147,6 +147,7 @@ pub struct MixerChannel {
     pub gain_db: f32,
     pub muted: bool,
     pub leveler: LevelerSettings,
+    pub insert: InsertSettings,
 }
 
 impl Default for MixerChannel {
@@ -160,6 +161,26 @@ impl Default for MixerChannel {
             gain_db: 0.0,
             muted: false,
             leveler: LevelerSettings::default(),
+            insert: InsertSettings::default(),
+        }
+    }
+}
+
+/// Insert (envio y retorno por tarjetas) de un canal o bus.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InsertSettings {
+    pub enabled: bool,
+    pub send_device_id: String,
+    pub return_device_id: String,
+}
+
+impl Default for InsertSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            send_device_id: String::new(),
+            return_device_id: String::new(),
         }
     }
 }
@@ -195,6 +216,7 @@ pub struct MixerBus {
     pub gain_db: f32,
     pub muted: bool,
     pub leveler: LevelerSettings,
+    pub insert: InsertSettings,
 }
 
 impl Default for MixerBus {
@@ -207,6 +229,7 @@ impl Default for MixerBus {
             gain_db: 0.0,
             muted: false,
             leveler: LevelerSettings::default(),
+            insert: InsertSettings::default(),
         }
     }
 }
