@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn decodifica_base64() {
         assert_eq!(decode_base64("aGVsbG8=").unwrap(), b"hello");
-        assert_eq!(decode_base64("T0U=").unwrap(), b"ME");
+        assert_eq!(decode_base64("TUU=").unwrap(), b"ME");
         assert!(decode_base64("!!").is_err());
         assert!(decode_base64("").is_err());
     }
