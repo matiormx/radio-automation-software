@@ -27,6 +27,9 @@ interface PlaylistZoneProps {
   onToggleBlock: (trackId: string, blockId: string) => void;
 }
 
+/** Canciones ya emitidas que siguen a la vista por encima de la que suena */
+const PAST_VISIBLE = 5;
+
 function fmtDur(secs: number): string {
   if (!secs || secs <= 0) return "--:--";
   const m = Math.floor(secs / 60);
@@ -66,6 +69,19 @@ export function PlaylistZone({
   const [ctx, setCtx] = useState<{ index: number; x: number; y: number } | null>(null);
   const [blockMenu, setBlockMenu] = useState<string | null>(null);
   const blockMenuRef = useRef<HTMLDivElement | null>(null);
+  const rowsRef = useRef<HTMLDivElement | null>(null);
+  const [showAllPast, setShowAllPast] = useState(false);
+  const hiddenPast = showAllPast ? 0 : Math.max(0, playingRow - PAST_VISIBLE);
+
+  // Al cambiar de cancion, deja a la vista las ultimas emitidas y la que suena.
+  useEffect(() => {
+    const box = rowsRef.current;
+    if (!box || playingRow < 0) return;
+    const first = Math.max(0, playingRow - PAST_VISIBLE);
+    const el = box.querySelector<HTMLElement>(`[data-row="${first}"]`);
+    if (!el) return;
+    box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+  }, [playingRow, activeId, rows.length]);
 
   useEffect(() => {
     if (!editing) setDraft(active?.name ?? "");
@@ -200,11 +216,23 @@ export function PlaylistZone({
           piloto automático para que se llene sola.
         </div>
       ) : (
-        <div className="rows flex-1">
-          {rows.map((r, i) => (
+        <div className="rows flex-1" ref={rowsRef}>
+          {(hiddenPast > 0 || (showAllPast && playingRow > PAST_VISIBLE)) && (
+            <button
+              type="button"
+              className="plrow-pastnote"
+              onClick={() => setShowAllPast((v) => !v)}
+            >
+              {showAllPast
+                ? "Ocultar las emitidas más antiguas"
+                : `${hiddenPast} ${hiddenPast === 1 ? "canción emitida oculta" : "canciones emitidas ocultas"} · ver todas`}
+            </button>
+          )}
+          {rows.map((r, i) => i < hiddenPast ? null : (
             <div
               key={`${r.id}-${i}`}
-              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
+              data-row={i}
+              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
               draggable
               onDragStart={(e) => {
                 setDragIndex(i);

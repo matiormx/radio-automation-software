@@ -1195,10 +1195,6 @@ body {
 .field-unit input:focus { border-color: var(--accent); }
 
 /* historial: canciones ya emitidas, en gris */
-.brow-history { opacity: 0.55; }
-.brow-history:hover { opacity: 0.85; }
-.brow-history .brow-title { color: var(--text-dim); }
-.brow-history .brow-sub { color: var(--text-faint); }
 .brow-when { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
 
 .np-path { flex: 1; justify-content: flex-end; }
@@ -3155,3 +3151,9 @@ body {
 
 .mixer-insert { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .mixer-insert-hint { margin: 0; font-size: 10px; line-height: 1.35; color: var(--text-faint); }
+
+/* Lista de emisión: canciones ya emitidas en gris */
+.plrow-past { opacity: 0.45; }
+.plrow-past:hover { opacity: 0.8; }
+.plrow-pastnote { display: block; width: 100%; padding: 4px 10px; border: 0; background: transparent; color: var(--text-faint); font-size: 11px; text-align: center; cursor: pointer; }
+.plrow-pastnote:hover { color: var(--text-dim); }

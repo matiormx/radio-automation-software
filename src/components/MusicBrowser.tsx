@@ -1,5 +1,5 @@
 import { DeezerSearch } from "./DeezerSearch";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
@@ -623,6 +623,76 @@ export function MusicBrowser({
     return selection;
   })();
 
+
+  // Fila de cancion (biblioteca o historial): misma interaccion en ambas listas.
+  const rowFor = (t: Track, last?: ReactNode) => (
+    <div
+                  key={t.id}
+                  className={`brow ${selectedId === t.id ? "brow-on" : ""} ${t.missing ? "brow-missing" : ""}`}
+                  role="listitem"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/miradio-track", t.id);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(t.id);
+                  }}
+                  onDoubleClick={() => onAdd(t)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openCtx(t, e.clientX, e.clientY);
+                  }}
+                  title={`${t.title} — ${t.artist}`}
+                >
+                  <div className="bcell bcol-name">
+                    <span className="brow-title">
+                      {t.title}
+                      {t.library === "b" && <span className="chip chip-lib">B</span>}
+                      {t.missing && <span className="badge-missing">sin archivo</span>}
+                    </span>
+                    <span className="brow-sub">
+                      {t.artist}
+                      {t.tags.length > 0 && (
+                        <span className="brow-tags">
+                          {t.tags.map((tag) => (
+                            <span key={tag} className="chip chip-tag">{tag}</span>
+                          ))}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <span className="bcell bcol-album" title={t.album}>{t.album || "—"}</span>
+                  <span className="bcell bcol-genre" title={t.genre}>{t.genre || "—"}</span>
+                  {last ?? <span className="bcell bcol-dur">{fmtTime(t.durationSecs)}</span>}
+                  <div className="brow-acts">
+                    <button
+                      type="button"
+                      className="act-btn"
+                      title="Añadir a la lista"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAdd(t);
+                      }}
+                    >
+                      <IconPlus size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="act-btn"
+                      title="Más acciones"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const r = e.currentTarget.getBoundingClientRect();
+                        openCtx(t, r.right - 210, r.bottom + 4);
+                      }}
+                    >
+                      <IconMore size={14} />
+                    </button>
+                  </div>
+                </div>
+  );
+
   return (
     <section className="panel browser-panel" aria-label="Música">
       <div className="panel-head">
@@ -948,24 +1018,9 @@ export function MusicBrowser({
                   emitido.
                 </div>
               ) : (
-                playedTracks.map(({ track, playedAt }) => (
-                  <div
-                    key={track.id}
-                    className="brow brow-history"
-                    role="listitem"
-                    onDoubleClick={() => onAdd(track)}
-                    title={`${track.title} — ${track.artist}`}
-                  >
-                    <div className="bcell bcol-name">
-                      <span className="brow-title">{track.title}</span>
-                      <span className="brow-sub">{track.artist}</span>
-                    </div>
-                    <span className="bcell bcol-album" title={track.album}>
-                      {track.album || "—"}
-                    </span>
-                    <span className="bcell bcol-genre" title={track.genre}>
-                      {track.genre || "—"}
-                    </span>
+                playedTracks.map(({ track, playedAt }) =>
+                  rowFor(
+                    track,
                     <span className="bcell bcol-dur brow-when">
                       {new Date(playedAt * 1000).toLocaleString("es-ES", {
                         day: "2-digit",
@@ -973,9 +1028,9 @@ export function MusicBrowser({
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
-                    </span>
-                  </div>
-                ))
+                    </span>,
+                  ),
+                )
               )}
             </div>
           ) : filtered.length === 0 ? (
@@ -986,73 +1041,7 @@ export function MusicBrowser({
             </div>
           ) : (
             <div className="browser-rows" role="list" onClick={() => setSelectedId("")}>
-              {filtered.map((t) => (
-                <div
-                  key={t.id}
-                  className={`brow ${selectedId === t.id ? "brow-on" : ""} ${t.missing ? "brow-missing" : ""}`}
-                  role="listitem"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/miradio-track", t.id);
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedId(t.id);
-                  }}
-                  onDoubleClick={() => onAdd(t)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    openCtx(t, e.clientX, e.clientY);
-                  }}
-                  title={`${t.title} — ${t.artist}`}
-                >
-                  <div className="bcell bcol-name">
-                    <span className="brow-title">
-                      {t.title}
-                      {t.library === "b" && <span className="chip chip-lib">B</span>}
-                      {t.missing && <span className="badge-missing">sin archivo</span>}
-                    </span>
-                    <span className="brow-sub">
-                      {t.artist}
-                      {t.tags.length > 0 && (
-                        <span className="brow-tags">
-                          {t.tags.map((tag) => (
-                            <span key={tag} className="chip chip-tag">{tag}</span>
-                          ))}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <span className="bcell bcol-album" title={t.album}>{t.album || "—"}</span>
-                  <span className="bcell bcol-genre" title={t.genre}>{t.genre || "—"}</span>
-                  <span className="bcell bcol-dur">{fmtTime(t.durationSecs)}</span>
-                  <div className="brow-acts">
-                    <button
-                      type="button"
-                      className="act-btn"
-                      title="Añadir a la lista"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAdd(t);
-                      }}
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="act-btn"
-                      title="Más acciones"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const r = e.currentTarget.getBoundingClientRect();
-                        openCtx(t, r.right - 210, r.bottom + 4);
-                      }}
-                    >
-                      <IconMore size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {filtered.map((t) => rowFor(t))}
             </div>
           )}
         </div>
