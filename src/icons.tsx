@@ -1,3 +1,5 @@
+import logoUrl from "./assets/logo.png";
+
 interface IconProps {
   size?: number;
 }
@@ -173,16 +175,7 @@ export const IconTag = ({ size = 16 }: IconProps) => (
 );
 
 export const LogoRadio = ({ size = 34 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <rect x="6" y="18" width="52" height="34" rx="9" fill="#2b3442" stroke="#4f8cff" strokeWidth="3" />
-    <path d="M20 6 44 18" stroke="#4f8cff" strokeWidth="4" strokeLinecap="round" fill="none" />
-    <circle cx="46" cy="14" r="4" fill="#22c55e" />
-    <circle cx="22" cy="35" r="9" fill="#e6eaf0" opacity="0.9" />
-    <circle cx="22" cy="35" r="3.5" fill="#2b3442" />
-    <rect x="36" y="27" width="16" height="4" rx="2" fill="#e6eaf0" opacity="0.8" />
-    <rect x="36" y="35" width="16" height="4" rx="2" fill="#e6eaf0" opacity="0.5" />
-    <rect x="36" y="43" width="10" height="4" rx="2" fill="#e6eaf0" opacity="0.3" />
-  </svg>
+  <img src={logoUrl} width={size} height={size} alt="" aria-hidden="true" draggable={false} style={{ borderRadius: size * 0.22 }} />
 );
 
 export const IconVinyl = ({ size = 150 }: IconProps) => (
