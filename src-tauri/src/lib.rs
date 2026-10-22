@@ -10,6 +10,7 @@ pub mod library;
 pub mod playlists;
 pub mod settings;
 pub mod nowplaying;
+pub mod notify;
 pub mod streaming;
 pub mod update;
 
@@ -34,6 +35,7 @@ pub fn run() {
             app.manage(streaming::StreamingState::default());
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
+            app.manage(notify::NotifyState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -86,6 +88,8 @@ pub fn run() {
             engine::engine_cmd,
             engine::engine_devices,
             rbapi::api_publish,
+            notify::notify_fire,
+            notify::notify_test,
             rbapi::api_apply,
             rbapi::api_status,
             rbapi::api_set_login,

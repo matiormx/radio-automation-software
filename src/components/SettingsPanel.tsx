@@ -1,4 +1,5 @@
 import { ApiTab } from "./ApiTab";
+import { NotificationsTab } from "./NotificationsTab";
 import { useMemo, useState } from "react";
 import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
 import { effectiveDuration } from "../types";
@@ -165,7 +166,8 @@ export type SettingsTab =
   | "video"
   | "streaming"
   | "calls"
-  | "api";
+  | "api"
+  | "notify";
 
 export function SettingsPanel({
   settings,
@@ -307,6 +309,14 @@ export function SettingsPanel({
               API
               <span>Datos para ngradio.es (como RadioBOSS)</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "notify" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("notify")}
+            >
+              Notificaciones
+              <span>Avisos GET/POST por eventos</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -349,6 +359,7 @@ export function SettingsPanel({
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
+            {tab === "notify" && <NotificationsTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "api" && <ApiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "calls" && (
               <StudioCallsTab

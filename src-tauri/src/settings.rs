@@ -29,6 +29,8 @@ pub struct Settings {
     pub languages: Vec<String>,
     /// Probabilidad (%) de cada idioma en el AutoDJ; "" = sin idioma
     pub language_weights: HashMap<String, f64>,
+    /// Avisos GET/POST ante eventos (cambio de cancion, errores...)
+    pub notifications: Vec<crate::notify::Notification>,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -527,6 +529,7 @@ impl Default for Settings {
             past_visible: 5,
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),
+            notifications: Vec::new(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,

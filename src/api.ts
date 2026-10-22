@@ -11,6 +11,7 @@ import type {
   StreamStatus,
   Track,
   TrackDetails,
+  NotificationRule,
   TrackPatch,
   AnalysisResult,
   DeezerTrack,
@@ -45,6 +46,14 @@ export function scanMusicFolder(): Promise<number> {
 
 export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
+}
+
+export function notifyFire(event: string, vars: Record<string, string>): Promise<void> {
+  return invoke("notify_fire", { event, vars });
+}
+
+export function notifyTest(notification: NotificationRule): Promise<string> {
+  return invoke<string>("notify_test", { notification });
 }
 
 export function setTracksLanguage(ids: string[], language: string): Promise<number> {

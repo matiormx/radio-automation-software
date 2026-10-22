@@ -72,7 +72,7 @@ import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
 import { openToolWindow, publishState, serveMain } from "./bridge";
-import { apiApply, apiPublish } from "./api";
+import { apiApply, apiPublish, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
@@ -281,6 +281,9 @@ export default function App() {
   const playRowRef = useRef<(index: number) => void>(() => undefined);
 
   const showToast = useCallback((msg: string) => {
+    if (/^(Error|No se pudo|Falló|Fallo)/.test(msg) && !msg.startsWith("Falló la prueba")) {
+      void notifyFire("error", { message: msg }).catch(() => undefined);
+    }
     setToast(msg);
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 3200);
@@ -1413,6 +1416,7 @@ export default function App() {
     if (!active || rows.length === 0) return;
     const timer = window.setTimeout(() => {
       if (userPausedRef.current || playingRowRef.current >= 0) return;
+      void notifyFire("silence", { message: "silencio detectado" }).catch(() => undefined);
       void playRowRef.current(0);
     }, 3000);
     return () => window.clearTimeout(timer);
@@ -2096,6 +2100,37 @@ export default function App() {
     const t = window.setInterval(publishApiState, 2000);
     return () => window.clearInterval(t);
   }, [publishApiState]);
+
+  // Notificaciones: cambio de cancion (CURRENTSONG / LIVE).
+  useEffect(() => {
+    if (!nowPlayingText && !liveText) return;
+    void notifyFire("track", {
+      currentsong: nowPlayingText ?? "",
+      live: liveText ?? "",
+      artist: songFields?.artist ?? "",
+      title: songFields?.title ?? "",
+      album: songFields?.album ?? "",
+      file: nowPlayingTrack?.file ?? "",
+    }).catch(() => undefined);
+  }, [nowPlayingText, liveText, songFields, nowPlayingTrack]);
+
+  // Notificaciones: servidor de emision conectado / caido.
+  const streamWasRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (!settingsRef.current.notifications?.some((n) => n.enabled && n.events.includes("server"))) return;
+      void getStreamStatus()
+        .then((st) => {
+          const prev = streamWasRef.current;
+          streamWasRef.current = st.running;
+          if (prev !== null && prev !== st.running) {
+            void notifyFire("server", { message: st.running ? "conectado" : "desconectado" }).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, []);
 
   // ---- ventanas de herramientas (Ajustes...) ----
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});

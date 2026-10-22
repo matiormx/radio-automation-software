@@ -402,6 +402,20 @@ export interface StudioCallsSettings {
   token: string;
 }
 
+export interface NotificationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  url: string;
+  method: "GET" | "POST";
+  body: string;
+  bodyFormat: "form" | "json" | "text";
+  /** "track" | "server" | "silence" | "error" */
+  events: string[];
+  /** Texto del cambio de cancion: CURRENTSONG o LIVE */
+  titleSource: "currentsong" | "live";
+}
+
 export interface Settings {
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
@@ -416,6 +430,8 @@ export interface Settings {
   languages: string[];
   /** Probabilidad (%) de que el AutoDJ elija cada idioma; sin datos = sin filtro */
   languageWeights: Record<string, number>;
+  /** Avisos GET/POST ante eventos */
+  notifications: NotificationRule[];
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -476,6 +492,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pastVisible: 5,
   languages: ["es", "en", "pt", "de", "fr"],
   languageWeights: {},
+  notifications: [],
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,
