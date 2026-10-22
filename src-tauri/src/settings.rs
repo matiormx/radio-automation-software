@@ -144,6 +144,7 @@ pub struct MixerChannel {
     pub output: MixerOutput,
     pub gain_db: f32,
     pub muted: bool,
+    pub leveler: LevelerSettings,
 }
 
 impl Default for MixerChannel {
@@ -156,6 +157,28 @@ impl Default for MixerChannel {
             output: MixerOutput::default(),
             gain_db: 0.0,
             muted: false,
+            leveler: LevelerSettings::default(),
+        }
+    }
+}
+
+/// Nivelador automatico de ganancia de un canal o bus.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LevelerSettings {
+    pub enabled: bool,
+    /// Sonoridad objetivo (LUFS).
+    pub target_lufs: f32,
+    /// Maximo de subida o bajada (dB).
+    pub max_gain_db: f32,
+}
+
+impl Default for LevelerSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            target_lufs: -16.0,
+            max_gain_db: 9.0,
         }
     }
 }
@@ -169,6 +192,7 @@ pub struct MixerBus {
     pub output_device_id: String,
     pub gain_db: f32,
     pub muted: bool,
+    pub leveler: LevelerSettings,
 }
 
 impl Default for MixerBus {
@@ -180,6 +204,7 @@ impl Default for MixerBus {
             output_device_id: "default".to_string(),
             gain_db: 0.0,
             muted: false,
+            leveler: LevelerSettings::default(),
         }
     }
 }

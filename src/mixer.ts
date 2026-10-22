@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Settings } from "./types";
+import { Leveler, levelerOf } from "./leveler";
 
 /**
  * Mesa de mezclas de la aplicacion.
@@ -67,6 +68,10 @@ export class SoundMixer {
   private volume = 1;
   private channelGains = new Map<string, GainNode>();
   private busGains = new Map<string, GainNode>();
+  /** Faders reales (ya con ganancia) de la ultima configuracion; busGains/channelGains guardan donde entra la senal */
+  private busFaders = new Map<string, GainNode>();
+  private faders: GainNode[] = [];
+  private levelers = new Map<string, Leveler>();
   private deviceMixes = new Map<string, DeviceMix>();
   private sinks = new Map<string, Sink>();
   private inputSources = new Map<string, InputSource>();
@@ -150,8 +155,25 @@ export class SoundMixer {
     this.returnMix.disconnect();
     this.returnMix.connect(this.returnDest);
     for (const src of this.inputSources.values()) src.node.disconnect();
-    for (const gain of this.channelGains.values()) gain.disconnect();
-    for (const gain of this.busGains.values()) gain.disconnect();
+    for (const gain of this.faders) gain.disconnect();
+    this.faders = [];
+    this.busFaders.clear();
+    const wantedLevelers = new Set<string>();
+    // Nivelador de un canal o bus: se reutiliza entre reconfiguraciones para no
+    // perder lo que ya ha medido (cambiar un fader no debe reiniciarlo).
+    const levelerFor = (key: string, owner: Parameters<typeof levelerOf>[0]): Leveler | null => {
+      const cfg = levelerOf(owner);
+      if (!cfg.enabled) return null;
+      wantedLevelers.add(key);
+      let lv = this.levelers.get(key);
+      if (lv) lv.update(cfg);
+      else {
+        lv = new Leveler(this.ctx, cfg);
+        this.levelers.set(key, lv);
+      }
+      lv.output.disconnect();
+      return lv;
+    };
     for (const mix of this.deviceMixes.values()) mix.gain.disconnect();
     this.channelGains.clear();
     this.busGains.clear();
@@ -173,10 +195,14 @@ export class SoundMixer {
       const gain = this.ctx.createGain();
       gain.gain.value = bus.muted ? 0 : dbToGain(bus.gainDb);
       gain.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
-      this.busGains.set(bus.id, gain);
+      this.faders.push(gain);
+      this.busFaders.set(bus.id, gain);
+      const lv = levelerFor(`bus:${bus.id}`, bus);
+      if (lv) lv.output.connect(gain);
+      this.busGains.set(bus.id, lv ? lv.input : gain);
     }
 
-    const monitorSource = cfg.monitorBusId ? this.busGains.get(cfg.monitorBusId) : null;
+    const monitorSource = cfg.monitorBusId ? this.busFaders.get(cfg.monitorBusId) : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorAnalyser);
     monitorTap.connect(this.programTap);
@@ -190,23 +216,28 @@ export class SoundMixer {
     for (const ch of cfg.mixerChannels) {
       const gain = this.ctx.createGain();
       gain.gain.value = ch.muted ? 0 : dbToGain(ch.gainDb);
-      this.channelGains.set(ch.id, gain);
+      this.faders.push(gain);
+      const lv = levelerFor(`ch:${ch.id}`, ch);
+      if (lv) lv.output.connect(gain);
+      // La senal entra por el nivelador (si lo hay) y luego pasa por el fader.
+      const entry = lv ? lv.input : gain;
+      this.channelGains.set(ch.id, entry);
 
       if (ch.input.kind === "app") {
         if (ch.input.app === "preview") {
-          this.previewInput.connect(gain);
+          this.previewInput.connect(entry);
           previewUsed = true;
         } else if (ch.input.app === "call") {
-          this.callInput.connect(gain);
+          this.callInput.connect(entry);
           callUsed = true;
         } else {
-          this.musicInput.connect(gain);
+          this.musicInput.connect(entry);
           musicUsed = true;
         }
       } else {
         const id = normDevice(ch.input.deviceId);
         inputDevices.add(id);
-        this.connectInput(id, gain);
+        this.connectInput(id, entry);
       }
 
       // Todo lo que no es la voz del que llama alimenta su retorno.
@@ -219,6 +250,13 @@ export class SoundMixer {
       } else {
         gain.connect(this.deviceMix(normDevice(ch.output.id)));
       }
+    }
+
+    // Niveladores de canales o buses que ya no existen o se han apagado.
+    for (const [key, lv] of Array.from(this.levelers)) {
+      if (wantedLevelers.has(key)) continue;
+      lv.dispose();
+      this.levelers.delete(key);
     }
 
     // Sin canal para una fuente de la app, esta sigue saliendo por la salida
@@ -430,6 +468,8 @@ export class SoundMixer {
       }
       this.monitorTap = null;
     }
+    for (const lv of this.levelers.values()) lv.dispose();
+    this.levelers.clear();
     for (const id of Array.from(this.callSources.keys())) this.detachCallSource(id);
     for (const src of this.inputSources.values()) {
       src.node.disconnect();

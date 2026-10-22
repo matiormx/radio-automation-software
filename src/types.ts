@@ -196,6 +196,15 @@ export interface MixerOutput {
   id: string;
 }
 
+/** Nivelador automatico de ganancia de un canal o bus (ver leveler.ts). */
+export interface LevelerSettings {
+  enabled: boolean;
+  /** Sonoridad objetivo en LUFS */
+  targetLufs: number;
+  /** Maximo de subida o bajada en dB */
+  maxGainDb: number;
+}
+
 export interface MixerChannel {
   id: string;
   name: string;
@@ -204,6 +213,7 @@ export interface MixerChannel {
   output: MixerOutput;
   gainDb: number;
   muted: boolean;
+  leveler?: LevelerSettings;
 }
 
 export interface MixerBus {
@@ -213,6 +223,7 @@ export interface MixerBus {
   outputDeviceId: string;
   gainDb: number;
   muted: boolean;
+  leveler?: LevelerSettings;
 }
 
 export type VideoInputKind = "file" | "rtsp" | "ndi";

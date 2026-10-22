@@ -3052,3 +3052,27 @@ body {
   margin: 0 0 10px;
   padding-left: 18px;
 }
+
+/* Nivelador automatico de ganancia (mesa de sonido) */
+.mixer-leveler {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.mixer-leveler-params {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mixer-leveler-params label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.mixer-leveler-params input {
+  width: 100%;
+}

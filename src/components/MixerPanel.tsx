@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { MixerBus, MixerChannel, MixerInput, Settings } from "../types";
+import type { LevelerSettings, MixerBus, MixerChannel, MixerInput, Settings } from "../types";
+import { levelerOf } from "../leveler";
 import { IconPlus, IconTrash } from "../icons";
 import type { SoundMixer } from "../mixer";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "../mixer";
@@ -8,6 +9,63 @@ interface MixerPanelProps {
   settings: Settings;
   mixer: SoundMixer | null;
   onChange: (s: Settings) => void;
+}
+
+/** Nivelador automatico de ganancia de un canal o bus: se activa aqui. */
+function LevelerControls({
+  owner,
+  label,
+  onChange,
+}: {
+  owner: { leveler?: LevelerSettings };
+  label: string;
+  onChange: (leveler: LevelerSettings) => void;
+}) {
+  const lv = levelerOf(owner);
+  const set = (patch: Partial<LevelerSettings>) => onChange({ ...lv, ...patch });
+  return (
+    <div className="mixer-leveler">
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={lv.enabled}
+          aria-label={`Nivelador automático de ${label}`}
+          onChange={(e) => set({ enabled: e.target.checked })}
+        />
+        <span>Nivelador automático</span>
+      </label>
+      {lv.enabled && (
+        <div className="mixer-leveler-params">
+          <label>
+            <span>Objetivo (LUFS)</span>
+            <input
+              type="number"
+              min={-30}
+              max={-8}
+              step={1}
+              value={lv.targetLufs}
+              onChange={(e) =>
+                set({ targetLufs: Math.max(-30, Math.min(-8, Number(e.target.value) || -16)) })
+              }
+            />
+          </label>
+          <label>
+            <span>Rango (± dB)</span>
+            <input
+              type="number"
+              min={0}
+              max={18}
+              step={1}
+              value={lv.maxGainDb}
+              onChange={(e) =>
+                set({ maxGainDb: Math.max(0, Math.min(18, Number(e.target.value) || 0)) })
+              }
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface Device {
@@ -403,6 +461,12 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       <span>{fmtDb(ch.gainDb)}</span>
                     </div>
 
+                    <LevelerControls
+                      owner={ch}
+                      label={ch.name}
+                      onChange={(leveler) => patchChannel(ch.id, { leveler })}
+                    />
+
                     <button
                       type="button"
                       className={`btn btn-sm mixer-mute ${ch.muted ? "mixer-mute-on" : ""}`}
@@ -502,6 +566,12 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         />
                         <span>{fmtDb(bus.gainDb)}</span>
                       </div>
+
+                      <LevelerControls
+                        owner={bus}
+                        label={bus.name}
+                        onChange={(leveler) => patchBus(bus.id, { leveler })}
+                      />
 
                       <button
                         type="button"
