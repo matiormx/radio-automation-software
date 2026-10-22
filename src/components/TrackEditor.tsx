@@ -185,9 +185,11 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
     const secs = secsAt(e.clientX);
     const tol = Math.max(0.1, wave.durationSecs / 200);
     const near = (value: number) => value > 0 && Math.abs(secs - value) <= tol;
-    if (near(start)) {
+    // Los cortes inicial y final siempre existen (el inicial puede estar en 0).
+    const nearCut = (value: number) => Math.abs(secs - value) <= tol;
+    if (nearCut(start)) {
       setDrag("start");
-    } else if (near(end)) {
+    } else if (nearCut(end)) {
       setDrag("end");
     } else if (near(intro)) {
       setDrag("intro");
@@ -371,6 +373,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
             <Marker
               id="start"
               label="Corte inicial"
+              fixed
               value={start}
               duration={duration}
               onChange={(v) => setPoint("start", v)}
@@ -379,6 +382,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
             <Marker
               id="end"
               label="Corte final"
+              fixed
               value={end}
               duration={duration}
               onChange={(v) => setPoint("end", v)}
@@ -414,6 +418,28 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
             <button type="button" className="btn btn-sm" onClick={() => void preview()}>
               {previewing ? <IconPause size={14} /> : <IconPlay size={14} />}
               {previewing ? "Parar" : "Escuchar (preescucha)"}
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setPlayPos(head);
+                setPoint("start", head);
+              }}
+              title="Empezar la canción donde está el cursor (quita lo anterior)"
+            >
+              Inicio aquí
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setPlayPos(head);
+                setPoint("end", head);
+              }}
+              title="Terminar la canción donde está el cursor (quita lo posterior)"
+            >
+              Fin aquí
             </button>
             <button
               type="button"
@@ -490,6 +516,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
 function Marker({
   id,
   label,
+  fixed = false,
   value,
   duration,
   onChange,
@@ -497,15 +524,25 @@ function Marker({
 }: {
   id: MarkerId;
   label: string;
+  /** Los cortes inicial y final siempre estan; los demas puntos se pueden quitar */
+  fixed?: boolean;
   value: number;
   duration: number;
   onChange: (v: number) => void;
   onNudge: (d: number) => void;
 }) {
-  const [text, setText] = useState(value > 0 ? value.toFixed(2) : "");
+  const [text, setText] = useState(value > 0 || fixed ? value.toFixed(2) : "");
+  const [editing, setEditing] = useState(false);
+  // Mientras se escribe no se pisa el texto con el valor ya recortado.
   useEffect(() => {
-    setText(value > 0 ? value.toFixed(2) : "");
-  }, [value]);
+    if (!editing) setText(value > 0 || fixed ? value.toFixed(2) : "");
+  }, [value, editing, fixed]);
+  const commit = () => {
+    setEditing(false);
+    const num = Number(text.replace(",", "."));
+    if (text.trim() !== "" && Number.isFinite(num)) onChange(num);
+    else setText(value > 0 || fixed ? value.toFixed(2) : "");
+  };
   return (
     <div className="mark-item">
       <span className="mark-label">
@@ -513,7 +550,7 @@ function Marker({
         {label}
       </span>
       <span className="mark-controls">
-        {value > 0 ? (
+        {value > 0 || fixed ? (
           <>
             <input
               type="number"
@@ -521,10 +558,11 @@ function Marker({
               min={0}
               max={duration}
               value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                const num = Number(e.target.value);
-                if (Number.isFinite(num)) onChange(num);
+              onFocus={() => setEditing(true)}
+              onChange={(e) => setText(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
               }}
             />
             <span className="mark-time">{fmtPoint(value)}</span>
@@ -534,14 +572,16 @@ function Marker({
             <button type="button" className="act-btn" onClick={() => onNudge(0.1)} title="Añadir 0,1 s">
               +
             </button>
-            <button
-              type="button"
-              className="act-btn"
-              onClick={() => onChange(0)}
-              title="Quitar este punto"
-            >
-              <IconTrash size={12} />
-            </button>
+            {!fixed && (
+              <button
+                type="button"
+                className="act-btn"
+                onClick={() => onChange(0)}
+                title="Quitar este punto"
+              >
+                <IconTrash size={12} />
+              </button>
+            )}
           </>
         ) : (
           <span className="hint">Sin marcar</span>
