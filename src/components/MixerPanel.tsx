@@ -169,7 +169,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   };
 
   const musicChannels = channels.filter(
-    (ch) => ch.input.kind === "app" && ch.input.app !== "preview",
+    (ch) => ch.input.kind === "app" && ch.input.app !== "preview" && ch.input.app !== "call",
   ).length;
   const previewChannels = channels.filter(
     (ch) => ch.input.kind === "app" && ch.input.app === "preview",
@@ -313,7 +313,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             kind === "app"
                               ? {
                                   kind: "app",
-                                  app: value === "preview" ? "preview" : "music",
+                                  app:
+                                    value === "preview" ? "preview" : value === "call" ? "call" : "music",
                                   deviceId: "",
                                 }
                               : { kind: "device", app: "", deviceId: value };
@@ -323,6 +324,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         <optgroup label="Aplicación">
                           <option value="app:music">Reproducción de música</option>
                           <option value="app:preview">Preescucha de canciones</option>
+                          <option value="app:call">Llamadas de oyentes</option>
                         </optgroup>
                         <optgroup label="Tarjetas de entrada">
                           {inputs.map((d) => (

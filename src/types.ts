@@ -182,7 +182,7 @@ export interface StationEvent {
   lastFired: string;
 }
 
-export type MixerAppSource = "music" | "preview";
+export type MixerAppSource = "music" | "preview" | "call";
 
 export interface MixerInput {
   kind: "app" | "device";
@@ -341,6 +341,15 @@ export interface Program {
   enabled: boolean;
 }
 
+/** Llamadas de oyentes al aire, recogidas del worker de NGRADIO. */
+export interface StudioCallsSettings {
+  enabled: boolean;
+  /** Direccion de la app, por ejemplo https://app.ngradio.es */
+  serverUrl: string;
+  /** Secreto STUDIO_TOKEN del worker */
+  token: string;
+}
+
 export interface Settings {
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
@@ -392,6 +401,7 @@ export interface Settings {
   monitorBusId: string;
   video: VideoSettings;
   streaming: StreamingSettings;
+  studioCalls: StudioCallsSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -445,6 +455,7 @@ export const DEFAULT_SETTINGS: Settings = {
       keyframeSecs: 2,
     },
   },
+  studioCalls: { enabled: false, serverUrl: "", token: "" },
 };
 
 export interface DeezerTrack {

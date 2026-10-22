@@ -53,6 +53,8 @@ export class SoundMixer {
   readonly musicInput: GainNode;
   /** Entrada de la preescucha del normalizador */
   readonly previewInput: GainNode;
+  /** Entrada de la voz de los oyentes que llaman al aire */
+  readonly callInput: GainNode;
 
   onError: ((message: string) => void) | null = null;
 
@@ -74,6 +76,13 @@ export class SoundMixer {
   private monitorData: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
   private readonly programTap: GainNode;
+  /**
+   * Retorno para el oyente que llama (mix-minus): el programa sin su propia voz.
+   * Suma la musica y los canales que no son de llamada, ya con su fader.
+   */
+  private readonly returnMix: GainNode;
+  private readonly returnDest: MediaStreamAudioDestinationNode;
+  private callSources = new Map<string, { node: MediaStreamAudioSourceNode; el: HTMLAudioElement }>();
 
   private readonly canSink =
     typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
@@ -86,6 +95,9 @@ export class SoundMixer {
     this.ctx = new Ctor();
     this.musicInput = this.ctx.createGain();
     this.previewInput = this.ctx.createGain();
+    this.callInput = this.ctx.createGain();
+    this.returnMix = this.ctx.createGain();
+    this.returnDest = this.ctx.createMediaStreamDestination();
     this.programTap = this.ctx.createGain();
     this.monitorAnalyser = this.ctx.createAnalyser();
     this.monitorAnalyser.fftSize = 1024;
@@ -122,6 +134,9 @@ export class SoundMixer {
     }
     this.musicInput.disconnect();
     this.previewInput.disconnect();
+    this.callInput.disconnect();
+    this.returnMix.disconnect();
+    this.returnMix.connect(this.returnDest);
     for (const src of this.inputSources.values()) src.node.disconnect();
     for (const gain of this.channelGains.values()) gain.disconnect();
     for (const gain of this.busGains.values()) gain.disconnect();
@@ -157,6 +172,7 @@ export class SoundMixer {
 
     let musicUsed = false;
     let previewUsed = false;
+    let callUsed = false;
     const inputDevices = new Set<string>();
 
     for (const ch of cfg.mixerChannels) {
@@ -168,6 +184,9 @@ export class SoundMixer {
         if (ch.input.app === "preview") {
           this.previewInput.connect(gain);
           previewUsed = true;
+        } else if (ch.input.app === "call") {
+          this.callInput.connect(gain);
+          callUsed = true;
         } else {
           this.musicInput.connect(gain);
           musicUsed = true;
@@ -177,6 +196,9 @@ export class SoundMixer {
         inputDevices.add(id);
         this.connectInput(id, gain);
       }
+
+      // Todo lo que no es la voz del que llama alimenta su retorno.
+      if (!(ch.input.kind === "app" && ch.input.app === "call")) gain.connect(this.returnMix);
 
       if (ch.output.kind === "bus") {
         const busGain = this.busGains.get(ch.output.id);
@@ -189,7 +211,11 @@ export class SoundMixer {
 
     // Sin canal para una fuente de la app, esta sigue saliendo por la salida
     // del sistema para no dejar la radio muda por una configuracion a medias.
-    if (!musicUsed) this.musicInput.connect(this.deviceMix(DEFAULT_DEVICE));
+    if (!musicUsed) {
+      this.musicInput.connect(this.deviceMix(DEFAULT_DEVICE));
+      this.musicInput.connect(this.returnMix);
+    }
+    if (!callUsed) this.callInput.connect(this.deviceMix(DEFAULT_DEVICE));
     if (!previewUsed) this.previewInput.connect(this.deviceMix(DEFAULT_DEVICE));
 
     // Liberar entradas fisicas que ya no usa ningun canal.
@@ -211,6 +237,50 @@ export class SoundMixer {
       sink.el.remove();
       this.sinks.delete(id);
     }
+  }
+
+  /**
+   * Conecta la voz de un oyente (audio remoto de la llamada) a la mesa.
+   * El <audio> mudo mantiene vivo el flujo: sin el, Chromium no entrega audio remoto a Web Audio.
+   */
+  attachCallSource(id: string, stream: MediaStream) {
+    if (this.disposed) return;
+    this.detachCallSource(id);
+    const el = document.createElement("audio");
+    el.muted = true;
+    el.srcObject = stream;
+    el.style.display = "none";
+    document.body.appendChild(el);
+    void el.play().catch(() => undefined);
+    const node = this.ctx.createMediaStreamSource(stream);
+    node.connect(this.callInput);
+    this.callSources.set(id, { node, el });
+    void this.resume();
+  }
+
+  detachCallSource(id: string) {
+    const src = this.callSources.get(id);
+    if (!src) return;
+    try {
+      src.node.disconnect();
+    } catch {
+      /* ya desconectado */
+    }
+    src.el.pause();
+    src.el.srcObject = null;
+    src.el.remove();
+    this.callSources.delete(id);
+  }
+
+  /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la mesa. */
+  setCallMuted(muted: boolean) {
+    this.callInput.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.015);
+  }
+
+  /** Pista con el retorno (programa menos la voz del que llama), una copia por llamada. */
+  getCallReturnTrack(): MediaStreamTrack | null {
+    const track = this.returnDest.stream.getAudioTracks()[0];
+    return track ? track.clone() : null;
   }
 
   /** Señal del programa (mismo bus que el VU) para el motor de emisión. */
@@ -348,6 +418,7 @@ export class SoundMixer {
       }
       this.monitorTap = null;
     }
+    for (const id of Array.from(this.callSources.keys())) this.detachCallSource(id);
     for (const src of this.inputSources.values()) {
       src.node.disconnect();
       for (const track of src.stream.getTracks()) track.stop();

@@ -76,6 +76,7 @@ pub struct Settings {
     pub monitor_bus_id: String,
     pub video: VideoSettings,
     pub streaming: StreamingSettings,
+    pub studio_calls: StudioCallsSettings,
 }
 
 /// Programa de emisión preparado con antelacion: tiene titulo, portada y
@@ -99,7 +100,7 @@ pub struct Program {
 pub struct MixerInput {
     /// "app" o "device"
     pub kind: String,
-    /// "music" o "preview" cuando kind = "app"
+    /// "music", "preview" o "call" cuando kind = "app"
     pub app: String,
     /// Identificador del dispositivo de entrada cuando kind = "device"
     pub device_id: String,
@@ -412,6 +413,17 @@ impl Default for RtspOutput {
     }
 }
 
+/// Llamadas de oyentes al aire: conexion con el worker de NGRADIO.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StudioCallsSettings {
+    pub enabled: bool,
+    /// Direccion de la app, por ejemplo https://app.ngradio.es
+    pub server_url: String,
+    /// Secreto STUDIO_TOKEN del worker
+    pub token: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StreamingSettings {
@@ -465,6 +477,7 @@ impl Default for Settings {
             monitor_bus_id: String::new(),
             video: VideoSettings::default(),
             streaming: StreamingSettings::default(),
+            studio_calls: StudioCallsSettings::default(),
         }
     }
 }

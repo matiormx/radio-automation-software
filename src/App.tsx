@@ -50,6 +50,7 @@ import type {
 import { DEFAULT_SETTINGS, effectiveDuration } from "./types";
 import { RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
+import { StudioCalls, type StudioSnapshot } from "./studioCalls";
 import { StreamEncoder } from "./streaming";
 import { LiveBar } from "./components/LiveBar";
 import { TrackEditor } from "./components/TrackEditor";
@@ -222,6 +223,9 @@ export default function App() {
   const sessionRestoredRef = useRef(false);
   const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
+  const studioRef = useRef<StudioCalls | null>(null);
+  const [studio, setStudio] = useState<StudioSnapshot>({ status: "off", error: "", calls: [] });
+  const [callMuted, setCallMuted] = useState(false);
   const posRef = useRef(pos);
   const toastTimer = useRef(0);
   const topupBusy = useRef(false);
@@ -594,6 +598,36 @@ export default function App() {
   useEffect(() => {
     mixerRef.current?.apply(settings);
   }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId]);
+
+  // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la mesa.
+  useEffect(() => {
+    if (!mixer) return;
+    const calls = new StudioCalls(mixer);
+    calls.onChange = setStudio;
+    studioRef.current = calls;
+    calls.configure(settingsRef.current.studioCalls);
+    return () => {
+      calls.dispose();
+      studioRef.current = null;
+      setStudio({ status: "off", error: "", calls: [] });
+    };
+  }, [mixer]);
+  useEffect(() => {
+    studioRef.current?.configure(settings.studioCalls);
+  }, [settings.studioCalls.enabled, settings.studioCalls.serverUrl, settings.studioCalls.token]);
+  const lastCallCount = useRef(0);
+  useEffect(() => {
+    if (studio.calls.length > lastCallCount.current) {
+      showToast(`Llamada al aire: ${studio.calls[studio.calls.length - 1].name}`);
+    } else if (studio.calls.length < lastCallCount.current && studio.calls.length === 0) {
+      showToast("La llamada ha salido del aire");
+    }
+    lastCallCount.current = studio.calls.length;
+  }, [studio.calls, showToast]);
+  const muteCaller = useCallback((muted: boolean) => {
+    setCallMuted(muted);
+    studioRef.current?.setCallMuted(muted);
+  }, []);
 
   // Continuar donde se quedo la ultima sesion: misma lista, misma pista y
   // misma posicion. Si la app se abrio con "reproducir automaticamente",
@@ -1854,6 +1888,17 @@ export default function App() {
         <VuMeter mixer={mixer} />
 
         <div className="right-col">
+          {studio.calls.length > 0 && (
+            <button
+              type="button"
+              className="call-chip"
+              onClick={() => muteCaller(!callMuted)}
+              title={callMuted ? "Dar voz al oyente" : "Silenciar al oyente"}
+            >
+              <span className="live-dot live-on" aria-hidden="true" />
+              {callMuted ? "OYENTE SILENCIADO" : "LLAMADA AL AIRE"} · {studio.calls[0].name}
+            </button>
+          )}
           <LiveBar
             programs={(settings.programs ?? []).filter((program) => program.enabled)}
             activeId={settings.liveProgramId}
@@ -1974,6 +2019,9 @@ export default function App() {
           tab={settingsTab}
           onTabChange={setSettingsTab}
           mixer={mixerRef.current}
+          studio={studio}
+          callMuted={callMuted}
+          onCallMute={muteCaller}
         />
       )}
 

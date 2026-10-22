@@ -7,6 +7,8 @@ import { MixerPanel } from "./MixerPanel";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
+import { StudioCallsTab } from "./StudioCallsTab";
+import type { StudioSnapshot } from "../studioCalls";
 import { UpdateSection } from "./UpdateSection";
 import { ProgramsTab } from "./ProgramsTab";
 import {
@@ -37,6 +39,9 @@ interface SettingsPanelProps {
   tab: SettingsTab;
   onTabChange: (tab: SettingsTab) => void;
   mixer: SoundMixer | null;
+  studio: StudioSnapshot;
+  callMuted: boolean;
+  onCallMute: (muted: boolean) => void;
 }
 
 const DAYS: { value: number; label: string; long: string }[] = [
@@ -154,7 +159,8 @@ export type SettingsTab =
   | "programs"
   | "sound"
   | "video"
-  | "streaming";
+  | "streaming"
+  | "calls";
 
 export function SettingsPanel({
   settings,
@@ -175,6 +181,9 @@ export function SettingsPanel({
   tab,
   onTabChange,
   mixer,
+  studio,
+  callMuted,
+  onCallMute,
 }: SettingsPanelProps) {
   const s = settings;
   return (
@@ -270,6 +279,14 @@ export function SettingsPanel({
               Streaming
               <span>Icecast, FLAC, AAC y RTSP</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "calls" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("calls")}
+            >
+              Llamadas
+              <span>Oyentes al aire desde NGRADIO</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -312,6 +329,15 @@ export function SettingsPanel({
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
+            {tab === "calls" && (
+              <StudioCallsTab
+                settings={s}
+                onChange={onChange}
+                studio={studio}
+                callMuted={callMuted}
+                onCallMute={onCallMute}
+              />
+            )}
           </div>
         </div>
       </div>
