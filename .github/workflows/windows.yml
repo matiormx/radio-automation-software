@@ -6,7 +6,10 @@ name: Compilar MiRadio para Windows
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 # El workflow crea la Release con el instalador .exe, el .msi, sus firmas y
 # latest.json, que es lo que lee la app para actualizarse sola.
-# Con "Run workflow" (sin etiqueta) solo compila y guarda los paquetes como
+# Alternativa sin git local: Actions > "Run workflow" con "publicar" activado.
+# Crea la etiqueta vX.Y.Z a partir de la versión de tauri.conf.json y publica
+# la Release igual que con la etiqueta.
+# Con "Run workflow" sin "publicar" solo compila y guarda los paquetes como
 # artefacto de la ejecución, sin publicar nada.
 
 on:
@@ -14,6 +17,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publicar una Release con la versión de tauri.conf.json"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -67,15 +75,15 @@ jobs:
         with:
           # En un tag vX.Y.Z crea una Release con los instaladores y latest.json.
           # Sin tag solo compila.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && format('MiRadio {0}', github.ref_name) || '' }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || (inputs.publish && 'v__VERSION__' || '') }}
+          releaseName: ${{ github.ref_type == 'tag' && format('MiRadio {0}', github.ref_name) || (inputs.publish && 'MiRadio v__VERSION__' || '') }}
           # latest.json apunta al instalador NSIS: se instala por usuario, sin
           # permisos de administrador, igual que la instalación actual.
           updaterJsonPreferNsis: true
           args: --bundles nsis,msi
 
       - name: Guardar los paquetes de la ejecución manual
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' && !inputs.publish
         uses: actions/upload-artifact@v4
         with:
           name: MiRadio-windows
