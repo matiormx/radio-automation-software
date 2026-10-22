@@ -4,6 +4,7 @@ use tauri::Manager;
 
 pub mod analysis;
 pub mod deezer;
+pub mod engine;
 pub mod library;
 pub mod playlists;
 pub mod settings;
@@ -30,6 +31,7 @@ pub fn run() {
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
+            app.manage(engine::EngineState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +77,10 @@ pub fn run() {
             streaming::stream_start,
             streaming::stream_stop,
             streaming::stream_push_pcm,
+            engine::engine_start,
+            engine::engine_stop,
+            engine::engine_cmd,
+            engine::engine_devices,
             update::app_version,
             update::open_url,
             nowplaying::write_now_playing,

@@ -28,6 +28,9 @@ lofty = "0.25"
 symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "wav", "ogg", "pcm", "alac"] }
 ebur128-stream = "0.2"
 ureq = "2"
+rubato = "0.16"
+cpal = "0.16"
+rtrb = "0.3"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

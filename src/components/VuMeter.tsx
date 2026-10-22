@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { SoundMixer } from "../mixer";
-
 interface VuMeterProps {
-  mixer: SoundMixer | null;
+  mixer: { getMonitorLevel(): { level: number; db: number } } | null;
 }
 
 export function VuMeter({ mixer }: VuMeterProps) {

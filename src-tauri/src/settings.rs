@@ -22,6 +22,8 @@ pub struct Settings {
     pub silence_detection: bool,
     /// Umbral de silencio en dBFS (RMS).
     pub silence_threshold_db: f32,
+    /// Motor de audio: "web" o "native" (beta).
+    pub audio_engine: String,
     pub autopilot_enabled: bool,
     /// Rellenar la lista cuando queden menos pistas por delante que este numero
     pub autopilot_min_upcoming: u32,
@@ -497,6 +499,7 @@ impl Default for Settings {
             auto_play_on_start: false,
             silence_detection: false,
             silence_threshold_db: -55.0,
+            audio_engine: "web".to_string(),
             autopilot_enabled: false,
             autopilot_min_upcoming: 4,
             autopilot_fill_to: 10,

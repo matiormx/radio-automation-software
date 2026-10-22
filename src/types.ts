@@ -381,6 +381,8 @@ export interface Settings {
   silenceDetection: boolean;
   /** Umbral de silencio en dBFS (RMS); por debajo se considera silencio */
   silenceThresholdDb: number;
+  /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
+  audioEngine: "web" | "native";
   autopilotEnabled: boolean;
   autopilotMinUpcoming: number;
   autopilotFillTo: number;
@@ -434,6 +436,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoPlayOnStart: false,
   silenceDetection: false,
   silenceThresholdDb: -55,
+  audioEngine: "web",
   autopilotEnabled: false,
   autopilotMinUpcoming: 4,
   autopilotFillTo: 10,

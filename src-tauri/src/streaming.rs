@@ -279,34 +279,7 @@ pub async fn stream_push_pcm(
         return Err("El fragmento PCM es demasiado grande".to_string());
     }
     let shared = state.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut inner = shared
-            .lock()
-            .map_err(|_| "El motor de emisión no responde".to_string())?;
-        let mut error = None;
-        for process in inner.processes.iter_mut() {
-            if !process.alive || !process.wants_audio {
-                continue;
-            }
-            let Some(stdin) = process.child.stdin.as_mut() else {
-                process.alive = false;
-                error = Some(format!("{}: entrada de audio cerrada", process.name));
-                let _ = process.child.kill();
-                let _ = process.child.wait();
-                continue;
-            };
-            if let Err(write_error) = stdin.write_all(&data).and_then(|_| stdin.flush()) {
-                process.alive = false;
-                error = Some(format!("{}: {}", process.name, write_error));
-                let _ = process.child.kill();
-                let _ = process.child.wait();
-            }
-        }
-        if let Some(message) = error {
-            inner.last_error = Some(sanitize_error(&message));
-        }
-        Ok(())
-    })
+    tauri::async_runtime::spawn_blocking(move || push_pcm(&shared, &data))
     .await
     .map_err(|error| format!("No se pudo enviar el audio: {error}"))?
 }
@@ -873,4 +846,50 @@ mod tests {
         assert!(!slash.contains("pa/ss"));
         assert!(slash.contains("rtsp://***@host/live"));
     }
+}
+
+/// Asa del motor de emision para quien envia PCM desde Rust (motor nativo).
+#[derive(Clone)]
+pub struct StreamingSink(Arc<Mutex<EngineInner>>);
+
+impl StreamingState {
+    pub fn sink(&self) -> StreamingSink {
+        StreamingSink(self.inner.clone())
+    }
+}
+
+impl StreamingSink {
+    /// Envia PCM s16le 48 kHz estereo a los encoders activos.
+    pub fn push(&self, data: &[u8]) {
+        let _ = push_pcm(&self.0, data);
+    }
+}
+
+fn push_pcm(shared: &Arc<Mutex<EngineInner>>, data: &[u8]) -> Result<(), String> {
+    let mut inner = shared
+        .lock()
+        .map_err(|_| "El motor de emisión no responde".to_string())?;
+    let mut error = None;
+    for process in inner.processes.iter_mut() {
+        if !process.alive || !process.wants_audio {
+            continue;
+        }
+        let Some(stdin) = process.child.stdin.as_mut() else {
+            process.alive = false;
+            error = Some(format!("{}: entrada de audio cerrada", process.name));
+            let _ = process.child.kill();
+            let _ = process.child.wait();
+            continue;
+        };
+        if let Err(write_error) = stdin.write_all(data).and_then(|_| stdin.flush()) {
+            process.alive = false;
+            error = Some(format!("{}: {}", process.name, write_error));
+            let _ = process.child.kill();
+            let _ = process.child.wait();
+        }
+    }
+    if let Some(message) = error {
+        inner.last_error = Some(sanitize_error(&message));
+    }
+    Ok(())
 }

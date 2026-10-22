@@ -11,6 +11,7 @@ import { levelerOf } from "../leveler";
 import { IconPlus, IconTrash } from "../icons";
 import type { SoundMixer } from "../mixer";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "../mixer";
+import { nativeDevices } from "../nativeEngine";
 
 interface MixerPanelProps {
   settings: Settings;
@@ -291,6 +292,24 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceError, setDeviceError] = useState("");
   const [asking, setAsking] = useState(false);
+  const isNative = settings.audioEngine === "native";
+  // Con el motor nativo, las salidas son las tarjetas de Windows (por nombre).
+  const [nativeOuts, setNativeOuts] = useState<Device[] | null>(null);
+  useEffect(() => {
+    if (!isNative) {
+      setNativeOuts(null);
+      return;
+    }
+    let alive = true;
+    void nativeDevices()
+      .then((names) => {
+        if (alive) setNativeOuts(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
+      })
+      .catch(() => alive && setNativeOuts([]));
+    return () => {
+      alive = false;
+    };
+  }, [isNative]);
 
   const refreshDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) {
@@ -353,9 +372,10 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   const channels = settings.mixerChannels ?? [];
   const buses = settings.mixerBuses ?? [];
   const inputs = devices.filter((d) => d.kind === "audioinput");
-  const outputs = devices.filter(
+  const webOutputs = devices.filter(
     (d) => d.kind === "audiooutput" && d.id !== "default",
   );
+  const outputs = nativeOuts ?? webOutputs;
   const canChooseOutputs =
     typeof HTMLMediaElement !== "undefined" &&
     "setSinkId" in HTMLMediaElement.prototype;
@@ -483,6 +503,34 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         {!navigator.mediaDevices &&
           " Este WebView no permite seleccionar dispositivos."}
       </p>
+
+      <div className="mixer-monitor-row">
+        <div className="mixer-monitor-text">
+          <strong>Motor de audio</strong>
+          <span>
+            {isNative
+              ? "Nativo (beta): la música la reproduce y mezcla MiRadio directamente en las tarjetas. Micrófonos, preescucha y llamadas siguen por el motor web y salen por la salida predeterminada; aún no llegan al streaming."
+              : "Web: el audio pasa por el motor de la ventana (el de siempre)."}
+          </span>
+        </div>
+        <select
+          value={settings.audioEngine ?? "web"}
+          aria-label="Motor de audio"
+          onChange={(e) => {
+            const next = e.target.value === "native" ? "native" : "web";
+            if (
+              !window.confirm(
+                "Cambiar de motor detiene la reproducción. ¿Continuar? (No lo cambies en pleno directo.)",
+              )
+            )
+              return;
+            onChange({ ...settings, audioEngine: next });
+          }}
+        >
+          <option value="web">Web (estable)</option>
+          <option value="native">Nativo (beta)</option>
+        </select>
+      </div>
 
       <div className="mixer-monitor-row">
         <div className="mixer-monitor-text">
@@ -695,7 +743,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       owner={ch}
                       label={ch.name}
                       inputs={inputs}
-                      outputs={outputs}
+                      outputs={webOutputs}
                       onChange={(insert) => patchChannel(ch.id, { insert })}
                     />
 
@@ -819,7 +867,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                         owner={bus}
                         label={bus.name}
                         inputs={inputs}
-                        outputs={outputs}
+                        outputs={webOutputs}
                         onChange={(insert) => patchBus(bus.id, { insert })}
                       />
 

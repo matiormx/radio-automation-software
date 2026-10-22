@@ -70,6 +70,7 @@ import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
+import { NativePlayer } from "./nativeEngine";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
@@ -174,6 +175,17 @@ function extOk(path: string): boolean {
   return AUDIO_EXTENSIONS.includes(path.slice(dot + 1).toLowerCase());
 }
 
+/** Con el motor nativo, la mesa web no toca los canales de musica. */
+function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
+  return {
+    mixerChannels: s.mixerChannels.filter(
+      (ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"),
+    ),
+    mixerBuses: s.mixerBuses,
+    monitorBusId: s.monitorBusId,
+  };
+}
+
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -215,7 +227,8 @@ export default function App() {
     [settings.streaming.icecast, settings.streaming.rtsp.enabled, settings.video.enabled, settings.video.outputs],
   );
 
-  const playerRef = useRef<RadioPlayer | null>(null);
+  const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
+  const [native, setNative] = useState<NativePlayer | null>(null);
   const mixerRef = useRef<SoundMixer | null>(null);
   const streamEncoderRef = useRef<StreamEncoder | null>(null);
   const userPausedRef = useRef(false);
@@ -297,7 +310,24 @@ export default function App() {
     mixer.apply(settingsRef.current);
     mixerRef.current = mixer;
     setMixer(mixer);
-    const player = new RadioPlayer(mixer);
+    const useNative = settingsRef.current.audioEngine === "native";
+    // Motor nativo (beta): la musica la reproduce y mezcla Rust. La mesa web
+    // sigue con microfonos, preescucha y llamadas.
+    const player = useNative ? new NativePlayer((msg) => showToast(msg)) : new RadioPlayer(mixer);
+    if (useNative) {
+      mixer.apply(webMixerSlice(settingsRef.current));
+      const nat = player as NativePlayer;
+      nat.applyMixer(settingsRef.current);
+      nat.setVolume(settingsRef.current.masterVolume);
+      const s = settingsRef.current;
+      nat.fadeSeconds = s.fadeSeconds;
+      nat.loop = false;
+      nat.silenceSkip = s.silenceDetection;
+      nat.silenceThresholdDb = s.silenceThresholdDb ?? -55;
+      const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
+      nat.setPlaylist(rowsRef.current.flatMap((r) => byId.get(r.id) ?? []));
+      setNative(nat);
+    }
     player.onIndexChange = (i) => setPlayingRow(i);
     player.onDiag = (msg) => showToast(msg);
     player.onEnded = () => {
@@ -320,11 +350,12 @@ export default function App() {
       player.onDiag = null;
       player.dispose();
       playerRef.current = null;
+      setNative(null);
       mixer.dispose();
       mixerRef.current = null;
       setMixer(null);
     };
-  }, [showToast]);
+  }, [showToast, settings.audioEngine]);
 
   const active = useMemo(
     () => playlists.find((p) => p.id === activeId) ?? playlists[0],
@@ -594,6 +625,8 @@ export default function App() {
       p.silenceSkip = settings.silenceDetection;
       p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
       p.setVolume(settings.masterVolume);
+      // Con el motor nativo, la mesa web (micros, preescucha) sigue el mismo volumen.
+      if (p instanceof NativePlayer) mixerRef.current?.setMasterVolume(settings.masterVolume);
     }
   }, [
     settings.fadeSeconds,
@@ -604,8 +637,14 @@ export default function App() {
 
   // La mesa de sonido se reconfigura en caliente.
   useEffect(() => {
-    mixerRef.current?.apply(settings);
-  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId]);
+    const p = playerRef.current;
+    if (p instanceof NativePlayer) {
+      mixerRef.current?.apply(webMixerSlice(settings));
+      p.applyMixer(settings);
+    } else {
+      mixerRef.current?.apply(settings);
+    }
+  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, native]);
 
   // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la mesa.
   useEffect(() => {
@@ -1219,7 +1258,8 @@ export default function App() {
         throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
       }
       setStreamStatus(status);
-      if (status.needsAudio) {
+      // Con el motor nativo el audio llega a los encoders desde Rust.
+      if (status.needsAudio && !(playerRef.current instanceof NativePlayer)) {
         const encoder = new StreamEncoder(mixer, failStreaming);
         await encoder.start();
         streamEncoderRef.current = encoder;
@@ -1924,7 +1964,7 @@ export default function App() {
           showToast={showToast}
         />
 
-        <VuMeter mixer={mixer} />
+        <VuMeter mixer={native ?? mixer} />
 
         <div className="right-col">
           {studio.calls.length > 0 && (
