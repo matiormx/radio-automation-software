@@ -77,7 +77,7 @@ import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
-import { IconGear, IconList, IconSliders, IconWave, LogoRadio } from "./icons";
+import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
 const EVENT_GRACE_MS = 15 * 60 * 1000;
@@ -1985,14 +1985,6 @@ export default function App() {
           <span className="clock" role="timer">{clock}</span>
           <button
             type="button"
-            className="btn btn-sm top-action"
-            onClick={() => void openToolWindow("mixer")}
-            title="Abrir la mesa de mezclas en su propia ventana"
-          >
-            <IconSliders size={15} /> Mixer
-          </button>
-          <button
-            type="button"
             className={`btn btn-sm top-action ${normStatus ? "top-action-busy" : ""}`}
             onClick={openNormalizer}
             title="Abrir la librería: mover entre A/B, normalizar y recortar"
@@ -2105,6 +2097,7 @@ export default function App() {
       </main>
 
       <PlayerBar
+        onOpenMixer={() => void openToolWindow("mixer")}
         paused={paused}
         autopilot={autopilotOn}
         fadeSeconds={settings.fadeSeconds}

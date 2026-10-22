@@ -1,4 +1,4 @@
-import { IconPlay, IconPause, IconNext, IconPrev, IconBolt } from "../icons";
+import { IconPlay, IconPause, IconNext, IconPrev, IconBolt, IconSliders } from "../icons";
 import type { Block } from "../types";
 
 interface PlayerBarProps {
@@ -16,6 +16,7 @@ interface PlayerBarProps {
   onDefaultBlockChange: (id: string) => void;
   onFadeChange: (secs: number) => void;
   onVolume: (vol: number) => void;
+  onOpenMixer: () => void;
 }
 
 const FADE_OPTIONS = [3, 6, 10];
@@ -35,6 +36,7 @@ export function PlayerBar({
   onDefaultBlockChange,
   onFadeChange,
   onVolume,
+  onOpenMixer,
 }: PlayerBarProps) {
   return (
     <footer className="playerbar" aria-label="Controles de emisión">
@@ -132,6 +134,16 @@ export function PlayerBar({
           aria-label="Volumen"
         />
       </div>
+
+      <button
+        type="button"
+        className="pb-mixer"
+        onClick={onOpenMixer}
+        title="Abrir la mesa de mezclas (Mixer)"
+        aria-label="Abrir el Mixer"
+      >
+        <IconSliders size={26} />
+      </button>
     </footer>
   );
 }

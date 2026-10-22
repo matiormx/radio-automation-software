@@ -3384,3 +3384,24 @@ body {
 .mx-color .mixer-colorbar span { height: 5px; border-radius: 0 0 5px 5px; box-shadow: none; }
 .mx-color .mixer-palette { top: auto; bottom: 100%; }
 .mx-strip:nth-last-child(-n + 3) .mixer-palette { left: auto; right: 0; }
+
+/* Boton del Mixer, abajo a la derecha */
+.playerbar { position: relative; }
+.pb-mixer {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel-2, #1b1f27);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.pb-mixer:hover { background: #26324a; border-color: #3d5585; color: #dbe6ff; }
+.pb-mixer:active { transform: translateY(calc(-50% + 1px)); }

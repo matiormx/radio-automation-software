@@ -203,10 +203,11 @@ export const IconVinyl = ({ size = 150 }: IconProps) => (
 );
 
 export const IconSliders = ({ size = 16 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <path d="M6 3v18M12 3v18M18 3v18" opacity="0.45" />
-    <rect x="3.5" y="13" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
-    <rect x="9.5" y="6" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
-    <rect x="15.5" y="10" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <rect x="2.5" y="2.5" width="19" height="19" rx="3" opacity="0.5" />
+    <path d="M7 6v12M12 6v12M17 6v12" opacity="0.55" />
+    <rect x="5" y="12" width="4" height="2.6" rx="0.8" fill="currentColor" stroke="none" />
+    <rect x="10" y="8" width="4" height="2.6" rx="0.8" fill="currentColor" stroke="none" />
+    <rect x="15" y="10.5" width="4" height="2.6" rx="0.8" fill="currentColor" stroke="none" />
   </svg>
 );
