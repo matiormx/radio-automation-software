@@ -90,3 +90,40 @@ fn silence_level_tracked() {
     let (lvl, db) = c.monitor_level();
     assert!(lvl == 0.0 && db == -60.0);
 }
+
+#[test]
+fn pan_solo_sends_and_meters() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,"pan":1,
+       "sends":[{"busId":"S","gainDb":-6.0206,"pre":false,"muted":false},{"busId":"P","gainDb":0,"pre":true,"muted":false}]},
+      {"id":"x","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardB"},"gainDb":0,"muted":false}],
+      "mixerBuses":[{"id":"S","outputDeviceId":"streaming","gainDb":0,"muted":false},{"id":"P","outputDeviceId":"cardP","gainDb":0,"muted":false}],"monitorBusId":""}"#);
+    let mut lr = std::collections::HashMap::new();
+    for _ in 0..2 {
+        c.render(2048, |plan, _, n| { for o in &plan.outs { lr.insert(o.device.clone(), (o.buf[(n - 1) * 2], o.buf[(n - 1) * 2 + 1])); } });
+    }
+    assert_eq!(lr["cardA"], (0.0, 0.5), "pan right");
+    let (sl, sr) = lr["streaming"];
+    assert!(sl.abs() < 1e-4 && (sr - 0.25).abs() < 1e-3, "post send keeps pan, -6 dB: {:?}", lr["streaming"]);
+    let (pl, pr) = lr["cardP"];
+    assert!((pl - 0.5).abs() < 1e-3 && (pr - 0.5).abs() < 1e-3, "pre send ignores pan/fader {:?}", lr["cardP"]);
+    assert!((lr["cardB"].0 - 0.5).abs() < 1e-3);
+    let meters = c.plan.take_meters();
+    let m = meters.iter().find(|m| m.0 == "ch:m").unwrap();
+    assert!(m.1 < 1e-6 && (m.2 - 0.5).abs() < 1e-3, "{m:?}");
+    let s = meters.iter().find(|m| m.0 == "bus:S").unwrap();
+    assert!((s.2 - 0.25).abs() < 1e-3);
+    // solo on x: m (and its pre send) go silent, x keeps playing
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,"pan":1,
+       "sends":[{"busId":"P","gainDb":0,"pre":true,"muted":false}]},
+      {"id":"x","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardB"},"gainDb":0,"muted":false,"solo":true}],
+      "mixerBuses":[{"id":"P","outputDeviceId":"cardP","gainDb":0,"muted":false}],"monitorBusId":""}"#);
+    for _ in 0..2 {
+        c.render(2048, |plan, _, n| { for o in &plan.outs { lr.insert(o.device.clone(), (o.buf[(n - 1) * 2], o.buf[(n - 1) * 2 + 1])); } });
+    }
+    assert_eq!(lr["cardA"], (0.0, 0.0));
+    assert_eq!(lr["cardP"], (0.0, 0.0));
+    assert!((lr["cardB"].1 - 0.5).abs() < 1e-3);
+}

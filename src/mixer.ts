@@ -95,7 +95,13 @@ export class SoundMixer {
   private channelGains = new Map<string, GainNode>();
   private busGains = new Map<string, GainNode>();
   /** Faders reales (ya con ganancia) de la ultima configuracion; busGains/channelGains guardan donde entra la senal */
-  private busFaders = new Map<string, GainNode>();
+  private busFaders = new Map<string, AudioNode>();
+  /** Medidores por tira (izquierda y derecha) para la ventana Mixer */
+  private stripMeters = new Map<string, { l: AnalyserNode; r: AnalyserNode }>();
+  private meterData = new Float32Array(new ArrayBuffer(256 * 4));
+  /** Faders por tira para moverlos en vivo sin rehacer la mesa */
+  private liveFaders = new Map<string, { gain: GainNode; open: boolean }>();
+  private readonly meterSink: GainNode;
   private faders: GainNode[] = [];
   private levelers = new Map<string, Leveler>();
   /** Salidas de envio de los inserts (sin volumen maestro: van a un procesador) */
@@ -151,6 +157,9 @@ export class SoundMixer {
     this.returnMix = this.ctx.createGain();
     this.returnDest = this.ctx.createMediaStreamDestination();
     this.programTap = this.ctx.createGain();
+    this.meterSink = this.ctx.createGain();
+    this.meterSink.gain.value = 0;
+    this.meterSink.connect(this.ctx.destination);
     this.streamMix = this.ctx.createGain();
     this.monitorAnalyser = this.ctx.createAnalyser();
     this.monitorAnalyser.fftSize = 1024;
@@ -271,13 +280,60 @@ export class SoundMixer {
       }
     }
 
+    for (const m of this.stripMeters.values()) {
+      m.l.disconnect();
+      m.r.disconnect();
+    }
+    this.stripMeters.clear();
+    this.liveFaders.clear();
+    const meterFor = (key: string, node: AudioNode) => {
+      const split = this.ctx.createChannelSplitter(2);
+      const l = this.ctx.createAnalyser();
+      const r = this.ctx.createAnalyser();
+      l.fftSize = 256;
+      r.fftSize = 256;
+      node.connect(split);
+      split.connect(l, 0);
+      split.connect(r, 1);
+      // Conectados a un sumidero mudo para que el navegador los procese.
+      l.connect(this.meterSink);
+      r.connect(this.meterSink);
+      this.stripMeters.set(key, { l, r });
+    };
+    // Balance como el motor nativo: baja el lado contrario, no mezcla L en R.
+    // La entrada fuerza estereo (una entrada mono sale por los dos lados).
+    const panner = (pan: number | undefined) => {
+      const p = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan as number)) : 0;
+      const input = this.ctx.createGain();
+      input.channelCount = 2;
+      input.channelCountMode = "explicit";
+      input.channelInterpretation = "speakers";
+      const split = this.ctx.createChannelSplitter(2);
+      const gl = this.ctx.createGain();
+      const gr = this.ctx.createGain();
+      const merge = this.ctx.createChannelMerger(2);
+      gl.gain.value = p > 0 ? 1 - p : 1;
+      gr.gain.value = p < 0 ? 1 + p : 1;
+      input.connect(split);
+      split.connect(gl, 0);
+      split.connect(gr, 1);
+      gl.connect(merge, 0, 0);
+      gr.connect(merge, 0, 1);
+      for (const n of [input, split, gl, gr, merge]) this.faders.push(n as unknown as GainNode);
+      return { input, output: merge };
+    };
+
     // Los buses se crean antes que los canales para poder enrutar hacia ellos.
     for (const bus of cfg.mixerBuses) {
       const gain = this.ctx.createGain();
       gain.gain.value = bus.muted ? 0 : dbToGain(bus.gainDb);
-      gain.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
+      const pan = panner(bus.pan);
+      gain.connect(pan.input);
+      pan.output.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
       this.faders.push(gain);
-      this.busFaders.set(bus.id, gain);
+      this.busFaders.set(bus.id, pan.output);
+      this.liveFaders.set(`bus:${bus.id}`, { gain, open: !bus.muted });
+      meterFor(`bus:${bus.id}`, pan.output);
       const lv = levelerFor(`bus:${bus.id}`, bus);
       if (lv) lv.output.connect(gain);
       this.busGains.set(
@@ -305,14 +361,37 @@ export class SoundMixer {
     else monitorTap.connect(this.programTap);
     this.monitorTap = monitorTap;
 
+    const anySolo = cfg.mixerChannels.some((c) => c.solo);
     for (const ch of cfg.mixerChannels) {
+      // Con algun canal en solo, los demas se callan (solo en el sitio).
+      const open = !ch.muted && (!anySolo || !!ch.solo);
       const gain = this.ctx.createGain();
-      gain.gain.value = ch.muted ? 0 : dbToGain(ch.gainDb);
+      gain.gain.value = open ? dbToGain(ch.gainDb) : 0;
       this.faders.push(gain);
+      // Punto antes del fader: de aqui salen los envios "pre".
+      this.liveFaders.set(`ch:${ch.id}`, { gain, open });
+      const pre = this.ctx.createGain();
+      this.faders.push(pre);
+      pre.connect(gain);
+      const panNode = panner(ch.pan);
+      gain.connect(panNode.input);
+      const pan = panNode.output;
+      meterFor(`ch:${ch.id}`, pan);
       const lv = levelerFor(`ch:${ch.id}`, ch);
-      if (lv) lv.output.connect(gain);
+      if (lv) lv.output.connect(pre);
       // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
-      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : gain);
+      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : pre);
+      for (const send of ch.sends ?? []) {
+        const busEntry = this.busGains.get(send.busId);
+        if (!busEntry) continue;
+        if (ch.output.kind === "bus" && ch.output.id === send.busId) continue;
+        const sg = this.ctx.createGain();
+        const base = send.muted ? 0 : dbToGain(send.gainDb);
+        sg.gain.value = send.pre && !open ? 0 : base;
+        this.faders.push(sg);
+        (send.pre ? pre : pan).connect(sg);
+        sg.connect(busEntry);
+      }
       this.channelGains.set(ch.id, entry);
 
       if (ch.input.kind === "app") {
@@ -334,14 +413,14 @@ export class SoundMixer {
 
       // Todo lo que no es la voz del que llama alimenta su retorno.
       if (!(ch.input.kind === "app" && ch.input.app === "call"))
-        gain.connect(this.returnMix);
+        pan.connect(this.returnMix);
 
       if (ch.output.kind === "bus") {
         const busGain = this.busGains.get(ch.output.id);
-        if (busGain) gain.connect(busGain);
-        else gain.connect(this.deviceMix(DEFAULT_DEVICE));
+        if (busGain) pan.connect(busGain);
+        else pan.connect(this.deviceMix(DEFAULT_DEVICE));
       } else {
-        gain.connect(this.deviceMix(normDevice(ch.output.id)));
+        pan.connect(this.deviceMix(normDevice(ch.output.id)));
       }
     }
 
@@ -439,6 +518,27 @@ export class SoundMixer {
   /** Señal del programa (mismo bus que el VU) para el motor de emisión. */
   getProgramNode(): AudioNode {
     return this.programTap;
+  }
+
+  /** Mueve un fader en vivo (mientras se arrastra), sin rehacer la mesa. */
+  setLiveGain(key: string, db: number) {
+    const f = this.liveFaders.get(key);
+    if (!f) return;
+    f.gain.gain.setTargetAtTime(f.open ? dbToGain(db) : 0, this.ctx.currentTime, 0.01);
+  }
+
+  /** Picos actuales de cada canal y bus (lineales, 0..1+). */
+  getStripMeters(): { key: string; l: number; r: number }[] {
+    const out: { key: string; l: number; r: number }[] = [];
+    const data = this.meterData;
+    const peak = (a: AnalyserNode) => {
+      a.getFloatTimeDomainData(data);
+      let m = 0;
+      for (let i = 0; i < data.length; i += 1) m = Math.max(m, Math.abs(data[i]));
+      return m;
+    };
+    for (const [key, m] of this.stripMeters) out.push({ key, l: peak(m.l), r: peak(m.r) });
+    return out;
   }
 
   getMonitorLevel(): { level: number; db: number } {

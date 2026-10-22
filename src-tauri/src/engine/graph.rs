@@ -53,6 +53,18 @@ pub struct ChannelCfg {
     pub output: OutputCfg,
     pub gain_db: f64,
     pub muted: bool,
+    pub pan: f64,
+    pub solo: bool,
+    pub sends: Vec<SendCfg>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SendCfg {
+    pub bus_id: String,
+    pub gain_db: f64,
+    pub pre: bool,
+    pub muted: bool,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -62,6 +74,7 @@ pub struct BusCfg {
     pub output_device_id: String,
     pub gain_db: f64,
     pub muted: bool,
+    pub pan: f64,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -110,18 +123,60 @@ impl Smooth {
     }
 }
 
+/// Pico por lado desde la ultima lectura (medidores de la mesa).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Meter {
+    pub l: f32,
+    pub r: f32,
+}
+
+impl Meter {
+    #[inline]
+    fn feed(&mut self, buf: &[f32]) {
+        for f in buf.chunks_exact(2) {
+            self.l = self.l.max(f[0].abs());
+            self.r = self.r.max(f[1].abs());
+        }
+    }
+}
+
+struct Send {
+    bus: usize,
+    /// Ganancia del envio (antes del fader incluye silencio y solo del canal)
+    g: Smooth,
+    pre: bool,
+}
+
 struct Chan {
     key: String,
     src: Source,
-    gain: Smooth,
+    /// Ganancia final por lado: fader, silencio, solo y panorama
+    gl: Smooth,
+    gr: Smooth,
     dest: Dest,
+    sends: Vec<Send>,
+    meter: Meter,
+    pan: f64,
+    open: bool,
 }
 
 struct Bus {
     key: String,
-    gain: Smooth,
+    gl: Smooth,
+    gr: Smooth,
     out: usize,
     buf: Vec<f32>,
+    meter: Meter,
+    pan: f64,
+    open: bool,
+}
+
+/// Balance estereo: -1 todo a la izquierda, 1 a la derecha.
+fn balance(gain: f32, pan: f64) -> (f32, f32) {
+    let p = if pan.is_finite() { pan.clamp(-1.0, 1.0) as f32 } else { 0.0 };
+    let l = if p > 0.0 { 1.0 - p } else { 1.0 };
+    let r = if p < 0.0 { 1.0 + p } else { 1.0 };
+    (gain * l, gain * r)
 }
 
 pub struct Out {
@@ -147,6 +202,34 @@ pub struct Plan {
     call_fallback: bool,
     pub monitor: Vec<f32>,
     pub program: Vec<f32>,
+    /// Tramo del canal ya con su fader (para envios y medidor)
+    tmp: Vec<f32>,
+}
+
+/// Suma con ganancias distintas por lado (cada una en rampa).
+fn add_scaled2(dst: &mut [f32], src: &[f32], gl: (f32, f32), gr: (f32, f32)) {
+    let (mut l, sl) = gl;
+    let (mut r, sr) = gr;
+    for (d, s) in dst.chunks_exact_mut(2).zip(src.chunks_exact(2)) {
+        l += sl;
+        r += sr;
+        d[0] += s[0] * l;
+        d[1] += s[1] * r;
+    }
+}
+
+fn scale2(buf: &mut [f32], gl: (f32, f32), gr: (f32, f32)) {
+    let (mut l, sl) = gl;
+    let (mut r, sr) = gr;
+    if sl == 0.0 && sr == 0.0 && l == 1.0 && r == 1.0 {
+        return;
+    }
+    for f in buf.chunks_exact_mut(2) {
+        l += sl;
+        r += sr;
+        f[0] *= l;
+        f[1] *= r;
+    }
 }
 
 fn add_scaled(dst: &mut [f32], src: &[f32], g: (f32, f32)) {
@@ -188,26 +271,38 @@ impl Plan {
         };
         let default_out = out_index(DEFAULT_DEVICE, &mut outs);
 
-        let prev_gain = |key: &str, fallback: f32| -> Smooth {
+        // Ganancias actuales del plan anterior (rampa en vez de salto).
+        let prev_lr = |key: &str, l: f32, r: f32| -> (Smooth, Smooth) {
             let cur = prev.and_then(|p| {
                 p.chans
                     .iter()
                     .find(|c| c.key == key)
-                    .map(|c| c.gain.cur)
-                    .or_else(|| p.buses.iter().find(|b| b.key == key).map(|b| b.gain.cur))
+                    .map(|c| (c.gl.cur, c.gr.cur))
+                    .or_else(|| p.buses.iter().find(|b| b.key == key).map(|b| (b.gl.cur, b.gr.cur)))
             });
-            Smooth { cur: cur.unwrap_or(fallback), target: fallback }
+            let (cl, cr) = cur.unwrap_or((l, r));
+            (Smooth { cur: cl, target: l }, Smooth { cur: cr, target: r })
+        };
+        let prev_send = |key: &str, bus: usize, target: f32| -> Smooth {
+            let cur = prev
+                .and_then(|p| p.chans.iter().find(|c| c.key == key))
+                .and_then(|c| c.sends.iter().find(|s| s.bus == bus))
+                .map(|s| s.g.cur);
+            Smooth { cur: cur.unwrap_or(target), target }
         };
 
         let mut buses = Vec::new();
         for b in &cfg.mixer_buses {
             let g = if b.muted { 0.0 } else { db_to_gain(b.gain_db) };
+            let (l, r) = balance(g, b.pan);
             let out = out_index(&b.output_device_id, &mut outs);
             let key = format!("bus:{}", b.id);
-            buses.push(Bus { gain: prev_gain(&key, g), key, out, buf: buf() });
+            let (gl, gr) = prev_lr(&key, l, r);
+            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted });
         }
         let bus_ids: Vec<&str> = cfg.mixer_buses.iter().map(|b| b.id.as_str()).collect();
 
+        let any_solo = cfg.mixer_channels.iter().any(|c| c.solo);
         let mut inputs: Vec<String> = Vec::new();
         let mut chans = Vec::new();
         let (mut music, mut preview, mut call) = (false, false, false);
@@ -243,9 +338,24 @@ impl Plan {
             } else {
                 Dest::Out(out_index(&c.output.id, &mut outs))
             };
-            let g = if c.muted { 0.0 } else { db_to_gain(c.gain_db) };
+            // Con algun canal en solo, los demas se callan (solo en el sitio).
+            let open = !c.muted && (!any_solo || c.solo);
+            let g = if open { db_to_gain(c.gain_db) } else { 0.0 };
+            let (l, r) = balance(g, c.pan);
             let key = format!("ch:{}", c.id);
-            chans.push(Chan { gain: prev_gain(&key, g), key, src, dest });
+            let (gl, gr) = prev_lr(&key, l, r);
+            let mut sends = Vec::new();
+            for sc in &c.sends {
+                let Some(bus) = bus_ids.iter().position(|id| *id == sc.bus_id) else { continue };
+                // No se envia a su propio bus de salida (se sumaria dos veces).
+                if matches!(dest, Dest::Bus(d) if d == bus) {
+                    continue;
+                }
+                let base = if sc.muted { 0.0 } else { db_to_gain(sc.gain_db) };
+                let target = if sc.pre { if open { base } else { 0.0 } } else { base };
+                sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
+            }
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -276,7 +386,35 @@ impl Plan {
             call_fallback: !call,
             monitor: buf(),
             program: buf(),
+            tmp: buf(),
         }
+    }
+
+    /// Mueve un fader en vivo (mientras se arrastra), sin rehacer la mesa.
+    pub fn live_gain(&mut self, key: &str, db: f64) {
+        if let Some(c) = self.chans.iter_mut().find(|c| c.key == key) {
+            let (l, r) = balance(if c.open { db_to_gain(db) } else { 0.0 }, c.pan);
+            c.gl.target = l;
+            c.gr.target = r;
+        } else if let Some(b) = self.buses.iter_mut().find(|b| b.key == key) {
+            let (l, r) = balance(if b.open { db_to_gain(db) } else { 0.0 }, b.pan);
+            b.gl.target = l;
+            b.gr.target = r;
+        }
+    }
+
+    /// Picos de cada canal y bus desde la ultima lectura (y los reinicia).
+    pub fn take_meters(&mut self) -> Vec<(String, f32, f32)> {
+        let mut out = Vec::with_capacity(self.chans.len() + self.buses.len());
+        for c in self.chans.iter_mut() {
+            out.push((c.key.clone(), c.meter.l, c.meter.r));
+            c.meter = Meter::default();
+        }
+        for b in self.buses.iter_mut() {
+            out.push((b.key.clone(), b.meter.l, b.meter.r));
+            b.meter = Meter::default();
+        }
+        out
     }
 
     pub fn set_volume(&mut self, v: f32) {
@@ -309,15 +447,36 @@ impl Plan {
                 Source::Call => call,
                 Source::Input(i) => inputs.get(i).copied().unwrap_or(silence),
             };
-            let g = c.gain.gains(frames);
+            let gl = c.gl.gains(frames);
+            let gr = c.gr.gains(frames);
+            let sends: &mut Vec<Send> = &mut c.sends;
             if src.len() < n {
+                for s in sends.iter_mut() {
+                    s.g.gains(frames);
+                }
                 continue;
             }
+            // Canal con su fader en `tmp`: salida, envios post y medidor.
+            let tmp = &mut self.tmp[..n];
+            tmp.iter_mut().for_each(|x| *x = 0.0);
+            add_scaled2(tmp, &src[..n], gl, gr);
+            c.meter.feed(tmp);
             let dst = match c.dest {
                 Dest::Bus(i) => &mut self.buses[i].buf[..n],
                 Dest::Out(i) => &mut self.outs[i].buf[..n],
             };
-            add_scaled(dst, &src[..n], g);
+            for (o, v) in dst.iter_mut().zip(tmp.iter()) {
+                *o += *v;
+            }
+            for s in sends.iter_mut() {
+                let g = s.g.gains(frames);
+                let bus = &mut self.buses[s.bus].buf[..n];
+                if s.pre {
+                    add_scaled(bus, &src[..n], g);
+                } else {
+                    add_scaled(bus, tmp, g);
+                }
+            }
         }
         // Fuentes de la app sin canal: salen por la predeterminada para no
         // dejar la radio muda por una configuracion a medias.
@@ -328,8 +487,10 @@ impl Plan {
             }
         }
         for (bi, b) in self.buses.iter_mut().enumerate() {
-            let g = b.gain.gains(frames);
-            scale(&mut b.buf[..n], g);
+            let gl = b.gl.gains(frames);
+            let gr = b.gr.gains(frames);
+            scale2(&mut b.buf[..n], gl, gr);
+            b.meter.feed(&b.buf[..n]);
             let out = &mut self.outs[b.out].buf[..n];
             for (o, s) in out.iter_mut().zip(b.buf[..n].iter()) {
                 *o += *s;

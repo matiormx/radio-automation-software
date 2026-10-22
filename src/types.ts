@@ -215,6 +215,15 @@ export interface InsertSettings {
   returnDeviceId: string;
 }
 
+/** Envio de un canal a un bus (ademas de su salida principal). */
+export interface MixerSend {
+  busId: string;
+  gainDb: number;
+  /** Antes del fader (no le afecta el volumen del canal) */
+  pre: boolean;
+  muted: boolean;
+}
+
 export interface MixerChannel {
   id: string;
   name: string;
@@ -225,6 +234,10 @@ export interface MixerChannel {
   muted: boolean;
   leveler?: LevelerSettings;
   insert?: InsertSettings;
+  /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
+  pan?: number;
+  solo?: boolean;
+  sends?: MixerSend[];
 }
 
 export interface MixerBus {
@@ -236,6 +249,7 @@ export interface MixerBus {
   muted: boolean;
   leveler?: LevelerSettings;
   insert?: InsertSettings;
+  pan?: number;
 }
 
 export type VideoInputKind = "file" | "rtsp" | "ndi";

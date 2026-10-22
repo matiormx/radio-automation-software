@@ -20,7 +20,7 @@ interface MixerPanelProps {
 }
 
 /** Nivelador automatico de ganancia de un canal o bus: se activa aqui. */
-function LevelerControls({
+export function LevelerControls({
   owner,
   label,
   onChange,
@@ -87,7 +87,7 @@ function LevelerControls({
   );
 }
 
-function InsertControls({
+export function InsertControls({
   owner,
   label,
   inputs,
@@ -170,7 +170,7 @@ function InsertControls({
   );
 }
 
-interface Device {
+export interface Device {
   id: string;
   label: string;
   kind: "audioinput" | "audiooutput";
@@ -198,7 +198,7 @@ const COLORS = [
 /**
  * Barra de color de la tira: al pulsarla se abre una paleta de 15 colores.
  */
-function ColorBar({
+export function ColorBar({
   value,
   label,
   onChange,
@@ -261,11 +261,11 @@ function ColorBar({
   );
 }
 
-function nextColor(count: number): string {
+export function nextColor(count: number): string {
   return COLORS[count % COLORS.length];
 }
 
-function newId(): string {
+export function newId(): string {
   if (
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"

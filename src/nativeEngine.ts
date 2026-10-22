@@ -173,6 +173,16 @@ export class NativePlayer {
     });
   }
 
+  /** Fader en vivo mientras se arrastra (sin rehacer la mesa). */
+  liveGain(key: string, db: number) {
+    void this.cmd({ op: "liveGain", key, db });
+  }
+
+  /** Envio de medidores por tira (ventana Mixer abierta). */
+  setMeters(on: boolean) {
+    void this.cmd({ op: "meters", on });
+  }
+
   getMonitorLevel(): { level: number; db: number } {
     return { level: this.state.level, db: this.state.db };
   }

@@ -150,6 +150,9 @@ pub struct MixerChannel {
     pub muted: bool,
     pub leveler: LevelerSettings,
     pub insert: InsertSettings,
+    pub pan: f32,
+    pub solo: bool,
+    pub sends: Vec<MixerSend>,
 }
 
 impl Default for MixerChannel {
@@ -164,8 +167,21 @@ impl Default for MixerChannel {
             muted: false,
             leveler: LevelerSettings::default(),
             insert: InsertSettings::default(),
+            pan: 0.0,
+            solo: false,
+            sends: Vec::new(),
         }
     }
+}
+
+/// Envio de un canal a un bus.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MixerSend {
+    pub bus_id: String,
+    pub gain_db: f32,
+    pub pre: bool,
+    pub muted: bool,
 }
 
 /// Insert (envio y retorno por tarjetas) de un canal o bus.
@@ -219,6 +235,7 @@ pub struct MixerBus {
     pub muted: bool,
     pub leveler: LevelerSettings,
     pub insert: InsertSettings,
+    pub pan: f32,
 }
 
 impl Default for MixerBus {
@@ -232,6 +249,7 @@ impl Default for MixerBus {
             muted: false,
             leveler: LevelerSettings::default(),
             insert: InsertSettings::default(),
+            pan: 0.0,
         }
     }
 }

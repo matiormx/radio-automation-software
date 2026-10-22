@@ -40,6 +40,7 @@ pub struct Engine {
     ctl: Arc<Mutex<Ctl>>,
     io: Arc<Io>,
     stop: Arc<AtomicBool>,
+    meters: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -91,6 +92,17 @@ pub enum Op {
     Options { fade_seconds: f64, loop_playlist: bool, silence_skip: bool, silence_threshold_db: f64 },
     Volume { value: f32 },
     Mixer { config: MixConfig },
+    /// Activa el envio de medidores por tira (ventana Mixer abierta)
+    Meters { on: bool },
+    /// Fader en vivo mientras se arrastra ("ch:<id>" o "bus:<id>")
+    LiveGain { key: String, db: f64 },
+}
+
+#[derive(Serialize, Clone)]
+struct StripMeter {
+    key: String,
+    l: f32,
+    r: f32,
 }
 
 fn lock_ctl(ctl: &Arc<Mutex<Ctl>>) -> std::sync::MutexGuard<'_, Ctl> {
@@ -104,14 +116,15 @@ impl Engine {
         let io = Arc::new(Io::start(shared.clone(), Box::new(move |pcm: &[u8]| sink.push(pcm))));
         let ctl = Arc::new(Mutex::new(Ctl { player: Player::default(), loader: DecodeCache::new(ENGINE_RATE) }));
         let stop = Arc::new(AtomicBool::new(false));
+        let meters = Arc::new(AtomicBool::new(false));
         let thread = {
-            let (shared, ctl, io, stop) = (shared.clone(), ctl.clone(), io.clone(), stop.clone());
+            let (shared, ctl, io, stop, meters) = (shared.clone(), ctl.clone(), io.clone(), stop.clone(), meters.clone());
             std::thread::Builder::new()
                 .name("miradio-engine".into())
-                .spawn(move || control_loop(app, shared, ctl, io, stop))
+                .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, thread }
+        Engine { shared, ctl, io, stop, meters, thread }
     }
 
     fn apply(&self, op: Op) {
@@ -130,6 +143,8 @@ impl Engine {
                 drop(old);
             }
             Op::Volume { value } => lock(&self.shared).core.set_volume(value),
+            Op::Meters { on } => self.meters.store(on, Ordering::SeqCst),
+            Op::LiveGain { key, db } => lock(&self.shared).core.plan.live_gain(&key, db),
             Op::Options { fade_seconds, loop_playlist, silence_skip, silence_threshold_db } => {
                 player.fade_seconds = fade_seconds.clamp(0.0, 30.0);
                 player.loop_playlist = loop_playlist;
@@ -157,12 +172,20 @@ impl Engine {
     }
 }
 
-fn control_loop(app: AppHandle, shared: SharedRef, ctl: Arc<Mutex<Ctl>>, io: Arc<Io>, stop: Arc<AtomicBool>) {
+fn control_loop(
+    app: AppHandle,
+    shared: SharedRef,
+    ctl: Arc<Mutex<Ctl>>,
+    io: Arc<Io>,
+    stop: Arc<AtomicBool>,
+    meters_on: Arc<AtomicBool>,
+) {
     let mut spare: Vec<Voice> = Vec::with_capacity(16);
     let mut last_emit = std::time::Instant::now();
     let mut pending_events: Vec<OutEvent> = Vec::new();
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(15));
+        let mut strips: Option<Vec<(String, f32, f32)>> = None;
         let (events, index, playing, paused, level, db) = {
             let mut c = lock_ctl(&ctl);
             let Ctl { player, loader } = &mut *c;
@@ -172,6 +195,12 @@ fn control_loop(app: AppHandle, shared: SharedRef, ctl: Arc<Mutex<Ctl>>, io: Arc
             std::mem::swap(&mut g.core.play.voices.dead, &mut spare);
             let (level, db) = g.core.monitor_level();
             let playing = player.is_playing(&g.core.play);
+            if meters_on.load(Ordering::Relaxed) && last_emit.elapsed() >= Duration::from_millis(33) {
+                let mut list = g.core.plan.take_meters();
+                let m = g.core.monitor_peak;
+                list.push(("master".to_string(), m, m));
+                strips = Some(list);
+            }
             drop(g);
             (player.drain_events(), player.index(), playing, player.is_paused(), level, db)
         };
@@ -206,6 +235,10 @@ fn control_loop(app: AppHandle, shared: SharedRef, ctl: Arc<Mutex<Ctl>>, io: Arc
                 out.push(t);
             }
             let _ = app.emit("engine://state", StatePayload { events: out, index, playing, paused, level, db });
+            if let Some(list) = strips.take() {
+                let list: Vec<StripMeter> = list.into_iter().map(|(key, l, r)| StripMeter { key, l, r }).collect();
+                let _ = app.emit("engine://meters", list);
+            }
             last_emit = std::time::Instant::now();
         }
     }

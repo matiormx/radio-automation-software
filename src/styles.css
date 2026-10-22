@@ -3213,3 +3213,174 @@ body {
 .settings-windowed { flex: 1; min-height: 0; display: flex; }
 .settings-window-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .settings-window-body .settings-body { flex: 1; min-height: 0; }
+
+/* ---------- Ventana Mixer (estilo Pro Tools) ---------- */
+.mx-tools { display: flex; align-items: center; gap: 6px; margin-left: 14px; }
+.mx-engine { font-size: 10.5px; color: var(--text-faint); margin-left: 6px; letter-spacing: 0.3px; }
+.mx-window { background: #0b0d11; }
+.mx-strips {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.mx-empty { margin: auto; color: var(--text-faint); font-size: 13px; }
+.mx-sep { flex: 0 0 6px; }
+.mx-strip {
+  position: relative;
+  flex: 0 0 96px;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 5px 0;
+  background: linear-gradient(180deg, #1b2029, #151920);
+  border: 1px solid #262c37;
+  border-radius: 6px;
+  min-height: 0;
+}
+.mx-bus { background: linear-gradient(180deg, #1a1e2a, #141822); }
+.mx-master { flex-basis: 104px; width: 104px; background: linear-gradient(180deg, #1f1d26, #17151d); }
+.mx-section { display: flex; flex-direction: column; gap: 2px; }
+.mx-grow-top { flex: 0 0 auto; }
+.mx-label { font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: var(--text-faint); padding: 0 2px; }
+.mx-hint { font-size: 9.5px; color: var(--text-faint); line-height: 1.3; padding: 0 2px; }
+.mx-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 18px;
+  padding: 1px 5px;
+  border: 1px solid #2a313d;
+  border-radius: 3px;
+  background: #0f1217;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.mx-slot:disabled { opacity: 0.35; cursor: default; }
+.mx-slot:hover:not(:disabled) { border-color: #3a4352; color: var(--text); }
+.mx-slot-on { background: #2b3b5c; border-color: #3d5585; color: #dbe6ff; }
+.mx-slot-send { background: #24402f; border-color: #33603f; color: #d6f5df; }
+.mx-slot-muted { background: #2a2a2a; color: var(--text-faint); text-decoration: line-through; }
+.mx-slot-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mx-slot-val { flex-shrink: 0; font-variant-numeric: tabular-nums; opacity: 0.85; }
+.mx-pop {
+  position: absolute;
+  left: 4px;
+  top: 30px;
+  z-index: 40;
+  width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-2, #1b1f27);
+  box-shadow: 0 10px 30px #000a;
+}
+.mx-strip:nth-last-child(-n + 3) .mx-pop { left: auto; right: 4px; }
+.mx-pop-title { font-size: 11px; font-weight: 600; color: var(--text-dim); }
+.mx-pan { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.mx-knob { cursor: ns-resize; border-radius: 50%; outline-offset: 2px; touch-action: none; }
+.mx-knob-body { fill: #0f1217; stroke: #3a4352; stroke-width: 1.5; }
+.mx-knob-line { stroke: #7fb0ff; stroke-width: 2.5; stroke-linecap: round; }
+.mx-pan-val { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.mx-buttons { display: flex; justify-content: center; gap: 4px; }
+.mx-btn {
+  width: 30px;
+  height: 20px;
+  border: 1px solid #2f3643;
+  border-radius: 3px;
+  background: #11151b;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mx-solo.mx-on { background: #e8c547; border-color: #e8c547; color: #1a1500; }
+.mx-mute.mx-on { background: #e8833a; border-color: #e8833a; color: #1d0e00; }
+.mx-fader-row { flex: 1; min-height: 140px; display: flex; justify-content: center; gap: 6px; padding: 4px 0; }
+.mx-fader { position: relative; width: 44px; cursor: ns-resize; touch-action: none; outline-offset: 2px; }
+.mx-fader-slot { position: absolute; left: 50%; top: 6px; bottom: 6px; width: 4px; margin-left: -2px; border-radius: 2px; background: #05070a; box-shadow: inset 0 0 0 1px #262c37; }
+.mx-fader-mark {
+  position: absolute;
+  left: 0;
+  transform: translateY(50%);
+  font-size: 8.5px;
+  color: #5d6676;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.mx-fader-cap {
+  position: absolute;
+  left: 50%;
+  width: 26px;
+  height: 34px;
+  margin-left: -13px;
+  transform: translateY(50%);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #d5d9df 0%, #9aa1ab 46%, #3c4048 50%, #9aa1ab 54%, #c6cbd2 100%);
+  box-shadow: 0 2px 6px #000c;
+  pointer-events: none;
+}
+.mx-fader:focus-visible .mx-fader-cap { box-shadow: 0 0 0 2px #7fb0ff, 0 2px 6px #000c; }
+.mx-meter { display: flex; gap: 2px; padding: 6px 0; }
+.mx-meter-ch {
+  position: relative;
+  width: 6px;
+  border-radius: 1px;
+  background: #05070a;
+  overflow: hidden;
+}
+.mx-meter-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: bottom;
+  transform: scaleY(0);
+  background: linear-gradient(0deg, #22c55e 0%, #22c55e 70%, #facc15 85%, #ef4444 96%);
+  will-change: transform;
+}
+.mx-meter-hold { position: absolute; left: 0; right: 0; height: 2px; bottom: 0; background: #e5e7eb; opacity: 0.8; }
+.mx-db {
+  align-self: center;
+  min-width: 56px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #05070a;
+  color: #9fe3b0;
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mx-name, .mx-name-input {
+  margin: 0 -5px;
+  padding: 4px 5px;
+  background: #e9ecf1;
+  color: #10131a;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  border: 0;
+}
+.mx-name-input { width: calc(100% + 10px); outline: 2px solid #7fb0ff; }
+.mx-name-master { background: #c8c3d6; }
+.mx-color { margin: 0 -5px; }
+.mx-color .mixer-colorbar { padding: 0; }
+.mx-color .mixer-colorbar span { height: 5px; border-radius: 0 0 5px 5px; box-shadow: none; }
+.mx-color .mixer-palette { top: auto; bottom: 100%; }
+.mx-strip:nth-last-child(-n + 3) .mixer-palette { left: auto; right: 0; }

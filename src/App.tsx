@@ -77,7 +77,7 @@ import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
-import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
+import { IconGear, IconList, IconSliders, IconWave, LogoRadio } from "./icons";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
 const EVENT_GRACE_MS = 15 * 60 * 1000;
@@ -1839,6 +1839,21 @@ export default function App() {
     importForCampaign: () => importForCampaign(),
     launchEvent: (event: StationEvent) => launchEvent(event),
     muteCaller: (muted: boolean) => muteCaller(muted),
+    liveVolume: (v: number) => {
+      const p = playerRef.current;
+      p?.setVolume(v);
+      if (p instanceof NativePlayer) mixerRef.current?.setMasterVolume(v);
+    },
+    liveGain: (key: string, db: number) => {
+      mixerRef.current?.setLiveGain(key, db);
+      const p = playerRef.current;
+      if (p instanceof NativePlayer) p.liveGain(key, db);
+    },
+    meters: (on: boolean) => {
+      setMetersOn(on);
+      const p = playerRef.current;
+      if (p instanceof NativePlayer) p.setMeters(on);
+    },
   };
   useEffect(() => {
     const off = serveMain(() => bridgeRef.current);
@@ -1849,6 +1864,23 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // Medidores de la mesa web para la ventana Mixer (el motor nativo manda los suyos).
+  const [metersOn, setMetersOn] = useState(false);
+  useEffect(() => {
+    if (!metersOn) return;
+    const timer = window.setInterval(() => {
+      const mixer = mixerRef.current;
+      if (!mixer) return;
+      const list = mixer.getStripMeters();
+      if (!(playerRef.current instanceof NativePlayer)) {
+        const lv = mixer.getMonitorLevel();
+        const peak = lv.db <= -60 ? 0 : 10 ** (lv.db / 20);
+        list.push({ key: "master", l: peak, r: peak });
+      }
+      void emitEvent("mixer://meters", list);
+    }, 40);
+    return () => window.clearInterval(timer);
+  }, [metersOn]);
   useEffect(() => {
     void emitEvent("library://changed");
   }, [tracks, blocks]);
@@ -1951,6 +1983,14 @@ export default function App() {
             <span>{streamBusy ? "CONECTANDO" : streamStatus?.running ? "EN VIVO" : "EMITIR"}</span>
           </button>
           <span className="clock" role="timer">{clock}</span>
+          <button
+            type="button"
+            className="btn btn-sm top-action"
+            onClick={() => void openToolWindow("mixer")}
+            title="Abrir la mesa de mezclas en su propia ventana"
+          >
+            <IconSliders size={15} /> Mixer
+          </button>
           <button
             type="button"
             className={`btn btn-sm top-action ${normStatus ? "top-action-busy" : ""}`}

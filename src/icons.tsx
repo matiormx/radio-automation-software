@@ -201,3 +201,12 @@ export const IconVinyl = ({ size = 150 }: IconProps) => (
     <circle cx="50" cy="50" r="4" fill="#1e293b" />
   </svg>
 );
+
+export const IconSliders = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 3v18M12 3v18M18 3v18" opacity="0.45" />
+    <rect x="3.5" y="13" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
+    <rect x="9.5" y="6" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
+    <rect x="15.5" y="10" width="5" height="3" rx="1" fill="currentColor" stroke="none" />
+  </svg>
+);
