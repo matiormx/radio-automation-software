@@ -1,3 +1,4 @@
+import { WindowControls } from "./components/WindowControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listTracks,
@@ -1783,8 +1784,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
+      <header className="topbar" data-tauri-drag-region>
+        <div className="brand" data-tauri-drag-region>
           {settings.logoPath ? (
             <img
               className="brand-logo"
@@ -1797,13 +1798,14 @@ export default function App() {
           ) : (
             <LogoRadio size={32} />
           )}
-          <div className="brand-txt">
-            <span className="brand-name">{settings.radioName.trim() || "MiRadio"}</span>
-            <span className="brand-sub">
+          <div className="brand-txt" data-tauri-drag-region>
+            <span className="brand-name" data-tauri-drag-region>{settings.radioName.trim() || "MiRadio"}</span>
+            <span className="brand-sub" data-tauri-drag-region>
               {settings.slogan.trim() || "Estudio de automatización"}
             </span>
           </div>
         </div>
+        <div className="top-drag" data-tauri-drag-region />
         <div className="top-right">
           {importing && <span className="pill pill-warn">Importando…</span>}
           {autopilotOn && activeAutoEvent && (
@@ -1898,6 +1900,7 @@ export default function App() {
             <IconGear size={18} />
           </button>
         </div>
+        <WindowControls />
       </header>
 
       <main className="main">

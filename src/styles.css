@@ -37,9 +37,11 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 8px 14px;
+  padding: 0 0 0 14px;
+  min-height: 48px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  user-select: none;
 }
 
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -47,6 +49,7 @@ body {
 .brand-name { font-weight: 600; font-size: 15px; letter-spacing: 0.3px; }
 .brand-sub { font-size: 10.5px; color: var(--text-dim); letter-spacing: 0.4px; }
 
+.top-drag { flex: 1 1 auto; align-self: stretch; min-width: 12px; }
 .top-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
 .top-switch {
@@ -3157,3 +3160,20 @@ body {
 .plrow-past:hover { opacity: 0.8; }
 .plrow-pastnote { display: block; width: 100%; padding: 4px 10px; border: 0; background: transparent; color: var(--text-faint); font-size: 11px; text-align: center; cursor: pointer; }
 .plrow-pastnote:hover { color: var(--text-dim); }
+
+/* Botones de ventana propios (barra de titulo integrada, estilo Windows 11) */
+.win-controls { display: flex; align-self: stretch; margin-left: 6px; }
+.win-btn {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+.win-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+.win-btn:active { background: rgba(255, 255, 255, 0.04); }
+.win-close:hover { background: #c42b1c; color: #fff; }
+.win-close:active { background: #b22a1b; }
