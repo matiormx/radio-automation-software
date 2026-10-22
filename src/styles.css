@@ -3429,3 +3429,21 @@ body {
 .plrow-leaving .plrow-title { text-decoration: line-through; opacity: 0.7; }
 .badge-leaving { margin-left: 8px; padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; color: #fecaca; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); }
 .lang-flag { margin-left: 6px; font-size: 13px; }
+.bk-roots { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.bk-root { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid var(--border, rgba(255,255,255,0.06)); }
+.bk-root-line { display: flex; align-items: center; gap: 8px; }
+.bk-root-line input { flex: 1; min-width: 0; }
+.bk-from { flex: 0 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-fieldset { min-width: 0; }
+.bk-root-line input {
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 9px;
+  outline: none;
+}
+.bk-root-line input:focus { border-color: var(--accent); }
+.bk-root-line input:disabled { opacity: 0.6; }

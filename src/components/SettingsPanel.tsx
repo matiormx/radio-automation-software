@@ -1,5 +1,6 @@
 import { ApiTab } from "./ApiTab";
 import { NotificationsTab } from "./NotificationsTab";
+import { BackupTab } from "./BackupTab";
 import { useMemo, useState } from "react";
 import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
 import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
@@ -167,7 +168,8 @@ export type SettingsTab =
   | "streaming"
   | "calls"
   | "api"
-  | "notify";
+  | "notify"
+  | "backup";
 
 export function SettingsPanel({
   settings,
@@ -317,6 +319,14 @@ export function SettingsPanel({
               Notificaciones
               <span>Avisos GET/POST por eventos</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "backup" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("backup")}
+            >
+              Copia de seguridad
+              <span>Guardar todo o pasarlo a otro PC</span>
+            </button>
           </nav>
 
           <div className="settings-content">
@@ -359,6 +369,7 @@ export function SettingsPanel({
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
+            {tab === "backup" && <BackupTab showToast={showToast} />}
             {tab === "notify" && <NotificationsTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "api" && <ApiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "calls" && (

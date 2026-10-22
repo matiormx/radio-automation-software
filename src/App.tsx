@@ -73,7 +73,7 @@ import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
 import { openToolWindow, prewarmToolWindow, publishState, serveMain } from "./bridge";
-import { apiApply, apiPublish, notifyFire } from "./api";
+import { apiApply, apiPublish, backupLastImportLog, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
@@ -2252,6 +2252,14 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // Resultado de una importacion de copia de seguridad aplicada al arrancar.
+  useEffect(() => {
+    void backupLastImportLog()
+      .then((log) => {
+        if (log) showToast(log.includes("falló") ? log.trim() : "Copia de seguridad importada");
+      })
+      .catch(() => undefined);
+  }, [showToast]);
   // Ajustes se carga oculta poco despues de arrancar: abrirla es instantaneo.
   useEffect(() => {
     const t = window.setTimeout(() => void prewarmToolWindow("settings"), 4000);

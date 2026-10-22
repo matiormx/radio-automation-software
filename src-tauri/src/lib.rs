@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 pub mod analysis;
+pub mod backup;
 pub mod deezer;
 pub mod engine;
 pub mod rbapi;
@@ -29,6 +30,9 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             let data_dir = app.path().app_data_dir()?;
+            fs::create_dir_all(&data_dir)?;
+            // Importacion preparada desde Ajustes: se aplica antes de leer nada.
+            backup::apply_pending(&data_dir);
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
             app.manage(AppState { data_dir });
@@ -98,6 +102,10 @@ pub fn run() {
             engine::engine_devices,
             rbapi::api_publish,
             notify::notify_fire,
+            backup::backup_export,
+            backup::backup_inspect,
+            backup::backup_import,
+            backup::backup_last_import_log,
             notify::notify_test,
             rbapi::api_apply,
             rbapi::api_status,

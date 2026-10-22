@@ -217,7 +217,6 @@ mod tests {
             for _ in 0..2 {
                 let mut rq = server.recv().unwrap();
                 let mut body = String::new();
-                use std::io::Read;
                 rq.as_reader().read_to_string(&mut body).unwrap();
                 seen.push((rq.method().to_string(), rq.url().to_string(), body));
                 rq.respond(tiny_http::Response::from_string("ok")).unwrap();

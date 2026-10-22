@@ -386,3 +386,66 @@ export function apiPublish(published: unknown): Promise<void> {
 export function moveTracksBlock(ids: string[], addBlock: string, removeBlock: string | null): Promise<number> {
   return invoke<number>("move_tracks_block", { ids, addBlock, removeBlock });
 }
+
+// ---- copia de seguridad ----
+
+export interface BackupRoot {
+  prefix: string;
+  tracks: number;
+  exists: boolean;
+  included: boolean;
+}
+
+export interface BackupInfo {
+  manifest: {
+    appVersion: string;
+    created: string;
+    tracks: number;
+    playlists: number;
+    includeAudio: boolean;
+    audioFiles: number;
+    audioBytes: number;
+    dataDir: string;
+  };
+  roots: BackupRoot[];
+}
+
+export interface BackupExportResult {
+  path: string;
+  files: number;
+  audioFiles: number;
+  missingAudio: number;
+  bytes: number;
+}
+
+export async function pickBackupDestination(): Promise<string | null> {
+  const day = new Date().toISOString().slice(0, 10);
+  const p = await saveDialog({ defaultPath: `MiRadio-copia-${day}.zip`, filters: [{ name: "Copia de MiRadio", extensions: ["zip"] }] });
+  return p ?? null;
+}
+
+export async function pickBackupFile(): Promise<string | null> {
+  const p = await openDialog({ multiple: false, filters: [{ name: "Copia de MiRadio", extensions: ["zip"] }] });
+  return typeof p === "string" ? p : null;
+}
+
+export async function pickAnyFolder(): Promise<string | null> {
+  const p = await openDialog({ directory: true, multiple: false });
+  return typeof p === "string" ? p : null;
+}
+
+export function backupExport(dest: string, includeAudio: boolean): Promise<BackupExportResult> {
+  return invoke<BackupExportResult>("backup_export", { dest, includeAudio });
+}
+
+export function backupInspect(path: string): Promise<BackupInfo> {
+  return invoke<BackupInfo>("backup_inspect", { path });
+}
+
+export function backupImport(path: string, mappings: { from: string; to: string }[], audioDest: string | null): Promise<{ audioFiles: number }> {
+  return invoke("backup_import", { path, mappings, audioDest });
+}
+
+export function backupLastImportLog(): Promise<string | null> {
+  return invoke<string | null>("backup_last_import_log");
+}
