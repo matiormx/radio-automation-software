@@ -178,6 +178,28 @@ function extOk(path: string): boolean {
   return AUDIO_EXTENSIONS.includes(path.slice(dot + 1).toLowerCase());
 }
 
+/** Filas de una lista con los datos de la biblioteca (pistas que existen). */
+function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
+  if (!pl) return [];
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  return pl.trackIds.flatMap((id) => {
+    const t = byId.get(id);
+    return t
+      ? [
+          {
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            durationSecs: effectiveDuration(t),
+            cover: t.cover,
+            blocks: t.blocks,
+          },
+        ]
+      : [];
+  });
+}
+
 /** Con el motor nativo, la mesa web no toca los canales de musica. */
 function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
   return {
@@ -333,7 +355,7 @@ export default function App() {
       nat.setPlaylist(rowsRef.current.flatMap((r) => byId.get(r.id) ?? []));
       setNative(nat);
     }
-    player.onIndexChange = (i) => setPlayingRow(i);
+    player.onIndexChange = (i) => onPlayerIndexRef.current(i);
     player.onDiag = (msg) => showToast(msg);
     player.onEnded = () => {
       setPlayingRow(-1);
@@ -414,27 +436,27 @@ export default function App() {
   const autoScopeRef = useRef(autoScope);
   autoScopeRef.current = autoScope;
 
-  // Filas resueltas con datos de la biblioteca
-  const rows: PlaylistRow[] = useMemo(() => {
-    if (!active) return [];
-    const byId = new Map(tracks.map((t) => [t.id, t]));
-    return active.trackIds.flatMap((id) => {
-      const t = byId.get(id);
-      return t
-        ? [
-            {
-              id: t.id,
-              title: t.title,
-              artist: t.artist,
-              album: t.album,
-              durationSecs: effectiveDuration(t),
-              cover: t.cover,
-              blocks: t.blocks,
-            },
-          ]
-        : [];
-    });
-  }, [active, tracks]);
+  // Filas resueltas con datos de la biblioteca (lista activa: la que suena)
+  const rows: PlaylistRow[] = useMemo(() => rowsOf(active, tracks), [active, tracks]);
+
+  // Lista que se ve en pantalla: se puede navegar sin cortar la que suena.
+  const [viewId, setViewId] = useState("");
+  const view = useMemo(
+    () => playlists.find((p) => p.id === viewId) ?? active,
+    [playlists, viewId, active],
+  );
+  const viewRows: PlaylistRow[] = useMemo(
+    () => (view && active && view.id === active.id ? rows : rowsOf(view, tracks)),
+    [view, active, rows, tracks],
+  );
+  // Siguiente elegida a mano (clic derecho): de esta lista o de otra.
+  const [nextPick, setNextPick] = useState<{ listId: string; index: number } | null>(null);
+  const pickRows: PlaylistRow[] | null = useMemo(() => {
+    if (!nextPick) return null;
+    if (active && nextPick.listId === active.id) return rows;
+    return rowsOf(playlists.find((p) => p.id === nextPick.listId), tracks);
+  }, [nextPick, active, rows, playlists, tracks]);
+
 
   // Programa preparado (se elige con el LIVE apagado o encendido).
   const selectedProgram = useMemo(() => {
@@ -612,15 +634,48 @@ export default function App() {
   activeIdRef.current = active?.id ?? "";
   const campaignFiring = useRef<Set<string>>(new Set());
 
-  // La lista en pantalla es la misma que suena
+  // El reproductor recibe la lista activa; si hay una "siguiente" elegida a
+  // mano, tras la actual sigue esa pista (de esta u otra lista) y lo de debajo.
+  const nextPickRef = useRef(nextPick);
+  nextPickRef.current = nextPick;
+  const virtMapRef = useRef<{ listId: string; row: number }[]>([]);
+  const pendingPlayRef = useRef<{ listId: string; row: number } | null>(null);
   useEffect(() => {
+    if (!active) return;
     const byId = new Map(tracks.map((t) => [t.id, t]));
-    const full = rows.flatMap((r) => {
-      const t = byId.get(r.id);
-      return t ? [t] : [];
-    });
-    playerRef.current?.setPlaylist(full);
-  }, [rows, tracks]);
+    const cur = playingRow;
+    let entries = rows.map((r, row) => ({ listId: active.id, row, id: r.id }));
+    if (nextPick && pickRows && cur >= 0 && nextPick.index < pickRows.length) {
+      entries = entries.slice(0, cur + 1).concat(
+        pickRows.slice(nextPick.index).map((r, k) => ({ listId: nextPick.listId, row: nextPick.index + k, id: r.id })),
+      );
+    }
+    virtMapRef.current = entries.map(({ listId, row }) => ({ listId, row }));
+    playerRef.current?.setPlaylist(entries.flatMap((e) => byId.get(e.id) ?? []));
+    const pending = pendingPlayRef.current;
+    if (pending) {
+      const idx = entries.findIndex((e) => e.listId === pending.listId && e.row === pending.row);
+      if (idx >= 0) {
+        pendingPlayRef.current = null;
+        playRowRef.current(idx);
+      }
+    }
+  }, [active, rows, tracks, nextPick, pickRows, playingRow]);
+
+  // Indice del reproductor -> lista y fila. Al llegar a una siguiente de otra
+  // lista, esa lista pasa a ser la activa.
+  const onPlayerIndexRef = useRef<(i: number) => void>(() => undefined);
+  onPlayerIndexRef.current = (i: number) => {
+    const m = i >= 0 ? virtMapRef.current[i] : undefined;
+    if (!m) {
+      setPlayingRow(-1);
+      return;
+    }
+    if (m.listId !== activeIdRef.current) setActiveId(m.listId);
+    setPlayingRow(m.row);
+    const pick = nextPickRef.current;
+    if (pick && pick.listId === m.listId && pick.index === m.row) setNextPick(null);
+  };
 
   // Persistir la carga inicial de ajustes en el motor
   useEffect(() => {
@@ -994,29 +1049,114 @@ export default function App() {
   const mutateListRef = useRef(mutateList);
   mutateListRef.current = mutateList;
 
+  // ---- lista en pantalla (puede no ser la que suena) ----
+  const playlistsRef = useRef(playlists);
+  playlistsRef.current = playlists;
+  const viewRowsRef = useRef(viewRows);
+  viewRowsRef.current = viewRows;
+  const viewIdRef = useRef("");
+  viewIdRef.current = view?.id ?? "";
+
+  const mutateById = useCallback(
+    async (listId: string, fn: (ids: string[]) => string[]) => {
+      const pl = playlistsRef.current.find((p) => p.id === listId);
+      if (!pl) return;
+      const updated: Playlist = { ...pl, trackIds: fn(pl.trackIds) };
+      setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      // Si la siguiente elegida esta en esta lista, su posicion puede cambiar.
+      const pick = nextPickRef.current;
+      if (pick && pick.listId === listId) {
+        const id = rowsOf(pl, tracksRef.current)[pick.index]?.id;
+        const idx = id ? rowsOf(updated, tracksRef.current).findIndex((r) => r.id === id) : -1;
+        setNextPick(idx >= 0 ? { listId, index: idx } : null);
+      }
+      try {
+        await savePlaylist(updated);
+      } catch (e) {
+        showToast(`No se pudo guardar la lista: ${String(e)}`);
+      }
+    },
+    [showToast],
+  );
+  const mutateView = useCallback(
+    (fn: (ids: string[]) => string[]) => mutateById(viewIdRef.current, fn),
+    [mutateById],
+  );
+
+  /** Emitir desde una fila de la lista en pantalla (si es otra, pasa a ser la activa). */
+  const playViewRow = useCallback((i: number) => {
+    const listId = viewIdRef.current;
+    if (!listId) return;
+    if (listId === activeIdRef.current && !nextPickRef.current) {
+      playRowRef.current(i);
+      return;
+    }
+    pendingPlayRef.current = { listId, row: i };
+    setNextPick(null);
+    if (listId !== activeIdRef.current) {
+      setPlayingRow(-1);
+      setActiveId(listId);
+    }
+  }, []);
+
+  /** Clic derecho -> "Siguiente": esta fila suena despues de la actual. */
+  const setNextRow = useCallback((i: number) => {
+    const listId = viewIdRef.current;
+    if (!listId) return;
+    if (listId === activeIdRef.current && i === playingRowRef.current + 1) {
+      setNextPick(null); // ya era la siguiente natural
+      return;
+    }
+    setNextPick({ listId, index: i });
+  }, []);
+
+  /** Rellena la lista en pantalla con el AutoDJ (sin tocar la que suena). */
+  const generateView = useCallback(async () => {
+    const listId = viewIdRef.current;
+    const pl = playlistsRef.current.find((p) => p.id === listId);
+    if (!pl) return;
+    const scope = autoScopeRef.current;
+    try {
+      const picked = await autoPick(
+        viewRowsRef.current.map((r) => r.id),
+        Math.max(10, settingsRef.current.autopilotFillTo || 15),
+        scope?.kind,
+        scope?.id,
+      );
+      if (picked.length === 0) {
+        showToast("El AutoDJ no encontró canciones para esta lista");
+        return;
+      }
+      await mutateById(listId, (ids) => [...ids, ...picked]);
+      showToast(`${picked.length} canciones añadidas a «${pl.name}»`);
+    } catch (e) {
+      showToast(`No se pudo generar la lista: ${String(e)}`);
+    }
+  }, [mutateById, showToast]);
+
   const addTrack = useCallback(
     (t: Track) => {
-      void mutateList((ids) => [...ids, t.id]);
+      void mutateView((ids) => [...ids, t.id]);
     },
-    [mutateList],
+    [mutateView],
   );
 
   const dropTrackAt = useCallback(
     (trackId: string, at: number) => {
-      void mutateList((ids) => {
+      void mutateView((ids) => {
         if (ids.includes(trackId)) return ids; // sin duplicados
         const copy = [...ids];
         copy.splice(Math.max(0, Math.min(copy.length, at)), 0, trackId);
         return copy;
       });
     },
-    [mutateList],
+    [mutateView],
   );
 
   /** Preescucha de una pista de la lista por la salida de monitorizacion. */
   const previewRow = useCallback(
     (index: number) => {
-      const row = rowsRef.current[index];
+      const row = viewRowsRef.current[index];
       const mixer = mixerRef.current;
       if (!row || !mixer) return;
       const track = tracksRef.current.find((t) => t.id === row.id);
@@ -1037,7 +1177,7 @@ export default function App() {
 
   const editRowCuts = useCallback(
     (index: number) => {
-      const row = rowsRef.current[index];
+      const row = viewRowsRef.current[index];
       if (!row) return;
       setCutsTrackId(row.id);
     },
@@ -1046,7 +1186,7 @@ export default function App() {
 
   const editRowMeta = useCallback(
     (index: number) => {
-      const row = rowsRef.current[index];
+      const row = viewRowsRef.current[index];
       if (!row) return;
       setPendingEdit({ id: row.id, n: Date.now() });
     },
@@ -1073,33 +1213,33 @@ export default function App() {
 
   const removeRow = useCallback(
     (i: number) => {
-      void mutateList((ids) => ids.filter((_, idx) => idx !== i));
+      void mutateView((ids) => ids.filter((_, idx) => idx !== i));
     },
-    [mutateList],
+    [mutateView],
   );
 
   const reorderRow = useCallback(
     (from: number, to: number) => {
-      void mutateList((ids) => {
+      void mutateView((ids) => {
         const copy = [...ids];
         const [moved] = copy.splice(from, 1);
         copy.splice(Math.max(0, Math.min(copy.length, to)), 0, moved);
         return copy;
       });
     },
-    [mutateList],
+    [mutateView],
   );
 
   const renamePlaylist = useCallback(
     (name: string) => {
-      if (!active) return;
+      if (!view) return;
       void (async () => {
-        const updated: Playlist = { ...active, name };
+        const updated: Playlist = { ...view, name };
         setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         await savePlaylist(updated);
       })();
     },
-    [active],
+    [view],
   );
 
   const newPlaylist = useCallback(async () => {
@@ -1111,8 +1251,8 @@ export default function App() {
     try {
       await savePlaylist(pl);
       setPlaylists((prev) => [...prev, pl]);
-      setActiveId(pl.id);
-      setPlayingRow(-1);
+      // Se abre en pantalla; la que suena sigue sonando.
+      setViewId(pl.id);
     } catch (e) {
       showToast(`No se pudo crear la lista: ${String(e)}`);
     }
@@ -1120,6 +1260,14 @@ export default function App() {
 
   const clearActivePlaylist = useCallback(async () => {
     if (!active) return;
+    if (view && view.id !== active.id) {
+      if (view.trackIds.length === 0) return showToast("La lista ya está vacía");
+      if (!window.confirm(`¿Vaciar la lista «${view.name}»? Se quitan todas sus pistas.`)) return;
+      if (nextPickRef.current?.listId === view.id) setNextPick(null);
+      await mutateById(view.id, () => []);
+      showToast(`Lista «${view.name}» vaciada`);
+      return;
+    }
     if (active.trackIds.length === 0) {
       showToast("La lista ya está vacía");
       return;
@@ -1132,10 +1280,23 @@ export default function App() {
     userPausedRef.current = true;
     await mutateList(() => []);
     showToast(`Lista «${active.name}» vaciada`);
-  }, [active, mutateList, showToast]);
+  }, [active, view, mutateList, mutateById, showToast]);
 
   const removeActivePlaylist = useCallback(async () => {
     if (!active || playlists.length <= 1) return;
+    if (view && view.id !== active.id) {
+      if (!window.confirm(`¿Eliminar la lista «${view.name}»?`)) return;
+      try {
+        await deletePlaylist(view.id);
+        if (nextPickRef.current?.listId === view.id) setNextPick(null);
+        setPlaylists((prev) => prev.filter((p) => p.id !== view.id));
+        setViewId(active.id);
+        showToast("Lista eliminada");
+      } catch (e) {
+        showToast(`No se pudo eliminar la lista: ${String(e)}`);
+      }
+      return;
+    }
     try {
       await deletePlaylist(active.id);
       const rest = playlists.filter((p) => p.id !== active.id);
@@ -1146,7 +1307,7 @@ export default function App() {
     } catch (e) {
       showToast(`No se pudo eliminar la lista: ${String(e)}`);
     }
-  }, [active, playlists, showToast]);
+  }, [active, view, playlists, showToast]);
 
   // ---- audio ----
   const playRow = useCallback(
@@ -1872,14 +2033,21 @@ export default function App() {
       posMs: current ? Math.max(0, pos.cur * 1000) : 0,
       lenMs: current ? Math.max(0, pos.total * 1000) : 0,
       current,
-      next: idx >= 0 ? toPub(list[idx + 1]?.id) : null,
+      next: (() => {
+        const pick = nextPickRef.current;
+        if (pick) {
+          const pl = playlistsRef.current.find((p) => p.id === pick.listId);
+          return toPub(rowsOf(pl, tracksRef.current)[pick.index]?.id);
+        }
+        return idx >= 0 ? toPub(list[idx + 1]?.id) : null;
+      })(),
       queue: list.flatMap((r) => toPub(r.id) ?? []),
       currentIndex: idx,
     }).catch(() => undefined);
   }, []);
   useEffect(() => {
     publishApiState();
-  }, [playingRow, paused, rows, tracks, publishApiState]);
+  }, [playingRow, paused, rows, tracks, nextPick, publishApiState]);
   useEffect(() => {
     const t = window.setInterval(publishApiState, 2000);
     return () => window.clearInterval(t);
@@ -1968,7 +2136,13 @@ export default function App() {
   }, []);
 
   const deckRow = rows[playingRow] ?? null;
-  const nextRow = playingRow >= 0 && playingRow + 1 < rows.length ? rows[playingRow + 1] : null;
+  // A continuacion: la elegida a mano (de cualquier lista) o la de debajo.
+  const nextRow =
+    nextPick && pickRows
+      ? pickRows[nextPick.index] ?? null
+      : playingRow >= 0 && playingRow + 1 < rows.length
+        ? rows[playingRow + 1]
+        : null;
 
   return (
     <div className="app">
@@ -2155,17 +2329,35 @@ export default function App() {
           />
           <PlaylistZone
             playlists={playlists}
-            activeId={active?.id ?? ""}
-            rows={rows}
-            playingRow={playingRow}
+            activeId={view?.id ?? ""}
+            airId={active?.id ?? ""}
+            rows={viewRows}
+            playingRow={view && active && view.id === active.id ? playingRow : -1}
+            nextRow={
+              nextPick
+                ? nextPick.listId === view?.id
+                  ? nextPick.index
+                  : -1
+                : view && active && view.id === active.id && playingRow >= 0
+                  ? playingRow + 1
+                  : -1
+            }
+            nextElsewhere={
+              nextPick && nextPick.listId !== view?.id
+                ? `${pickRows?.[nextPick.index]?.title ?? ""} · ${playlists.find((p) => p.id === nextPick.listId)?.name ?? ""}`
+                : ""
+            }
             autoIds={autoIds}
-            estStart={estStart}
-            onSelect={setActiveId}
+            estStart={view && active && view.id === active.id ? estStart : []}
+            onSelect={setViewId}
+            onSetNext={setNextRow}
+            onClearNext={() => setNextPick(null)}
+            onGenerate={() => void generateView()}
             onNew={() => void newPlaylist()}
             onRemovePlaylist={() => void removeActivePlaylist()}
             onClearPlaylist={() => void clearActivePlaylist()}
             onRename={renamePlaylist}
-            onPlayRow={(i) => void playRow(i)}
+            onPlayRow={playViewRow}
             onReorder={reorderRow}
             onRemove={removeRow}
             onDropTrack={dropTrackAt}

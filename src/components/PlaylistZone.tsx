@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { Block, Playlist, PlaylistRow } from "../types";
 import { trackUrl } from "../api";
-import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave } from "../icons";
+import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave, IconNext } from "../icons";
 import { TrackDetailsModal } from "./TrackDetailsModal";
 
 interface PlaylistZoneProps {
   playlists: Playlist[];
+  /** Lista que se ve */
   activeId: string;
+  /** Lista que suena (la activa: la que rellena el AutoDJ) */
+  airId: string;
   rows: PlaylistRow[];
+  /** Fila que sonara a continuacion en esta lista (-1 = ninguna) */
+  nextRow: number;
+  /** La siguiente esta en otra lista: "titulo · lista" */
+  nextElsewhere: string;
   blocks: Block[];
   playingRow: number;
   autoIds: Set<string>;
@@ -25,6 +32,9 @@ interface PlaylistZoneProps {
   onEditMeta: (index: number) => void;
   onEditCuts: (index: number) => void;
   onToggleBlock: (trackId: string, blockId: string) => void;
+  onSetNext: (index: number) => void;
+  onClearNext: () => void;
+  onGenerate: () => void;
 }
 
 /** Canciones ya emitidas que siguen a la vista por encima de la que suena */
@@ -40,7 +50,10 @@ function fmtDur(secs: number): string {
 export function PlaylistZone({
   playlists,
   activeId,
+  airId,
   rows,
+  nextRow,
+  nextElsewhere,
   blocks,
   playingRow,
   autoIds,
@@ -58,7 +71,11 @@ export function PlaylistZone({
   onEditMeta,
   onEditCuts,
   onToggleBlock,
+  onSetNext,
+  onClearNext,
+  onGenerate,
 }: PlaylistZoneProps) {
+  const isAir = activeId === airId;
   const active = playlists.find((p) => p.id === activeId) ?? playlists[0];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(active?.name ?? "");
@@ -125,10 +142,11 @@ export function PlaylistZone({
             <button
               key={p.id}
               type="button"
-              className={`tab ${p.id === active?.id ? "tab-on" : ""}`}
+              className={`tab ${p.id === active?.id ? "tab-on" : ""} ${p.id === airId ? "tab-air" : ""}`}
               onClick={() => onSelect(p.id)}
-              title={p.name}
+              title={p.id === airId ? `${p.name} · lista activa (la que suena)` : p.name}
             >
+              {p.id === airId && <span className="tab-air-dot" aria-label="Activa" />}
               {p.name}
             </button>
           ))}
@@ -138,6 +156,16 @@ export function PlaylistZone({
           </button>
         </div>
         <div className="head-actions">
+          {!isAir && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={onGenerate}
+              title="Rellenar esta lista con el AutoDJ (no toca la que suena)"
+            >
+              Generar lista
+            </button>
+          )}
           {editing ? (
             <input
               className="name-input"
@@ -175,6 +203,8 @@ export function PlaylistZone({
       </div>
 
       <div className="pl-meta">
+        {!isAir && <span className="pl-notair">No está sonando · la lista activa es la marcada con ●</span>}
+        {!isAir && <span className="sep">·</span>}
         <span>{rows.length} pistas</span>
         <span className="sep">·</span>
         <span>total {fmtDur(totalSecs)}</span>
@@ -185,6 +215,15 @@ export function PlaylistZone({
           </>
         )}
       </div>
+
+      {nextElsewhere && (
+        <div className="pl-nextelse">
+          <span>Siguiente: {nextElsewhere}</span>
+          <button type="button" className="ghost-btn" onClick={onClearNext}>
+            Quitar
+          </button>
+        </div>
+      )}
 
       <div className="pl-head">
         <span className="col-hour">HORA</span>
@@ -232,7 +271,7 @@ export function PlaylistZone({
             <div
               key={`${r.id}-${i}`}
               data-row={i}
-              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
+              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
               draggable
               onDragStart={(e) => {
                 setDragIndex(i);
@@ -298,6 +337,7 @@ export function PlaylistZone({
                   <span className="plrow-title">{r.title}</span>
                   {autoIds.has(r.id) && <span className="badge-auto">AUTO</span>}
                   {i === playingRow && <span className="badge-live">AL AIRE</span>}
+                  {i === nextRow && <span className="badge-next">SIGUIENTE</span>}
                 </span>
                 <span className="plrow-sub">{r.artist}</span>
               </button>
@@ -396,6 +436,18 @@ export function PlaylistZone({
             <div className="ctx-title" title={rows[ctx.index].title}>
               {rows[ctx.index].title}
             </div>
+            {ctx.index !== playingRow && (
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={() => {
+                  onSetNext(ctx.index);
+                  setCtx(null);
+                }}
+              >
+                <IconNext size={13} /> Siguiente
+              </button>
+            )}
             <button
               type="button"
               className="ctx-item"
