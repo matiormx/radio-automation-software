@@ -1,6 +1,6 @@
 [package]
 name = "miradio"
-version = "0.5.1"
+version = "0.5.2"
 description = "Estudio de automatizacion de radio: biblioteca por bloques, piloto automatico y crossfade"
 authors = ["MiRadio"]
 edition = "2021"
