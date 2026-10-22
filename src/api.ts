@@ -46,6 +46,23 @@ export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
 }
 
+/** Cambia la caratula (imagen local o URL); vale para todo el album. */
+export function setTrackCover(id: string, source: string): Promise<string> {
+  return invoke<string>("set_track_cover", { id, source });
+}
+
+export function clearTrackCover(id: string): Promise<void> {
+  return invoke("clear_track_cover", { id });
+}
+
+export async function pickCoverImage(): Promise<string | null> {
+  return openDialog({
+    multiple: false,
+    title: "Carátula",
+    filters: [{ name: "Imagen", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
+  });
+}
+
 export function setTracksLibrary(ids: string[], library: "a" | "b"): Promise<number> {
   return invoke<number>("set_track_library", { ids, library });
 }

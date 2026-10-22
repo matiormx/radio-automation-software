@@ -20,6 +20,8 @@ pub struct DeezerTrack {
     pub duration_secs: u64,
     pub preview: String,
     pub cover: String,
+    /// Portada grande (para guardar como caratula)
+    pub cover_big: String,
     pub year: String,
     pub genre: String,
 }
@@ -63,6 +65,10 @@ fn parse_track(v: &Value) -> DeezerTrack {
         duration_secs: v.get("duration").and_then(Value::as_u64).unwrap_or(0),
         preview: s(v, &["preview"]),
         cover: s(v, &["album", "cover_medium"]),
+        cover_big: {
+            let xl = s(v, &["album", "cover_xl"]);
+            if xl.is_empty() { s(v, &["album", "cover_big"]) } else { xl }
+        },
         year: date.get(..4).unwrap_or_default().to_string(),
         genre: String::new(),
     }

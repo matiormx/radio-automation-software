@@ -492,6 +492,7 @@ export interface DeezerTrack {
   durationSecs: number;
   preview: string;
   cover: string;
+  coverBig?: string;
   year: string;
   genre: string;
 }

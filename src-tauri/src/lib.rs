@@ -39,6 +39,8 @@ pub fn run() {
             library::list_tracks,
             library::scan_music_folder,
             library::update_track,
+            library::set_track_cover,
+            library::clear_track_cover,
             library::track_details,
             library::backfill_covers,
             library::relink_track,

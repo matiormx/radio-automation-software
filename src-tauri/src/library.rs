@@ -897,6 +897,107 @@ pub fn update_track(
     write_library(&state.data_dir, &tracks)
 }
 
+/// Extension de imagen por su firma (para portadas descargadas).
+fn sniff_image_ext(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("png")
+    } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if data.starts_with(b"GIF8") {
+        Some("gif")
+    } else if data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        Some("webp")
+    } else if data.starts_with(b"BM") {
+        Some("bmp")
+    } else {
+        None
+    }
+}
+
+fn remove_key_covers(data_dir: &Path, key: &str) {
+    while let Some((path, _)) = find_cover(data_dir, key) {
+        if fs::remove_file(&path).is_err() {
+            break;
+        }
+    }
+}
+
+/// Cambia la portada de una cancion (y de todo su album). `source` es una
+/// imagen local o una direccion http(s) (por ejemplo la portada de Deezer).
+/// Devuelve la ruta absoluta de la nueva portada.
+#[tauri::command]
+pub async fn set_track_cover(
+    state: State<'_, AppState>,
+    id: String,
+    source: String,
+) -> Result<String, String> {
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let src = source.trim().to_string();
+        let data: Vec<u8> = if src.starts_with("http://") || src.starts_with("https://") {
+            let resp = ureq::get(&src)
+                .timeout(std::time::Duration::from_secs(15))
+                .call()
+                .map_err(|e| format!("No se pudo descargar la portada: {e}"))?;
+            let mut buf = Vec::new();
+            use std::io::Read;
+            resp.into_reader()
+                .take(12_000_000)
+                .read_to_end(&mut buf)
+                .map_err(|e| format!("No se pudo descargar la portada: {e}"))?;
+            buf
+        } else {
+            fs::read(&src).map_err(|e| format!("No se pudo leer la imagen: {e}"))?
+        };
+        if data.is_empty() || data.len() > 12_000_000 {
+            return Err("La imagen está vacía o es demasiado grande".to_string());
+        }
+        let ext = sniff_image_ext(&data)
+            .ok_or_else(|| "El archivo no es una imagen compatible (JPG, PNG, WEBP, GIF o BMP)".to_string())?;
+
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&data_dir);
+        let key = tracks
+            .iter()
+            .find(|t| t.id == id)
+            .map(cover_key)
+            .ok_or_else(|| "La cancion ya no existe en la biblioteca".to_string())?;
+        let dir = covers_dir(&data_dir);
+        fs::create_dir_all(&dir).map_err(|e| format!("No se pudo guardar la portada: {e}"))?;
+        remove_key_covers(&data_dir, &key);
+        let name = format!("{key}.{ext}");
+        fs::write(dir.join(&name), &data).map_err(|e| format!("No se pudo guardar la portada: {e}"))?;
+        for t in tracks.iter_mut().filter(|t| cover_key(t) == key) {
+            t.cover = name.clone();
+            t.cover_checked = true;
+        }
+        cleanup_covers(&data_dir, &tracks);
+        write_library(&data_dir, &tracks)?;
+        Ok(cover_abs(&data_dir, &name))
+    })
+    .await
+    .map_err(|e| format!("No se pudo guardar la portada: {e}"))?
+}
+
+/// Quita la portada de una cancion (y de su album).
+#[tauri::command]
+pub fn clear_track_cover(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(&state.data_dir);
+    let key = tracks
+        .iter()
+        .find(|t| t.id == id)
+        .map(cover_key)
+        .ok_or_else(|| "La cancion ya no existe en la biblioteca".to_string())?;
+    remove_key_covers(&state.data_dir, &key);
+    for t in tracks.iter_mut().filter(|t| cover_key(t) == key) {
+        t.cover = String::new();
+        t.cover_checked = true;
+    }
+    cleanup_covers(&state.data_dir, &tracks);
+    write_library(&state.data_dir, &tracks)
+}
+
 fn clean_tags(tags: Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for t in tags {

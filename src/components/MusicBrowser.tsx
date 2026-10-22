@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
+  setTrackCover,
+  clearTrackCover,
+  pickCoverImage,
+  trackUrl,
   relinkTrack,
   setTrackBlocks,
   pickSingleAudioFile,
@@ -62,6 +66,10 @@ interface EditState {
   tagsText: string;
   blocks: string[];
   busy: boolean;
+  /** Caratula actual (ruta) */
+  cover: string;
+  /** Cambio pendiente: imagen local, URL (Deezer) o quitarla */
+  coverChange: { kind: "file" | "url"; source: string } | { kind: "clear" } | null;
 }
 
 interface ImportState {
@@ -453,6 +461,8 @@ export function MusicBrowser({
         tagsText: t.tags.join(", "),
         blocks: [...t.blocks],
         busy: false,
+        cover: t.cover,
+        coverChange: null,
       });
     }
     onPendingEditDone();
@@ -469,6 +479,8 @@ export function MusicBrowser({
       tagsText: t.tags.join(", "),
       blocks: [...t.blocks],
       busy: false,
+      cover: t.cover,
+      coverChange: null,
     });
   };
 
@@ -489,6 +501,10 @@ export function MusicBrowser({
       };
       await updateTrack(edit.id, patch);
       await setTrackBlocks(edit.id, edit.blocks);
+      // La caratula va despues: si cambio el album, se guarda en el nuevo.
+      const cc = edit.coverChange;
+      if (cc?.kind === "clear") await clearTrackCover(edit.id);
+      else if (cc) await setTrackCover(edit.id, cc.source);
       await onTrackSaved();
       setEdit(null);
       showToast("Canción actualizada");
@@ -1154,6 +1170,10 @@ export function MusicBrowser({
                     album: d.album || s.album,
                     year: d.year || s.year,
                     genre: d.genre || s.genre,
+                    coverChange:
+                      d.coverBig || d.cover
+                        ? { kind: "url", source: d.coverBig || d.cover }
+                        : s.coverChange,
                   }
                 : s,
             );
@@ -1189,6 +1209,47 @@ export function MusicBrowser({
                 <IconSearch size={14} />
                 Rellenar desde Deezer
               </button>
+              <div className="edit-cover">
+                <div className="edit-cover-img">
+                  {(() => {
+                    const cc = edit.coverChange;
+                    const src =
+                      cc?.kind === "clear"
+                        ? ""
+                        : cc?.kind === "url"
+                          ? cc.source
+                          : cc?.kind === "file"
+                            ? trackUrl({ file: cc.source })
+                            : edit.cover
+                              ? trackUrl({ file: edit.cover })
+                              : "";
+                    return src ? <img src={src} alt="Carátula" /> : <span className="hint">Sin carátula</span>;
+                  })()}
+                </div>
+                <div className="edit-cover-actions">
+                  <span className="field-label">Carátula</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      const path = await pickCoverImage();
+                      if (path) setEdit((s) => (s ? { ...s, coverChange: { kind: "file", source: path } } : s));
+                    }}
+                  >
+                    Cambiar…
+                  </button>
+                  {(edit.cover || (edit.coverChange && edit.coverChange.kind !== "clear")) && (
+                    <button
+                      type="button"
+                      className="ghost-btn ghost-danger"
+                      onClick={() => setEdit((s) => (s ? { ...s, coverChange: { kind: "clear" } } : s))}
+                    >
+                      Quitar
+                    </button>
+                  )}
+                  <span className="hint">Se aplica a todo el álbum.</span>
+                </div>
+              </div>
               <label className="field">
                 <span className="field-label">Título</span>
                 <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
