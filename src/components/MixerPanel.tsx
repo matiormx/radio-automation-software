@@ -11,7 +11,7 @@ import { levelerOf } from "../leveler";
 import { IconPlus, IconTrash } from "../icons";
 import type { SoundMixer } from "../mixer";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "../mixer";
-import { nativeDevices } from "../nativeEngine";
+import { nativeDevices, nativeInputs } from "../nativeEngine";
 
 interface MixerPanelProps {
   settings: Settings;
@@ -295,6 +295,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
   const isNative = settings.audioEngine === "native";
   // Con el motor nativo, las salidas son las tarjetas de Windows (por nombre).
   const [nativeOuts, setNativeOuts] = useState<Device[] | null>(null);
+  // Y las entradas, para el retorno de los inserts.
+  const [nativeIns, setNativeIns] = useState<Device[] | null>(null);
   useEffect(() => {
     if (!isNative) {
       setNativeOuts(null);
@@ -306,6 +308,21 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
         if (alive) setNativeOuts(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
       })
       .catch(() => alive && setNativeOuts([]));
+    return () => {
+      alive = false;
+    };
+  }, [isNative]);
+  useEffect(() => {
+    if (!isNative) {
+      setNativeIns(null);
+      return;
+    }
+    let alive = true;
+    void nativeInputs()
+      .then((names) => {
+        if (alive) setNativeIns(names.map((n) => ({ id: n, label: n, kind: "audioinput" as const })));
+      })
+      .catch(() => alive && setNativeIns([]));
     return () => {
       alive = false;
     };
@@ -376,6 +393,18 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
     (d) => d.kind === "audiooutput" && d.id !== "default",
   );
   const outputs = nativeOuts ?? webOutputs;
+  // En nativo los IDs son nombres de tarjeta, no los del WebView.
+  const insertInputs = isNative ? nativeIns ?? [] : inputs;
+  const insertOutputs = isNative ? nativeOuts ?? [] : webOutputs;
+  // Inserts que procesa el motor nativo: canales de musica y sus buses.
+  const isMusicChannel = (ch: MixerChannel) =>
+    ch.input.kind === "app" && (ch.input.app || "music") === "music";
+  const nativeBusIds = new Set<string>();
+  for (const ch of channels) {
+    if (!isMusicChannel(ch)) continue;
+    if (ch.output.kind === "bus") nativeBusIds.add(ch.output.id);
+    for (const send of ch.sends ?? []) nativeBusIds.add(send.busId);
+  }
   const canChooseOutputs =
     typeof HTMLMediaElement !== "undefined" &&
     "setSinkId" in HTMLMediaElement.prototype;
@@ -742,8 +771,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                     <InsertControls
                       owner={ch}
                       label={ch.name}
-                      inputs={inputs}
-                      outputs={webOutputs}
+                      inputs={isNative && isMusicChannel(ch) ? insertInputs : inputs}
+                      outputs={isNative && isMusicChannel(ch) ? insertOutputs : webOutputs}
                       onChange={(insert) => patchChannel(ch.id, { insert })}
                     />
 
@@ -866,8 +895,8 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                       <InsertControls
                         owner={bus}
                         label={bus.name}
-                        inputs={inputs}
-                        outputs={webOutputs}
+                        inputs={isNative && nativeBusIds.has(bus.id) ? insertInputs : inputs}
+                        outputs={isNative && nativeBusIds.has(bus.id) ? insertOutputs : webOutputs}
                         onChange={(insert) => patchBus(bus.id, { insert })}
                       />
 

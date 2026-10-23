@@ -158,8 +158,8 @@ impl Engine {
                     let mut g = lock(&self.shared);
                     let vol = g.core.volume();
                     let plan = Plan::build(&config, vol, Some(&g.core.plan));
-                    let devices: Vec<String> = plan.outs.iter().map(|o| o.device.clone()).collect();
-                    self.io.set_devices(devices);
+                    let (sends, returns) = plan.insert_devices();
+                    self.io.set_route(plan.output_devices(), sends, returns);
                     g.core.swap_plan(plan)
                 };
                 drop(old);
@@ -375,6 +375,11 @@ pub fn engine_devices() -> Vec<String> {
     io::list_outputs()
 }
 
+#[tauri::command]
+pub fn engine_inputs() -> Vec<String> {
+    io::list_inputs()
+}
+
 #[cfg(test)]
 mod contract_tests {
     use super::*;
@@ -398,8 +403,11 @@ mod contract_tests {
         let Op::SetPlaylist { tracks } = op(r#"{"op":"setPlaylist","tracks":[{"id":"a","title":"T","artist":"x","file":"C:\\m\\a.flac","trimStart":1.5,"trimEnd":null,"trimManual":false,"gainDb":null,"mixPoint":0,"fadeOutStart":0,"durationSecs":200,"blocks":["b"],"tags":[],"cover":"","lufs":null,"missing":false}]}"#) else { panic!() };
         assert_eq!(tracks[0].trim_start, 1.5);
         assert_eq!(tracks[0].file, "C:\\m\\a.flac");
-        let Op::Mixer { config } = op(r##"{"op":"mixer","config":{"mixerChannels":[{"id":"c","name":"Música","color":"#fff","input":{"kind":"app","app":"music","deviceId":""},"output":{"kind":"device","id":"streaming"},"gainDb":-3,"muted":false,"leveler":{"enabled":false,"targetLufs":-16,"maxGainDb":9}}],"mixerBuses":[],"monitorBusId":""}}"##) else { panic!() };
+        let Op::Mixer { config } = op(r##"{"op":"mixer","config":{"mixerChannels":[{"id":"c","name":"Música","color":"#fff","input":{"kind":"app","app":"music","deviceId":""},"output":{"kind":"device","id":"streaming"},"gainDb":-3,"muted":false,"leveler":{"enabled":false,"targetLufs":-16,"maxGainDb":9},"insert":{"enabled":true,"sendDeviceId":"procIn","returnDeviceId":"procOut"}}],"mixerBuses":[{"id":"b","outputDeviceId":"default","gainDb":0,"muted":false,"insert":{"enabled":false,"sendDeviceId":"","returnDeviceId":""}}],"monitorBusId":""}}"##) else { panic!() };
         assert_eq!(config.mixer_channels[0].output.id, "streaming");
+        assert_eq!(config.mixer_channels[0].insert.send_device_id, "procIn");
+        assert_eq!(config.mixer_channels[0].insert.return_device_id, "procOut");
+        assert!(!config.mixer_buses[0].insert.enabled);
     }
 
     #[test]

@@ -43,10 +43,12 @@ import {
 } from "./api";
 import type {
   HistoryEntry,
+  InsertSettings,
   SessionState,
   Track,
   Playlist,
   PlaylistRow,
+  MixerChannel,
   Settings,
   Block,
   Campaign,
@@ -243,13 +245,42 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   });
 }
 
-/** Con el motor nativo, la mesa web no toca los canales de musica. */
+const NO_INSERT: InsertSettings = { enabled: false, sendDeviceId: "", returnDeviceId: "" };
+
+function isMusicChannel(ch: MixerChannel): boolean {
+  return ch.input.kind === "app" && (ch.input.app || "music") === "music";
+}
+
+/** Buses que reciben audio del motor nativo (canales de musica o sus envios). */
+function nativeBuses(s: Settings): Set<string> {
+  const ids = new Set<string>();
+  for (const ch of s.mixerChannels) {
+    if (!isMusicChannel(ch)) continue;
+    if (ch.output.kind === "bus") ids.add(ch.output.id);
+    for (const send of ch.sends ?? []) ids.add(send.busId);
+  }
+  return ids;
+}
+
+/**
+ * Con el motor nativo, la mesa web no toca los canales de musica. Los inserts
+ * se reparten: los del motor nativo (musica y sus buses) no se repiten en web.
+ */
 function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
+  const native = nativeBuses(s);
   return {
-    mixerChannels: s.mixerChannels.filter(
-      (ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"),
-    ),
-    mixerBuses: s.mixerBuses,
+    mixerChannels: s.mixerChannels.filter((ch) => !isMusicChannel(ch)),
+    mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? { ...bus, insert: NO_INSERT } : bus)),
+    monitorBusId: s.monitorBusId,
+  };
+}
+
+/** Al motor nativo solo le llegan los inserts que le pertenecen. */
+function nativeMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
+  const native = nativeBuses(s);
+  return {
+    mixerChannels: s.mixerChannels.map((ch) => (isMusicChannel(ch) ? ch : { ...ch, insert: NO_INSERT })),
+    mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? bus : { ...bus, insert: NO_INSERT })),
     monitorBusId: s.monitorBusId,
   };
 }
@@ -420,7 +451,7 @@ export default function App() {
     if (useNative) {
       mixer.apply(webMixerSlice(settingsRef.current));
       const nat = player as NativePlayer;
-      nat.applyMixer(settingsRef.current);
+      nat.applyMixer(nativeMixerSlice(settingsRef.current));
       nat.setVolume(settingsRef.current.masterVolume);
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
@@ -816,7 +847,7 @@ export default function App() {
     const p = playerRef.current;
     if (p instanceof NativePlayer) {
       mixerRef.current?.apply(webMixerSlice(settings));
-      p.applyMixer(settings);
+      p.applyMixer(nativeMixerSlice(settings));
     } else {
       mixerRef.current?.apply(settings);
     }

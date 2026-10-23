@@ -41,6 +41,11 @@ export function nativeDevices(): Promise<string[]> {
   return invoke<string[]>("engine_devices");
 }
 
+/** Entradas (retorno de inserts) disponibles en el motor nativo. */
+export function nativeInputs(): Promise<string[]> {
+  return invoke<string[]>("engine_inputs");
+}
+
 export class NativePlayer {
   onTick: ((current: number, total: number) => void) | null = null;
   onIndexChange: ((index: number) => void) | null = null;

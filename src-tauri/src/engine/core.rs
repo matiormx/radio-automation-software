@@ -1,7 +1,7 @@
 //! Nucleo del motor: reloj, voces de musica y mesa. Lo protege un candado;
 //! el hilo de audio llama a `render` y el de control maneja el reproductor.
 
-use super::graph::{MixConfig, Plan, MAX_BLOCK};
+use super::graph::{InsertFeed, MixConfig, Plan, MAX_BLOCK};
 use super::player::PlayCore;
 
 pub struct Core {
@@ -70,9 +70,17 @@ impl Core {
     }
 
     /// Mezcla `frames` y entrega cada tramo (<= MAX_BLOCK) a `sink` con la
-    /// mesa ya calculada. `inputs` da el audio de las entradas fisicas para
-    /// el tramo pedido (offset en frames, frames).
-    pub fn render<F>(&mut self, frames: usize, mut sink: F)
+    /// mesa ya calculada (sin retornos de insert).
+    pub fn render<F>(&mut self, frames: usize, sink: F)
+    where
+        F: FnMut(&Plan, usize, usize),
+    {
+        self.render_inserts(frames, &[], sink);
+    }
+
+    /// Render con el audio de retorno de los inserts. Cada `insert_returns[i]`
+    /// corresponde a `plan.inserts[i]` y debe traer `frames` frames.
+    pub fn render_inserts<F>(&mut self, frames: usize, insert_returns: &[InsertFeed], mut sink: F)
     where
         F: FnMut(&Plan, usize, usize),
     {
@@ -87,7 +95,14 @@ impl Core {
             }
             let rate = self.play.rate;
             self.play.music_ms = ema(self.play.music_ms, mean_square(&self.music[..s]), n, rate);
-            self.plan.render(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[]);
+            let feeds: Vec<InsertFeed> = insert_returns
+                .iter()
+                .map(|f| InsertFeed {
+                    data: if f.data.len() >= done * 2 + s { &f.data[done * 2..done * 2 + s] } else { &[] },
+                    active: f.active,
+                })
+                .collect();
+            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[], &feeds);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));

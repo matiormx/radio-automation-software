@@ -13,11 +13,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample};
+use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use super::core::Core;
-use super::graph::{DEFAULT_DEVICE, STREAM_DEVICE};
+use super::graph::{InsertFeed, DEFAULT_DEVICE, STREAM_DEVICE};
 use super::resamp::{Drift, Stretch};
 
 /// Frecuencia interna del motor (y del streaming).
@@ -30,17 +30,112 @@ pub struct SecSink {
     prod: Producer<f32>,
 }
 
+/// Retorno de un insert: anillo de entrada, remuestreo a la frecuencia del
+/// motor y colchon para absorber la deriva entre relojes.
+pub struct InsertReturn {
+    pub device: String,
+    cons: Consumer<f32>,
+    stretch: Stretch,
+    drift: Drift,
+    buf: Vec<f32>,
+    dev_rate: u32,
+    primed: bool,
+    active: bool,
+}
+
+impl InsertReturn {
+    fn new(device: String, cons: Consumer<f32>, dev_rate: u32) -> Self {
+        Self {
+            device,
+            cons,
+            stretch: Stretch::new(),
+            drift: Drift::default(),
+            buf: vec![0.0; 4096 * 2],
+            dev_rate,
+            primed: false,
+            active: false,
+        }
+    }
+
+    /// Genera `n` frames a la frecuencia del motor. Si aun no hay colchon o
+    /// el anillo se queda sin datos, el insert queda inactivo y el grafo usa
+    /// el seco (no enmudece el canal).
+    fn produce(&mut self, n: usize) {
+        let base = self.dev_rate.max(1) as f64 / ENGINE_RATE as f64;
+        let target = (n as f64 * base * 3.0).max(self.dev_rate.max(1) as f64 * 0.03);
+        let mut fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
+        if fill > target * 4.0 {
+            let drop = ((fill - target) as usize) * 2;
+            for _ in 0..drop.min(self.cons.slots()) {
+                let _ = self.cons.pop();
+            }
+            fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
+        }
+        if !self.primed {
+            if fill < target {
+                self.active = false;
+                return;
+            }
+            self.primed = true;
+        }
+        let ratio = self.drift.ratio(base, fill, target);
+        let need = n * 2;
+        if self.buf.len() < need {
+            self.buf.resize(need, 0.0);
+        }
+        let InsertReturn { cons, stretch, buf, .. } = self;
+        let mut starved = false;
+        stretch.process(
+            n,
+            ratio,
+            |b, want| {
+                for _ in 0..want {
+                    match (cons.pop(), cons.pop()) {
+                        (Ok(l), Ok(r)) => {
+                            b.push(l);
+                            b.push(r);
+                        }
+                        _ => {
+                            starved = true;
+                            b.push(0.0);
+                            b.push(0.0);
+                        }
+                    }
+                }
+            },
+            |k, l, r| {
+                buf[k * 2] = l;
+                buf[k * 2 + 1] = r;
+            },
+        );
+        self.active = !starved;
+        if starved {
+            self.primed = false;
+        }
+    }
+}
+
 /// Lo que protege el candado del motor.
 pub struct Shared {
     pub core: Core,
     sinks: Vec<SecSink>,
     stream_tap: Option<Producer<f32>>,
+    /// Salidas de envio de los inserts
+    insert_sinks: Vec<SecSink>,
+    /// Entradas de retorno de los inserts
+    returns: Vec<InsertReturn>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
 
 pub fn new_shared() -> SharedRef {
-    Arc::new(Mutex::new(Shared { core: Core::new(ENGINE_RATE), sinks: Vec::new(), stream_tap: None }))
+    Arc::new(Mutex::new(Shared {
+        core: Core::new(ENGINE_RATE),
+        sinks: Vec::new(),
+        stream_tap: None,
+        insert_sinks: Vec::new(),
+        returns: Vec::new(),
+    }))
 }
 
 /// Candado que sobrevive a un panico en otro hilo (la radio no se para).
@@ -81,6 +176,30 @@ fn find_output(id: &str) -> Option<cpal::Device> {
     host.output_devices().ok()?.find(|d| d.name().map(|n| n == id).unwrap_or(false))
 }
 
+/// Nombres de las entradas disponibles (para el retorno de los inserts).
+pub fn list_inputs() -> Vec<String> {
+    let host = cpal::default_host();
+    let mut names = Vec::new();
+    if let Ok(devs) = host.input_devices() {
+        for d in devs {
+            if let Ok(n) = d.name() {
+                if !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+        }
+    }
+    names
+}
+
+fn find_input(id: &str) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    if id == DEFAULT_DEVICE {
+        return host.default_input_device();
+    }
+    host.input_devices().ok()?.find(|d| d.name().map(|n| n == id).unwrap_or(false))
+}
+
 /// Abre una salida; `fill(buf, channels)` rellena f32 entrelazado.
 fn open_output<F>(device: &cpal::Device, fill: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
 where
@@ -97,6 +216,8 @@ where
         SampleFormat::I16 => build::<i16, F>(device, &config, fill, failed),
         SampleFormat::I32 => build::<i32, F>(device, &config, fill, failed),
         SampleFormat::U16 => build::<u16, F>(device, &config, fill, failed),
+        SampleFormat::I24 => build::<cpal::I24, F>(device, &config, fill, failed),
+        SampleFormat::F64 => build::<f64, F>(device, &config, fill, failed),
         other => return Err(format!("Formato de tarjeta no soportado: {other}")),
     }?;
     stream.play().map_err(|e| format!("No se pudo arrancar la tarjeta: {e}"))?;
@@ -130,6 +251,64 @@ where
         .map_err(|e| format!("No se pudo abrir la tarjeta: {e}"))
 }
 
+/// Abre una entrada; `push` recibe estereo entrelazado a la frecuencia de la
+/// tarjeta.
+fn open_input<F>(device: &cpal::Device, push: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
+where
+    F: FnMut(&[f32]) + Send + 'static,
+{
+    let supported = device
+        .default_input_config()
+        .map_err(|e| format!("La entrada no da su formato: {e}"))?;
+    let rate = supported.sample_rate().0;
+    let format = supported.sample_format();
+    let config: cpal::StreamConfig = supported.into();
+    let stream = match format {
+        SampleFormat::F32 => build_input::<f32, F>(device, &config, push, failed),
+        SampleFormat::I16 => build_input::<i16, F>(device, &config, push, failed),
+        SampleFormat::I32 => build_input::<i32, F>(device, &config, push, failed),
+        SampleFormat::U16 => build_input::<u16, F>(device, &config, push, failed),
+        SampleFormat::I24 => build_input::<cpal::I24, F>(device, &config, push, failed),
+        SampleFormat::F64 => build_input::<f64, F>(device, &config, push, failed),
+        other => return Err(format!("Formato de entrada no soportado: {other}")),
+    }?;
+    stream.play().map_err(|e| format!("No se pudo arrancar la entrada: {e}"))?;
+    Ok((stream, rate))
+}
+
+fn build_input<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, mut push: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
+where
+    T: SizedSample,
+    f32: FromSample<T>,
+    F: FnMut(&[f32]) + Send + 'static,
+{
+    let channels = config.channels.max(1) as usize;
+    let mut scratch: Vec<f32> = Vec::with_capacity(16384);
+    device
+        .build_input_stream::<T, _, _>(
+            config,
+            move |data: &[T], _| {
+                let frames = data.len() / channels;
+                scratch.clear();
+                scratch.reserve(frames * 2);
+                for f in data.chunks_exact(channels) {
+                    let l = f32::from_sample(f[0]);
+                    if channels == 1 {
+                        scratch.push(l);
+                        scratch.push(l);
+                    } else {
+                        scratch.push(l);
+                        scratch.push(f32::from_sample(f[1]));
+                    }
+                }
+                push(&scratch);
+            },
+            move |_err| failed.store(true, Ordering::SeqCst),
+            None,
+        )
+        .map_err(|e| format!("No se pudo abrir la entrada: {e}"))
+}
+
 #[inline]
 fn put(out: &mut [f32], channels: usize, k: usize, l: f32, r: f32) {
     let base = k * channels;
@@ -148,12 +327,32 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let mut g = lock(&shared);
-        let Shared { core, sinks, stream_tap } = &mut *g;
+        let Shared { core, sinks, stream_tap, insert_sinks, returns } = &mut *g;
         stretch.process(
             frames,
             ratio,
             |buf, n| {
-                core.render(n, |plan, _off, m| {
+                // Retornos de los inserts: cada uno se remuestrea al motor.
+                for r in returns.iter_mut() {
+                    r.produce(n);
+                }
+                let feeds: Vec<InsertFeed> = core
+                    .plan
+                    .inserts
+                    .iter()
+                    .map(|ins| {
+                        // Sin salida de envio no se usa el retorno: el canal
+                        // sigue seco en vez de quedarse mudo.
+                        if !insert_sinks.iter().any(|s| s.device == ins.send_device) {
+                            return InsertFeed { data: &[], active: false };
+                        }
+                        match returns.iter().find(|r| r.device == ins.return_device && r.active) {
+                            Some(r) => InsertFeed { data: &r.buf[..n * 2], active: true },
+                            None => InsertFeed { data: &[], active: false },
+                        }
+                    })
+                    .collect();
+                core.render_inserts(n, &feeds, |plan, _off, m| {
                     let s = m * 2;
                     match plan.out_index(DEFAULT_DEVICE) {
                         Some(d) => buf.extend_from_slice(&plan.outs[d].buf[..s]),
@@ -162,6 +361,12 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                     for sink in sinks.iter_mut() {
                         if let Some(i) = plan.out_index(&sink.device) {
                             push_all(&mut sink.prod, &plan.outs[i].buf[..s]);
+                        }
+                    }
+                    for (i, ins) in plan.inserts.iter().enumerate() {
+                        let Some(blk) = plan.insert_sends.get(i) else { continue };
+                        if let Some(sink) = insert_sinks.iter_mut().find(|s| s.device == ins.send_device) {
+                            push_all(&mut sink.prod, &blk.buf[..s]);
                         }
                     }
                     if let Some(tap) = stream_tap.as_mut() {
@@ -227,7 +432,11 @@ fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32) -> impl FnMut(&mut [f3
 }
 
 enum IoCmd {
-    Devices(Vec<String>),
+    Route {
+        outputs: Vec<String>,
+        sends: Vec<String>,
+        returns: Vec<String>,
+    },
     Shutdown,
 }
 
@@ -283,9 +492,9 @@ impl Io {
         Io { tx, thread, feeder, feeder_stop, errors }
     }
 
-    /// Tarjetas que necesita la mesa (sin contar la predeterminada).
-    pub fn set_devices(&self, devices: Vec<String>) {
-        let _ = self.tx.send(IoCmd::Devices(devices));
+    /// Tarjetas que necesita la mesa: salidas, envios y retornos de inserts.
+    pub fn set_route(&self, outputs: Vec<String>, sends: Vec<String>, returns: Vec<String>) {
+        let _ = self.tx.send(IoCmd::Route { outputs, sends, returns });
     }
 
     pub fn take_errors(&self) -> Vec<String> {
@@ -313,6 +522,12 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
     let mut wanted: Vec<String> = Vec::new();
     let mut secs: HashMap<String, Opened> = HashMap::new();
     let mut retry_at: HashMap<String, Instant> = HashMap::new();
+    let mut wanted_sends: Vec<String> = Vec::new();
+    let mut send_secs: HashMap<String, Opened> = HashMap::new();
+    let mut send_retry: HashMap<String, Instant> = HashMap::new();
+    let mut wanted_returns: Vec<String> = Vec::new();
+    let mut ret_secs: HashMap<String, Opened> = HashMap::new();
+    let mut ret_retry: HashMap<String, Instant> = HashMap::new();
     let mut master_warned = false;
 
     loop {
@@ -386,19 +601,120 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             }
         }
 
+        // Salidas de envio de los inserts
+        send_secs.retain(|id, o| {
+            let keep = wanted_sends.contains(id) && !o.failed.load(Ordering::SeqCst);
+            if !keep && o.failed.load(Ordering::SeqCst) {
+                send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(3));
+            }
+            keep
+        });
+        {
+            let mut g = lock(&shared);
+            g.insert_sinks.retain(|s| send_secs.contains_key(&s.device));
+        }
+        for id in wanted_sends.iter() {
+            if send_secs.contains_key(id) || send_retry.get(id).map(|t| Instant::now() < *t).unwrap_or(false) {
+                continue;
+            }
+            let Some(dev) = find_output(id) else {
+                if !send_retry.contains_key(id) {
+                    report(format!("Envío de insert «{id}» no disponible"));
+                }
+                send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                continue;
+            };
+            let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
+            let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
+            let failed = Arc::new(AtomicBool::new(false));
+            match open_output(&dev, secondary_fill(cons, rate), failed.clone()) {
+                Ok((stream, _)) => {
+                    lock(&shared).insert_sinks.push(SecSink { device: id.clone(), prod });
+                    send_secs.insert(id.clone(), Opened { _stream: stream, failed });
+                    send_retry.remove(id);
+                }
+                Err(e) => {
+                    report(format!("Envío de insert «{id}»: {e}"));
+                    send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                }
+            }
+        }
+
+        // Entradas de retorno de los inserts
+        ret_secs.retain(|id, o| {
+            let keep = wanted_returns.contains(id) && !o.failed.load(Ordering::SeqCst);
+            if !keep && o.failed.load(Ordering::SeqCst) {
+                ret_retry.insert(id.clone(), Instant::now() + Duration::from_secs(3));
+            }
+            keep
+        });
+        {
+            let mut g = lock(&shared);
+            g.returns.retain(|r| ret_secs.contains_key(&r.device));
+        }
+        for id in wanted_returns.iter() {
+            if ret_secs.contains_key(id) || ret_retry.get(id).map(|t| Instant::now() < *t).unwrap_or(false) {
+                continue;
+            }
+            let Some(dev) = find_input(id) else {
+                if !ret_retry.contains_key(id) {
+                    report(format!("Retorno de insert «{id}» no disponible"));
+                }
+                ret_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                continue;
+            };
+            // 1 s a la frecuencia de la entrada (puede ser 96/192 kHz).
+            let rate_hint = dev.default_input_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
+            let (prod, cons) = RingBuffer::<f32>::new((rate_hint as usize).saturating_mul(2).max(8192));
+            let failed = Arc::new(AtomicBool::new(false));
+            match open_input(
+                &dev,
+                move |stereo: &[f32]| {
+                    for &v in stereo {
+                        let _ = prod.push(v);
+                    }
+                },
+                failed.clone(),
+            ) {
+                Ok((stream, rate)) => {
+                    lock(&shared).returns.push(InsertReturn::new(id.clone(), cons, rate));
+                    ret_secs.insert(id.clone(), Opened { _stream: stream, failed });
+                    ret_retry.remove(id);
+                }
+                Err(e) => {
+                    report(format!("Retorno de insert «{id}»: {e}"));
+                    ret_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                }
+            }
+        }
+
         match rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(IoCmd::Devices(list)) => {
-                wanted = list
+            Ok(IoCmd::Route { outputs, sends, returns }) => {
+                wanted = outputs
                     .into_iter()
                     .filter(|d| d != DEFAULT_DEVICE && d != STREAM_DEVICE)
                     .collect();
+                wanted_sends = sends
+                    .into_iter()
+                    .filter(|d| d != DEFAULT_DEVICE && d != STREAM_DEVICE)
+                    .collect();
+                wanted_returns = returns;
                 retry_at.retain(|id, _| wanted.contains(id));
+                send_retry.retain(|id, _| wanted_sends.contains(id));
+                ret_retry.retain(|id, _| wanted_returns.contains(id));
             }
             Ok(IoCmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
         }
     }
-    lock(&shared).sinks.clear();
+    {
+        let mut g = lock(&shared);
+        g.sinks.clear();
+        g.insert_sinks.clear();
+        g.returns.clear();
+    }
     drop(secs);
+    drop(send_secs);
+    drop(ret_secs);
     drop(master);
 }
