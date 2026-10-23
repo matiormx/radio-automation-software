@@ -3241,8 +3241,7 @@ body {
   align-items: stretch;
   gap: 3px;
   padding: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto;
 }
 .mx-empty { margin: auto; color: var(--text-faint); font-size: 13px; }
 .mx-sep { flex: 0 0 6px; }
@@ -3261,6 +3260,7 @@ body {
 }
 .mx-bus { background: linear-gradient(180deg, #1a1e2a, #141822); }
 .mx-master { flex-basis: 104px; width: 104px; background: linear-gradient(180deg, #1f1d26, #17151d); }
+.mx-monitor { flex-basis: 104px; width: 104px; background: linear-gradient(180deg, #1b2020, #141818); }
 .mx-section { display: flex; flex-direction: column; gap: 2px; }
 .mx-grow-top { flex: 0 0 auto; }
 .mx-label { font-size: 9px; font-weight: 700; letter-spacing: 0.8px; color: var(--text-faint); padding: 0 2px; }
@@ -3282,6 +3282,15 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+.mx-slot-select {
+  appearance: auto;
+  padding-right: 2px;
+  cursor: pointer;
+}
+.mx-slot-input {
+  cursor: text;
+  text-overflow: clip;
 }
 .mx-slot:disabled { opacity: 0.35; cursor: default; }
 .mx-slot:hover:not(:disabled) { border-color: #3a4352; color: var(--text); }
@@ -3308,6 +3317,23 @@ body {
 .mx-pop { max-height: calc(100vh - 16px); overflow-y: auto; }
 .mx-pop-title { font-size: 11px; font-weight: 600; color: var(--text-dim); }
 .mx-pan { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.mx-disabled { opacity: 0.45; }
+.mx-disabled .mx-knob { cursor: default; }
+.mx-bus-name-row { display: flex; align-items: center; gap: 3px; }
+.mx-bus-name-row .mx-slot-input { flex: 1; min-width: 0; }
+.mx-bus-x {
+  flex: 0 0 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #2a313d;
+  border-radius: 3px;
+  background: #0f1217;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mx-bus-x:hover { border-color: #6b3a3a; color: #f0a0a0; }
 .mx-knob { cursor: ns-resize; border-radius: 50%; outline-offset: 2px; touch-action: none; }
 .mx-knob-body { fill: #0f1217; stroke: #3a4352; stroke-width: 1.5; }
 .mx-knob-line { stroke: #7fb0ff; stroke-width: 2.5; stroke-linecap: round; }

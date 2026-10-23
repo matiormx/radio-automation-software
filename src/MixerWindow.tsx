@@ -11,7 +11,7 @@ import {
 import { listAudioDevices, visibleDevices, type Device } from "./audioDevices";
 import { callMain, onMainState } from "./bridge";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
-import type { MixerBus, MixerChannel, MixerSend, Settings } from "./types";
+import type { MixerAgc, MixerBus, MixerChannel, MixerSend, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
 
 /**
@@ -424,6 +424,8 @@ export function MixerWindow() {
           color: nextColor(channels.length),
           input: { kind: "app", app: "music", deviceId: "" },
           output: buses[0] ? { kind: "bus", id: buses[0].id } : { kind: "device", id: "default" },
+          inputGainDb: 0,
+          agc: "off",
           gainDb: 0,
           muted: false,
         },
@@ -441,6 +443,7 @@ export function MixerWindow() {
           outputDeviceId: "default",
           gainDb: 0,
           muted: false,
+          sends: [],
         },
       ],
     });
@@ -448,7 +451,9 @@ export function MixerWindow() {
   const removeBus = (id: string) =>
     commit({
       ...s,
-      mixerBuses: buses.filter((b) => b.id !== id),
+      mixerBuses: buses
+        .filter((b) => b.id !== id)
+        .map((b) => ({ ...b, sends: (b.sends ?? []).filter((x) => x.busId !== id) })),
       mixerChannels: channels.map((c) => ({
         ...c,
         output: c.output.kind === "bus" && c.output.id === id ? { kind: "device", id: "default" } : c.output,
@@ -509,6 +514,7 @@ export function MixerWindow() {
           <BusStrip
             key={bus.id}
             bus={bus}
+            buses={buses}
             outputs={outputs}
             inputs={inputs}
             meters={meters}
@@ -519,8 +525,25 @@ export function MixerWindow() {
         ))}
         <div className="mx-sep" />
         <section className="mx-strip mx-master" aria-label="Master">
-          <div className="mx-section mx-grow-top">
-            <span className="mx-label">MASTER</span>
+          <div className="mx-section">
+            <span className="mx-label">MASTER · SALIDA</span>
+            <select
+              className="mx-slot mx-slot-select"
+              value={s.masterOutputDeviceId || "default"}
+              onChange={(e) => commit({ ...s, masterOutputDeviceId: e.target.value })}
+            >
+              <option value="default">Salida predeterminada</option>
+              {outputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+              {s.masterOutputDeviceId &&
+                s.masterOutputDeviceId !== "default" &&
+                !outputs.some((d) => d.id === s.masterOutputDeviceId) && (
+                  <option value={s.masterOutputDeviceId}>Salida no habilitada</option>
+                )}
+            </select>
             <span className="mx-hint">Volumen general de las salidas (no afecta al streaming)</span>
           </div>
           <div className="mx-fader-row">
@@ -534,6 +557,32 @@ export function MixerWindow() {
           </div>
           <div className="mx-db">{fmtDb(Math.min(0, masterDb))}</div>
           <div className="mx-name mx-name-master">Master</div>
+        </section>
+        <section className="mx-strip mx-monitor" aria-label="Monitor">
+          <div className="mx-section">
+            <span className="mx-label">MONITOR</span>
+            <span className="mx-hint">Salida de monitorización y preescucha</span>
+          </div>
+          <div className="mx-section">
+            <span className="mx-label">SALIDA</span>
+            <select
+              className="mx-slot mx-slot-select"
+              value={s.monitorOutputDeviceId || "default"}
+              onChange={(e) => commit({ ...s, monitorOutputDeviceId: e.target.value })}
+            >
+              <option value="default">Salida predeterminada</option>
+              {outputs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+              {s.monitorOutputDeviceId &&
+                s.monitorOutputDeviceId !== "default" &&
+                !outputs.some((d) => d.id === s.monitorOutputDeviceId) && (
+                  <option value={s.monitorOutputDeviceId}>Salida no habilitada</option>
+                )}
+            </select>
+          </div>
         </section>
       </div>
     </div>
@@ -595,6 +644,182 @@ function NameField({ name, onRename, onRemove }: { name: string; onRename: (n: s
   );
 }
 
+const INPUT_MIN_DB = -12;
+const INPUT_MAX_DB = 24;
+
+function GainKnob({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: number;
+  disabled: boolean;
+  onChange: (v: number) => void;
+}) {
+  const [drag, setDrag] = useState<{ y: number; start: number; v: number } | null>(null);
+  const v = drag?.v ?? value;
+  const frac = (v - INPUT_MIN_DB) / (INPUT_MAX_DB - INPUT_MIN_DB);
+  const angle = -135 + Math.max(0, Math.min(1, frac)) * 270;
+  const clamp = (n: number) => Math.max(INPUT_MIN_DB, Math.min(INPUT_MAX_DB, Math.round(n * 2) / 2));
+  return (
+    <div className={`mx-pan ${disabled ? "mx-disabled" : ""}`}>
+      <div
+        className="mx-knob"
+        role="slider"
+        tabIndex={disabled ? -1 : 0}
+        aria-label="Ganancia de entrada"
+        aria-valuemin={INPUT_MIN_DB}
+        aria-valuemax={INPUT_MAX_DB}
+        aria-valuenow={Math.round(v * 10) / 10}
+        aria-disabled={disabled}
+        title={disabled ? "ACG activo: la ganancia de entrada no se usa" : "Arrastra arriba/abajo · doble clic: 0 dB"}
+        onPointerDown={(e) => {
+          if (disabled) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDrag({ y: e.clientY, start: value, v: value });
+        }}
+        onPointerMove={(e) => {
+          if (!drag || disabled) return;
+          const next = clamp(drag.start + (drag.y - e.clientY) * 0.3);
+          setDrag({ ...drag, v: next });
+        }}
+        onPointerUp={() => {
+          if (!drag || disabled) return;
+          onChange(drag.v);
+          setDrag(null);
+        }}
+        onDoubleClick={() => {
+          if (!disabled) onChange(0);
+        }}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === "ArrowRight" || e.key === "ArrowUp") onChange(clamp(value + 0.5));
+          else if (e.key === "ArrowLeft" || e.key === "ArrowDown") onChange(clamp(value - 0.5));
+          else return;
+          e.preventDefault();
+        }}
+      >
+        <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+          <circle cx="16" cy="16" r="12" className="mx-knob-body" />
+          <line
+            x1="16"
+            y1="16"
+            x2="16"
+            y2="6"
+            className="mx-knob-line"
+            transform={`rotate(${angle} 16 16)`}
+          />
+        </svg>
+      </div>
+      <span className="mx-pan-val">{disabled ? "AGC" : fmtDb(v)}</span>
+    </div>
+  );
+}
+
+function SendsSection({
+  sends,
+  buses,
+  excludeBusId,
+  onChange,
+}: {
+  sends: MixerSend[];
+  buses: MixerBus[];
+  excludeBusId: string;
+  onChange: (sends: MixerSend[]) => void;
+}) {
+  const [pop, setPop] = useState<number | null>(null);
+  const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
+  const setSend = (i: number, patch: Partial<MixerSend> | null) => {
+    const next = sends.slice();
+    if (patch === null) next.splice(i, 1);
+    else next[i] = { ...next[i], ...patch };
+    onChange(next);
+  };
+  return (
+    <div className="mx-section">
+      <span className="mx-label">SENDS</span>
+      {[0, 1, 2].map((i) => {
+        const sd = sends[i];
+        return (
+          <button
+            key={i}
+            type="button"
+            className={`mx-slot ${sd ? (sd.muted ? "mx-slot-muted" : "mx-slot-send") : ""}`}
+            disabled={!sd && (buses.length === 0 || i > sends.length)}
+            title={buses.length === 0 ? "Crea un bus para poder enviar" : undefined}
+            onClick={() => {
+              if (!sd) {
+                const free = buses.find(
+                  (b) => b.id !== excludeBusId && !sends.some((x) => x.busId === b.id),
+                );
+                if (!free) return;
+                onChange([...sends, { busId: free.id, gainDb: 0, pre: false, muted: false }]);
+              }
+              setPop(i);
+            }}
+          >
+            {sd ? (
+              <>
+                <span className="mx-slot-name">{busName(sd.busId)}</span>
+                <span className="mx-slot-val">{sd.pre ? "pre" : fmtDb(sd.gainDb)}</span>
+              </>
+            ) : (
+              "+"
+            )}
+          </button>
+        );
+      })}
+      {sends.map((sd, i) => (
+        <Pop key={i} open={pop === i} onClose={() => setPop(null)}>
+          <div className="mx-pop-title">Envío {i + 1}</div>
+          <label className="mixer-field">
+            <span>Bus</span>
+            <select value={sd.busId} onChange={(e) => setSend(i, { busId: e.target.value })}>
+              {buses
+                .filter((b) => b.id !== excludeBusId)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="mixer-field">
+            <span>Nivel {fmtDb(sd.gainDb)} dB</span>
+            <input
+              type="range"
+              min={MIN_GAIN_DB}
+              max={MAX_GAIN_DB}
+              step={0.5}
+              value={sd.gainDb}
+              onDoubleClick={() => setSend(i, { gainDb: 0 })}
+              onChange={(e) => setSend(i, { gainDb: Number(e.target.value) })}
+            />
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={sd.pre} onChange={(e) => setSend(i, { pre: e.target.checked })} />
+            <span>Pre-fader (no le afecta el fader)</span>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={sd.muted} onChange={(e) => setSend(i, { muted: e.target.checked })} />
+            <span>Silenciado</span>
+          </label>
+          <button
+            type="button"
+            className="ghost-btn ghost-danger"
+            onClick={() => {
+              setSend(i, null);
+              setPop(null);
+            }}
+          >
+            Quitar envío
+          </button>
+        </Pop>
+      ))}
+    </div>
+  );
+}
+
 function ChannelStrip({
   ch,
   buses,
@@ -612,36 +837,78 @@ function ChannelStrip({
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "io" | `send:${number}`>("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler">("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
-  const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
-  const inputLabel =
-    ch.input.kind === "app"
-      ? ch.input.app === "preview"
-        ? "Preescucha"
-        : ch.input.app === "call"
-          ? "Llamadas"
-          : "Música"
-      : inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada";
-  const outputLabel =
-    ch.output.kind === "bus"
-      ? busName(ch.output.id)
-      : ch.output.id === "streaming"
-        ? "Streaming"
-        : ch.output.id === "default" || !ch.output.id
-          ? "Predeterminada"
-          : outputs.find((d) => d.id === ch.output.id)?.label ?? "Salida";
-  const setSend = (i: number, patch: Partial<MixerSend> | null) => {
-    const next = sends.slice();
-    if (patch === null) next.splice(i, 1);
-    else next[i] = { ...next[i], ...patch };
-    onPatch({ sends: next });
-  };
+  const inputValue =
+    ch.input.kind === "app" ? `app:${ch.input.app || "music"}` : `device:${ch.input.deviceId || "default"}`;
+  const outputValue =
+    ch.output.kind === "bus" ? `bus:${ch.output.id}` : `device:${ch.output.id || "default"}`;
   const key = `ch:${ch.id}`;
+  const agc: MixerAgc = ch.agc === "slow" || ch.agc === "fast" ? ch.agc : "off";
 
   return (
     <section className="mx-strip" aria-label={ch.name}>
+      <div className="mx-section">
+        <span className="mx-label">ENTRADA</span>
+        <select
+          className="mx-slot mx-slot-select"
+          value={inputValue}
+          onChange={(e) => {
+            const [kind, ...rest] = e.target.value.split(":");
+            const v = rest.join(":");
+            onPatch({
+              input:
+                kind === "app"
+                  ? { kind: "app", app: v === "preview" ? "preview" : v === "call" ? "call" : "music", deviceId: "" }
+                  : { kind: "device", app: "", deviceId: v },
+            });
+          }}
+        >
+          <optgroup label="Aplicación">
+            <option value="app:music">Reproducción de música</option>
+            <option value="app:preview">Preescucha</option>
+            <option value="app:call">Llamadas de oyentes</option>
+          </optgroup>
+          <optgroup label="Entradas">
+            <option value="device:default">Entrada predeterminada</option>
+            {inputs.map((d) => (
+              <option key={d.id} value={`device:${d.id}`}>
+                {d.label}
+              </option>
+            ))}
+            {ch.input.kind === "device" &&
+              ch.input.deviceId &&
+              ch.input.deviceId !== "default" &&
+              !inputs.some((d) => d.id === ch.input.deviceId) && (
+                <option value={`device:${ch.input.deviceId}`}>Entrada no habilitada</option>
+              )}
+          </optgroup>
+        </select>
+      </div>
+
+      <div className="mx-section">
+        <span className="mx-label">GAIN</span>
+        <GainKnob
+          value={ch.inputGainDb ?? 0}
+          disabled={agc !== "off"}
+          onChange={(inputGainDb) => onPatch({ inputGainDb })}
+        />
+      </div>
+
+      <label className="mx-section">
+        <span className="mx-label">ACG</span>
+        <select
+          className="mx-slot mx-slot-select"
+          value={agc}
+          onChange={(e) => onPatch({ agc: e.target.value as MixerAgc })}
+        >
+          <option value="off">Off</option>
+          <option value="slow">Suave</option>
+          <option value="fast">Rápido</option>
+        </select>
+      </label>
+
       <div className="mx-section">
         <span className="mx-label">INSERTS</span>
         <button
@@ -672,171 +939,52 @@ function ChannelStrip({
         </Pop>
       </div>
 
-      <div className="mx-section">
-        <span className="mx-label">SENDS</span>
-        {[0, 1, 2].map((i) => {
-          const sd = sends[i];
-          return (
-            <button
-              key={i}
-              type="button"
-              className={`mx-slot ${sd ? (sd.muted ? "mx-slot-muted" : "mx-slot-send") : ""}`}
-              disabled={!sd && (buses.length === 0 || i > sends.length)}
-              title={buses.length === 0 ? "Crea un bus para poder enviar" : undefined}
-              onClick={() => {
-                if (!sd) {
-                  const free = buses.find(
-                    (b) => !sends.some((x) => x.busId === b.id) && !(ch.output.kind === "bus" && ch.output.id === b.id),
-                  );
-                  if (!free) return;
-                  onPatch({ sends: [...sends, { busId: free.id, gainDb: 0, pre: false, muted: false }] });
-                }
-                setPop(`send:${i}`);
-              }}
-            >
-              {sd ? (
-                <>
-                  <span className="mx-slot-name">{busName(sd.busId)}</span>
-                  <span className="mx-slot-val">{sd.pre ? "pre" : fmtDb(sd.gainDb)}</span>
-                </>
-              ) : (
-                "+"
-              )}
-            </button>
-          );
-        })}
-        {sends.map((sd, i) => (
-          <Pop key={i} open={pop === `send:${i}`} onClose={close}>
-            <div className="mx-pop-title">Envío {i + 1}</div>
-            <label className="mixer-field">
-              <span>Bus</span>
-              <select value={sd.busId} onChange={(e) => setSend(i, { busId: e.target.value })}>
-                {buses.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="mixer-field">
-              <span>Nivel {fmtDb(sd.gainDb)} dB</span>
-              <input
-                type="range"
-                min={MIN_GAIN_DB}
-                max={MAX_GAIN_DB}
-                step={0.5}
-                value={sd.gainDb}
-                onDoubleClick={() => setSend(i, { gainDb: 0 })}
-                onChange={(e) => setSend(i, { gainDb: Number(e.target.value) })}
-              />
-            </label>
-            <label className="check-row">
-              <input type="checkbox" checked={sd.pre} onChange={(e) => setSend(i, { pre: e.target.checked })} />
-              <span>Pre-fader (no le afecta el fader)</span>
-            </label>
-            <label className="check-row">
-              <input type="checkbox" checked={sd.muted} onChange={(e) => setSend(i, { muted: e.target.checked })} />
-              <span>Silenciado</span>
-            </label>
-            <button
-              type="button"
-              className="ghost-btn ghost-danger"
-              onClick={() => {
-                setSend(i, null);
-                close();
-              }}
-            >
-              Quitar envío
-            </button>
-          </Pop>
-        ))}
-      </div>
+      <SendsSection
+        sends={sends}
+        buses={buses}
+        excludeBusId={ch.output.kind === "bus" ? ch.output.id : ""}
+        onChange={(next) => onPatch({ sends: next })}
+      />
 
       <div className="mx-section">
-        <span className="mx-label">I/O</span>
-        <button type="button" className="mx-slot" title={inputLabel} onClick={() => setPop(pop === "io" ? "" : "io")}>
-          {inputLabel}
-        </button>
-        <button type="button" className="mx-slot" title={outputLabel} onClick={() => setPop(pop === "io" ? "" : "io")}>
-          {outputLabel}
-        </button>
-        <Pop open={pop === "io"} onClose={close}>
-          <label className="mixer-field">
-            <span>Entrada</span>
-            <select
-              value={ch.input.kind === "app" ? `app:${ch.input.app || "music"}` : `device:${ch.input.deviceId || "default"}`}
-              onChange={(e) => {
-                const [kind, ...rest] = e.target.value.split(":");
-                const v = rest.join(":");
-                onPatch({
-                  input:
-                    kind === "app"
-                      ? { kind: "app", app: v === "preview" ? "preview" : v === "call" ? "call" : "music", deviceId: "" }
-                      : { kind: "device", app: "", deviceId: v },
-                });
-              }}
-            >
-              <optgroup label="Aplicación">
-                <option value="app:music">Reproducción de música</option>
-                <option value="app:preview">Preescucha</option>
-                <option value="app:call">Llamadas de oyentes</option>
-              </optgroup>
-              <optgroup label="Entradas">
-                <option value="device:default">Entrada predeterminada</option>
-                {inputs.map((d) => (
-                  <option key={d.id} value={`device:${d.id}`}>
-                    {d.label}
-                  </option>
-                ))}
-                {ch.input.kind === "device" &&
-                  ch.input.deviceId &&
-                  ch.input.deviceId !== "default" &&
-                  !inputs.some((d) => d.id === ch.input.deviceId) && (
-                    <option value={`device:${ch.input.deviceId}`}>Entrada no habilitada</option>
-                  )}
-              </optgroup>
-            </select>
-          </label>
-          <label className="mixer-field">
-            <span>Salida</span>
-            <select
-              value={ch.output.kind === "bus" ? `bus:${ch.output.id}` : `device:${ch.output.id || "default"}`}
-              onChange={(e) => {
-                const [kind, ...rest] = e.target.value.split(":");
-                const v = rest.join(":");
-                onPatch({ output: kind === "bus" ? { kind: "bus", id: v } : { kind: "device", id: v || "default" } });
-              }}
-            >
-              {buses.length > 0 && (
-                <optgroup label="Buses">
-                  {buses.map((b) => (
-                    <option key={b.id} value={`bus:${b.id}`}>
-                      {b.name}
-                    </option>
-                  ))}
-                </optgroup>
+        <span className="mx-label">SALIDA</span>
+        <select
+          className="mx-slot mx-slot-select"
+          value={outputValue}
+          onChange={(e) => {
+            const [kind, ...rest] = e.target.value.split(":");
+            const v = rest.join(":");
+            onPatch({ output: kind === "bus" ? { kind: "bus", id: v } : { kind: "device", id: v || "default" } });
+          }}
+        >
+          {buses.length > 0 && (
+            <optgroup label="Buses">
+              {buses.map((b) => (
+                <option key={b.id} value={`bus:${b.id}`}>
+                  {b.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Emisión">
+            <option value="device:streaming">Streaming (encoders)</option>
+          </optgroup>
+          <optgroup label="Tarjetas">
+            <option value="device:default">Salida predeterminada</option>
+            {outputs.map((d) => (
+              <option key={d.id} value={`device:${d.id}`}>
+                {d.label}
+              </option>
+            ))}
+            {ch.output.kind === "device" &&
+              ch.output.id &&
+              ch.output.id !== "default" &&
+              ch.output.id !== "streaming" &&
+              !outputs.some((d) => d.id === ch.output.id) && (
+                <option value={`device:${ch.output.id}`}>Salida no habilitada</option>
               )}
-              <optgroup label="Emisión">
-                <option value="device:streaming">Streaming (encoders)</option>
-              </optgroup>
-              <optgroup label="Tarjetas">
-                <option value="device:default">Salida predeterminada</option>
-                {outputs.map((d) => (
-                  <option key={d.id} value={`device:${d.id}`}>
-                    {d.label}
-                  </option>
-                ))}
-                {ch.output.kind === "device" &&
-                  ch.output.id &&
-                  ch.output.id !== "default" &&
-                  ch.output.id !== "streaming" &&
-                  !outputs.some((d) => d.id === ch.output.id) && (
-                    <option value={`device:${ch.output.id}`}>Salida no habilitada</option>
-                  )}
-              </optgroup>
-            </select>
-          </label>
-        </Pop>
+          </optgroup>
+        </select>
       </div>
 
       <PanKnob pan={ch.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />
@@ -882,6 +1030,7 @@ function ChannelStrip({
 
 function BusStrip({
   bus,
+  buses,
   inputs,
   outputs,
   meters,
@@ -890,6 +1039,7 @@ function BusStrip({
   onRemove,
 }: {
   bus: MixerBus;
+  buses: MixerBus[];
   inputs: Device[];
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
@@ -897,14 +1047,27 @@ function BusStrip({
   onPatch: (patch: Partial<MixerBus>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "io">("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler">("");
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
-  const outputLabel =
-    out === "streaming" ? "Streaming" : out === "default" ? "Predeterminada" : outputs.find((d) => d.id === out)?.label ?? "Salida";
   const key = `bus:${bus.id}`;
   return (
     <section className="mx-strip mx-bus" aria-label={bus.name}>
+      <div className="mx-section">
+        <span className="mx-label">BUS{isMonitor ? " · VU" : ""}</span>
+        <div className="mx-bus-name-row">
+          <input
+            className="mx-slot mx-slot-input"
+            value={bus.name}
+            aria-label="Nombre del bus"
+            onChange={(e) => onPatch({ name: e.target.value })}
+          />
+          <button type="button" className="mx-bus-x" title="Eliminar bus" aria-label={`Eliminar ${bus.name}`} onClick={onRemove}>
+            ×
+          </button>
+        </div>
+      </div>
+
       <div className="mx-section">
         <span className="mx-label">INSERTS</span>
         <button
@@ -928,32 +1091,34 @@ function BusStrip({
           <LevelerControls owner={bus} label={bus.name} onChange={(leveler) => onPatch({ leveler })} />
         </Pop>
       </div>
-      <div className="mx-section mx-grow-top">
-        <span className="mx-label">BUS{isMonitor ? " · VU" : ""}</span>
-      </div>
+
+      <SendsSection
+        sends={bus.sends ?? []}
+        buses={buses}
+        excludeBusId={bus.id}
+        onChange={(sends) => onPatch({ sends })}
+      />
+
       <div className="mx-section">
-        <span className="mx-label">I/O</span>
-        <button type="button" className="mx-slot" title={outputLabel} onClick={() => setPop(pop === "io" ? "" : "io")}>
-          {outputLabel}
-        </button>
-        <Pop open={pop === "io"} onClose={close}>
-          <label className="mixer-field">
-            <span>Salida</span>
-            <select value={out} onChange={(e) => onPatch({ outputDeviceId: e.target.value })}>
-              <option value="streaming">Streaming (encoders)</option>
-              <option value="default">Salida predeterminada</option>
-              {outputs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-              {out !== "streaming" && out !== "default" && !outputs.some((d) => d.id === out) && (
-                <option value={out}>Salida no habilitada</option>
-              )}
-            </select>
-          </label>
-        </Pop>
+        <span className="mx-label">SALIDA</span>
+        <select
+          className="mx-slot mx-slot-select"
+          value={out}
+          onChange={(e) => onPatch({ outputDeviceId: e.target.value })}
+        >
+          <option value="streaming">Streaming (encoders)</option>
+          <option value="default">Salida predeterminada</option>
+          {outputs.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.label}
+            </option>
+          ))}
+          {out !== "streaming" && out !== "default" && !outputs.some((d) => d.id === out) && (
+            <option value={out}>Salida no habilitada</option>
+          )}
+        </select>
       </div>
+
       <PanKnob pan={bus.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />
       <div className="mx-buttons">
         <button
@@ -976,7 +1141,6 @@ function BusStrip({
         <StereoMeter store={meters} id={key} />
       </div>
       <div className="mx-db">{fmtDb(bus.gainDb)}</div>
-      <NameField name={bus.name} onRename={(name) => onPatch({ name })} onRemove={onRemove} />
       <div className="mx-color">
         <ColorBar value={bus.color} label={bus.name} onChange={(color) => onPatch({ color })} />
       </div>

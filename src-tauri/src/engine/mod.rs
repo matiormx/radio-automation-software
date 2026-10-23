@@ -159,7 +159,12 @@ impl Engine {
                     let vol = g.core.volume();
                     let plan = Plan::build(&config, vol, Some(&g.core.plan));
                     let (sends, returns) = plan.insert_devices();
-                    self.io.set_route(plan.output_devices(), sends, returns);
+                    self.io.set_route(
+                        plan.output_devices(),
+                        sends,
+                        returns,
+                        plan.master_device(),
+                    );
                     g.core.swap_plan(plan)
                 };
                 drop(old);

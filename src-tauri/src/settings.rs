@@ -149,6 +149,10 @@ pub struct Settings {
     pub ai: AiSettings,
     /// Bus cuya señal muestra el VU de salida; vacio = salida general.
     pub monitor_bus_id: String,
+    /// Tarjeta de salida del Master; vacio = salida predeterminada.
+    pub master_output_device_id: String,
+    /// Tarjeta de salida de monitorizacion/preescucha; vacio = predeterminada.
+    pub monitor_output_device_id: String,
     pub video: VideoSettings,
     pub streaming: StreamingSettings,
     pub studio_calls: StudioCallsSettings,
@@ -250,6 +254,10 @@ pub struct MixerChannel {
     pub color: String,
     pub input: MixerInput,
     pub output: MixerOutput,
+    /// Ganancia de entrada, antes de inserts y del fader.
+    pub input_gain_db: f32,
+    /// "off", "slow" o "fast"; si no es "off", ignora input_gain_db.
+    pub agc: String,
     pub gain_db: f32,
     pub muted: bool,
     pub leveler: LevelerSettings,
@@ -267,6 +275,8 @@ impl Default for MixerChannel {
             color: "#4f8cff".to_string(),
             input: MixerInput::default(),
             output: MixerOutput::default(),
+            input_gain_db: 0.0,
+            agc: "off".to_string(),
             gain_db: 0.0,
             muted: false,
             leveler: LevelerSettings::default(),
@@ -340,6 +350,7 @@ pub struct MixerBus {
     pub leveler: LevelerSettings,
     pub insert: InsertSettings,
     pub pan: f32,
+    pub sends: Vec<MixerSend>,
 }
 
 impl Default for MixerBus {
@@ -354,6 +365,7 @@ impl Default for MixerBus {
             leveler: LevelerSettings::default(),
             insert: InsertSettings::default(),
             pan: 0.0,
+            sends: Vec::new(),
         }
     }
 }
@@ -693,6 +705,8 @@ impl Default for Settings {
             audio_devices: Vec::new(),
             ai: AiSettings::default(),
             monitor_bus_id: String::new(),
+            master_output_device_id: String::new(),
+            monitor_output_device_id: String::new(),
             video: VideoSettings::default(),
             streaming: StreamingSettings::default(),
             studio_calls: StudioCallsSettings::default(),

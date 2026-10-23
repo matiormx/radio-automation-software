@@ -306,12 +306,18 @@ export interface MixerSend {
   muted: boolean;
 }
 
+export type MixerAgc = "off" | "slow" | "fast";
+
 export interface MixerChannel {
   id: string;
   name: string;
   color: string;
   input: MixerInput;
   output: MixerOutput;
+  /** Ganancia de entrada, antes de inserts y del fader */
+  inputGainDb?: number;
+  /** Control automatico de ganancia; si no esta en "off", ignora inputGainDb */
+  agc?: MixerAgc;
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
@@ -332,6 +338,7 @@ export interface MixerBus {
   leveler?: LevelerSettings;
   insert?: InsertSettings;
   pan?: number;
+  sends?: MixerSend[];
 }
 
 export type VideoInputKind = "file" | "rtsp" | "ndi";
@@ -588,6 +595,10 @@ export interface Settings {
   ai: AiSettings;
   /** Bus cuya señal muestra el VU de salida; "" = salida general */
   monitorBusId: string;
+  /** Tarjeta de salida del Master; "" = salida predeterminada del sistema */
+  masterOutputDeviceId: string;
+  /** Tarjeta de salida de monitorizacion/preescucha; "" = predeterminada */
+  monitorOutputDeviceId: string;
   video: VideoSettings;
   streaming: StreamingSettings;
   studioCalls: StudioCallsSettings;
@@ -640,6 +651,8 @@ export const DEFAULT_SETTINGS: Settings = {
   audioDevices: [],
   ai: { url: "http://127.0.0.1:11434", model: "llama3.1:8b" },
   monitorBusId: "",
+  masterOutputDeviceId: "",
+  monitorOutputDeviceId: "",
   video: {
     enabled: false,
     inputs: [],

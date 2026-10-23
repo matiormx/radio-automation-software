@@ -278,22 +278,36 @@ function nativeBuses(s: Settings): Set<string> {
  * Con el motor nativo, la mesa web no toca los canales de musica. Los inserts
  * se reparten: los del motor nativo (musica y sus buses) no se repiten en web.
  */
-function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
+function webMixerSlice(
+  s: Settings,
+): Pick<
+  Settings,
+  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
+> {
   const native = nativeBuses(s);
   return {
     mixerChannels: s.mixerChannels.filter((ch) => !isMusicChannel(ch)),
     mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? { ...bus, insert: NO_INSERT } : bus)),
     monitorBusId: s.monitorBusId,
+    masterOutputDeviceId: s.masterOutputDeviceId,
+    monitorOutputDeviceId: s.monitorOutputDeviceId,
   };
 }
 
 /** Al motor nativo solo le llegan los inserts que le pertenecen. */
-function nativeMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
+function nativeMixerSlice(
+  s: Settings,
+): Pick<
+  Settings,
+  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
+> {
   const native = nativeBuses(s);
   return {
     mixerChannels: s.mixerChannels.map((ch) => (isMusicChannel(ch) ? ch : { ...ch, insert: NO_INSERT })),
     mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? bus : { ...bus, insert: NO_INSERT })),
     monitorBusId: s.monitorBusId,
+    masterOutputDeviceId: s.masterOutputDeviceId,
+    monitorOutputDeviceId: s.monitorOutputDeviceId,
   };
 }
 
@@ -863,7 +877,14 @@ export default function App() {
     } else {
       mixerRef.current?.apply(settings);
     }
-  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, native]);
+  }, [
+    settings.mixerChannels,
+    settings.mixerBuses,
+    settings.monitorBusId,
+    settings.masterOutputDeviceId,
+    settings.monitorOutputDeviceId,
+    native,
+  ]);
 
   // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la mesa.
   useEffect(() => {

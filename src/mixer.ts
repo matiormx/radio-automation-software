@@ -68,7 +68,82 @@ interface InsertReturn {
   bypass: GainNode;
 }
 
-type Config = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
+
+/** Control automatico de ganancia por canal (independiente del nivelador). */
+class AgcNode {
+  readonly input: GainNode;
+  readonly output: GainNode;
+  private readonly rider: GainNode;
+  private readonly analyser: AnalyserNode;
+  private readonly data: Float32Array<ArrayBuffer>;
+  private readonly timer: number;
+  private mode: "slow" | "fast";
+  private gainDb = 0;
+  private ms = 0;
+  private primed = false;
+
+  constructor(
+    private readonly ctx: AudioContext,
+    mode: "slow" | "fast",
+  ) {
+    this.mode = mode;
+    this.input = ctx.createGain();
+    this.rider = ctx.createGain();
+    this.output = ctx.createGain();
+    this.input.connect(this.rider);
+    this.rider.connect(this.output);
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 1024;
+    this.data = new Float32Array(new ArrayBuffer(this.analyser.fftSize * 4));
+    this.input.connect(this.analyser);
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    this.analyser.connect(sink);
+    sink.connect(ctx.destination);
+    this.timer = window.setInterval(() => this.step(), 50);
+  }
+
+  update(mode: "slow" | "fast") {
+    this.mode = mode;
+  }
+
+  dispose() {
+    window.clearInterval(this.timer);
+    this.input.disconnect();
+    this.output.disconnect();
+    this.rider.disconnect();
+    this.analyser.disconnect();
+  }
+
+  private step() {
+    this.analyser.getFloatTimeDomainData(this.data);
+    let sum = 0;
+    for (const sample of this.data) sum += sample * sample;
+    const inst = sum / this.data.length;
+    const instDb = 10 * Math.log10(Math.max(inst, 1e-12));
+    if (!Number.isFinite(instDb) || instDb < -50) return;
+    const dt = 0.05;
+    if (!this.primed) {
+      this.ms = inst;
+      this.primed = true;
+    } else {
+      this.ms += (1 - Math.exp(-dt / 3)) * (inst - this.ms);
+    }
+    const lufs = -0.691 + 10 * Math.log10(Math.max(this.ms, 1e-12));
+    const wanted = Math.max(-18, Math.min(18, -18 - lufs));
+    const delta = wanted - this.gainDb;
+    const up = this.mode === "fast" ? 8 : 1.5;
+    const down = this.mode === "fast" ? 16 : 4;
+    const rate = delta > 0 ? up : down;
+    this.gainDb += Math.max(-rate * dt, Math.min(rate * dt, delta));
+    this.rider.gain.setTargetAtTime(10 ** (this.gainDb / 20), this.ctx.currentTime, 0.05);
+  }
+}
+
+type Config = Pick<
+  Settings,
+  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
+>;
 
 export class SoundMixer {
   readonly ctx: AudioContext;
@@ -90,10 +165,18 @@ export class SoundMixer {
     mixerChannels: [],
     mixerBuses: [],
     monitorBusId: "",
+    masterOutputDeviceId: "",
+    monitorOutputDeviceId: "",
   };
+  private masterDeviceId = DEFAULT_DEVICE;
+  private monitorDeviceId = DEFAULT_DEVICE;
   private volume = 1;
   private channelGains = new Map<string, GainNode>();
   private busGains = new Map<string, GainNode>();
+  /** Salida post-fader/pan de cada bus (para envios post). */
+  private busPosts = new Map<string, AudioNode>();
+  /** Punto pre-fader de cada bus (para envios pre). */
+  private busPres = new Map<string, AudioNode>();
   /** Faders reales (ya con ganancia) de la ultima configuracion; busGains/channelGains guardan donde entra la senal */
   private busFaders = new Map<string, AudioNode>();
   /** Medidores por tira (izquierda y derecha) para la ventana Mixer */
@@ -104,6 +187,7 @@ export class SoundMixer {
   private readonly meterSink: GainNode;
   private faders: GainNode[] = [];
   private levelers = new Map<string, Leveler>();
+  private agcs = new Map<string, AgcNode>();
   /** Salidas de envio de los inserts (sin volumen maestro: van a un procesador) */
   private insertSinks = new Map<string, { deviceId: string; sink: Sink }>();
   private insertReturns = new Map<string, InsertReturn>();
@@ -189,8 +273,12 @@ export class SoundMixer {
       mixerChannels: config.mixerChannels ?? [],
       mixerBuses: config.mixerBuses ?? [],
       monitorBusId: config.monitorBusId ?? "",
+      masterOutputDeviceId: config.masterOutputDeviceId ?? "",
+      monitorOutputDeviceId: config.monitorOutputDeviceId ?? "",
     };
     this.config = cfg;
+    this.masterDeviceId = normDevice(cfg.masterOutputDeviceId);
+    this.monitorDeviceId = normDevice(cfg.monitorOutputDeviceId);
 
     if (this.monitorTap) {
       try {
@@ -216,7 +304,20 @@ export class SoundMixer {
     for (const gain of this.faders) gain.disconnect();
     this.faders = [];
     this.busFaders.clear();
+    this.busPosts.clear();
+    this.busPres.clear();
     const wantedLevelers = new Set<string>();
+    const wantedAgcs = new Set<string>();
+    const agcFor = (key: string, mode: "slow" | "fast"): AgcNode => {
+      wantedAgcs.add(key);
+      let agc = this.agcs.get(key);
+      if (agc) agc.update(mode);
+      else {
+        agc = new AgcNode(this.ctx, mode);
+        this.agcs.set(key, agc);
+      }
+      return agc;
+    };
     // Nivelador de un canal o bus: se reutiliza entre reconfiguraciones para no
     // perder lo que ya ha medido (cambiar un fader no debe reiniciarlo).
     const levelerFor = (
@@ -277,15 +378,15 @@ export class SoundMixer {
     this.deviceMixes.clear();
 
     const busById = new Map(cfg.mixerBuses.map((b) => [b.id, b]));
-    const usedDevices = new Set<string>([DEFAULT_DEVICE]);
+    const usedDevices = new Set<string>([this.masterDeviceId, this.monitorDeviceId]);
     for (const bus of cfg.mixerBuses)
-      usedDevices.add(normDevice(bus.outputDeviceId));
+      usedDevices.add(this.outputDevice(bus.outputDeviceId));
     for (const ch of cfg.mixerChannels) {
       if (ch.output.kind === "device")
-        usedDevices.add(normDevice(ch.output.id));
+        usedDevices.add(this.outputDevice(ch.output.id));
       if (ch.output.kind === "bus" && busById.has(ch.output.id)) {
         const bus = busById.get(ch.output.id);
-        if (bus) usedDevices.add(normDevice(bus.outputDeviceId));
+        if (bus) usedDevices.add(this.outputDevice(bus.outputDeviceId));
       }
     }
 
@@ -338,23 +439,40 @@ export class SoundMixer {
       gain.gain.value = bus.muted ? 0 : dbToGain(bus.gainDb);
       const pan = panner(bus.pan);
       gain.connect(pan.input);
-      pan.output.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
+      pan.output.connect(this.deviceMix(this.outputDevice(bus.outputDeviceId)));
       this.faders.push(gain);
       this.busFaders.set(bus.id, pan.output);
+      this.busPosts.set(bus.id, pan.output);
       this.liveFaders.set(`bus:${bus.id}`, { gain, open: !bus.muted });
       meterFor(`bus:${bus.id}`, pan.output);
       const lv = levelerFor(`bus:${bus.id}`, bus);
       if (lv) lv.output.connect(gain);
+      this.busPres.set(bus.id, lv ? lv.output : gain);
       this.busGains.set(
         bus.id,
         insertFor(`bus:${bus.id}`, bus, lv ? lv.input : gain),
       );
     }
 
+    // Envios entre buses (post o pre-fader).
+    for (const bus of cfg.mixerBuses) {
+      for (const send of bus.sends ?? []) {
+        if (send.busId === bus.id) continue;
+        const target = this.busGains.get(send.busId);
+        const src = send.pre ? this.busPres.get(bus.id) : this.busPosts.get(bus.id);
+        if (!target || !src) continue;
+        const sg = this.ctx.createGain();
+        sg.gain.value = send.muted || bus.muted ? 0 : dbToGain(send.gainDb);
+        this.faders.push(sg);
+        src.connect(sg);
+        sg.connect(target);
+      }
+    }
+
     const monitorSource = cfg.monitorBusId
       ? this.busFaders.get(cfg.monitorBusId)
       : null;
-    const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
+    const monitorTap = monitorSource ?? this.deviceMix(this.monitorDeviceId);
     monitorTap.connect(this.monitorAnalyser);
     // Los encoders toman la salida Streaming si algo va a ella; si no, el VU.
     const streamUsed =
@@ -388,8 +506,19 @@ export class SoundMixer {
       meterFor(`ch:${ch.id}`, pan);
       const lv = levelerFor(`ch:${ch.id}`, ch);
       if (lv) lv.output.connect(pre);
-      // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
+      const agcMode = ch.agc === "slow" || ch.agc === "fast" ? ch.agc : null;
+      const inGain = this.ctx.createGain();
+      inGain.gain.value = agcMode ? 1 : dbToGain(ch.inputGainDb ?? 0);
+      this.faders.push(inGain);
+      // La senal entra por gain/AGC, el insert y el nivelador (si los hay) y luego el fader.
       const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : pre);
+      if (agcMode) {
+        const agc = agcFor(`agc:ch:${ch.id}`, agcMode);
+        inGain.connect(agc.input);
+        agc.output.connect(entry);
+      } else {
+        inGain.connect(entry);
+      }
       for (const send of ch.sends ?? []) {
         const busEntry = this.busGains.get(send.busId);
         if (!busEntry) continue;
@@ -401,23 +530,23 @@ export class SoundMixer {
         (send.pre ? pre : pan).connect(sg);
         sg.connect(busEntry);
       }
-      this.channelGains.set(ch.id, entry);
+      this.channelGains.set(ch.id, inGain);
 
       if (ch.input.kind === "app") {
         if (ch.input.app === "preview") {
-          this.previewInput.connect(entry);
+          this.previewInput.connect(inGain);
           previewUsed = true;
         } else if (ch.input.app === "call") {
-          this.callInput.connect(entry);
+          this.callInput.connect(inGain);
           callUsed = true;
         } else {
-          this.musicInput.connect(entry);
+          this.musicInput.connect(inGain);
           musicUsed = true;
         }
       } else {
         const id = normDevice(ch.input.deviceId);
         inputDevices.add(id);
-        this.connectInput(id, entry);
+        this.connectInput(id, inGain);
       }
 
       // Todo lo que no es la voz del que llama alimenta su retorno.
@@ -427,9 +556,9 @@ export class SoundMixer {
       if (ch.output.kind === "bus") {
         const busGain = this.busGains.get(ch.output.id);
         if (busGain) pan.connect(busGain);
-        else pan.connect(this.deviceMix(DEFAULT_DEVICE));
+        else pan.connect(this.deviceMix(this.masterDeviceId));
       } else {
-        pan.connect(this.deviceMix(normDevice(ch.output.id)));
+        pan.connect(this.deviceMix(this.outputDevice(ch.output.id)));
       }
     }
 
@@ -439,15 +568,20 @@ export class SoundMixer {
       lv.dispose();
       this.levelers.delete(key);
     }
+    for (const [key, agc] of Array.from(this.agcs)) {
+      if (wantedAgcs.has(key)) continue;
+      agc.dispose();
+      this.agcs.delete(key);
+    }
 
     // Sin canal para una fuente de la app, esta sigue saliendo por la salida
     // del sistema para no dejar la radio muda por una configuracion a medias.
     if (!musicUsed) {
-      this.musicInput.connect(this.deviceMix(DEFAULT_DEVICE));
+      this.musicInput.connect(this.deviceMix(this.masterDeviceId));
       this.musicInput.connect(this.returnMix);
     }
-    if (!callUsed) this.callInput.connect(this.deviceMix(DEFAULT_DEVICE));
-    if (!previewUsed) this.previewInput.connect(this.deviceMix(DEFAULT_DEVICE));
+    if (!callUsed) this.callInput.connect(this.deviceMix(this.masterDeviceId));
+    if (!previewUsed) this.previewInput.connect(this.deviceMix(this.monitorDeviceId));
 
     // Liberar entradas fisicas que ya no usa ningun canal.
     for (const [id, src] of this.inputSources) {
@@ -690,6 +824,8 @@ export class SoundMixer {
     }
     for (const lv of this.levelers.values()) lv.dispose();
     this.levelers.clear();
+    for (const agc of this.agcs.values()) agc.dispose();
+    this.agcs.clear();
     for (const id of Array.from(this.callSources.keys()))
       this.detachCallSource(id);
     for (const src of this.inputSources.values()) {
@@ -711,6 +847,11 @@ export class SoundMixer {
   }
 
   // ---------------------------------------------------------------- internals
+
+  private outputDevice(deviceId: string): string {
+    const id = normDevice(deviceId);
+    return id === DEFAULT_DEVICE ? this.masterDeviceId : id;
+  }
 
   private deviceMix(deviceId: string): GainNode {
     const id = normDevice(deviceId);

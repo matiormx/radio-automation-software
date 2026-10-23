@@ -354,10 +354,8 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                     .collect();
                 core.render_inserts(n, &feeds, |plan, _off, m| {
                     let s = m * 2;
-                    match plan.out_index(DEFAULT_DEVICE) {
-                        Some(d) => buf.extend_from_slice(&plan.outs[d].buf[..s]),
-                        None => buf.extend(std::iter::repeat(0.0).take(s)),
-                    }
+                    let d = plan.master_out_index();
+                    buf.extend_from_slice(&plan.outs[d].buf[..s]);
                     for sink in sinks.iter_mut() {
                         if let Some(i) = plan.out_index(&sink.device) {
                             push_all(&mut sink.prod, &plan.outs[i].buf[..s]);
@@ -436,6 +434,7 @@ enum IoCmd {
         outputs: Vec<String>,
         sends: Vec<String>,
         returns: Vec<String>,
+        master: String,
     },
     Shutdown,
 }
@@ -493,8 +492,14 @@ impl Io {
     }
 
     /// Tarjetas que necesita la mesa: salidas, envios y retornos de inserts.
-    pub fn set_route(&self, outputs: Vec<String>, sends: Vec<String>, returns: Vec<String>) {
-        let _ = self.tx.send(IoCmd::Route { outputs, sends, returns });
+    pub fn set_route(
+        &self,
+        outputs: Vec<String>,
+        sends: Vec<String>,
+        returns: Vec<String>,
+        master: String,
+    ) {
+        let _ = self.tx.send(IoCmd::Route { outputs, sends, returns, master });
     }
 
     pub fn take_errors(&self) -> Vec<String> {
@@ -529,12 +534,13 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
     let mut ret_secs: HashMap<String, Opened> = HashMap::new();
     let mut ret_retry: HashMap<String, Instant> = HashMap::new();
     let mut master_warned = false;
+    let mut master_device = DEFAULT_DEVICE.to_string();
 
     loop {
         // Tarjeta reloj
         if master.as_ref().map(|m| m.failed.load(Ordering::SeqCst)).unwrap_or(true) && Instant::now() >= master_retry {
             master = None;
-            match find_output(DEFAULT_DEVICE) {
+            match find_output(&master_device) {
                 Some(dev) => {
                     let failed = Arc::new(AtomicBool::new(false));
                     // La frecuencia real se conoce al abrir: se pide antes.
@@ -546,7 +552,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
                         }
                         Err(e) => {
                             if !master_warned {
-                                report(format!("Salida predeterminada: {e}"));
+                                report(format!("Salida Master: {e}"));
                                 master_warned = true;
                             }
                         }
@@ -554,7 +560,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
                 }
                 None => {
                     if !master_warned {
-                        report("No hay salida de audio predeterminada".into());
+                        report(format!("No está disponible la salida Master «{master_device}»"));
                         master_warned = true;
                     }
                 }
@@ -689,10 +695,15 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
         }
 
         match rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(IoCmd::Route { outputs, sends, returns }) => {
+            Ok(IoCmd::Route { outputs, sends, returns, master: next_master }) => {
+                if next_master != master_device {
+                    master_device = next_master;
+                    master = None;
+                    master_retry = Instant::now();
+                }
                 wanted = outputs
                     .into_iter()
-                    .filter(|d| d != DEFAULT_DEVICE && d != STREAM_DEVICE)
+                    .filter(|d| d != STREAM_DEVICE)
                     .collect();
                 wanted_sends = sends
                     .into_iter()
