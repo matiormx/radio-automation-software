@@ -145,6 +145,8 @@ pub struct Settings {
     pub mixer_buses: Vec<MixerBus>,
     /// Entradas y salidas habilitadas para la mesa.
     pub audio_devices: Vec<AudioDeviceSetting>,
+    /// Analisis de metadatos con Ollama local.
+    pub ai: AiSettings,
     /// Bus cuya señal muestra el VU de salida; vacio = salida general.
     pub monitor_bus_id: String,
     pub video: VideoSettings,
@@ -180,6 +182,25 @@ pub struct AudioDeviceSetting {
     /// Alias visible en la mesa; vacio = usar label
     pub name: String,
     pub enabled: bool,
+}
+
+/// Analisis de metadatos con un Ollama local.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiSettings {
+    /// Direccion del servidor Ollama.
+    pub url: String,
+    /// Modelo que se usara para clasificar.
+    pub model: String,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            url: "http://127.0.0.1:11434".to_string(),
+            model: "llama3.1:8b".to_string(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -666,6 +687,7 @@ impl Default for Settings {
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
             audio_devices: Vec::new(),
+            ai: AiSettings::default(),
             monitor_bus_id: String::new(),
             video: VideoSettings::default(),
             streaming: StreamingSettings::default(),

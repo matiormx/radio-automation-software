@@ -93,6 +93,24 @@ export interface TrackPatch {
   language?: string;
 }
 
+/** Configuracion del analisis de metadatos con Ollama local. */
+export interface AiSettings {
+  /** Direccion del servidor Ollama (por defecto http://127.0.0.1:11434) */
+  url: string;
+  /** Modelo de Ollama que se usara para clasificar */
+  model: string;
+}
+
+/** Propuesta de metadatos generada por la IA para una cancion. */
+export interface AiSuggestion {
+  language: string;
+  genre: string;
+  tags: string[];
+  /** 0 a 1; el modelo puede devolver 0 si no esta seguro */
+  confidence: number;
+  reason: string;
+}
+
 export interface TrackDetails {
   id: string;
   title: string;
@@ -564,6 +582,8 @@ export interface Settings {
   mixerBuses: MixerBus[];
   /** Entradas y salidas habilitadas para la mesa */
   audioDevices: AudioDeviceSetting[];
+  /** Analisis de metadatos con Ollama local */
+  ai: AiSettings;
   /** Bus cuya señal muestra el VU de salida; "" = salida general */
   monitorBusId: string;
   video: VideoSettings;
@@ -616,6 +636,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mixerChannels: [],
   mixerBuses: [],
   audioDevices: [],
+  ai: { url: "http://127.0.0.1:11434", model: "llama3.1:8b" },
   monitorBusId: "",
   video: {
     enabled: false,

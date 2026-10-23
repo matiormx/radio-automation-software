@@ -204,3 +204,9 @@ export const IconSliders = ({ size = 16 }: IconProps) => (
     <rect x="15" y="10.5" width="4" height="2.6" rx="0.8" fill="currentColor" stroke="none" />
   </svg>
 );
+
+export const IconSparkles = ({ size = 16 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 2.5l1.7 5.3 5.3 1.7-5.3 1.7L12 16.5l-1.7-5.3L5 9.5l5.3-1.7L12 2.5Zm6.5 11l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6ZM5.5 14l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1Z" />
+  </svg>
+);

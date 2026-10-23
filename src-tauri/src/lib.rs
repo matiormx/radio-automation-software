@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+pub mod ai;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
@@ -54,6 +55,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            ai::ai_models,
+            ai::ai_suggest_metadata,
             library::import_files,
             deezer::deezer_search,
             deezer::deezer_track,

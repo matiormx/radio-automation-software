@@ -8,6 +8,7 @@ import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { SoundTab } from "./SoundTab";
+import { AiTab } from "./AiTab";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
@@ -162,6 +163,7 @@ export type SettingsTab =
   | "events"
   | "programs"
   | "sound"
+  | "ai"
   | "video"
   | "streaming"
   | "calls"
@@ -243,6 +245,14 @@ export function SettingsPanel({
             >
               Sonido
               <span>Entradas, salidas y nombres</span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "ai" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("ai")}
+            >
+              IA
+              <span>Metadatos con Ollama local</span>
             </button>
             <button
               type="button"
@@ -342,6 +352,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "sound" && <SoundTab settings={s} onChange={onChange} />}
+            {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
             {tab === "campaigns" && (

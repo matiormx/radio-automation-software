@@ -2727,6 +2727,7 @@ export default function App() {
           history={history}
           autoBlocks={settings.autoBlocks}
           languages={settings.languages ?? DEFAULT_SETTINGS.languages}
+          ai={settings.ai ?? DEFAULT_SETTINGS.ai}
           onToggleAutoBlock={toggleAutoBlock}
           onCreateBlock={handleCreateBlock}
           onRenameBlock={handleRenameBlock}

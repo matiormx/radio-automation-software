@@ -1,7 +1,7 @@
 import { DeezerSearch } from "./DeezerSearch";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
-import type { Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
+import type { AiSettings, Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
   setTrackCover,
@@ -16,6 +16,7 @@ import {
   isVideoFile,
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
+import { AiMetadataModal } from "./AiMetadataModal";
 import {
   IconPlus,
   IconSearch,
@@ -31,6 +32,7 @@ import {
   IconMore,
   IconTag,
   IconWave,
+  IconSparkles,
 } from "../icons";
 
 type Mode = "folders" | "artists" | "blocks" | "genres" | "tags" | "history";
@@ -43,6 +45,7 @@ interface MusicBrowserProps {
   history: HistoryEntry[];
   autoBlocks: string[];
   languages: string[];
+  ai: AiSettings;
   onToggleAutoBlock: (blockId: string) => void;
   onCreateBlock: (name: string) => Promise<void>;
   onRenameBlock: (id: string, name: string) => Promise<void>;
@@ -249,6 +252,7 @@ export function MusicBrowser({
   history,
   autoBlocks,
   languages,
+  ai,
   onToggleAutoBlock,
   onCreateBlock,
   onRenameBlock,
@@ -272,6 +276,7 @@ export function MusicBrowser({
   const [edit, setEdit] = useState<EditState | null>(null);
   const [propsId, setPropsId] = useState("");
   const [imp, setImp] = useState<ImportState | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const [newBlock, setNewBlock] = useState("");
   const [renamingId, setRenamingId] = useState("");
   const [renameValue, setRenameValue] = useState("");
@@ -780,6 +785,15 @@ export function MusicBrowser({
         >
           <IconList size={14} />
           Lista
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => setAiOpen(true)}
+          title="Analizar idioma y estilos con IA local"
+        >
+          <IconSparkles size={14} />
+          IA
         </button>
       </div>
 
@@ -1485,6 +1499,16 @@ export function MusicBrowser({
             </div>
           </div>
         </div>
+      )}
+
+      {aiOpen && (
+        <AiMetadataModal
+          tracks={filtered}
+          ai={ai}
+          onClose={() => setAiOpen(false)}
+          onSaved={onTrackSaved}
+          showToast={showToast}
+        />
       )}
     </section>
   );

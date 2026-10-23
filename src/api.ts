@@ -18,6 +18,7 @@ import type {
   HistoryEntry,
   SessionState,
   Waveform,
+  AiSuggestion,
 } from "./types";
 
 export const VIDEO_EXTENSIONS = [
@@ -75,6 +76,19 @@ export function scanMusicFolder(): Promise<number> {
 
 export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
+}
+
+export function aiModels(url: string): Promise<string[]> {
+  return invoke<string[]>("ai_models", { url });
+}
+
+export function aiSuggestMetadata(
+  id: string,
+  url: string,
+  model: string,
+  styles: string[],
+): Promise<AiSuggestion> {
+  return invoke<AiSuggestion>("ai_suggest_metadata", { id, url, model, styles });
 }
 
 export function notifyFire(event: string, vars: Record<string, string>): Promise<void> {
