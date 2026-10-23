@@ -62,6 +62,12 @@ function parseHM(value: string): number | null {
   return h * 60 + m;
 }
 
+/** Horas configuradas de un evento sin fin (auto/insert). */
+function eventTimes(event: StationEvent): string[] {
+  const times = (event.times ?? []).filter((value) => parseHM(value) !== null);
+  return times.length > 0 ? times : [event.start];
+}
+
 function daysText(event: StationEvent): string {
   if (event.days.length === 7) return "Todos los días";
   return DAYS.filter((d) => event.days.includes(d.value))
@@ -79,7 +85,7 @@ function sourceLabel(event: StationEvent, blocks: Block[]): string {
 function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track>): string[] {
   if (event.kind === "auto") {
     return [
-      `Desde las ${event.start}`,
+      `Desde las ${eventTimes(event).join(", ")}`,
       daysText(event),
       `Fuente: ${sourceLabel(event, blocks)}`,
     ];
@@ -96,7 +102,7 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
   }
   const track = byId.get(event.trackId);
   return [
-    `A las ${event.start}`,
+    `A las ${eventTimes(event).join(", ")}`,
     daysText(event),
     track ? `Biblioteca: ${track.title} · ${track.artist}` : "Pista no disponible",
     event.maxWaitSecs > 0
@@ -155,7 +161,16 @@ export function EventsTab({
   const edit = (event: StationEvent) => {
     setError("");
     setSearch("");
-    setDraft({ ...event, days: [...event.days] });
+    setDraft({
+      ...event,
+      days: [...event.days],
+      times:
+        event.kind === "stream"
+          ? []
+          : event.times?.length
+            ? [...event.times]
+            : [event.start],
+    });
   };
 
   const save = () => {
@@ -169,12 +184,14 @@ export function EventsTab({
       setError("Selecciona al menos un día.");
       return;
     }
-    const start = parseHM(draft.start);
-    if (start === null) {
-      setError("La hora de inicio no es válida.");
-      return;
-    }
+
+    let times: string[] = [];
     if (draft.kind === "stream") {
+      const start = parseHM(draft.start);
+      if (start === null) {
+        setError("La hora de inicio no es válida.");
+        return;
+      }
       const end = parseHM(draft.end ?? "");
       if (end === null) {
         setError("La hora de fin no es válida.");
@@ -193,26 +210,48 @@ export function EventsTab({
         setError("Ponle al menos un título a lo que se mostrará.");
         return;
       }
-    } else if (draft.kind === "auto") {
-      if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
-        setError("Elige un bloque musical para la franja.");
-        return;
-      }
-      if (draft.sourceKind === "library" && draft.sourceId !== "a" && draft.sourceId !== "b") {
-        setError("Elige la Biblioteca A o la B.");
-        return;
-      }
     } else {
-      if (!byId.has(draft.trackId)) {
-        setError("Elige el sonido que se insertará.");
+      const raw = (draft.times?.length ? draft.times : [draft.start]).map((value) =>
+        value.trim(),
+      );
+      if (raw.some((value) => parseHM(value) === null)) {
+        setError("Alguna de las horas no es válida.");
         return;
       }
-      if (draft.maxWaitSecs < 0 || draft.maxWaitSecs > 3600) {
-        setError("La espera máxima debe estar entre 0 y 3600 segundos.");
+      times = Array.from(new Set(raw)).sort(
+        (a, b) => (parseHM(a) ?? 0) - (parseHM(b) ?? 0),
+      );
+      if (times.length === 0) {
+        setError("Añade al menos un horario.");
         return;
+      }
+      if (draft.kind === "auto") {
+        if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
+          setError("Elige un bloque musical para la franja.");
+          return;
+        }
+        if (draft.sourceKind === "library" && draft.sourceId !== "a" && draft.sourceId !== "b") {
+          setError("Elige la Biblioteca A o la B.");
+          return;
+        }
+      } else {
+        if (!byId.has(draft.trackId)) {
+          setError("Elige el sonido que se insertará.");
+          return;
+        }
+        if (draft.maxWaitSecs < 0 || draft.maxWaitSecs > 3600) {
+          setError("La espera máxima debe estar entre 0 y 3600 segundos.");
+          return;
+        }
       }
     }
-    const clean: StationEvent = { ...draft, name };
+
+    const clean: StationEvent = {
+      ...draft,
+      name,
+      times: draft.kind === "stream" ? [] : times,
+      start: draft.kind === "stream" ? draft.start : times[0],
+    };
     const exists = settings.events.some((event) => event.id === clean.id);
     const events = exists
       ? settings.events.map((event) => (event.id === clean.id ? clean : event))
@@ -274,9 +313,9 @@ export function EventsTab({
         <div>
           <h4>Eventos de programación</h4>
           <p className="hint">
-            Una franja cambia la fuente del AutoDJ a partir de una hora. Un evento de audio puede
-            ser una pista de la biblioteca (se coloca como siguiente a una hora exacta) o un audio
-            de internet (se emite durante una franja con sus metadatos).
+            Una franja cambia la fuente del AutoDJ a partir de una o varias horas. Un evento de
+            audio puede ser una pista de la biblioteca (se coloca como siguiente a una o varias
+            horas exactas) o un audio de internet (se emite durante una franja con sus metadatos).
           </p>
         </div>
         <button type="button" className="btn btn-accent btn-sm" onClick={startNew}>
@@ -403,6 +442,7 @@ function EventEditor({
 }) {
   const q = search.trim().toLowerCase();
   const selected = byId.get(draft.trackId);
+  const times = draft.times?.length ? draft.times : [draft.start];
   const options = useMemo(
     () =>
       Array.from(byId.values())
@@ -434,15 +474,23 @@ function EventEditor({
   };
 
   const setSource = (value: "track" | "url") => {
+    const first = (draft.times?.[0] ?? draft.start) || "06:00";
     if (value === "url") {
       set({
         kind: "stream",
-        end: draft.end || addHour(draft.start),
+        start: first,
+        times: [],
+        end: draft.end || addHour(first),
         fadeSecs: draft.fadeSecs ?? 3,
       });
       return;
     }
-    set({ kind: "insert" });
+    set({ kind: "insert", times: draft.times?.length ? draft.times : [draft.start] });
+  };
+
+  const setTimes = (next: string[]) => {
+    const values = next.length > 0 ? next : [""];
+    set({ times: values, start: values[0] ?? "" });
   };
 
   const setSourceKind = (sourceKind: StationEventSource) => {
@@ -530,37 +578,73 @@ function EventEditor({
           ))}
         </div>
 
-        <div className="field-row">
-          <label className="field">
-            <span className="field-label">{draft.kind === "insert" ? "Hora exacta" : "Empieza"}</span>
-            <input
-              type="time"
-              value={draft.start}
-              onChange={(e) => set({ start: e.target.value })}
-            />
-          </label>
-          {draft.kind === "stream" && (
-            <>
-              <label className="field">
-                <span className="field-label">Termina</span>
-                <input type="time" value={draft.end ?? ""} onChange={(e) => set({ end: e.target.value })} />
-              </label>
-              <label className="field">
-                <span className="field-label">Fundido</span>
-                <span className="field-unit">
-                  <input
-                    type="number"
-                    min={0}
-                    max={30}
-                    value={draft.fadeSecs ?? 3}
-                    onChange={(e) => set({ fadeSecs: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
-                  />
-                  s
-                </span>
-              </label>
-            </>
-          )}
-        </div>
+        {draft.kind === "stream" ? (
+          <div className="field-row">
+            <label className="field">
+              <span className="field-label">Empieza</span>
+              <input
+                type="time"
+                value={draft.start}
+                onChange={(e) => set({ start: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Termina</span>
+              <input type="time" value={draft.end ?? ""} onChange={(e) => set({ end: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field-label">Fundido</span>
+              <span className="field-unit">
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={draft.fadeSecs ?? 3}
+                  onChange={(e) => set({ fadeSecs: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
+                />
+                s
+              </span>
+            </label>
+          </div>
+        ) : (
+          <div className="event-times">
+            <span className="field-label">
+              {draft.kind === "insert" ? "Horas exactas" : "Horarios de inicio"}
+            </span>
+            {times.map((value, index) => (
+              <div className="event-time-row" key={index}>
+                <input
+                  type="time"
+                  value={value}
+                  aria-label={`Horario ${index + 1}`}
+                  onChange={(e) => {
+                    const next = [...times];
+                    next[index] = e.target.value;
+                    setTimes(next);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  title="Quitar horario"
+                  disabled={times.length <= 1}
+                  onClick={() => setTimes(times.filter((_, i) => i !== index))}
+                >
+                  <IconTrash size={13} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() =>
+                setTimes([...times, addHour(times[times.length - 1] ?? draft.start)])
+              }
+            >
+              <IconPlus size={13} /> Añadir horario
+            </button>
+          </div>
+        )}
 
         {draft.kind === "stream" ? (
           <p className="hint">
@@ -569,9 +653,9 @@ function EventEditor({
           </p>
         ) : draft.kind === "auto" ? (
           <p className="hint">
-            La franja empieza a esa hora y se mantiene hasta que empiece otro evento. Las próximas
-            canciones que elija el AutoDJ saldrán de la fuente indicada; la cola que ya está
-            cargada no se toca.
+            La franja se activa a cada uno de los horarios indicados y se mantiene hasta que
+            empiece otro evento. Las próximas canciones que elija el AutoDJ saldrán de la fuente
+            indicada; la cola que ya está cargada no se toca.
           </p>
         ) : (
           <>
@@ -610,14 +694,15 @@ function EventEditor({
               </label>
             </div>
             <p className="hint">
-              El sonido se coloca justo después del tema que esté sonando. Si el tema actual dura
-              más que la espera, el evento se fuerza con el fundido de salida o se descarta.
+              El sonido se coloca justo después del tema que esté sonando en cada una de las horas
+              indicadas. Si el tema actual dura más que la espera, el evento se fuerza con el
+              fundido de salida o se descarta.
             </p>
           </>
         )}
         <p className="hint">
-          Si la app está cerrada a esa hora no se emite; al abrirla solo se recupera si han pasado
-          menos de 15 minutos.
+          Si la app está cerrada a alguna de esas horas no se emite; al abrirla solo se recupera
+          el horario más reciente si han pasado menos de 15 minutos.
         </p>
       </fieldset>
 

@@ -409,6 +409,9 @@ pub struct StationEvent {
     pub days: Vec<u8>,
     /// Inicio de la franja (auto) o hora de inserción (insert), HH:MM
     pub start: String,
+    /// Horas adicionales para eventos sin fin (auto/insert); vacio = usar `start`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub times: Vec<String>,
     /// "block" o "library"
     pub source_kind: String,
     /// id de bloque o "a"/"b"
@@ -451,6 +454,7 @@ impl Default for StationEvent {
             kind: "auto".to_string(),
             days: vec![1, 2, 3, 4, 5, 6, 7],
             start: "06:00".to_string(),
+            times: Vec::new(),
             source_kind: "library".to_string(),
             source_id: "a".to_string(),
             track_id: String::new(),

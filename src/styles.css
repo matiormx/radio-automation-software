@@ -3629,3 +3629,29 @@ body.is-resizing { cursor: col-resize; user-select: none; }
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* ---------- eventos: varios horarios sin fin ---------- */
+
+.event-times {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.event-time-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.event-time-row input[type="time"] {
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  color-scheme: dark;
+}
+.event-time-row input[type="time"]:focus { border-color: var(--accent); }

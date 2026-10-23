@@ -216,6 +216,8 @@ export interface StationEvent {
   days: number[];
   /** Hora de inicio de la franja (auto) o de la inserción (insert), HH:MM */
   start: string;
+  /** Horas adicionales para eventos sin fin (auto/insert); vacío = usar start */
+  times?: string[];
   sourceKind: StationEventSource;
   /** id de bloque o "a"/"b" */
   sourceId: string;

@@ -107,19 +107,29 @@ function parseHM(value: string): number | null {
   return h * 60 + m;
 }
 
+/** Horas configuradas de un evento sin fin (auto/insert). */
+function eventTimes(event: StationEvent): string[] {
+  const times = (event.times ?? []).filter((value) => parseHM(value) !== null);
+  return times.length > 0 ? times : [event.start];
+}
+
 /** Inicio más reciente de una franja, o null si el evento no aplica. */
 function eventStartAt(event: StationEvent, now: Date): Date | null {
-  const start = parseHM(event.start);
-  if (start === null) return null;
-  for (let offset = 0; offset <= 7; offset++) {
-    const day = new Date(now);
-    day.setDate(day.getDate() - offset);
-    day.setHours(Math.floor(start / 60), start % 60, 0, 0);
-    if (day.getTime() > now.getTime()) continue;
-    if (!event.days.includes(dayIso(day))) continue;
-    return day;
+  let best: Date | null = null;
+  for (const value of eventTimes(event)) {
+    const start = parseHM(value);
+    if (start === null) continue;
+    for (let offset = 0; offset <= 7; offset++) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - offset);
+      day.setHours(Math.floor(start / 60), start % 60, 0, 0);
+      if (day.getTime() > now.getTime()) continue;
+      if (!event.days.includes(dayIso(day))) continue;
+      if (!best || day.getTime() > best.getTime()) best = day;
+      break;
+    }
   }
-  return null;
+  return best;
 }
 
 /** Próximo inicio de cualquier franja AutoDJ después de `after`. */
@@ -130,13 +140,15 @@ function nextAutoStartAfter(events: StationEvent[], after: Date): number {
     day.setDate(day.getDate() + offset);
     for (const event of events) {
       if (!event.enabled || event.kind !== "auto") continue;
-      const start = parseHM(event.start);
-      if (start === null) continue;
       if (!event.days.includes(dayIso(day))) continue;
-      const at = new Date(day);
-      at.setHours(Math.floor(start / 60), start % 60, 0, 0);
-      if (at.getTime() <= after.getTime()) continue;
-      if (at.getTime() < best) best = at.getTime();
+      for (const value of eventTimes(event)) {
+        const start = parseHM(value);
+        if (start === null) continue;
+        const at = new Date(day);
+        at.setHours(Math.floor(start / 60), start % 60, 0, 0);
+        if (at.getTime() <= after.getTime()) continue;
+        if (at.getTime() < best) best = at.getTime();
+      }
     }
   }
   return best;
@@ -2058,25 +2070,30 @@ export default function App() {
       for (const event of s.events) {
         if (!event.enabled || event.kind !== "insert") continue;
         if (!event.trackId || !byId.has(event.trackId)) continue;
-        const minute = parseHM(event.start);
-        if (minute === null) continue;
-        const scheduled = new Date(now);
-        scheduled.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
-        let delta = now.getTime() - scheduled.getTime();
-        if (delta < 0) {
-          scheduled.setTime(scheduled.getTime() - DAY_MS);
-          delta = now.getTime() - scheduled.getTime();
+        let latest: { at: number; key: string } | null = null;
+        for (const value of eventTimes(event)) {
+          const minute = parseHM(value);
+          if (minute === null) continue;
+          const scheduled = new Date(now);
+          scheduled.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
+          let delta = now.getTime() - scheduled.getTime();
+          if (delta < 0) {
+            scheduled.setTime(scheduled.getTime() - DAY_MS);
+            delta = now.getTime() - scheduled.getTime();
+          }
+          if (delta > EVENT_GRACE_MS) continue;
+          if (!event.days.includes(dayIso(scheduled))) continue;
+          const key = `${dayKey(scheduled)} ${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`;
+          if (!latest || scheduled.getTime() > latest.at) {
+            latest = { at: scheduled.getTime(), key };
+          }
         }
-        if (delta > EVENT_GRACE_MS) continue;
-        if (!event.days.includes(dayIso(scheduled))) continue;
-        const hh = pad2(Math.floor(minute / 60));
-        const mm = pad2(minute % 60);
-        const key = `${dayKey(scheduled)} ${hh}:${mm}`;
-        if (event.lastFired === key) continue;
-        const lock = `${event.id}|${key}`;
+        if (!latest) continue;
+        if (event.lastFired === latest.key) continue;
+        const lock = `${event.id}|${latest.key}`;
         if (eventFiring.current.has(lock)) continue;
         eventFiring.current.add(lock);
-        fires.push({ event, key, at: scheduled.getTime() });
+        fires.push({ event, key: latest.key, at: latest.at });
       }
 
       if (fires.length === 0) return;
