@@ -24,8 +24,8 @@ const DAYS: { value: number; label: string; long: string }[] = [
 
 const KIND_LABEL: Record<StationEventKind, string> = {
   auto: "Franja AutoDJ",
-  insert: "Sonido programado",
-  stream: "Emisión de internet",
+  insert: "Evento de audio",
+  stream: "Evento de audio",
 };
 
 const EMPTY_META = { title: "", artist: "", album: "", year: "", genre: "", comment: "", cover: "" };
@@ -42,6 +42,13 @@ function fmtDur(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function addHour(value: string): string {
+  const start = parseHM(value);
+  if (start === null) return "07:00";
+  const total = (start + 60) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function parseHM(value: string): number | null {
@@ -81,7 +88,9 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
     return [
       `De ${event.start} a ${event.end ?? "?"}`,
       daysText(event),
-      event.meta?.title ? `${event.meta.title}${event.meta.artist ? ` · ${event.meta.artist}` : ""}` : "Sin título",
+      event.meta?.title
+        ? `Internet: ${event.meta.title}${event.meta.artist ? ` · ${event.meta.artist}` : ""}`
+        : "Internet sin título",
       hostOf(event.streamUrl ?? ""),
     ];
   }
@@ -89,7 +98,7 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
   return [
     `A las ${event.start}`,
     daysText(event),
-    track ? `${track.title} · ${track.artist}` : "Pista no disponible",
+    track ? `Biblioteca: ${track.title} · ${track.artist}` : "Pista no disponible",
     event.maxWaitSecs > 0
       ? `Máx. ${event.maxWaitSecs} s · ${event.onTimeout === "force" ? "forzar" : "cancelar"}`
       : event.onTimeout === "force"
@@ -265,9 +274,9 @@ export function EventsTab({
         <div>
           <h4>Eventos de programación</h4>
           <p className="hint">
-            Una franja cambia la fuente del AutoDJ a partir de una hora. Un sonido programado se
-            coloca como siguiente a una hora exacta; si el tema actual no termina a tiempo, se
-            puede forzar o cancelar.
+            Una franja cambia la fuente del AutoDJ a partir de una hora. Un evento de audio puede
+            ser una pista de la biblioteca (se coloca como siguiente a una hora exacta) o un audio
+            de internet (se emite durante una franja con sus metadatos).
           </p>
         </div>
         <button type="button" className="btn btn-accent btn-sm" onClick={startNew}>
@@ -284,7 +293,7 @@ export function EventsTab({
 
       {settings.events.length === 0 ? (
         <div className="camp-empty">
-          Todavía no hay eventos. Crea una franja de AutoDJ o un sonido programado.
+          Todavía no hay eventos. Crea una franja de AutoDJ o un evento de audio.
         </div>
       ) : (
         <div className="camp-list">
@@ -416,6 +425,26 @@ function EventEditor({
     set({ kind });
   };
 
+  const setType = (value: "auto" | "audio") => {
+    if (value === "auto") {
+      setKind("auto");
+      return;
+    }
+    if (draft.kind === "auto") setKind("insert");
+  };
+
+  const setSource = (value: "track" | "url") => {
+    if (value === "url") {
+      set({
+        kind: "stream",
+        end: draft.end || addHour(draft.start),
+        fadeSecs: draft.fadeSecs ?? 3,
+      });
+      return;
+    }
+    set({ kind: "insert" });
+  };
+
   const setSourceKind = (sourceKind: StationEventSource) => {
     if (sourceKind === "block") {
       set({ sourceKind, sourceId: blocks[0]?.id ?? "" });
@@ -449,15 +478,26 @@ function EventEditor({
           <label className="field camp-kind-field">
             <span className="field-label">Tipo</span>
             <select
-              value={draft.kind}
-              onChange={(e) => setKind(e.target.value as StationEventKind)}
+              value={draft.kind === "auto" ? "auto" : "audio"}
+              onChange={(e) => setType(e.target.value as "auto" | "audio")}
             >
               <option value="auto">Franja AutoDJ</option>
-              <option value="insert">Sonido programado</option>
-              <option value="stream">Emisión de internet</option>
+              <option value="audio">Evento de audio</option>
             </select>
           </label>
         </div>
+        {draft.kind !== "auto" && (
+          <label className="field">
+            <span className="field-label">Fuente del audio</span>
+            <select
+              value={draft.kind === "stream" ? "url" : "track"}
+              onChange={(e) => setSource(e.target.value as "track" | "url")}
+            >
+              <option value="track">Pista de la biblioteca</option>
+              <option value="url">Audio de internet</option>
+            </select>
+          </label>
+        )}
         <label className="check-field">
           <input
             type="checkbox"
@@ -633,7 +673,7 @@ function EventEditor({
 
       {draft.kind === "insert" && (
         <fieldset className="fieldset">
-          <legend>Sonido que se inserta</legend>
+          <legend>Pista de la biblioteca</legend>
           <div className="camp-spots">
             {!selected && (
               <span className="hint">Elige una pista de la biblioteca o importa un audio.</span>
