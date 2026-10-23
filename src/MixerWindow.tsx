@@ -310,25 +310,30 @@ function Pop({ open, onClose, children }: { open: boolean; onClose: () => void; 
 
 // ------------------------------------------------------------ dispositivos
 
-function useDevices(isNative: boolean) {
-  const [devices, setDevices] = useState<{ inputs: Device[]; outputs: Device[] }>({
+function useDevices(isNative: boolean, revision: string) {
+  const [devices, setDevices] = useState<{ inputs: Device[]; outputs: Device[]; loaded: boolean }>({
     inputs: [],
     outputs: [],
+    loaded: false,
   });
   const refresh = useCallback(async () => {
     try {
-      setDevices(await listAudioDevices(isNative));
+      setDevices({ ...(await listAudioDevices(isNative)), loaded: true });
     } catch {
-      /* sin dispositivos */
+      setDevices((prev) => ({ ...prev, loaded: true }));
     }
   }, [isNative]);
   useEffect(() => {
     void refresh();
-    if (isNative) return;
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
     const media = navigator.mediaDevices;
-    media?.addEventListener?.("devicechange", refresh);
-    return () => media?.removeEventListener?.("devicechange", refresh);
-  }, [refresh, isNative]);
+    if (!isNative) media?.addEventListener?.("devicechange", refresh);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      if (!isNative) media?.removeEventListener?.("devicechange", refresh);
+    };
+  }, [refresh, isNative, revision]);
   return devices;
 }
 
@@ -336,6 +341,7 @@ function useDevices(isNative: boolean) {
 
 export function MixerWindow() {
   const [shared, setShared] = useState<SharedState | null>(null);
+  const [deviceNonce, setDeviceNonce] = useState(0);
   const lastLocalEdit = useRef(0);
   const meters = useRef<MeterMap>(new Map());
   const settingsRef = useRef<Settings | null>(null);
@@ -376,9 +382,20 @@ export function MixerWindow() {
 
   const s = shared?.settings;
   const isNative = s?.audioEngine === "native";
-  const devices = useDevices(!!isNative);
+  const enabledKey = (s?.audioDevices ?? [])
+    .filter((d) => d.enabled)
+    .map((d) => `${d.kind}:${d.id}`)
+    .sort()
+    .join("|");
+  const devices = useDevices(!!isNative, `${enabledKey}#${deviceNonce}`);
   const inputs = visibleDevices(devices.inputs, s?.audioDevices);
   const outputs = visibleDevices(devices.outputs, s?.audioDevices);
+  const availableKeys = new Set(
+    [...devices.inputs, ...devices.outputs].map((d) => `${d.kind}:${d.id}`),
+  );
+  const missingDevices = (s?.audioDevices ?? []).filter(
+    (d) => d.enabled && !availableKeys.has(`${d.kind}:${d.id}`),
+  );
 
   if (!s) {
     return (
@@ -451,8 +468,24 @@ export function MixerWindow() {
         <button type="button" className="btn btn-sm" onClick={addBus}>
           + Bus
         </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          title="Volver a leer las tarjetas del sistema"
+          onClick={() => setDeviceNonce((n) => n + 1)}
+        >
+          Actualizar
+        </button>
         <span className="mx-engine">{isNative ? "Motor nativo" : "Motor web"}</span>
       </MixerTitle>
+      {devices.loaded && missingDevices.length > 0 && (
+        <div className="mx-device-warn">
+          {missingDevices.length === 1
+            ? "1 tarjeta habilitada no aparece en este motor."
+            : `${missingDevices.length} tarjetas habilitadas no aparecen en este motor.`}{" "}
+          Pulsa «Actualizar» o revisa Ajustes &gt; Sonido.
+        </div>
+      )}
       <div className="mx-strips">
         {channels.length === 0 && buses.length === 0 && (
           <div className="mx-empty">

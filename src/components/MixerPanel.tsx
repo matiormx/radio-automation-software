@@ -160,9 +160,11 @@ export function InsertControls({
             </select>
           </label>
           <p className="mixer-insert-hint">
-            {incomplete
-              ? "Elige envío y retorno; mientras tanto el canal suena directo."
-              : "Usa un cable virtual hacia el procesador (p. ej. SuperRack) y otro de vuelta. Añade algo de latencia."}
+            {inputs.length === 0 || outputs.length === 0
+              ? "No hay tarjetas habilitadas. Actívalas en Ajustes > Sonido y pulsa Actualizar en el mixer."
+              : incomplete
+                ? "Elige envío y retorno; mientras tanto el canal suena directo."
+                : "Usa un cable virtual hacia el procesador (p. ej. SuperRack) y otro de vuelta. Añade algo de latencia."}
           </p>
         </div>
       )}
