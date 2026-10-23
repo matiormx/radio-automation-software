@@ -665,7 +665,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             };
             // 1 s a la frecuencia de la entrada (puede ser 96/192 kHz).
             let rate_hint = dev.default_input_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
-            let (prod, cons) = RingBuffer::<f32>::new((rate_hint as usize).saturating_mul(2).max(8192));
+            let (mut prod, cons) = RingBuffer::<f32>::new((rate_hint as usize).saturating_mul(2).max(8192));
             let failed = Arc::new(AtomicBool::new(false));
             match open_input(
                 &dev,
