@@ -110,14 +110,17 @@ pub fn normalize_library(library: Option<&str>) -> String {
     }
 }
 
+/// Audio, o video que se reproduce tal cual (el resto se convierte antes).
 fn is_allowed(path: &Path) -> bool {
-    path.extension()
+    let audio = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| {
             let e = e.to_ascii_lowercase();
             ALLOWED_EXTENSIONS.contains(&e.as_str())
         })
-        .unwrap_or(false)
+        .unwrap_or(false);
+    audio || (crate::video::is_video(path) && !crate::video::needs_conversion(path))
 }
 
 /// Carpeta de musica predefinida por el operador (settings.music_path).
@@ -674,8 +677,12 @@ pub fn import_files(
         }
 
         let (seed_title, seed_artist) = display_name_from_file(&src);
-        let (title, artist, album, genre, year, duration) =
+        let (title, artist, album, genre, year, mut duration) =
             read_metadata(&src, seed_title, seed_artist);
+        if duration <= 0.0 {
+            // Contenedores que lofty no lee (webm…): duracion del audio.
+            duration = crate::engine::pcm::probe_duration(&src).unwrap_or(0.0);
+        }
 
         let ext = src
             .extension()
@@ -688,6 +695,10 @@ pub fn import_files(
         if fs::copy(&src, &dest).is_err() {
             eprintln!("No se pudo copiar {raw}");
             continue;
+        }
+        // Los videos convertidos al importar viven en una carpeta temporal.
+        if src.starts_with(state.data_dir.join(crate::video::CONVERT_DIR)) {
+            let _ = fs::remove_file(&src);
         }
 
         let id = Uuid::new_v4().simple().to_string();

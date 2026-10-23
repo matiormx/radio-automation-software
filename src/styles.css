@@ -3469,3 +3469,24 @@ body {
 .vu-switch { background: none; border: 1px solid transparent; border-radius: 4px; cursor: pointer; padding: 1px 3px; font: inherit; color: inherit; }
 .vu-switch:hover { border-color: var(--line-strong); }
 .vu-switch-on { color: #7fd1a0; border-color: #33603f; }
+
+/* ---------- video ---------- */
+.vs-window { position: fixed; inset: 0; background: #000; overflow: hidden; cursor: none; }
+.vs-root { position: absolute; inset: 0; overflow: hidden; }
+.vs-black { background: #000; }
+.vs-center { display: flex; align-items: center; justify-content: center; }
+.vs-video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.vs-preview { position: absolute; inset: 0; border-radius: inherit; background: #000; }
+.vs-logo { max-width: 40%; max-height: 40%; object-fit: contain; }
+.vs-station { color: #fff; font-size: 6vh; font-weight: 700; letter-spacing: 0.02em; }
+.vs-audio { background: #0b0d12; display: flex; align-items: center; justify-content: center; }
+.vs-bg { position: absolute; inset: -5%; width: 110%; height: 110%; object-fit: cover; filter: blur(40px) brightness(0.45); }
+.vs-card { position: relative; display: flex; align-items: center; gap: 5vh; padding: 5vh; max-width: 90%; }
+.vs-cover { width: 42vh; height: 42vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh #000c; flex: 0 0 auto; }
+.vs-cover-empty { background: linear-gradient(145deg, #242b36, #141920); }
+.vs-text { color: #fff; min-width: 0; }
+.vs-title { font-size: 7vh; font-weight: 800; line-height: 1.1; }
+.vs-artist { font-size: 4.2vh; opacity: 0.85; margin-top: 1.5vh; }
+.vs-station-small { font-size: 2.4vh; opacity: 0.55; margin-top: 4vh; text-transform: uppercase; letter-spacing: 0.1em; }
+.badge-video { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; padding: 0 5px; line-height: 14px; border-radius: 3px; background: #3b2a5c; color: #d9c8ff; flex: 0 0 auto; }
+.vs-error { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 6px; font-size: 10px; color: #fff; background: #000a; text-align: center; }

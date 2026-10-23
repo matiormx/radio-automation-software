@@ -51,6 +51,27 @@ pub fn decode_file(path: &Path, rate: u32) -> Result<Arc<Pcm>, String> {
     Ok(Arc::new(Pcm { rate, data }))
 }
 
+/// Duracion del audio de un archivo (sin decodificarlo) si el contenedor la indica.
+pub fn probe_duration(path: &Path) -> Option<f64> {
+    let src = fs::File::open(path).ok()?;
+    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let probed = symphonia::default::get_probe().format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default()).ok()?;
+    let track = probed.format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL)?;
+    let p = &track.codec_params;
+    match (p.n_frames, p.time_base, p.sample_rate) {
+        (Some(n), Some(tb), _) => {
+            let t = tb.calc_time(n);
+            Some(t.seconds as f64 + t.frac)
+        }
+        (Some(n), None, Some(sr)) if sr > 0 => Some(n as f64 / sr as f64),
+        _ => None,
+    }
+}
+
 /// Decodifica a estereo entrelazado en la frecuencia original del archivo.
 fn decode_native(path: &Path) -> Result<(u32, Vec<f32>), String> {
     let src = fs::File::open(path).map_err(|e| format!("No se pudo abrir el archivo: {e}"))?;

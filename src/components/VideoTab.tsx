@@ -1,5 +1,8 @@
 import type { Settings, VideoInput, VideoInputKind, VideoOutput, VideoOutputKind } from "../types";
 import { IconPlus, IconTrash } from "../icons";
+import { useEffect, useState } from "react";
+import { listMonitors, type MonitorInfo } from "../bridge";
+import { DEFAULT_SETTINGS } from "../types";
 
 interface Props {
   settings: Settings;
@@ -65,8 +68,57 @@ export function VideoTab({ settings, onChange }: Props) {
   const updateOutput = (id: string, patch: Partial<VideoOutput>) =>
     set({ outputs: v.outputs.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
 
+  const vs = settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+  const setVs = (patch: Partial<typeof vs>) => onChange({ ...settings, videoScreen: { ...vs, ...patch } });
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  useEffect(() => {
+    void listMonitors().then(setMonitors);
+  }, []);
+
   return (
     <>
+      <div className="camp-head">
+        <div>
+          <h4>Vídeos de la lista</h4>
+          <p className="hint">
+            Los vídeos de la biblioteca (mp4, m4v, mov, avi, mkv…) suenan en la lista como cualquier canción: su audio
+            pasa por la mesa. La imagen se ve en la zona «En el aire» y, si la activas, en una ventana de vídeo a
+            pantalla completa en el monitor que elijas (HDMI, proyector o captura de OBS).
+          </p>
+        </div>
+      </div>
+      <fieldset className="fieldset">
+        <legend>Ventana de vídeo de la emisión</legend>
+        <label className="check-field">
+          <input type="checkbox" checked={vs.enabled} onChange={(e) => setVs({ enabled: e.target.checked })} />
+          Mostrar la ventana de vídeo
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span className="field-label">Monitor</span>
+            <select value={vs.monitor} onChange={(e) => setVs({ monitor: Number(e.target.value) })}>
+              {monitors.length === 0 && <option value={vs.monitor}>Pantalla {vs.monitor + 1}</option>}
+              {monitors.map((m) => (
+                <option key={m.index} value={m.index}>
+                  {m.index + 1}: {m.name} ({m.width}×{m.height})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Mientras suena audio</span>
+            <select value={vs.audioMode} onChange={(e) => setVs({ audioMode: e.target.value as typeof vs.audioMode })}>
+              <option value="cover">Portada, título y artista</option>
+              <option value="logo">Logo de la emisora</option>
+              <option value="black">Negro</option>
+            </select>
+          </label>
+        </div>
+        <p className="hint">
+          En otro monitor se abre a pantalla completa. Doble clic o tecla F: pantalla completa; Esc: salir de pantalla
+          completa.
+        </p>
+      </fieldset>
       <div className="camp-head">
         <div>
           <h4>Vídeo y mezcla</h4>

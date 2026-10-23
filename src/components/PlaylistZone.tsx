@@ -340,6 +340,7 @@ export function PlaylistZone({
               <button type="button" className="plrow-main" onClick={() => onPlayRow(i)} title="Emitir desde esta pista">
                 <span className="plrow-line">
                   <span className="plrow-title">{r.title}</span>
+                  {r.video && <span className="badge-video">VÍDEO</span>}
                   {autoIds.has(r.id) && <span className="badge-auto">AUTO</span>}
                   {i === playingRow && <span className="badge-live">AL AIRE</span>}
                   {i === nextRow && <span className="badge-next">SIGUIENTE</span>}

@@ -12,6 +12,22 @@ const HISTORY_FILE: &str = "history.json";
 const SESSION_FILE: &str = "session.json";
 const MAX_HISTORY: usize = 800;
 
+/// Ventana de video de la emision (pantalla completa en un monitor).
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoScreenSettings {
+    pub enabled: bool,
+    pub monitor: u32,
+    /// "cover" | "logo" | "black"
+    pub audio_mode: String,
+}
+
+impl Default for VideoScreenSettings {
+    fn default() -> Self {
+        VideoScreenSettings { enabled: false, monitor: 1, audio_mode: "cover".into() }
+    }
+}
+
 /// Intros: audios de un bloque especial que suenan sobre el hueco entre el
 /// inicio de la cancion y su punto de intro.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -57,6 +73,8 @@ pub struct Settings {
     pub intros: IntroSettings,
     /// VU de la pantalla principal: "master" o "streaming"
     pub vu_source: String,
+    /// Ventana de video de la emision
+    pub video_screen: VideoScreenSettings,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -558,6 +576,7 @@ impl Default for Settings {
             notifications: Vec::new(),
             intros: IntroSettings::default(),
             vu_source: "master".into(),
+            video_screen: VideoScreenSettings::default(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,

@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { Track } from "./types";
 import type { SoundMixer } from "./mixer";
 
@@ -521,10 +521,19 @@ export class RadioPlayer {
     if (inFlight) return inFlight;
     const job = (async (): Promise<AudioBuffer | null> => {
       try {
-        const res = await fetch(convertFileSrc(track.file));
-        if (!res.ok) return null;
-        const bytes = await res.arrayBuffer();
-        const buffer = await this.ctx!.decodeAudioData(bytes);
+        let buffer: AudioBuffer;
+        try {
+          const res = await fetch(convertFileSrc(track.file));
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          buffer = await this.ctx!.decodeAudioData(await res.arrayBuffer());
+        } catch {
+          // El WebView no sabe decodificarlo (p. ej. el audio de un video):
+          // MiRadio lo decodifica y se usa una copia WAV en cache.
+          const wav = await invoke<string>("audio_fallback", { path: track.file });
+          const res = await fetch(convertFileSrc(wav));
+          if (!res.ok) return null;
+          buffer = await this.ctx!.decodeAudioData(await res.arrayBuffer());
+        }
         if (!this.cache.has(track.id)) {
           this.cache.set(track.id, buffer);
           this.trimCache();

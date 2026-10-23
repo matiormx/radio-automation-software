@@ -1,5 +1,5 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { currentMonitor, getCurrentWindow, LogicalSize, type Window } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize, type Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /**
@@ -10,9 +10,84 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type ToolKind = "settings" | "mixer" | "library";
 
-export function toolKind(): ToolKind | null {
+export function toolKind(): ToolKind | "videoout" | null {
   const w = new URLSearchParams(window.location.search).get("w");
-  return w === "settings" || w === "mixer" || w === "library" ? w : null;
+  return w === "settings" || w === "mixer" || w === "library" || w === "videoout" ? w : null;
+}
+
+// ------------------------------------------------------------ video de emision
+
+export interface MonitorInfo {
+  index: number;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export async function listMonitors(): Promise<MonitorInfo[]> {
+  try {
+    const ms = await availableMonitors();
+    return ms.map((m, index) => ({
+      index,
+      name: m.name ?? `Pantalla ${index + 1}`,
+      width: Math.round(m.size.width / m.scaleFactor),
+      height: Math.round(m.size.height / m.scaleFactor),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Abre (o mueve) la ventana de video a pantalla completa en el monitor elegido. */
+export async function openVideoOut(monitor: number): Promise<boolean> {
+  try {
+    const ms = await availableMonitors();
+    const m = ms[monitor] ?? ms[0];
+    const sf = m?.scaleFactor ?? 1;
+    const x = m ? m.position.x / sf : 0;
+    const y = m ? m.position.y / sf : 0;
+    const w = m ? m.size.width / sf : 1280;
+    const h = m ? m.size.height / sf : 720;
+    let win = await WebviewWindow.getByLabel("videoout");
+    if (!win) {
+      win = new WebviewWindow("videoout", {
+        url: "index.html?w=videoout",
+        title: "Vídeo — MiRadio",
+        x,
+        y,
+        width: w,
+        height: h,
+        decorations: false,
+        shadow: false,
+        focus: false,
+        dragDropEnabled: false,
+      });
+      const created = await new Promise<boolean>((resolve) => {
+        void win!.once("tauri://created", () => resolve(true));
+        void win!.once("tauri://error", () => resolve(false));
+      });
+      if (!created) return false;
+    } else {
+      await win.setFullscreen(false).catch(() => undefined);
+      await win.setPosition(new LogicalPosition(x, y)).catch(() => undefined);
+      await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
+      await win.show().catch(() => undefined);
+    }
+    // En un monitor aparte, pantalla completa; en el mismo, ventana normal.
+    if (ms.length > 1) await win.setFullscreen(true).catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function closeVideoOut(): Promise<void> {
+  try {
+    const win = await WebviewWindow.getByLabel("videoout");
+    await win?.destroy();
+  } catch {
+    /* ya cerrada */
+  }
 }
 
 const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: number; minWidth: number; minHeight: number }> = {

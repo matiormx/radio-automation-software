@@ -399,7 +399,7 @@ fn stop_all(inner: &mut EngineInner) {
     }
 }
 
-fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
+pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(raw) = std::env::var("MIRADIO_FFMPEG") {
         let raw = raw.trim();
@@ -781,13 +781,13 @@ fn sanitize_error(line: &str) -> String {
 }
 
 #[cfg(windows)]
-fn configure_no_window(command: &mut Command) {
+pub(crate) fn configure_no_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
 #[cfg(not(windows))]
-fn configure_no_window(_command: &mut Command) {}
+pub(crate) fn configure_no_window(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {

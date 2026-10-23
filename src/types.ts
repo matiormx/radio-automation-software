@@ -143,6 +143,8 @@ export interface Playlist {
 
 export interface PlaylistRow {
   id: string;
+  /** Es un video */
+  video?: boolean;
   title: string;
   artist: string;
   album: string;
@@ -309,6 +311,15 @@ export interface VideoSettings {
   outputs: VideoOutput[];
 }
 
+/** Ventana de video de la emision (los videos de la lista, en pantalla). */
+export interface VideoScreenSettings {
+  enabled: boolean;
+  /** Monitor (indice en la lista del sistema) */
+  monitor: number;
+  /** Con canciones de audio: portada y titulo, logo o negro */
+  audioMode: "cover" | "logo" | "black";
+}
+
 export type IcecastCodec = "flac" | "aac";
 
 export interface IcecastStream {
@@ -457,6 +468,7 @@ export interface Settings {
   intros: IntroSettings;
   /** El VU de la pantalla principal mide la salida general o la de streaming */
   vuSource: "master" | "streaming";
+  videoScreen: VideoScreenSettings;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -520,6 +532,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: [],
   intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
   vuSource: "master",
+  videoScreen: { enabled: false, monitor: 1, audioMode: "cover" },
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,

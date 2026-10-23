@@ -25,7 +25,7 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lofty = "0.25"
-symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "wav", "ogg", "pcm", "alac"] }
+symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "wav", "ogg", "pcm", "alac", "mkv"] }
 ebur128-stream = "0.2"
 ureq = "2"
 rubato = "0.16"

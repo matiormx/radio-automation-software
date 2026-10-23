@@ -43,6 +43,8 @@ fn skipped(rel: &str) -> bool {
             | "hsts-storage.sqlite"
             | "databases"
             | "IndexedDB"
+            | "audio-cache"
+            | "convert-tmp"
     ) || rel.ends_with(".tmp")
 }
 

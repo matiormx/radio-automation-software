@@ -20,6 +20,35 @@ import type {
   Waveform,
 } from "./types";
 
+export const VIDEO_EXTENSIONS = [
+  "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "asf", "mpg", "mpeg", "m2v", "flv", "f4v", "3gp", "ts", "m2ts", "mts", "vob", "ogv",
+];
+/** Videos que se reproducen tal cual; el resto se convierte a MP4 al importar. */
+export const NATIVE_VIDEO = ["mp4", "m4v", "mov", "webm"];
+
+function extOfPath(path: string): string {
+  const dot = path.lastIndexOf(".");
+  return dot < 0 ? "" : path.slice(dot + 1).toLowerCase();
+}
+
+export function isVideoFile(path: string): boolean {
+  return VIDEO_EXTENSIONS.includes(extOfPath(path));
+}
+
+export function needsVideoConversion(path: string): boolean {
+  return isVideoFile(path) && !NATIVE_VIDEO.includes(extOfPath(path));
+}
+
+export interface ConvertedVideo {
+  source: string;
+  output: string | null;
+  error: string | null;
+}
+
+export function convertVideos(paths: string[]): Promise<ConvertedVideo[]> {
+  return invoke<ConvertedVideo[]>("convert_videos", { paths });
+}
+
 export const AUDIO_EXTENSIONS = [
   "mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "aif", "aiff", "wma", "webm",
 ];
@@ -290,7 +319,11 @@ export function trackUrl(track: { file: string }): string {
 export async function pickAudioFiles(): Promise<string[] | null> {
   return openDialog({
     multiple: true,
-    filters: [{ name: "Audio", extensions: [...AUDIO_EXTENSIONS] }],
+    filters: [
+      { name: "Audio y vídeo", extensions: [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS] },
+      { name: "Audio", extensions: [...AUDIO_EXTENSIONS] },
+      { name: "Vídeo", extensions: [...VIDEO_EXTENSIONS] },
+    ],
   });
 }
 
@@ -301,7 +334,11 @@ export async function pickFolder(): Promise<string | null> {
 export async function pickSingleAudioFile(): Promise<string | null> {
   return openDialog({
     multiple: false,
-    filters: [{ name: "Audio", extensions: [...AUDIO_EXTENSIONS] }],
+    filters: [
+      { name: "Audio y vídeo", extensions: [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS] },
+      { name: "Audio", extensions: [...AUDIO_EXTENSIONS] },
+      { name: "Vídeo", extensions: [...VIDEO_EXTENSIONS] },
+    ],
   });
 }
 

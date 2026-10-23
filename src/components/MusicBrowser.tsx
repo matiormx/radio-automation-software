@@ -13,6 +13,7 @@ import {
   pickSingleAudioFile,
   pickPlaylistFile,
   importPlaylist,
+  isVideoFile,
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
 import {
@@ -676,6 +677,7 @@ export function MusicBrowser({
                           {languageFlag(t.language)}
                         </span>
                       )}
+                      {isVideoFile(t.file) && <span className="badge-video">VÍDEO</span>}
                       {t.library === "b" && <span className="chip chip-lib">B</span>}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
                     </span>
@@ -756,7 +758,7 @@ export function MusicBrowser({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <button type="button" className="btn btn-sm" onClick={onPickFiles} title="Importar archivos de audio">
+        <button type="button" className="btn btn-sm" onClick={onPickFiles} title="Importar archivos de audio o vídeo">
           <IconImport size={14} />
           Importar
         </button>

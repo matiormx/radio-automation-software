@@ -21,6 +21,10 @@ import {
   reportStarted,
   autoPick,
   AUDIO_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+  convertVideos,
+  isVideoFile,
+  needsVideoConversion,
   setTracksLibrary,
   pickImageFile,
   setBrandingLogo,
@@ -72,7 +76,8 @@ import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { NativePlayer } from "./nativeEngine";
-import { openToolWindow, prewarmToolWindow, publishState, serveMain } from "./bridge";
+import { closeVideoOut, openToolWindow, openVideoOut, prewarmToolWindow, publishState, serveMain } from "./bridge";
+import type { VideoState } from "./videoSurface";
 import { apiApply, apiPublish, backupLastImportLog, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
@@ -176,7 +181,8 @@ function fmtDuration(secs: number): string {
 function extOk(path: string): boolean {
   const dot = path.lastIndexOf(".");
   if (dot < 0) return false;
-  return AUDIO_EXTENSIONS.includes(path.slice(dot + 1).toLowerCase());
+  const ext = path.slice(dot + 1).toLowerCase();
+  return AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext);
 }
 
 /** Filas de una lista con los datos de la biblioteca (pistas que existen). */
@@ -195,6 +201,7 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
             durationSecs: effectiveDuration(t),
             cover: t.cover,
             blocks: t.blocks,
+            video: isVideoFile(t.file),
           },
         ]
       : [];
@@ -949,13 +956,31 @@ export default function App() {
   // Arrastrar archivos desde el escritorio
   const doImport = useCallback(
     async (paths: string[], library: "a" | "b" = "a") => {
-      const ok = paths.filter(extOk);
+      let ok = paths.filter(extOk);
       if (ok.length === 0) {
-        showToast("Formato no reconocido. Usa audio: mp3, wav, flac, ogg, m4a…");
+        showToast("Formato no reconocido. Usa audio (mp3, wav, flac, m4a…) o vídeo (mp4, m4v, mov, avi, mkv…)");
         return;
       }
       setImporting(true);
       try {
+        // Los videos que el reproductor no abre (avi, wmv, mkv…) se pasan a MP4.
+        const toConvert = ok.filter(needsVideoConversion);
+        if (toConvert.length > 0) {
+          showToast(`Convirtiendo ${toConvert.length === 1 ? "1 vídeo" : `${toConvert.length} vídeos`} a MP4…`);
+          const off = listen<{ index: number; total: number; name: string; fraction: number }>("video://convert", (e) => {
+            const p = e.payload;
+            showToast(`Convirtiendo vídeo ${p.index + 1}/${p.total}: ${p.name} ${Math.round(p.fraction * 100)}%`);
+          });
+          try {
+            const res = await convertVideos(toConvert);
+            const failed = res.filter((r) => !r.output);
+            ok = ok.filter((p) => !needsVideoConversion(p)).concat(res.flatMap((r) => (r.output ? [r.output] : [])));
+            if (failed.length > 0) showToast(`No se pudo convertir ${failed[0].source.split(/[\\/]/).pop()}: ${failed[0].error ?? ""}`);
+          } finally {
+            void off.then((f) => f());
+          }
+        }
+        if (ok.length === 0) return;
         const added = await importFiles(ok, library);
         setTracks(await listTracks());
         const where = library === "b" ? " a la biblioteca B" : "";
@@ -2252,6 +2277,45 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // ---- video: lo que suena, para la vista previa y la ventana de emision ----
+  const videoSource = useCallback((): VideoState | null => {
+    const idx = playingRowRef.current;
+    const row = idx >= 0 ? rowsRef.current[idx] : undefined;
+    const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
+    if (!t) return null;
+    const s = settingsRef.current;
+    const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+    return {
+      trackId: t.id,
+      file: t.file,
+      isVideo: isVideoFile(t.file),
+      pos: Math.max(0, t.trimStart || 0) + exactPosRef.current.cur,
+      playing: !pausedNowRef.current,
+      title: t.title,
+      artist: t.artist,
+      cover: t.cover,
+      audioMode: vs.audioMode,
+      logo: s.logoPath ?? "",
+      stationName: s.radioName ?? "",
+    };
+  }, []);
+  // Ventana de video: se abre/cierra con el ajuste y recibe el estado 5 veces por segundo.
+  const videoScreen = settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+  useEffect(() => {
+    if (!videoScreen.enabled) {
+      void closeVideoOut();
+      return;
+    }
+    void openVideoOut(videoScreen.monitor).then((ok) => {
+      if (!ok) showToast("No se pudo abrir la ventana de vídeo");
+    });
+    const t = window.setInterval(() => {
+      const st = videoSource();
+      if (st) void emitEvent("video://state", st);
+    }, 200);
+    return () => window.clearInterval(t);
+  }, [videoScreen.enabled, videoScreen.monitor, videoSource, showToast]);
+
   // Resultado de una importacion de copia de seguridad aplicada al arrancar.
   useEffect(() => {
     void backupLastImportLog()
@@ -2489,6 +2553,8 @@ export default function App() {
             nextCover={nextRow?.cover ?? ""}
             nextDuration={nextRow?.durationSecs ?? 0}
             onSeek={seek}
+            isVideo={!!deckRow && isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")}
+            videoSource={videoSource}
           />
           <PlaylistZone
             playlists={playlists}

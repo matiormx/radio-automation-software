@@ -14,6 +14,7 @@ pub mod nowplaying;
 pub mod notify;
 pub mod streaming;
 pub mod update;
+pub mod video;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -102,6 +103,8 @@ pub fn run() {
             engine::engine_devices,
             rbapi::api_publish,
             notify::notify_fire,
+            video::convert_videos,
+            video::audio_fallback,
             backup::backup_export,
             backup::backup_inspect,
             backup::backup_import,

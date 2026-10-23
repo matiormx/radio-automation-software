@@ -1,3 +1,4 @@
+import { VideoSurface, type VideoState } from "../videoSurface";
 import { useEffect, useRef, useState } from "react";
 import { trackUrl } from "../api";
 import { IconNote } from "../icons";
@@ -16,6 +17,9 @@ interface DeckZoneProps {
   nextCover: string;
   nextDuration: number;
   onSeek: (seconds: number) => void;
+  /** La pista que suena es un video: se ve en lugar de la portada */
+  isVideo?: boolean;
+  videoSource?: () => VideoState | null;
 }
 
 function fmtTime(secs: number): string {
@@ -57,6 +61,8 @@ export function DeckZone({
   nextCover,
   nextDuration,
   onSeek,
+  isVideo,
+  videoSource,
 }: DeckZoneProps) {
   // Posicion que el operador esta arrastrando (aun sin soltar).
   const [scrub, setScrub] = useState<number | null>(null);
@@ -95,7 +101,13 @@ export function DeckZone({
   return (
     <section className="panel deck" aria-label="Emisión">
       <div className="deck-now">
-        <Cover src={cover} className="deck-cover" />
+        {isVideo && videoSource ? (
+          <div className="deck-cover deck-video" title="Vídeo en el aire">
+            <VideoSurface source={videoSource} output={false} />
+          </div>
+        ) : (
+          <Cover src={cover} className="deck-cover" />
+        )}
         <div className="deck-main">
           <div className="deck-label-row">
             <span className={`live-dot ${spinning ? "live-on" : ""}`} aria-hidden="true" />
