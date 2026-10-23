@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { effectiveDuration } from "../types";
 import { IconPlus, IconTrash } from "../icons";
+import { pickImageFile, trackUrl } from "../api";
 
 const DAYS: { value: number; label: string; long: string }[] = [
   { value: 1, label: "L", long: "lunes" },
@@ -24,7 +25,18 @@ const DAYS: { value: number; label: string; long: string }[] = [
 const KIND_LABEL: Record<StationEventKind, string> = {
   auto: "Franja AutoDJ",
   insert: "Sonido programado",
+  stream: "Emisión de internet",
 };
+
+const EMPTY_META = { title: "", artist: "", album: "", year: "", genre: "", comment: "", cover: "" };
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url.split(/[\\/]/).pop() || url;
+  }
+}
 
 function fmtDur(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -63,6 +75,14 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
       `Desde las ${event.start}`,
       daysText(event),
       `Fuente: ${sourceLabel(event, blocks)}`,
+    ];
+  }
+  if (event.kind === "stream") {
+    return [
+      `De ${event.start} a ${event.end ?? "?"}`,
+      daysText(event),
+      event.meta?.title ? `${event.meta.title}${event.meta.artist ? ` · ${event.meta.artist}` : ""}` : "Sin título",
+      hostOf(event.streamUrl ?? ""),
     ];
   }
   const track = byId.get(event.trackId);
@@ -145,7 +165,26 @@ export function EventsTab({
       setError("La hora de inicio no es válida.");
       return;
     }
-    if (draft.kind === "auto") {
+    if (draft.kind === "stream") {
+      const end = parseHM(draft.end ?? "");
+      if (end === null) {
+        setError("La hora de fin no es válida.");
+        return;
+      }
+      if (end === start) {
+        setError("La hora de fin debe ser distinta de la de inicio.");
+        return;
+      }
+      const url = (draft.streamUrl ?? "").trim();
+      if (!/^(https?|rtmp|rtsp|srt):\/\//i.test(url) && !/^([a-z]:\\|\/|\\\\)/i.test(url)) {
+        setError("Escribe la dirección del audio (http/https…) o la ruta de un archivo.");
+        return;
+      }
+      if (!(draft.meta?.title ?? "").trim()) {
+        setError("Ponle al menos un título a lo que se mostrará.");
+        return;
+      }
+    } else if (draft.kind === "auto") {
       if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
         setError("Elige un bloque musical para la franja.");
         return;
@@ -415,6 +454,7 @@ function EventEditor({
             >
               <option value="auto">Franja AutoDJ</option>
               <option value="insert">Sonido programado</option>
+              <option value="stream">Emisión de internet</option>
             </select>
           </label>
         </div>
@@ -452,16 +492,42 @@ function EventEditor({
 
         <div className="field-row">
           <label className="field">
-            <span className="field-label">{draft.kind === "auto" ? "Empieza" : "Hora exacta"}</span>
+            <span className="field-label">{draft.kind === "insert" ? "Hora exacta" : "Empieza"}</span>
             <input
               type="time"
               value={draft.start}
               onChange={(e) => set({ start: e.target.value })}
             />
           </label>
+          {draft.kind === "stream" && (
+            <>
+              <label className="field">
+                <span className="field-label">Termina</span>
+                <input type="time" value={draft.end ?? ""} onChange={(e) => set({ end: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field-label">Fundido</span>
+                <span className="field-unit">
+                  <input
+                    type="number"
+                    min={0}
+                    max={30}
+                    value={draft.fadeSecs ?? 3}
+                    onChange={(e) => set({ fadeSecs: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
+                  />
+                  s
+                </span>
+              </label>
+            </>
+          )}
         </div>
 
-        {draft.kind === "auto" ? (
+        {draft.kind === "stream" ? (
+          <p className="hint">
+            A la hora de inicio la música se funde y entra el audio de internet; a la hora de fin se funde y la lista
+            sigue con la siguiente canción. Si la hora de fin es menor que la de inicio, termina al día siguiente.
+          </p>
+        ) : draft.kind === "auto" ? (
           <p className="hint">
             La franja empieza a esa hora y se mantiene hasta que empiece otro evento. Las próximas
             canciones que elija el AutoDJ saldrán de la fuente indicada; la cola que ya está
@@ -629,6 +695,10 @@ function EventEditor({
         </fieldset>
       )}
 
+      {draft.kind === "stream" && (
+        <StreamFields draft={draft} set={set} />
+      )}
+
       {error && <div className="form-error">{error}</div>}
 
       <div className="edit-actions">
@@ -641,5 +711,70 @@ function EventEditor({
         </button>
       </div>
     </div>
+  );
+}
+
+function StreamFields({ draft, set }: { draft: StationEvent; set: (patch: Partial<StationEvent>) => void }) {
+  const meta = { ...EMPTY_META, ...(draft.meta ?? {}) };
+  const setMeta = (patch: Partial<typeof meta>) => set({ meta: { ...meta, ...patch } });
+  const field = (key: keyof typeof meta, label: string, placeholder = "") => (
+    <label className="field" key={key}>
+      <span className="field-label">{label}</span>
+      <input type="text" value={meta[key]} placeholder={placeholder} maxLength={200} onChange={(e) => setMeta({ [key]: e.target.value })} />
+    </label>
+  );
+  return (
+    <>
+      <fieldset className="fieldset">
+        <legend>Audio de internet</legend>
+        <label className="field">
+          <span className="field-label">Dirección</span>
+          <input
+            type="text"
+            value={draft.streamUrl ?? ""}
+            placeholder="https://servidor/stream.mp3, …/playlist.m3u8 o la ruta de un archivo"
+            spellCheck={false}
+            onChange={(e) => set({ streamUrl: e.target.value })}
+          />
+        </label>
+        <p className="hint">
+          Vale cualquier cosa que abra FFmpeg: Icecast/Shoutcast, HLS (.m3u8), MP3/AAC por HTTP, RTMP o un archivo. Si
+          la conexión se corta, se reintenta sola. Hace falta FFmpeg junto a MiRadio.
+        </p>
+      </fieldset>
+      <fieldset className="fieldset">
+        <legend>Lo que se muestra mientras suena</legend>
+        <div className="stream-meta">
+          <button
+            type="button"
+            className="stream-cover"
+            title="Elegir la portada"
+            onClick={() => void pickImageFile().then((p) => p && setMeta({ cover: p }))}
+          >
+            {meta.cover ? <img src={trackUrl({ file: meta.cover })} alt="" /> : <span>Elegir portada</span>}
+          </button>
+          <div className="stream-meta-fields">
+            <div className="field-row">
+              {field("title", "Título", "Nombre del programa")}
+              {field("artist", "Artista", "Presentador o emisora")}
+            </div>
+            <div className="field-row">
+              {field("album", "Álbum")}
+              {field("year", "Año")}
+              {field("genre", "Género")}
+            </div>
+            {field("comment", "Comentario")}
+            {meta.cover && (
+              <button type="button" className="ghost-btn" onClick={() => setMeta({ cover: "" })}>
+                Quitar portada
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="hint">
+          Se usan como los de una canción: zona «En emisión», archivos nowplaying, API, notificaciones y ventana de vídeo.
+        </p>
+      </fieldset>
+    </>
   );
 }

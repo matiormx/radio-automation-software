@@ -174,7 +174,19 @@ export interface Campaign {
   lastFired: string;
 }
 
-export type StationEventKind = "auto" | "insert";
+export type StationEventKind = "auto" | "insert" | "stream";
+
+/** Datos que se muestran mientras suena una emision de internet (como una cancion). */
+export interface StreamMeta {
+  title: string;
+  artist: string;
+  album: string;
+  year: string;
+  genre: string;
+  comment: string;
+  /** Ruta de la portada */
+  cover: string;
+}
 export type StationEventSource = "block" | "library";
 export type StationEventTimeout = "force" | "cancel";
 
@@ -196,6 +208,14 @@ export interface StationEvent {
   onTimeout: StationEventTimeout;
   /** Última emisión "YYYY-MM-DD HH:MM" */
   lastFired: string;
+  /** stream: hora de fin HH:MM (si es menor que el inicio, termina al día siguiente) */
+  end?: string;
+  /** stream: dirección del audio (Icecast, HLS .m3u8, MP3/AAC por HTTP…) o un archivo */
+  streamUrl?: string;
+  /** stream: fundido de entrada y salida (s) */
+  fadeSecs?: number;
+  /** stream: datos que se muestran mientras suena */
+  meta?: StreamMeta;
 }
 
 export type MixerAppSource = "music" | "preview" | "call";

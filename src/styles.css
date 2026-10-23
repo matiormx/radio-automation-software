@@ -3538,3 +3538,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .chat-pin-on { color: var(--accent); }
 @media (max-height: 820px) { .chat-panel { flex-basis: 220px; } }
 .chat-head .spacer { flex: 1; }
+.stream-meta { display: flex; gap: 14px; align-items: flex-start; }
+.stream-cover { flex: 0 0 120px; width: 120px; height: 120px; border-radius: 8px; border: 1px dashed var(--line-strong); background: var(--panel-2); color: var(--text-dim); font: inherit; font-size: 11px; cursor: pointer; overflow: hidden; padding: 0; }
+.stream-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stream-meta-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.camp-kind-stream { background: #2a3b5c; color: #cfe0ff; }
+.live-chip { display: flex; align-items: center; gap: 8px; background: #3a1f22; border-color: #7a3b3b; }

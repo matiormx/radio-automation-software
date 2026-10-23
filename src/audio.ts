@@ -48,7 +48,7 @@ function normGainOf(t: Track): number {
   return Math.min(16, Math.max(0.01, 10 ** (db / 20)));
 }
 
-const EMPTY_TRACK: Track = {
+export const EMPTY_TRACK: Track = {
   id: "",
   title: "",
   artist: "",
@@ -458,6 +458,136 @@ export class RadioPlayer {
     if (!buffer || generation !== this.playGeneration) return;
     this.pausedOffset = null;
     this.startDeck(track, buffer, position);
+  }
+
+  // ------------------------------------------------------------ directo (eventos)
+
+  private live: { gain: GainNode; node: AudioWorkletNode; abort: AbortController } | null = null;
+  private liveModule: Promise<void> | null = null;
+  /** Avisos del audio en directo: "started", "error" (con mensaje) */
+  onLive: ((state: string, message: string) => void) | null = null;
+
+  /** Pausa con fundido (entra un evento en directo). */
+  fadePause(secs: number) {
+    const ctx = this.ctx;
+    const deck = this.activeDeck();
+    if (!ctx || !deck) return;
+    this.playGeneration += 1;
+    const pos = ctx.currentTime - deck.startedAt + deck.from;
+    this.pausedOffset = Math.max(deck.from, Math.min(deck.end, pos));
+    this.onTick?.(this.pausedOffset - deck.offset, deck.end - deck.offset);
+    const old = SLOTS.map((slot) => this.decks[slot]).filter((d): d is Deck => d !== null);
+    for (const d of old) {
+      d.source.onended = null;
+      this.fadeOutAndStop(d, Math.max(0.05, secs));
+    }
+    this.decks = { a: null, b: null, c: null };
+    this.currentSlot = "a";
+    this.fading = false;
+    this.stopRaf();
+  }
+
+  /** Audio de internet (o archivo) en directo, con fundido de entrada. */
+  async startLive(source: string, fadeIn: number): Promise<void> {
+    this.stopLive(0.05);
+    this.ensureCtx();
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    await this.mixer.resume();
+    if (!this.liveModule) this.liveModule = ctx.audioWorklet.addModule(new URL("/pcm-player.js", window.location.href).href);
+    await this.liveModule;
+    let url: string;
+    try {
+      url = await invoke<string>("netstream_url", { source, rate: Math.round(ctx.sampleRate) });
+    } catch (e) {
+      this.onLive?.("error", String(e));
+      return;
+    }
+    const rate = ctx.sampleRate;
+    const node = new AudioWorkletNode(ctx, "pcm-player", {
+      numberOfInputs: 0,
+      outputChannelCount: [2],
+      processorOptions: { capacity: Math.round(rate * 2 * 40), prebuffer: Math.round(rate * 2 * 0.8) },
+    });
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(1, now + Math.max(0.05, fadeIn));
+    node.connect(gain);
+    gain.connect(this.master);
+    const abort = new AbortController();
+    const live = { gain, node, abort };
+    this.live = live;
+    let consumed = 0;
+    node.port.onmessage = (e) => {
+      if (typeof e.data?.consumed === "number") consumed = e.data.consumed;
+    };
+    const ahead = rate * 2 * 10; // como mucho 10 s por delante
+    void (async () => {
+      let sent = 0;
+      let got = false;
+      try {
+        const res = await fetch(url, { signal: abort.signal });
+        if (!res.ok || !res.body) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
+        this.onLive?.("started", "");
+        const reader = res.body.getReader();
+        let carry = new Uint8Array(0);
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          let bytes = value;
+          if (carry.length) {
+            const joined = new Uint8Array(carry.length + value.length);
+            joined.set(carry);
+            joined.set(value, carry.length);
+            bytes = joined;
+          }
+          const whole = bytes.length - (bytes.length % 8);
+          carry = bytes.slice(whole);
+          if (whole === 0) continue;
+          const f32 = new Float32Array(bytes.slice(0, whole).buffer);
+          got = true;
+          // No mandar mas de 10 s por delante de lo que ya ha sonado.
+          while (sent - consumed > ahead && !abort.signal.aborted) await new Promise((r) => setTimeout(r, 50));
+          if (abort.signal.aborted) break;
+          node.port.postMessage(f32, [f32.buffer]);
+          sent += f32.length;
+        }
+        if (!abort.signal.aborted) this.onLive?.("error", got ? "La emisión de internet se ha cortado" : "No se pudo abrir la emisión de internet");
+      } catch (e) {
+        if (!abort.signal.aborted) this.onLive?.("error", e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }
+
+  /** Termina el directo con fundido de salida. */
+  stopLive(fadeOut: number) {
+    const live = this.live;
+    if (!live || !this.ctx) return;
+    this.live = null;
+    const now = this.ctx.currentTime;
+    const dur = Math.max(0.05, fadeOut);
+    try {
+      live.gain.gain.cancelScheduledValues(now);
+      live.gain.gain.setValueAtTime(Math.max(0.0001, live.gain.gain.value), now);
+      live.gain.gain.linearRampToValueAtTime(0.0001, now + dur);
+    } catch {
+      /* ignore */
+    }
+    window.setTimeout(() => {
+      live.abort.abort();
+      try {
+        live.node.disconnect();
+        live.gain.disconnect();
+      } catch {
+        /* ya desconectado */
+      }
+    }, dur * 1000 + 100);
+  }
+
+  get liveActive(): boolean {
+    return this.live !== null;
   }
 
   private ensureCtx() {

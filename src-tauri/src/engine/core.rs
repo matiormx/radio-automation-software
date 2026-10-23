@@ -82,6 +82,9 @@ impl Core {
             let s = n * 2;
             self.music[..s].iter_mut().for_each(|x| *x = 0.0);
             self.play.voices.render(self.play.now, &mut self.music[..s]);
+            if let Some(live) = self.play.live.as_mut() {
+                live.mix(self.play.now, &mut self.music[..s]);
+            }
             let rate = self.play.rate;
             self.play.music_ms = ema(self.play.music_ms, mean_square(&self.music[..s]), n, rate);
             self.plan.render(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[]);

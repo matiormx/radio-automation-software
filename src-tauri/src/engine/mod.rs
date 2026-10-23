@@ -6,6 +6,7 @@
 pub mod core;
 pub mod graph;
 pub mod io;
+pub mod live;
 pub mod loader;
 pub mod pcm;
 pub mod player;
@@ -42,10 +43,16 @@ pub struct Engine {
     stop: Arc<AtomicBool>,
     meters: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    app: AppHandle,
+    /// Lector del audio en directo (para pararlo)
+    live_stop: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        if let Some(s) = self.live_stop.lock().ok().and_then(|mut g| g.take()) {
+            s.store(true, Ordering::SeqCst);
+        }
         self.stop.store(true, Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -98,6 +105,19 @@ pub enum Op {
     Meters { on: bool },
     /// Fader en vivo mientras se arrastra ("ch:<id>" o "bus:<id>")
     LiveGain { key: String, db: f64 },
+    /// Pausa con fundido (entra un evento en directo)
+    FadePause { secs: f64 },
+    /// Audio de internet en directo, con fundido de entrada
+    LiveStart { url: String, fade_in: f64 },
+    /// Termina el directo con fundido de salida
+    LiveStop { fade_out: f64 },
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LiveEvent {
+    state: &'static str,
+    message: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -120,13 +140,13 @@ impl Engine {
         let stop = Arc::new(AtomicBool::new(false));
         let meters = Arc::new(AtomicBool::new(false));
         let thread = {
-            let (shared, ctl, io, stop, meters) = (shared.clone(), ctl.clone(), io.clone(), stop.clone(), meters.clone());
+            let (shared, ctl, io, stop, meters, app) = (shared.clone(), ctl.clone(), io.clone(), stop.clone(), meters.clone(), app.clone());
             std::thread::Builder::new()
                 .name("miradio-engine".into())
                 .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None) }
     }
 
     fn apply(&self, op: Op) {
@@ -154,6 +174,14 @@ impl Engine {
                 player.silence_threshold_db = silence_threshold_db.clamp(-90.0, -10.0);
             }
             Op::SetPlaylist { tracks } => player.set_playlist(tracks, loader),
+            Op::LiveStart { url, fade_in } => {
+                drop(ctl);
+                self.live_start(url, fade_in);
+            }
+            Op::LiveStop { fade_out } => {
+                drop(ctl);
+                self.live_stop(fade_out);
+            }
             op => {
                 let mut g = lock(&self.shared);
                 let core = &mut g.core.play;
@@ -163,6 +191,7 @@ impl Engine {
                     Op::RestoreAt { index, pos, autoplay } => player.restore_at(index, pos, autoplay, core, loader),
                     Op::Toggle => player.toggle(core, loader),
                     Op::Pause => player.pause(core),
+                    Op::FadePause { secs } => player.fade_pause(secs, core),
                     Op::Stop => player.stop(core),
                     Op::Next => player.next(core, loader),
                     Op::Prev => player.prev(core, loader),
@@ -170,6 +199,73 @@ impl Engine {
                     _ => {}
                 }
             }
+        }
+    }
+}
+
+impl Engine {
+    fn live_start(&self, url: String, fade_in: f64) {
+        self.live_stop(0.05);
+        let ffmpeg = match crate::netstream::ffmpeg_or_err(&self.app) {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = self.app.emit("engine://live", LiveEvent { state: "error", message: e });
+                return;
+            }
+        };
+        let (mut live, mut prod) = live::LiveIn::new(ENGINE_RATE, 8.0, 0.6);
+        let stop = Arc::new(AtomicBool::new(false));
+        {
+            let mut g = lock(&self.shared);
+            let now = g.core.play.now;
+            let f = g.core.play.frames(fade_in.max(0.02));
+            live.gain.schedule(now, 0.0, now + f, 1.0);
+            let old = g.core.play.live.replace(live);
+            drop(g);
+            drop(old);
+        }
+        if let Ok(mut g) = self.live_stop.lock() {
+            *g = Some(stop.clone());
+        }
+        let app = self.app.clone();
+        let _ = std::thread::Builder::new().name("miradio-live".into()).spawn(move || {
+            let (mut child, out) = match crate::netstream::spawn(&ffmpeg, &url, ENGINE_RATE) {
+                Ok(x) => x,
+                Err(e) => {
+                    let _ = app.emit("engine://live", LiveEvent { state: "error", message: e });
+                    return;
+                }
+            };
+            let _ = app.emit("engine://live", LiveEvent { state: "started", message: String::new() });
+            let mut got = false;
+            crate::netstream::pump(out, stop.clone(), |s| {
+                got = got || !s.is_empty();
+                live::push_blocking(&mut prod, s, &stop)
+            });
+            let _ = child.kill();
+            let _ = child.wait();
+            if !stop.load(Ordering::SeqCst) {
+                let message = if got { "La emisión de internet se ha cortado".to_string() } else { "No se pudo abrir la emisión de internet".to_string() };
+                let _ = app.emit("engine://live", LiveEvent { state: "error", message });
+            }
+        });
+    }
+
+    fn live_stop(&self, fade_out: f64) {
+        if let Some(s) = self.live_stop.lock().ok().and_then(|mut g| g.take()) {
+            // El lector se para al terminar el fundido (se quita en control_loop).
+            let mut g = lock(&self.shared);
+            let now = g.core.play.now;
+            let f = g.core.play.frames(fade_out.max(0.02));
+            if let Some(l) = g.core.play.live.as_mut() {
+                l.gain.ramp(now, 0.0, f);
+                l.stop_at = Some(now + f);
+            }
+            drop(g);
+            let _ = std::thread::Builder::new().spawn(move || {
+                std::thread::sleep(Duration::from_secs_f64(fade_out.max(0.02) + 0.2));
+                s.store(true, Ordering::SeqCst);
+            });
         }
     }
 }
@@ -195,6 +291,8 @@ fn control_loop(
             player.tick(&mut g.core.play, loader);
             // Las voces terminadas se liberan aqui, fuera del hilo de audio.
             std::mem::swap(&mut g.core.play.voices.dead, &mut spare);
+            let now = g.core.play.now;
+            let ended_live = if g.core.play.live.as_ref().map(|l| l.finished(now)).unwrap_or(false) { g.core.play.live.take() } else { None };
             let (level, db) = g.core.monitor_level();
             let (slevel, sdb) = g.core.stream_level();
             let playing = player.is_playing(&g.core.play);
@@ -205,6 +303,7 @@ fn control_loop(
                 strips = Some(list);
             }
             drop(g);
+            drop(ended_live); // libera el buffer y deja que el lector termine
             (player.drain_events(), player.index(), playing, player.is_paused(), level, db, slevel, sdb)
         };
         spare.clear();

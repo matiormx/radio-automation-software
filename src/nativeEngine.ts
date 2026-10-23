@@ -59,6 +59,10 @@ export class NativePlayer {
   constructor(private readonly onError: (message: string) => void) {
     this.ready = (async () => {
       this.unlisten = await listen<StatePayload>("engine://state", (e) => this.receive(e.payload));
+      this.unlistenLive = await listen<{ state: string; message: string }>("engine://live", (e) => {
+        if (e.payload.state === "error") this.liveOn = false;
+        this.onLive?.(e.payload.state, e.payload.message);
+      });
       await inOrder(() => invoke("engine_start"));
     })().catch((error) => {
       this.onError(`No se pudo arrancar el motor nativo: ${String(error)}`);
@@ -149,6 +153,30 @@ export class NativePlayer {
     void this.cmd({ op: "volume", value: v });
   }
 
+  // ------------------------------------------------------------ directo (eventos)
+
+  private unlistenLive: (() => void) | null = null;
+  private liveOn = false;
+  onLive: ((state: string, message: string) => void) | null = null;
+
+  fadePause(secs: number) {
+    void this.cmd({ op: "fadePause", secs });
+  }
+
+  async startLive(source: string, fadeIn: number): Promise<void> {
+    this.liveOn = true;
+    await this.cmd({ op: "liveStart", url: source, fadeIn });
+  }
+
+  stopLive(fadeOut: number) {
+    this.liveOn = false;
+    void this.cmd({ op: "liveStop", fadeOut });
+  }
+
+  get liveActive(): boolean {
+    return this.liveOn;
+  }
+
   dispose() {
     this.disposed = true;
     this.onTick = null;
@@ -157,6 +185,8 @@ export class NativePlayer {
     this.onDiag = null;
     this.unlisten?.();
     this.unlisten = null;
+    this.unlistenLive?.();
+    this.unlistenLive = null;
     for (const w of this.waiters.splice(0)) w(this.state);
     void inOrder(() => invoke("engine_stop")).catch(() => undefined);
   }

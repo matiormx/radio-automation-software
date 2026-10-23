@@ -381,6 +381,28 @@ pub struct StationEvent {
     /// "force" o "cancel"
     pub on_timeout: String,
     pub last_fired: String,
+    /// "stream": hora de fin (HH:MM)
+    pub end: String,
+    /// "stream": direccion del audio de internet (o archivo)
+    pub stream_url: String,
+    /// "stream": fundido de entrada y salida (s)
+    pub fade_secs: f64,
+    /// "stream": datos que se muestran mientras suena
+    pub meta: StreamMeta,
+}
+
+/// Metadatos de una emision de internet (como los de una cancion).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StreamMeta {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub year: String,
+    pub genre: String,
+    pub comment: String,
+    /// Ruta de la portada
+    pub cover: String,
 }
 
 impl Default for StationEvent {
@@ -398,6 +420,10 @@ impl Default for StationEvent {
             max_wait_secs: 60,
             on_timeout: "cancel".to_string(),
             last_fired: String::new(),
+            end: "07:00".to_string(),
+            stream_url: String::new(),
+            fade_secs: 3.0,
+            meta: StreamMeta::default(),
         }
     }
 }

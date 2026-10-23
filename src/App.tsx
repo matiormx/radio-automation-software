@@ -51,11 +51,12 @@ import type {
   Block,
   Campaign,
   StationEvent,
+  StreamMeta,
   StreamStatus,
 } from "./types";
 import { DEFAULT_SETTINGS, effectiveDuration, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
-import { RadioPlayer } from "./audio";
+import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
 import { StudioCalls, type StudioSnapshot } from "./studioCalls";
 import { StreamEncoder } from "./streaming";
@@ -144,6 +145,37 @@ function eventSourceLabel(event: StationEvent, blocks: Block[]): string {
     return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
   }
   return blocks.find((b) => b.id === event.sourceId)?.name ?? "Bloque eliminado";
+}
+
+/** Emision de internet de un evento que esta sonando. */
+interface LiveRun {
+  eventId: string;
+  name: string;
+  url: string;
+  /** ms epoch */
+  startedAt: number;
+  endsAt: number;
+  fade: number;
+  meta: StreamMeta;
+}
+
+/** Franja [inicio, fin) de un evento de emision que contiene `now` (o null). */
+function streamWindow(event: StationEvent, now: Date): { start: number; end: number; key: string } | null {
+  const s = parseHM(event.start);
+  const e = parseHM(event.end ?? "");
+  if (s === null || e === null || s === e) return null;
+  for (const back of [0, 1]) {
+    const start = new Date(now);
+    start.setDate(start.getDate() - back);
+    start.setHours(Math.floor(s / 60), s % 60, 0, 0);
+    const end = new Date(start);
+    end.setHours(Math.floor(e / 60), e % 60, 0, 0);
+    if (e < s) end.setDate(end.getDate() + 1);
+    if (now >= start && now < end && event.days.includes(dayIso(start))) {
+      return { start: start.getTime(), end: end.getTime(), key: `${dayKey(start)} ${event.start}` };
+    }
+  }
+  return null;
 }
 
 interface PendingInsert {
@@ -244,6 +276,34 @@ export default function App() {
   const [clock, setClock] = useState("");
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
+  // ---- emision de internet de un evento ----
+  const [liveRun, setLiveRun] = useState<LiveRun | null>(null);
+  const liveRunRef = useRef<LiveRun | null>(null);
+  liveRunRef.current = liveRun;
+  const liveTrack = useMemo<Track | null>(
+    () =>
+      liveRun
+        ? {
+            ...EMPTY_TRACK,
+            id: `live:${liveRun.eventId}`,
+            title: liveRun.meta.title,
+            artist: liveRun.meta.artist,
+            album: liveRun.meta.album,
+            genre: liveRun.meta.genre,
+            year: liveRun.meta.year,
+            durationSecs: Math.max(0, (liveRun.endsAt - liveRun.startedAt) / 1000),
+            cover: liveRun.meta.cover,
+            file: "",
+          }
+        : null,
+    [liveRun],
+  );
+  const [liveClock, setLiveClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!liveRun) return;
+    const t = window.setInterval(() => setLiveClock(Date.now()), 500);
+    return () => window.clearInterval(t);
+  }, [liveRun]);
   const [manualAuto, setManualAuto] = useState<{ id: string; until: number } | null>(null);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -488,11 +548,12 @@ export default function App() {
 
   // Cancion que esta sonando ahora.
   const nowPlayingTrack = useMemo(() => {
+    if (liveTrack) return liveTrack;
     if (playingRow < 0) return null;
     const row = rows[playingRow];
     if (!row) return null;
     return tracks.find((track) => track.id === row.id) ?? null;
-  }, [playingRow, rows, tracks]);
+  }, [playingRow, rows, tracks, liveTrack]);
 
   /** Datos de la cancion que suena. */
   const songFields = useMemo<NowPlayingFields | null>(() => {
@@ -1595,6 +1656,71 @@ export default function App() {
     };
   }, [streamStatus?.running, showToast]);
 
+  /** Entra la emision de internet de un evento hasta `endsAt`. */
+  const startLiveEvent = useCallback(
+    (event: StationEvent, endsAt: number, key: string) => {
+      const p = playerRef.current;
+      if (!p) return;
+      const fade = Math.max(0, event.fadeSecs ?? 3);
+      const meta: StreamMeta = { title: "", artist: "", album: "", year: "", genre: "", comment: "", cover: "", ...(event.meta ?? {}) };
+      p.onLive = (state, message) => {
+        if (state === "error" && liveRunRef.current?.eventId === event.id) showToast(`Emisión «${event.name}»: ${message}`);
+      };
+      if (playingRowRef.current >= 0 && !pausedNowRef.current) p.fadePause(fade);
+      void p.startLive((event.streamUrl ?? "").trim(), fade);
+      setLiveRun({ eventId: event.id, name: event.name, url: event.streamUrl ?? "", startedAt: Date.now(), endsAt, fade, meta });
+      setSettings((prev) => {
+        const events = prev.events.map((e) => (e.id === event.id ? { ...e, lastFired: key } : e));
+        const nextSettings = { ...prev, events };
+        void saveSettings(nextSettings).catch(() => undefined);
+        return nextSettings;
+      });
+      showToast(`En directo: «${event.name}» hasta las ${new Date(endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    },
+    [showToast],
+  );
+
+  /** Termina la emision de internet y la lista sigue con la siguiente canción. */
+  const endLiveEvent = useCallback(
+    (resume = true) => {
+      const run = liveRunRef.current;
+      const p = playerRef.current;
+      if (!run) return;
+      liveRunRef.current = null;
+      setLiveRun(null);
+      p?.stopLive(run.fade);
+      if (resume && p && playingRowRef.current >= 0) void p.next();
+    },
+    [],
+  );
+
+  // Programacion de las emisiones de internet: entran y salen a su hora.
+  useEffect(() => {
+    const check = () => {
+      const s = settingsRef.current;
+      const run = liveRunRef.current;
+      const now = new Date();
+      if (run) {
+        const ev = s.events.find((e) => e.id === run.eventId);
+        if (Date.now() >= run.endsAt || (ev && !ev.enabled)) endLiveEvent(true);
+        return;
+      }
+      if (!s.eventsEnabled) return;
+      for (const ev of s.events) {
+        if (!ev.enabled || ev.kind !== "stream" || !(ev.streamUrl ?? "").trim()) continue;
+        const w = streamWindow(ev, now);
+        if (!w || ev.lastFired === w.key) continue;
+        // Si la app se abre tarde, solo entra si queda al menos un minuto.
+        if (w.end - now.getTime() < 60_000) continue;
+        startLiveEvent(ev, w.end, w.key);
+        return;
+      }
+    };
+    check();
+    const t = window.setInterval(check, 1000);
+    return () => window.clearInterval(t);
+  }, [startLiveEvent, endLiveEvent]);
+
   const launchEvent = useCallback(
     (event: StationEvent) => {
       if (!settingsRef.current.eventsEnabled) {
@@ -1603,6 +1729,20 @@ export default function App() {
       }
       if (!event.enabled) {
         showToast(`El evento «${event.name}» está desactivado`);
+        return;
+      }
+      if (event.kind === "stream") {
+        if (liveRunRef.current) {
+          showToast("Ya hay una emisión de internet en directo");
+          return;
+        }
+        // Manual: hasta su hora de fin si cae dentro de la franja; si no, lo que dura la franja.
+        const now = new Date();
+        const w = streamWindow(event, now);
+        const s = parseHM(event.start) ?? 0;
+        const e = parseHM(event.end ?? "") ?? s;
+        const len = ((e - s + 1440) % 1440 || 60) * 60_000;
+        startLiveEvent(event, w ? w.end : Date.now() + len, w ? w.key : `${dayKey(now)} manual`);
         return;
       }
       if (event.kind === "auto") {
@@ -1647,7 +1787,7 @@ export default function App() {
       setPendingInserts((prev) => [...prev.filter((p) => p.eventId !== event.id), item]);
       showToast(`Evento «${event.name}»: a continuación`);
     },
-    [showToast],
+    [showToast, startLiveEvent],
   );
 
   const chooseMusicFolder = useCallback(async () => {
@@ -1994,6 +2134,8 @@ export default function App() {
     const timer = window.setInterval(() => {
       const pending = pendingInsertsRef.current;
       if (pending.length === 0) return;
+      // Durante una emision de internet no se fuerza nada: espera a que termine.
+      if (liveRunRef.current) return;
       const rowsNow = rowsRef.current;
       const playing = playingRowRef.current;
       const playlistId = activeIdRef.current;
@@ -2141,10 +2283,26 @@ export default function App() {
         ? { id: t.id, artist: t.artist, title: t.title, album: t.album, file: t.file, durationSecs: t.durationSecs, cover: t.cover }
         : null;
     };
-    const current = idx >= 0 ? toPub(list[idx]?.id) : null;
-    const pos = exactPosRef.current;
+    const lr = liveRunRef.current;
+    const liveNowMs = Date.now();
+    const current = lr
+      ? {
+          id: `live:${lr.eventId}`,
+          artist: lr.meta.artist,
+          title: lr.meta.title,
+          album: lr.meta.album,
+          file: "",
+          durationSecs: (lr.endsAt - lr.startedAt) / 1000,
+          cover: lr.meta.cover,
+        }
+      : idx >= 0
+        ? toPub(list[idx]?.id)
+        : null;
+    const pos = lr
+      ? { cur: Math.max(0, (liveNowMs - lr.startedAt) / 1000), total: (lr.endsAt - lr.startedAt) / 1000 }
+      : exactPosRef.current;
     void apiPublish({
-      state: !current ? "stop" : pausedNowRef.current ? "pause" : "play",
+      state: !current ? "stop" : !lr && pausedNowRef.current ? "pause" : "play",
       posMs: current ? Math.max(0, pos.cur * 1000) : 0,
       lenMs: current ? Math.max(0, pos.total * 1000) : 0,
       current,
@@ -2188,7 +2346,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     publishApiState();
-  }, [playingRow, paused, rows, tracks, nextPick, publishApiState]);
+  }, [playingRow, paused, rows, tracks, nextPick, publishApiState, liveRun]);
   useEffect(() => {
     const t = window.setInterval(publishApiState, 2000);
     return () => window.clearInterval(t);
@@ -2302,6 +2460,23 @@ export default function App() {
   const autoLeftWidth = () => (mainRef.current?.querySelector(".browser-panel") as HTMLElement | null)?.offsetWidth ?? 540;
   // ---- video: lo que suena, para la vista previa y la ventana de emision ----
   const videoSource = useCallback((): VideoState | null => {
+    const lr = liveRunRef.current;
+    if (lr) {
+      const s = settingsRef.current;
+      return {
+        trackId: `live:${lr.eventId}`,
+        file: "",
+        isVideo: false,
+        pos: 0,
+        playing: true,
+        title: lr.meta.title,
+        artist: lr.meta.artist,
+        cover: lr.meta.cover,
+        audioMode: (s.videoScreen ?? DEFAULT_SETTINGS.videoScreen).audioMode,
+        logo: s.logoPath ?? "",
+        stationName: s.radioName ?? "",
+      };
+    }
     const idx = playingRowRef.current;
     const row = idx >= 0 ? rowsRef.current[idx] : undefined;
     const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
@@ -2557,6 +2732,16 @@ export default function App() {
         />
 
         <div className="right-col">
+          {liveRun && (
+            <div className="call-chip live-chip" role="status">
+              <span className="live-dot live-on" aria-hidden="true" />
+              EN DIRECTO · {liveRun.name} · hasta las{" "}
+              {new Date(liveRun.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <button type="button" className="btn btn-sm" onClick={() => endLiveEvent(true)} title="Terminar ya y seguir con la lista">
+                Terminar
+              </button>
+            </div>
+          )}
           {studio.calls.length > 0 && (
             <button
               type="button"
@@ -2581,20 +2766,20 @@ export default function App() {
             }}
           />
           <DeckZone
-            title={deckRow?.title ?? ""}
-            artist={deckRow?.artist ?? ""}
-            album={deckRow?.album ?? ""}
-            cover={deckRow?.cover ?? ""}
-            current={pos.cur}
-            total={pos.total}
-            spinning={!paused && playingRow >= 0}
+            title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
+            artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
+            album={liveRun ? liveRun.meta.album : deckRow?.album ?? ""}
+            cover={liveRun ? liveRun.meta.cover : deckRow?.cover ?? ""}
+            current={liveRun ? Math.max(0, (liveClock - liveRun.startedAt) / 1000) : pos.cur}
+            total={liveRun ? (liveRun.endsAt - liveRun.startedAt) / 1000 : pos.total}
+            spinning={liveRun ? true : !paused && playingRow >= 0}
             next={nextRow ? nextRow.title : null}
             nextArtist={nextRow?.artist ?? ""}
             nextAlbum={nextRow?.album ?? ""}
             nextCover={nextRow?.cover ?? ""}
             nextDuration={nextRow?.durationSecs ?? 0}
             onSeek={seek}
-            isVideo={!!deckRow && isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")}
+            isVideo={!liveRun && !!deckRow && isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")}
             videoSource={videoSource}
           />
           <PlaylistZone

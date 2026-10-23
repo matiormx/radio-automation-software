@@ -20,11 +20,13 @@ pub struct PlayCore {
     pub voices: Voices,
     /// Nivel cuadratico medio reciente de la musica (deteccion de silencio)
     pub music_ms: f32,
+    /// Audio de internet en directo (eventos de emision)
+    pub live: Option<super::live::LiveIn>,
 }
 
 impl PlayCore {
     pub fn new(rate: u32) -> Self {
-        PlayCore { rate, now: 0, voices: Voices::default(), music_ms: 0.0 }
+        PlayCore { rate, now: 0, voices: Voices::default(), music_ms: 0.0, live: None }
     }
 
     pub fn secs(&self, frames: u64) -> f64 {
@@ -333,6 +335,18 @@ impl Player {
         self.paused_offset = Some(pos.clamp(d.from, d.end));
         self.events.push(Event::Tick { pos: self.paused_offset.unwrap() - d.offset, total: d.end - d.offset });
         core.voices.stop_all_now();
+        self.deck = None;
+        self.fading_until = None;
+    }
+
+    /// Pausa con fundido de `secs` (entrada de un evento en directo).
+    pub fn fade_pause(&mut self, secs: f64, core: &mut PlayCore) {
+        self.pending = None;
+        let Some(d) = self.deck else { return };
+        let pos = self.deck_pos(&d, core);
+        self.paused_offset = Some(pos.clamp(d.from, d.end));
+        self.events.push(Event::Tick { pos: self.paused_offset.unwrap() - d.offset, total: d.end - d.offset });
+        core.voices.fade_stop_all(core.now, core.frames(secs.max(0.02)));
         self.deck = None;
         self.fading_until = None;
     }
