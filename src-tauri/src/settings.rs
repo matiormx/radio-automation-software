@@ -75,6 +75,8 @@ pub struct Settings {
     pub vu_source: String,
     /// Ventana de video de la emision
     pub video_screen: VideoScreenSettings,
+    /// Ancho del panel de musica (px); 0 = automatico
+    pub left_panel_width: f64,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -577,6 +579,7 @@ impl Default for Settings {
             intros: IntroSettings::default(),
             vu_source: "master".into(),
             video_screen: VideoScreenSettings::default(),
+            left_panel_width: 0.0,
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,

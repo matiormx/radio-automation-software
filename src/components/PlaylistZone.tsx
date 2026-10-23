@@ -140,7 +140,7 @@ export function PlaylistZone({
   }, [blockMenu]);
 
   return (
-    <section className="panel flex-1" aria-label="Lista de emisión">
+    <section className="panel flex-1 playlist-panel" aria-label="Lista de emisión">
       <div className="panel-head">
         <div className="tabs">
           {playlists.map((p) => (

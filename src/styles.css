@@ -161,8 +161,9 @@ body {
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(500px, 6.4fr) 34px 8.6fr;
-  gap: 8px;
+  grid-template-columns: var(--left-w, minmax(500px, 6.4fr)) 8px 34px minmax(0, 8.6fr);
+  column-gap: 0;
+  row-gap: 8px;
   padding: 10px;
   min-height: 0;
 }
@@ -3463,7 +3464,7 @@ body {
   .browser-cols .bcol-album, .brow .bcol-album { display: none; }
 }
 @media (max-height: 820px) {
-  .main { padding: 6px; gap: 6px; }
+  .main { padding: 6px; row-gap: 6px; }
   .right-col { gap: 6px; }
 }
 .vu-switch { background: none; border: 1px solid transparent; border-radius: 4px; cursor: pointer; padding: 1px 3px; font: inherit; color: inherit; }
@@ -3490,3 +3491,21 @@ body {
 .vs-station-small { font-size: 2.4vh; opacity: 0.55; margin-top: 4vh; text-transform: uppercase; letter-spacing: 0.1em; }
 .badge-video { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; padding: 0 5px; line-height: 14px; border-radius: 3px; background: #3b2a5c; color: #d9c8ff; flex: 0 0 auto; }
 .vs-error { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 6px; font-size: 10px; color: #fff; background: #000a; text-align: center; }
+
+/* Linea para cambiar el ancho del panel de musica */
+.splitter { cursor: col-resize; position: relative; touch-action: none; outline: none; }
+.splitter::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: 3px; width: 2px; border-radius: 2px; background: transparent; transition: background 0.15s; }
+.splitter:hover::after, .splitter:focus-visible::after, body.is-resizing .splitter::after { background: var(--accent); }
+body.is-resizing { cursor: col-resize; user-select: none; }
+.main > .right-col { margin-left: 8px; }
+/* Lista de emision estrecha: el titulo manda */
+.playlist-panel { container-type: inline-size; container-name: plist; }
+.plrow-line > .plrow-title { flex: 0 1 auto; min-width: 4em; }
+.plrow-line > [class^="badge"] { flex: 0 0 auto; }
+@container plist (max-width: 680px) {
+  .pl-head, .plrow { grid-template-columns: 44px 22px 36px minmax(0, 1fr) minmax(0, 110px) 50px auto; }
+}
+@container plist (max-width: 540px) {
+  .pl-head, .plrow { grid-template-columns: 0 22px 36px minmax(0, 1fr) 0 50px auto; }
+  .pl-head .col-hour, .plrow .col-hour, .pl-head .col-blocks, .plrow .plrow-blocks { visibility: hidden; overflow: hidden; }
+}

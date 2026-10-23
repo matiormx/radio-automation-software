@@ -469,6 +469,8 @@ export interface Settings {
   /** El VU de la pantalla principal mide la salida general o la de streaming */
   vuSource: "master" | "streaming";
   videoScreen: VideoScreenSettings;
+  /** Ancho del panel de musica (px); 0 = automatico */
+  leftPanelWidth: number;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -533,6 +535,7 @@ export const DEFAULT_SETTINGS: Settings = {
   intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
   vuSource: "master",
   videoScreen: { enabled: false, monitor: 1, audioMode: "cover" },
+  leftPanelWidth: 0,
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,

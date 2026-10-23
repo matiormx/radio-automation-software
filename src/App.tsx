@@ -75,6 +75,7 @@ import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
+import { Splitter } from "./components/Splitter";
 import { NativePlayer } from "./nativeEngine";
 import { closeVideoOut, openToolWindow, openVideoOut, prewarmToolWindow, publishState, serveMain } from "./bridge";
 import type { VideoState } from "./videoSurface";
@@ -2277,6 +2278,11 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // ---- panel izquierdo de ancho ajustable ----
+  const mainRef = useRef<HTMLElement | null>(null);
+  const [leftDrag, setLeftDrag] = useState(0);
+  const leftWidth = leftDrag > 0 ? leftDrag : (settings.leftPanelWidth ?? 0);
+  const autoLeftWidth = () => (mainRef.current?.querySelector(".browser-panel") as HTMLElement | null)?.offsetWidth ?? 540;
   // ---- video: lo que suena, para la vista previa y la ventana de emision ----
   const videoSource = useCallback((): VideoState | null => {
     const idx = playingRowRef.current;
@@ -2487,7 +2493,11 @@ export default function App() {
         <WindowControls />
       </header>
 
-      <main className="main">
+      <main
+        className="main"
+        ref={mainRef}
+        style={leftWidth > 0 ? ({ "--left-w": `min(${leftWidth}px, calc(100% - 560px))` } as React.CSSProperties) : undefined}
+      >
         <MusicBrowser
           tracks={tracks}
           blocks={blocks}
@@ -2509,6 +2519,20 @@ export default function App() {
           showToast={showToast}
         />
 
+        <Splitter
+          width={leftWidth > 0 ? leftWidth : autoLeftWidth()}
+          min={300}
+          max={Math.max(320, (mainRef.current?.clientWidth ?? 1400) - 560)}
+          onDrag={setLeftDrag}
+          onCommit={(w) => {
+            setLeftDrag(0);
+            updateSettings({ ...settingsRef.current, leftPanelWidth: w });
+          }}
+          onReset={() => {
+            setLeftDrag(0);
+            updateSettings({ ...settingsRef.current, leftPanelWidth: 0 });
+          }}
+        />
         <VuMeter
           mixer={native ?? mixer}
           source={settings.vuSource ?? "master"}
