@@ -251,6 +251,20 @@ export interface InsertSettings {
   returnDeviceId: string;
 }
 
+/**
+ * Entrada o salida de audio habilitada en Ajustes > Sonido. Solo estas
+ * aparecen en la mesa, con su alias si se les ha puesto uno.
+ */
+export interface AudioDeviceSetting {
+  id: string;
+  kind: "audioinput" | "audiooutput";
+  /** Nombre que da el sistema a la tarjeta */
+  label: string;
+  /** Alias visible en la mesa; vacio = usar label */
+  name: string;
+  enabled: boolean;
+}
+
 /** Envio de un canal a un bus (ademas de su salida principal). */
 /** API compatible con RadioBOSS (las claves van aparte, en secretos). */
 export interface ApiSettings {
@@ -548,6 +562,8 @@ export interface Settings {
   eventsEnabled: boolean;
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
+  /** Entradas y salidas habilitadas para la mesa */
+  audioDevices: AudioDeviceSetting[];
   /** Bus cuya señal muestra el VU de salida; "" = salida general */
   monitorBusId: string;
   video: VideoSettings;
@@ -599,6 +615,7 @@ export const DEFAULT_SETTINGS: Settings = {
   eventsEnabled: true,
   mixerChannels: [],
   mixerBuses: [],
+  audioDevices: [],
   monitorBusId: "",
   video: {
     enabled: false,

@@ -143,6 +143,8 @@ pub struct Settings {
     pub events_enabled: bool,
     pub mixer_channels: Vec<MixerChannel>,
     pub mixer_buses: Vec<MixerBus>,
+    /// Entradas y salidas habilitadas para la mesa.
+    pub audio_devices: Vec<AudioDeviceSetting>,
     /// Bus cuya señal muestra el VU de salida; vacio = salida general.
     pub monitor_bus_id: String,
     pub video: VideoSettings,
@@ -163,6 +165,20 @@ pub struct Program {
     pub cover: String,
     /// Hora de inicio prevista ("22:00"); vacio = sin hora
     pub starts_at: String,
+    pub enabled: bool,
+}
+
+/// Entrada o salida de audio habilitada en Ajustes > Sonido.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioDeviceSetting {
+    pub id: String,
+    /// "audioinput" o "audiooutput"
+    pub kind: String,
+    /// Nombre del sistema
+    pub label: String,
+    /// Alias visible en la mesa; vacio = usar label
+    pub name: String,
     pub enabled: bool,
 }
 
@@ -649,6 +665,7 @@ impl Default for Settings {
             events_enabled: true,
             mixer_channels: Vec::new(),
             mixer_buses: Vec::new(),
+            audio_devices: Vec::new(),
             monitor_bus_id: String::new(),
             video: VideoSettings::default(),
             streaming: StreamingSettings::default(),

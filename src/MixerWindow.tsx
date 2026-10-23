@@ -7,10 +7,9 @@ import {
   LevelerControls,
   newId,
   nextColor,
-  type Device,
 } from "./components/MixerPanel";
+import { listAudioDevices, visibleDevices, type Device } from "./audioDevices";
 import { callMain, onMainState } from "./bridge";
-import { nativeDevices } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerBus, MixerChannel, MixerSend, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
@@ -312,37 +311,25 @@ function Pop({ open, onClose, children }: { open: boolean; onClose: () => void; 
 // ------------------------------------------------------------ dispositivos
 
 function useDevices(isNative: boolean) {
-  const [inputs, setInputs] = useState<Device[]>([]);
-  const [outputs, setOutputs] = useState<Device[]>([]);
+  const [devices, setDevices] = useState<{ inputs: Device[]; outputs: Device[] }>({
+    inputs: [],
+    outputs: [],
+  });
   const refresh = useCallback(async () => {
     try {
-      const list = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
-      const ins: Device[] = [];
-      const outs: Device[] = [];
-      for (const d of list) {
-        if (!d.deviceId) continue;
-        if (d.kind === "audioinput") ins.push({ id: d.deviceId, label: d.label || `Entrada ${ins.length + 1}`, kind: "audioinput" });
-        if (d.kind === "audiooutput" && d.deviceId !== "default")
-          outs.push({ id: d.deviceId, label: d.label || `Salida ${outs.length + 1}`, kind: "audiooutput" });
-      }
-      setInputs(ins);
-      if (isNative) {
-        const names = await nativeDevices().catch(() => [] as string[]);
-        setOutputs(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
-      } else {
-        setOutputs(outs);
-      }
+      setDevices(await listAudioDevices(isNative));
     } catch {
       /* sin dispositivos */
     }
   }, [isNative]);
   useEffect(() => {
     void refresh();
+    if (isNative) return;
     const media = navigator.mediaDevices;
     media?.addEventListener?.("devicechange", refresh);
     return () => media?.removeEventListener?.("devicechange", refresh);
-  }, [refresh]);
-  return { inputs, outputs };
+  }, [refresh, isNative]);
+  return devices;
 }
 
 // ------------------------------------------------------------ ventana
@@ -389,7 +376,9 @@ export function MixerWindow() {
 
   const s = shared?.settings;
   const isNative = s?.audioEngine === "native";
-  const { inputs, outputs } = useDevices(!!isNative);
+  const devices = useDevices(!!isNative);
+  const inputs = visibleDevices(devices.inputs, s?.audioDevices);
+  const outputs = visibleDevices(devices.outputs, s?.audioDevices);
 
   if (!s) {
     return (
@@ -766,6 +755,12 @@ function ChannelStrip({
                     {d.label}
                   </option>
                 ))}
+                {ch.input.kind === "device" &&
+                  ch.input.deviceId &&
+                  ch.input.deviceId !== "default" &&
+                  !inputs.some((d) => d.id === ch.input.deviceId) && (
+                    <option value={`device:${ch.input.deviceId}`}>Entrada no habilitada</option>
+                  )}
               </optgroup>
             </select>
           </label>
@@ -798,6 +793,13 @@ function ChannelStrip({
                     {d.label}
                   </option>
                 ))}
+                {ch.output.kind === "device" &&
+                  ch.output.id &&
+                  ch.output.id !== "default" &&
+                  ch.output.id !== "streaming" &&
+                  !outputs.some((d) => d.id === ch.output.id) && (
+                    <option value={`device:${ch.output.id}`}>Salida no habilitada</option>
+                  )}
               </optgroup>
             </select>
           </label>
@@ -912,6 +914,9 @@ function BusStrip({
                   {d.label}
                 </option>
               ))}
+              {out !== "streaming" && out !== "default" && !outputs.some((d) => d.id === out) && (
+                <option value={out}>Salida no habilitada</option>
+              )}
             </select>
           </label>
         </Pop>

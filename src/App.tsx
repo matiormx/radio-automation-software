@@ -2944,7 +2944,6 @@ export default function App() {
           showToast={showToast}
           tab={settingsTab}
           onTabChange={setSettingsTab}
-          mixer={mixerRef.current}
           studio={studio}
           callMuted={callMuted}
           onCallMute={muteCaller}

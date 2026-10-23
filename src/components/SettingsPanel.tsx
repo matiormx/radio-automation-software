@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
-import { MixerPanel } from "./MixerPanel";
+import { SoundTab } from "./SoundTab";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
 import { StreamingTab } from "./StreamingTab";
@@ -22,7 +22,6 @@ import {
   liveImagePath,
   nowPlayingImagePath,
 } from "../nowplaying";
-import type { SoundMixer } from "../mixer";
 
 interface SettingsPanelProps {
   settings: Settings;
@@ -42,7 +41,6 @@ interface SettingsPanelProps {
   showToast: (msg: string) => void;
   tab: SettingsTab;
   onTabChange: (tab: SettingsTab) => void;
-  mixer: SoundMixer | null;
   studio: StudioSnapshot;
   callMuted: boolean;
   onCallMute: (muted: boolean) => void;
@@ -189,7 +187,6 @@ export function SettingsPanel({
   showToast,
   tab,
   onTabChange,
-  mixer,
   studio,
   callMuted,
   onCallMute,
@@ -245,7 +242,7 @@ export function SettingsPanel({
               onClick={() => onTabChange("sound")}
             >
               Sonido
-              <span>Mesa de mezclas y salidas</span>
+              <span>Entradas, salidas y nombres</span>
             </button>
             <button
               type="button"
@@ -344,7 +341,7 @@ export function SettingsPanel({
                 onClearLogo={onClearLogo}
               />
             )}
-            {tab === "sound" && <MixerPanel settings={s} mixer={mixer} onChange={onChange} />}
+            {tab === "sound" && <SoundTab settings={s} onChange={onChange} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
             {tab === "campaigns" && (

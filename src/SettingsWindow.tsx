@@ -143,7 +143,6 @@ export function SettingsWindow() {
         showToast={showToast}
         tab={tab}
         onTabChange={setTab}
-        mixer={null}
         studio={shared.studio}
         callMuted={shared.callMuted}
         onCallMute={(muted) => void call("muteCaller", muted)}
