@@ -8,11 +8,11 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
  * acciones con `callMain` y reciben el estado compartido por `onMainState`.
  */
 
-export type ToolKind = "settings" | "mixer" | "library";
+export type ToolKind = "settings" | "mixer" | "library" | "chat";
 
 export function toolKind(): ToolKind | "videoout" | null {
   const w = new URLSearchParams(window.location.search).get("w");
-  return w === "settings" || w === "mixer" || w === "library" || w === "videoout" ? w : null;
+  return w === "settings" || w === "mixer" || w === "library" || w === "chat" || w === "videoout" ? w : null;
 }
 
 // ------------------------------------------------------------ video de emision
@@ -94,6 +94,7 @@ const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: numbe
   settings: { title: "Ajustes — MiRadio", width: 1180, height: 820, minWidth: 820, minHeight: 560 },
   library: { title: "Librería — MiRadio", width: 1360, height: 860, minWidth: 900, minHeight: 560 },
   mixer: { title: "Mixer — MiRadio", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
+  chat: { title: "Chat — MiRadio", width: 420, height: 680, minWidth: 300, minHeight: 360 },
 };
 
 /** Area util de la pantalla (sin barra de tareas), en pixeles logicos. */

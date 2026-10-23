@@ -424,6 +424,17 @@ export interface StudioCallsSettings {
   token: string;
 }
 
+/** Chat de NGRADIO en MiRadio (usa la direccion y el token de Llamadas). */
+export interface ChatSettings {
+  enabled: boolean;
+  /** Nombre con el que escribe la emisora */
+  name: string;
+  /** En su propia ventana en lugar de acoplado */
+  floating: boolean;
+  /** Acoplado y minimizado */
+  collapsed: boolean;
+}
+
 export interface NotificationRule {
   id: string;
   name: string;
@@ -471,6 +482,7 @@ export interface Settings {
   videoScreen: VideoScreenSettings;
   /** Ancho del panel de musica (px); 0 = automatico */
   leftPanelWidth: number;
+  chat: ChatSettings;
   /** Motor de audio: "web" (WebView2) o "native" (Rust, beta) */
   audioEngine: "web" | "native";
   /** API compatible con RadioBOSS para ngradio.es */
@@ -536,6 +548,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vuSource: "master",
   videoScreen: { enabled: false, monitor: 1, audioMode: "cover" },
   leftPanelWidth: 0,
+  chat: { enabled: false, name: "", floating: false, collapsed: false },
   audioEngine: "web",
   api: { enabled: false, port: 9000, bindAll: false, icecastStatusUrl: "", updateUrl: "" },
   autopilotEnabled: false,

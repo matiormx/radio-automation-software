@@ -76,6 +76,8 @@ import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { Splitter } from "./components/Splitter";
+import { ChatPanel } from "./components/ChatPanel";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { NativePlayer } from "./nativeEngine";
 import { closeVideoOut, openToolWindow, openVideoOut, prewarmToolWindow, publishState, serveMain } from "./bridge";
 import type { VideoState } from "./videoSurface";
@@ -2278,6 +2280,21 @@ export default function App() {
   useEffect(() => {
     publishState({ settings, studio, callMuted });
   }, [settings, studio, callMuted]);
+  // ---- chat de NGRADIO: acoplado aqui o en su ventana ----
+  const chatCfg = settings.chat ?? DEFAULT_SETTINGS.chat;
+  useEffect(() => {
+    if (chatCfg.enabled && chatCfg.floating) {
+      void openToolWindow("chat");
+    } else {
+      void WebviewWindow.getByLabel("chat").then((w) => w?.destroy()).catch(() => undefined);
+    }
+  }, [chatCfg.enabled, chatCfg.floating]);
+  const setChat = useCallback(
+    (patch: Partial<typeof chatCfg>) =>
+      updateSettings({ ...settingsRef.current, chat: { ...(settingsRef.current.chat ?? DEFAULT_SETTINGS.chat), ...patch } }),
+    [updateSettings],
+  );
+
   // ---- panel izquierdo de ancho ajustable ----
   const mainRef = useRef<HTMLElement | null>(null);
   const [leftDrag, setLeftDrag] = useState(0);
@@ -2626,6 +2643,20 @@ export default function App() {
             onEditCuts={editRowCuts}
             onToggleBlock={toggleRowBlock}
           />
+          {chatCfg.enabled && !chatCfg.floating && (
+            <ChatPanel
+              config={{
+                serverUrl: settings.studioCalls.serverUrl,
+                token: settings.studioCalls.token,
+                name: chatCfg.name || settings.radioName || "Estudio",
+                enabled: chatCfg.enabled,
+              }}
+              floating={false}
+              onToggleFloating={() => setChat({ floating: true })}
+              collapsed={chatCfg.collapsed}
+              onToggleCollapsed={() => setChat({ collapsed: !chatCfg.collapsed })}
+            />
+          )}
         </div>
       </main>
 

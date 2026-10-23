@@ -5,6 +5,7 @@ import { SettingsWindow } from "./SettingsWindow";
 import { MixerWindow } from "./MixerWindow";
 import { LibraryWindow } from "./LibraryWindow";
 import { VideoOutWindow } from "./VideoOutWindow";
+import { ChatWindow } from "./ChatWindow";
 import { fitToScreen, toolKind } from "./bridge";
 import "./styles.css";
 
@@ -13,5 +14,5 @@ const kind = toolKind();
 if (!kind) void fitToScreen(undefined, true);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{kind === "settings" ? <SettingsWindow /> : kind === "mixer" ? <MixerWindow /> : kind === "library" ? <LibraryWindow /> : kind === "videoout" ? <VideoOutWindow /> : <App />}</React.StrictMode>,
+  <React.StrictMode>{kind === "settings" ? <SettingsWindow /> : kind === "mixer" ? <MixerWindow /> : kind === "library" ? <LibraryWindow /> : kind === "videoout" ? <VideoOutWindow /> : kind === "chat" ? <ChatWindow /> : <App />}</React.StrictMode>,
 );

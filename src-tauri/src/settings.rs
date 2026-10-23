@@ -12,6 +12,16 @@ const HISTORY_FILE: &str = "history.json";
 const SESSION_FILE: &str = "session.json";
 const MAX_HISTORY: usize = 800;
 
+/// Chat de NGRADIO en MiRadio (usa la direccion y el token de Llamadas).
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChatSettings {
+    pub enabled: bool,
+    pub name: String,
+    pub floating: bool,
+    pub collapsed: bool,
+}
+
 /// Ventana de video de la emision (pantalla completa en un monitor).
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -77,6 +87,8 @@ pub struct Settings {
     pub video_screen: VideoScreenSettings,
     /// Ancho del panel de musica (px); 0 = automatico
     pub left_panel_width: f64,
+    /// Chat de NGRADIO
+    pub chat: ChatSettings,
     pub audio_engine: String,
     pub api: crate::rbapi::ApiConfig,
     pub autopilot_enabled: bool,
@@ -580,6 +592,7 @@ impl Default for Settings {
             vu_source: "master".into(),
             video_screen: VideoScreenSettings::default(),
             left_panel_width: 0.0,
+            chat: ChatSettings::default(),
             audio_engine: "web".to_string(),
             api: crate::rbapi::ApiConfig::default(),
             autopilot_enabled: false,

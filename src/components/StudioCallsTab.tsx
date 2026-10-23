@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Settings, StudioCallsSettings } from "../types";
+import { DEFAULT_SETTINGS } from "../types";
 import { studioSocketUrl, type StudioSnapshot } from "../studioCalls";
 
 interface Props {
@@ -21,6 +22,8 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
   const cfg = settings.studioCalls;
   const set = (patch: Partial<StudioCallsSettings>) =>
     onChange({ ...settings, studioCalls: { ...cfg, ...patch } });
+  const chat = settings.chat ?? DEFAULT_SETTINGS.chat;
+  const setChat = (patch: Partial<typeof chat>) => onChange({ ...settings, chat: { ...chat, ...patch } });
   const urlOk = studioSocketUrl(cfg.serverUrl) !== null;
   const tokenOk = cfg.token.trim().length >= 24;
   // Los datos de conexion son delicados: bloqueados hasta que se confirme.
@@ -118,6 +121,36 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
         <p className="hint">
           Estado: <strong>{STATUS_TEXT[studio.status]}</strong>
           {studio.error ? ` — ${studio.error}` : ""}
+        </p>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Chat de NGRADIO</legend>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={chat.enabled}
+            onChange={(e) => setChat({ enabled: e.target.checked })}
+          />
+          <span>Mostrar el chat de los oyentes en MiRadio</span>
+        </label>
+        <label className="field">
+          <span>Nombre con el que escribe la emisora</span>
+          <input
+            type="text"
+            maxLength={40}
+            value={chat.name}
+            placeholder={settings.radioName || "Estudio"}
+            onChange={(e) => setChat({ name: e.target.value })}
+          />
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={chat.floating} onChange={(e) => setChat({ floating: e.target.checked })} />
+          <span>En una ventana flotante (si no, acoplado bajo la lista de emisión)</span>
+        </label>
+        <p className="hint">
+          Usa la misma dirección y token de estudio que las llamadas. Desde MiRadio escribes como la emisora y puedes
+          borrar mensajes o silenciar a un oyente (como un moderador).
         </p>
       </fieldset>
 
