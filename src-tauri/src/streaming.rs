@@ -11,6 +11,8 @@ use crate::settings::{IcecastStream, Settings, VideoInput, VideoOutput, VideoSet
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
 
 #[derive(Default)]
 struct EngineInner {
@@ -367,6 +369,13 @@ fn spawn_process(
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     configure_no_window(&mut command);
+    // El encoder va con prioridad superior a la normal: si el equipo anda
+    // justo de CPU (interfaz, antivirus...) el audio emitido no se entrecorta.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW | ABOVE_NORMAL_PRIORITY_CLASS);
+    }
     let mut child = command
         .spawn()
         .map_err(|error| format!("{name}: no se pudo iniciar FFmpeg ({error})"))?;

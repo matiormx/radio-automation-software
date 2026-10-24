@@ -261,8 +261,18 @@ impl Io {
             .name("miradio-stream-feed".into())
             .spawn(move || {
                 let mut bytes: Vec<u8> = Vec::with_capacity(16384);
+                // Cadencia fija por reloj (no `sleep` encadenado): en Windows
+                // el sleep de 20 ms puede durar 31 ms y el audio sale a ráfagas.
+                let step = Duration::from_millis(20);
+                let mut next = std::time::Instant::now() + step;
                 while !stop.load(Ordering::SeqCst) {
-                    std::thread::sleep(Duration::from_millis(20));
+                    let now = std::time::Instant::now();
+                    if next > now {
+                        std::thread::sleep(next - now);
+                    } else if now - next > step * 5 {
+                        next = now;
+                    }
+                    next += step;
                     bytes.clear();
                     while let Ok(v) = cons.pop() {
                         let s = (v.clamp(-1.0, 1.0) * if v < 0.0 { 32768.0 } else { 32767.0 }) as i16;
