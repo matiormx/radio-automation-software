@@ -607,9 +607,9 @@ export default function App() {
     return {
       artist: liveProgram.subtitle ?? "",
       title: liveProgram.name ?? "",
-      album: "",
-      year: "",
-      genre: "",
+      album: liveProgram.album ?? "",
+      year: liveProgram.year ?? "",
+      genre: liveProgram.genre ?? "",
       duration: "",
       durationSec: "",
       radio: settings.radioName ?? "",

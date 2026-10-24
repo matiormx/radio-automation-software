@@ -491,7 +491,12 @@ export interface SessionState {
 export interface Program {
   id: string;
   name: string;
+  /** Artista / bajada: va como "artista" en los metadatos */
   subtitle: string;
+  /** Metadatos como los de una canción */
+  album?: string;
+  year?: string;
+  genre?: string;
   /** Ruta de la imagen de portada */
   cover: string;
   /** Hora de inicio prevista ("22:00"); vacio = sin hora */

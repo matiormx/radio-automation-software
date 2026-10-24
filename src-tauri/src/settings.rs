@@ -166,7 +166,12 @@ pub struct Settings {
 pub struct Program {
     pub id: String,
     pub name: String,
+    /// Artista / bajada (el "artista" en los metadatos)
     pub subtitle: String,
+    /// Metadatos como los de una cancion
+    pub album: String,
+    pub year: String,
+    pub genre: String,
     /// Ruta de la imagen de portada
     pub cover: String,
     /// Hora de inicio prevista ("22:00"); vacio = sin hora

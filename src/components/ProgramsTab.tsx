@@ -259,13 +259,40 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
                       />
                     </label>
                     <label className="field">
-                      <span className="field-label">Bajada</span>
+                      <span className="field-label">Artista / bajada</span>
                       <input
                         type="text"
                         value={program.subtitle}
                         maxLength={120}
                         placeholder="Lo mejor del rock clásico"
                         onChange={(e) => update(program.id, { subtitle: e.target.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Álbum</span>
+                      <input
+                        type="text"
+                        value={program.album ?? ""}
+                        placeholder="Opcional"
+                        onChange={(e) => update(program.id, { album: e.target.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Año</span>
+                      <input
+                        type="text"
+                        value={program.year ?? ""}
+                        placeholder="Opcional"
+                        onChange={(e) => update(program.id, { year: e.target.value })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Género</span>
+                      <input
+                        type="text"
+                        value={program.genre ?? ""}
+                        placeholder="Opcional"
+                        onChange={(e) => update(program.id, { genre: e.target.value })}
                       />
                     </label>
                     <label className="field">
