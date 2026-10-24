@@ -107,6 +107,7 @@ pub fn run() {
             engine::engine_devices,
             engine::engine_inputs,
             engine::engine_feed,
+            engine::engine_return_pcm,
             rbapi::api_publish,
             notify::notify_fire,
             video::convert_videos,

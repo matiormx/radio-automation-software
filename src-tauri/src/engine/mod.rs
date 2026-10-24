@@ -48,6 +48,8 @@ pub struct Engine {
     live_stop: Mutex<Option<Arc<AtomicBool>>>,
     /// Anillos del audio que manda el WebView (preescucha, llamadas)
     app_feeds: Mutex<std::collections::HashMap<String, (u32, rtrb::Producer<f32>)>>,
+    /// Lector del retorno a los oyentes (mix-minus)
+    ret_cons: Mutex<rtrb::Consumer<f32>>,
 }
 
 impl Drop for Engine {
@@ -136,6 +138,8 @@ fn lock_ctl(ctl: &Arc<Mutex<Ctl>>) -> std::sync::MutexGuard<'_, Ctl> {
 impl Engine {
     fn start(app: AppHandle) -> Engine {
         let shared = io::new_shared();
+        let (ret_prod, ret_cons) = rtrb::RingBuffer::<f32>::new(ENGINE_RATE as usize * 2);
+        lock(&shared).ret_tap = Some(ret_prod);
         let sink = app.state::<StreamingState>().sink();
         let io = Arc::new(Io::start(shared.clone(), Box::new(move |pcm: &[u8]| sink.push(pcm))));
         let ctl = Arc::new(Mutex::new(Ctl { player: Player::default(), loader: DecodeCache::new(ENGINE_RATE) }));
@@ -148,7 +152,7 @@ impl Engine {
                 .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()) }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons) }
     }
 
     fn apply(&self, op: Op) {
@@ -400,6 +404,28 @@ impl Engine {
             }
         }
     }
+}
+
+/// Retorno para los oyentes de las llamadas: f32 LE estereo a 48 kHz.
+/// Si se acumula demasiado (nadie lo leia), se queda con lo ultimo.
+#[tauri::command]
+pub fn engine_return_pcm(state: State<'_, EngineState>) -> tauri::ipc::Response {
+    let mut out: Vec<u8> = Vec::new();
+    if let Ok(g) = state.0.lock() {
+        if let Some(engine) = g.as_ref() {
+            let mut cons = engine.ret_cons.lock().unwrap_or_else(|e| e.into_inner());
+            let keep = (ENGINE_RATE as usize / 10) * 2; // 100 ms
+            let avail = cons.slots();
+            for _ in 0..avail.saturating_sub(keep) / 2 * 2 {
+                let _ = cons.pop();
+            }
+            out.reserve(cons.slots() * 4);
+            while let Ok(v) = cons.pop() {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+    }
+    tauri::ipc::Response::new(out)
 }
 
 /// Preescucha y llamadas del WebView hacia el motor nativo.

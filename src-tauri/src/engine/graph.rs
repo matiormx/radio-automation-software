@@ -259,6 +259,8 @@ pub struct Plan {
     default_out: usize,
     pub monitor: Vec<f32>,
     pub program: Vec<f32>,
+    /// Retorno a los que llaman: todo menos su propia voz (mix-minus)
+    pub ret: Vec<f32>,
     /// Tramo del canal ya con su fader (para envios y medidor)
     tmp: Vec<f32>,
     mono: Vec<f32>,
@@ -463,6 +465,7 @@ impl Plan {
             default_out,
             monitor: buf(),
             program: buf(),
+            ret: buf(),
             tmp: buf(),
             mono: buf(),
             inserts,
@@ -563,6 +566,7 @@ impl Plan {
             o.buf[..n].iter_mut().for_each(|x| *x = 0.0);
         }
         let silence: &[f32] = &[];
+        self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
         for c in self.chans.iter_mut() {
             let mut src: &[f32] = match c.src {
                 Source::Music => music,
@@ -615,6 +619,11 @@ impl Plan {
             tmp.iter_mut().for_each(|x| *x = 0.0);
             add_scaled2(tmp, &src[..n], gl, gr);
             c.meter.feed(tmp);
+            if c.src != Source::Call {
+                for (o, v) in self.ret[..n].iter_mut().zip(tmp.iter()) {
+                    *o += *v;
+                }
+            }
             let dst = match c.dest {
                 Dest::Bus(i) => &mut self.buses[i].buf[..n],
                 Dest::Out(i) => &mut self.outs[i].buf[..n],

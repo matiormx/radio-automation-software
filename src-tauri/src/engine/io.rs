@@ -126,6 +126,8 @@ pub struct Shared {
     pub core: Core,
     sinks: Vec<SecSink>,
     stream_tap: Option<Producer<f32>>,
+    /// Retorno para los oyentes de las llamadas (lo lee el WebView)
+    pub ret_tap: Option<Producer<f32>>,
     /// Salidas de envio de los inserts
     insert_sinks: Vec<SecSink>,
     /// Retornos de los inserts (entradas del equipo)
@@ -137,7 +139,7 @@ pub struct Shared {
 pub type SharedRef = Arc<Mutex<Shared>>;
 
 pub fn new_shared() -> SharedRef {
-    Arc::new(Mutex::new(Shared { core: Core::new(ENGINE_RATE), sinks: Vec::new(), stream_tap: None, insert_sinks: Vec::new(), returns: Vec::new(), apps: Vec::new() }))
+    Arc::new(Mutex::new(Shared { core: Core::new(ENGINE_RATE), sinks: Vec::new(), stream_tap: None, ret_tap: None, insert_sinks: Vec::new(), returns: Vec::new(), apps: Vec::new() }))
 }
 
 /// Candado que sobrevive a un panico en otro hilo (la radio no se para).
@@ -388,7 +390,7 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let mut g = lock(&shared);
-        let Shared { core, sinks, stream_tap, insert_sinks, returns, apps } = &mut *g;
+        let Shared { core, sinks, stream_tap, ret_tap, insert_sinks, returns, apps } = &mut *g;
         stretch.process(
             frames,
             ratio,
@@ -448,6 +450,9 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                         if let Some(sink) = insert_sinks.iter_mut().find(|s| s.device == ins.send_device) {
                             push_all(&mut sink.prod, &blk.buf[..s]);
                         }
+                    }
+                    if let Some(tap) = ret_tap.as_mut() {
+                        push_all(tap, &plan.ret[..s]);
                     }
                     if let Some(tap) = stream_tap.as_mut() {
                         push_all(tap, &plan.program[..s]);

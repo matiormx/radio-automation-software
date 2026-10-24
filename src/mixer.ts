@@ -547,6 +547,11 @@ export class SoundMixer {
     this.callSources.delete(id);
   }
 
+  /** Suma un nodo al retorno de los oyentes (motor nativo: su mix-minus). */
+  connectToReturn(node: AudioNode) {
+    node.connect(this.returnMix);
+  }
+
   /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la mesa. */
   setCallMuted(muted: boolean) {
     this.callInput.gain.setTargetAtTime(
