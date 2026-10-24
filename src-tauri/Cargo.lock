@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "miradio"
-version = "0.5.35"
+version = "0.5.36"
 dependencies = [
  "base64 0.22.1",
  "chrono",
