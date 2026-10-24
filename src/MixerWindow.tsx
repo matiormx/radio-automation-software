@@ -315,6 +315,15 @@ function useDevices(isNative: boolean) {
   const [inputs, setInputs] = useState<Device[]>([]);
   const [outputs, setOutputs] = useState<Device[]>([]);
   const [insertInputs, setInsertInputs] = useState<Device[]>([]);
+  const [chanMap, setChanMap] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("mx-in-channels") || "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  });
+  const chanRef = useRef(chanMap);
+  chanRef.current = chanMap;
   const refresh = useCallback(async () => {
     try {
       const list = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
@@ -322,7 +331,13 @@ function useDevices(isNative: boolean) {
       const outs: Device[] = [];
       for (const d of list) {
         if (!d.deviceId) continue;
-        if (d.kind === "audioinput") ins.push({ id: d.deviceId, label: d.label || `Entrada ${ins.length + 1}`, kind: "audioinput" });
+        if (d.kind === "audioinput")
+          ins.push({
+            id: d.deviceId,
+            label: d.label || `Entrada ${ins.length + 1}`,
+            kind: "audioinput",
+            channels: chanRef.current[d.deviceId],
+          });
         if (d.kind === "audiooutput" && d.deviceId !== "default")
           outs.push({ id: d.deviceId, label: d.label || `Salida ${outs.length + 1}`, kind: "audiooutput" });
       }
@@ -355,6 +370,39 @@ function useDevices(isNative: boolean) {
       stream?.getTracks().forEach((t) => t.stop());
     } catch {
       /* sin permiso */
+    }
+    // Canales de cada entrada: se abre un instante pidiendo muchos y se lee lo que da.
+    try {
+      const list = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
+      const found: Record<string, number> = { ...chanRef.current };
+      for (const d of list) {
+        if (d.kind !== "audioinput" || !d.deviceId || d.deviceId === "default") continue;
+        try {
+          const st = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { exact: d.deviceId },
+              channelCount: { ideal: 64 },
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          });
+          const n = st.getAudioTracks()[0]?.getSettings().channelCount;
+          st.getTracks().forEach((t) => t.stop());
+          if (n && n > 0) found[d.deviceId] = n;
+        } catch {
+          /* entrada ocupada o sin permiso */
+        }
+      }
+      chanRef.current = found;
+      setChanMap(found);
+      try {
+        localStorage.setItem("mx-in-channels", JSON.stringify(found));
+      } catch {
+        /* sin almacenamiento */
+      }
+    } catch {
+      /* sin dispositivos */
     }
     await refresh();
   }, [refresh]);
@@ -736,6 +784,8 @@ function ChannelStrip({
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
+  const monoOn = (ch.monoMode ?? "off") !== "off";
+  const inChannels = inputs.find((d) => d.id === ch.input.deviceId)?.channels ?? 2;
   const inputLabel =
     ch.input.kind === "app"
       ? ch.input.app === "preview"
@@ -745,7 +795,12 @@ function ChannelStrip({
           : "Música"
       : ch.input.deviceId === "none"
         ? "Ninguna"
-        : inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada";
+        : (inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada") +
+          ((ch.input.channel ?? 0) > 0
+            ? monoOn
+              ? ` · c${ch.input.channel}`
+              : ` · ${(ch.input.channel as number) * 2 - 1}-${(ch.input.channel as number) * 2}`
+            : "");
   const outputLabel =
     ch.output.kind === "bus"
       ? busName(ch.output.id)
@@ -805,6 +860,37 @@ function ChannelStrip({
               </optgroup>
             </select>
           </label>
+          {ch.input.kind === "device" && ch.input.deviceId !== "none" && (
+            <label className="mixer-field">
+              <span>{monoOn ? "Canal (mono)" : "Canales (estéreo)"}</span>
+              <select
+                value={ch.input.channel ?? 0}
+                onChange={(e) => onPatch({ input: { ...ch.input, channel: Number(e.target.value) } })}
+              >
+                {monoOn ? (
+                  <>
+                    <option value={0}>Mezcla de los dos lados</option>
+                    {Array.from({ length: Math.max(inChannels, ch.input.channel ?? 0) }, (_, k) => (
+                      <option key={k} value={k + 1}>
+                        Canal {k + 1}
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  Array.from({ length: Math.max(1, Math.ceil(inChannels / 2), ch.input.channel ?? 1) }, (_, k) => (
+                    <option key={k} value={k + 1}>
+                      Canales {k * 2 + 1}-{k * 2 + 2}
+                    </option>
+                  ))
+                )}
+              </select>
+              <small className="mx-hint">
+                {inChannels > 2
+                  ? `La tarjeta ofrece ${inChannels} canales.`
+                  : "Pulsa «Detectar entradas» para ver cuántos canales tiene la tarjeta."}
+              </small>
+            </label>
+          )}
         </Pop>
       </div>
 
@@ -966,15 +1052,26 @@ function ChannelStrip({
       <PanKnob pan={ch.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />
 
       <div className="mx-buttons">
-        <button
-          type="button"
-          className={`mx-btn mx-mono ${ch.mono ? "mx-on" : ""}`}
-          aria-pressed={!!ch.mono}
-          title="Mono: mezcla L+R y lo saca igual por los dos lados (para fuentes que solo llegan por un lado)"
-          onClick={() => onPatch({ mono: !ch.mono })}
-        >
-          Mono
-        </button>
+        {(
+          [
+            ["sum", "L+R", "Suma L+R: mezcla los dos lados y sale igual por ambos"],
+            ["left", "L", "Solo izquierda (L-L): usa el lado izquierdo en los dos lados"],
+            ["right", "R", "Solo derecha (R-R): usa el lado derecho en los dos lados"],
+          ] as const
+        ).map(([mode, label, tip]) => (
+          <button
+            key={mode}
+            type="button"
+            className={`mx-btn mx-mono ${ch.monoMode === mode ? "mx-on" : ""}`}
+            aria-pressed={ch.monoMode === mode}
+            title={tip}
+            onClick={() => onPatch({ monoMode: ch.monoMode === mode ? "off" : mode })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="mx-buttons">
         <button
           type="button"
           className={`mx-btn mx-solo ${ch.solo ? "mx-on" : ""}`}

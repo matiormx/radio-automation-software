@@ -67,8 +67,8 @@ pub struct ChannelCfg {
     pub muted: bool,
     pub pan: f64,
     pub solo: bool,
-    /// Mezcla L+R y lo saca por los dos lados (fuentes que solo llegan por un lado)
-    pub mono: bool,
+    /// "" (estereo), "sum" (L+R), "left" (solo L) o "right" (solo R), sacado por los dos lados
+    pub mono_mode: String,
     pub sends: Vec<SendCfg>,
     pub insert: InsertCfg,
 }
@@ -193,7 +193,8 @@ struct Chan {
     meter: Meter,
     pan: f64,
     open: bool,
-    mono: bool,
+    /// 0 estereo, 1 suma L+R, 2 solo L, 3 solo R
+    mono: u8,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
 }
@@ -411,7 +412,7 @@ impl Plan {
                 sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
             }
             let insert = insert_of(&c.insert, &key, &mut inserts);
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, mono: c.mono, insert });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -561,9 +562,13 @@ impl Plan {
                 }
             }
             // Mono: L y R se mezclan y salen iguales por los dos lados.
-            if c.mono && src.len() >= n {
+            if c.mono != 0 && src.len() >= n {
                 for (d, s) in self.mono[..n].chunks_exact_mut(2).zip(src[..n].chunks_exact(2)) {
-                    let m = (s[0] + s[1]) * 0.5;
+                    let m = match c.mono {
+                        2 => s[0],
+                        3 => s[1],
+                        _ => (s[0] + s[1]) * 0.5,
+                    };
                     d[0] = m;
                     d[1] = m;
                 }

@@ -174,6 +174,8 @@ export interface Device {
   id: string;
   label: string;
   kind: "audioinput" | "audiooutput";
+  /** Canales que ofrece la tarjeta (si se conocen) */
+  channels?: number;
 }
 
 /** Paleta fija de 15 colores (3 filas de 5): más fácil igualar canales. */

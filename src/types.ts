@@ -263,6 +263,8 @@ export interface MixerInput {
   kind: "app" | "device";
   app: MixerAppSource | "";
   deviceId: string;
+  /** Estéreo: par de canales de la tarjeta (1 = 1-2, 2 = 3-4…). Mono: canal (0 = mezcla L+R) */
+  channel?: number;
 }
 
 export interface MixerOutput {
@@ -344,8 +346,8 @@ export interface MixerChannel {
   /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;
   solo?: boolean;
-  /** Mezcla L+R y lo saca igual por los dos lados */
-  mono?: boolean;
+  /** Estereo (off), suma L+R, solo izquierda o solo derecha; sale igual por los dos lados */
+  monoMode?: "off" | "sum" | "left" | "right";
   sends?: MixerSend[];
 }
 

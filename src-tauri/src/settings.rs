@@ -216,6 +216,8 @@ pub struct MixerInput {
     pub app: String,
     /// Identificador del dispositivo de entrada cuando kind = "device"
     pub device_id: String,
+    /// Estereo: par de canales (1 = 1-2, 2 = 3-4...). Mono: canal (0 = mezcla L+R)
+    pub channel: u32,
 }
 
 impl Default for MixerInput {
@@ -224,6 +226,7 @@ impl Default for MixerInput {
             kind: "app".to_string(),
             app: "music".to_string(),
             device_id: String::new(),
+            channel: 0,
         }
     }
 }
@@ -264,7 +267,8 @@ pub struct MixerChannel {
     pub insert: InsertSettings,
     pub pan: f32,
     pub solo: bool,
-    pub mono: bool,
+    /// "", "sum", "left" o "right"
+    pub mono_mode: String,
     pub sends: Vec<MixerSend>,
 }
 
@@ -284,7 +288,7 @@ impl Default for MixerChannel {
             insert: InsertSettings::default(),
             pan: 0.0,
             solo: false,
-            mono: false,
+            mono_mode: String::new(),
             sends: Vec::new(),
         }
     }

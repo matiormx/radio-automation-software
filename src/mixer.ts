@@ -276,6 +276,8 @@ export class SoundMixer {
       return send;
     };
     for (const mix of this.deviceMixes.values()) mix.gain.disconnect();
+    // Las conexiones de las entradas se rehacen enteras en cada aplicacion.
+    for (const src of this.inputSources.values()) src.node.disconnect();
     this.channelGains.clear();
     this.busGains.clear();
     this.deviceMixes.clear();
@@ -391,17 +393,32 @@ export class SoundMixer {
       pre.connect(gain);
       // Mono: L+R se mezclan (downmix a 1 canal) y vuelven a salir por los dos lados.
       let head: GainNode = pre;
-      if (ch.mono) {
-        const mono = this.ctx.createGain();
-        mono.channelCount = 1;
-        mono.channelCountMode = "explicit";
-        mono.channelInterpretation = "speakers";
+      const mm = ch.monoMode ?? "off";
+      if (mm !== "off") {
         pre.channelCount = 2;
         pre.channelCountMode = "explicit";
         pre.channelInterpretation = "speakers";
-        mono.connect(pre);
-        this.faders.push(mono);
-        head = mono;
+        const input = this.ctx.createGain();
+        input.channelCount = 2;
+        input.channelCountMode = "explicit";
+        input.channelInterpretation = "speakers";
+        const split = this.ctx.createChannelSplitter(2);
+        const merge = this.ctx.createChannelMerger(2);
+        input.connect(split);
+        // suma: (L+R)/2; izquierda o derecha: ese lado a los dos
+        const gain = mm === "sum" ? 0.5 : 1;
+        const sides = mm === "sum" ? [0, 1] : [mm === "left" ? 0 : 1];
+        for (const side of sides) {
+          const g = this.ctx.createGain();
+          g.gain.value = gain;
+          split.connect(g, side);
+          g.connect(merge, 0, 0);
+          g.connect(merge, 0, 1);
+          this.faders.push(g);
+        }
+        merge.connect(pre);
+        this.faders.push(input, merge as unknown as GainNode);
+        head = input;
       }
       const panNode = panner(ch.pan);
       gain.connect(panNode.input);
@@ -440,7 +457,7 @@ export class SoundMixer {
         // Entrada «Ninguna»: el canal no recibe nada.
         if (id !== NONE_DEVICE) {
           inputDevices.add(id);
-          this.connectInput(id, entry);
+          this.connectInput(id, entry, ch.input.channel ?? 0, (ch.monoMode ?? "off") !== "off");
         }
       }
 
@@ -877,11 +894,54 @@ export class SoundMixer {
     void sink.el.play().catch(() => undefined);
   }
 
-  private connectInput(deviceId: string, channelGain: GainNode) {
+  /** Canales que necesita cada tarjeta de entrada segun los canales de la mesa. */
+  private wantedChannels(deviceId: string): number {
+    let n = 2;
+    for (const ch of this.config.mixerChannels) {
+      if (ch.input.kind !== "device" || normDevice(ch.input.deviceId) !== deviceId) continue;
+      const c = ch.input.channel ?? 0;
+      n = Math.max(n, (ch.monoMode ?? "off") !== "off" ? c : c * 2);
+    }
+    return n;
+  }
+
+  /**
+   * Conecta la entrada al canal eligiendo sus canales: estereo = un par de la
+   * tarjeta (1-2, 3-4...), mono = un solo canal que sale igual por los dos lados.
+   */
+  private attachInput(node: MediaStreamAudioSourceNode, target: GainNode, channel: number, mono: boolean) {
+    const have = node.channelCount;
+    const first = mono ? channel - 1 : Math.max(0, channel - 1) * 2;
+    if (!mono && first === 0) {
+      node.connect(target);
+      return;
+    }
+    if (mono && channel === 0) {
+      node.connect(target); // mezcla L+R (el boton Mono del canal hace el downmix)
+      return;
+    }
+    if (first >= have) return; // la tarjeta no llega a ese canal: silencio
+    const split = this.ctx.createChannelSplitter(Math.max(have, 2));
+    const merge = this.ctx.createChannelMerger(2);
+    node.connect(split);
+    split.connect(merge, first, 0);
+    split.connect(merge, mono ? first : Math.min(first + 1, have - 1), 1);
+    merge.connect(target);
+  }
+
+  private connectInput(deviceId: string, channelGain: GainNode, channel = 0, mono = false) {
     const id = normDevice(deviceId);
     const existing = this.inputSources.get(id);
     if (existing) {
-      existing.node.connect(channelGain);
+      if (this.wantedChannels(id) > existing.node.channelCount && existing.node.channelCount >= 2 && !this.inputPending.has(id)) {
+        // Hace falta una tarjeta con mas canales abiertos: se reabre.
+        existing.node.disconnect();
+        for (const track of existing.stream.getTracks()) track.stop();
+        this.inputSources.delete(id);
+        this.requestInput(id);
+        return;
+      }
+      this.attachInput(existing.node, channelGain, channel, mono);
       return;
     }
     this.requestInput(id);
@@ -911,7 +971,7 @@ export class SoundMixer {
             }
           : {
               deviceId: { exact: deviceId },
-              channelCount: { ideal: 2 },
+              channelCount: { ideal: this.wantedChannels(deviceId) },
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
@@ -935,7 +995,7 @@ export class SoundMixer {
           if (ch.input.kind !== "device") continue;
           if (normDevice(ch.input.deviceId) !== deviceId) continue;
           const gain = this.channelGains.get(ch.id);
-          if (gain) node.connect(gain);
+          if (gain) this.attachInput(node, gain, ch.input.channel ?? 0, (ch.monoMode ?? "off") !== "off");
         }
         for (const ret of this.insertReturns.values()) {
           if (ret.deviceId !== deviceId) continue;

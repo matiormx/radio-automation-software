@@ -193,7 +193,7 @@ fn insert_without_send_or_return_is_ignored_and_devices_deduplicated() {
 #[test]
 fn mono_channel_mixes_sides() {
     let mut c = core_with_music(0.5);
-    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"mono":true}],"mixerBuses":[],"monitorBusId":""}"#);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"monoMode":"sum"}],"mixerBuses":[],"monitorBusId":""}"#);
     let l = levels(&mut c, 2048);
     assert!(l["default"] > 0.0, "{:?}", l);
 }
