@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
@@ -24,7 +26,15 @@ struct StreamProcess {
     wants_audio: bool,
     alive: bool,
     child: Child,
+    /// Cola hacia el hilo que escribe en FFmpeg (si la red va lenta, el motor
+    /// de audio nunca se queda esperando).
+    tx: Option<SyncSender<Vec<u8>>>,
+    failed: Arc<AtomicBool>,
+    warned_full: bool,
 }
+
+/// Trozos de PCM que puede acumular un encoder antes de descartar (~10 s).
+const QUEUE_CHUNKS: usize = 512;
 
 pub struct StreamingState {
     inner: Arc<Mutex<EngineInner>>,
@@ -378,6 +388,30 @@ fn spawn_process(
         });
     }
 
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut tx = None;
+    if wants_audio {
+        if let Some(mut stdin) = child.stdin.take() {
+            let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
+            let (shared, failed, label) = (shared.clone(), failed.clone(), name.clone());
+            std::thread::Builder::new()
+                .name("miradio-encoder-write".into())
+                .spawn(move || {
+                    while let Ok(chunk) = receiver.recv() {
+                        if stdin.write_all(&chunk).and_then(|_| stdin.flush()).is_err() {
+                            failed.store(true, Ordering::SeqCst);
+                            if let Ok(mut inner) = shared.lock() {
+                                inner.last_error = Some(sanitize_error(&format!("{label}: se cerró la entrada de audio")));
+                            }
+                            break;
+                        }
+                    }
+                })
+                .ok();
+            tx = Some(sender);
+        }
+    }
+
     inner.processes.push(StreamProcess {
         id,
         name,
@@ -385,12 +419,16 @@ fn spawn_process(
         wants_audio,
         alive: true,
         child,
+        tx,
+        failed,
+        warned_full: false,
     });
     Ok(())
 }
 
 fn stop_all(inner: &mut EngineInner) {
     for mut process in inner.processes.drain(..) {
+        process.tx.take();
         if let Some(stdin) = process.child.stdin.take() {
             drop(stdin);
         }
@@ -656,6 +694,8 @@ fn base_input_args() -> Vec<String> {
         arg("48000"),
         arg("-ac"),
         arg("2"),
+        arg("-thread_queue_size"),
+        arg("1024"),
         arg("-i"),
         arg("pipe:0"),
     ]
@@ -793,6 +833,41 @@ pub(crate) fn configure_no_window(_command: &mut Command) {}
 mod tests {
     use super::*;
 
+    #[test]
+    fn pcm_reaches_ffmpeg_through_writer_thread() {
+        let Some(ffmpeg) = ["ffmpeg"].iter().map(PathBuf::from).find(|p| probe_ffmpeg(p).is_ok()) else {
+            return;
+        };
+        let out = std::env::temp_dir().join(format!("miradio_stream_test_{}.wav", std::process::id()));
+        let shared = Arc::new(Mutex::new(EngineInner::default()));
+        let mut args = base_input_args();
+        args.extend(["-y".to_string(), out.display().to_string()]);
+        {
+            let mut inner = shared.lock().unwrap();
+            spawn_process(&mut inner, &shared, &ffmpeg, args, "t".into(), "t".into(), "icecast", true).unwrap();
+        }
+        let chunk = vec![0u8; 3840];
+        for _ in 0..100 {
+            push_pcm(&shared, &chunk).unwrap();
+        }
+        // Dar tiempo a vaciar la cola y cerrar la entrada.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        {
+            let mut inner = shared.lock().unwrap();
+            for p in inner.processes.iter_mut() {
+                p.tx.take();
+                p.child.stdin.take();
+            }
+            for p in inner.processes.iter_mut() {
+                let _ = p.child.wait();
+            }
+            stop_all(&mut inner);
+        }
+        let len = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        let _ = std::fs::remove_file(&out);
+        assert!(len > 3840 * 90, "ffmpeg recibio {len} bytes");
+    }
+
     fn stream() -> IcecastStream {
         IcecastStream {
             id: "s1".to_string(),
@@ -874,18 +949,31 @@ fn push_pcm(shared: &Arc<Mutex<EngineInner>>, data: &[u8]) -> Result<(), String>
         if !process.alive || !process.wants_audio {
             continue;
         }
-        let Some(stdin) = process.child.stdin.as_mut() else {
-            process.alive = false;
-            error = Some(format!("{}: entrada de audio cerrada", process.name));
-            let _ = process.child.kill();
-            let _ = process.child.wait();
-            continue;
+        let dead = process.failed.load(Ordering::SeqCst);
+        let result = match process.tx.as_ref() {
+            Some(tx) if !dead => tx.try_send(data.to_vec()),
+            _ => Err(TrySendError::Disconnected(Vec::new())),
         };
-        if let Err(write_error) = stdin.write_all(data).and_then(|_| stdin.flush()) {
-            process.alive = false;
-            error = Some(format!("{}: {}", process.name, write_error));
-            let _ = process.child.kill();
-            let _ = process.child.wait();
+        match result {
+            Ok(()) => process.warned_full = false,
+            Err(TrySendError::Full(_)) => {
+                // El encoder no da abasto (red de subida lenta o servidor
+                // lento): se descarta este trozo para no frenar el audio.
+                if !process.warned_full {
+                    process.warned_full = true;
+                    error = Some(format!(
+                        "{}: la conexión de subida no da abasto, se pierde audio",
+                        process.name
+                    ));
+                }
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                process.alive = false;
+                error = Some(format!("{}: entrada de audio cerrada", process.name));
+                process.tx.take();
+                let _ = process.child.kill();
+                let _ = process.child.wait();
+            }
         }
     }
     if let Some(message) = error {
