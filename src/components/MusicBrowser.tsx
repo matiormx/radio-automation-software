@@ -24,7 +24,9 @@ const LOSSY = new Set(["mp3", "wma", "mp2", "aac", "m4a", "ogg", "opus"]);
 
 /** Etiqueta de calidad: FLAC / Hi-Res, o aviso de MP3 de baja calidad. */
 export function qualityBadge(t: Track): ReactNode {
-  const fmt = (t.format ?? "").toLowerCase();
+  let fmt = (t.format ?? "").toLowerCase();
+  // M4A por encima de 320 kbps (o con profundidad de bits) es ALAC: sin pérdida, como FLAC.
+  if ((fmt === "m4a" || fmt === "mp4") && ((t.audioKbps ?? 0) > 320 || (t.audioBits ?? 0) > 0)) fmt = "alac";
   const rate = t.audioRate ?? 0;
   const bits = t.audioBits ?? 0;
   const detail = [rate ? `${(rate / 1000).toFixed(rate % 1000 ? 1 : 0)} kHz` : "", bits ? `${bits} bits` : "", t.audioKbps ? `${t.audioKbps} kbps` : ""]
