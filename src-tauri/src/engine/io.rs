@@ -16,7 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use super::core::Core;
+use super::core::{Core, Sources};
 use super::graph::{InsertFeed, DEFAULT_DEVICE, STREAM_DEVICE};
 use super::resamp::{Drift, Stretch};
 
@@ -30,8 +30,9 @@ pub struct SecSink {
     prod: Producer<f32>,
 }
 
-/// Retorno de un insert: anillo de entrada, remuestreo a la frecuencia del
-/// motor y colchon para absorber la deriva entre relojes.
+/// Audio que entra por un anillo con otro reloj (entrada fisica, retorno de
+/// un insert, llamada o preescucha del WebView): remuestreo a la frecuencia
+/// del motor y colchon para absorber la deriva entre relojes.
 pub struct InsertReturn {
     pub device: String,
     cons: Consumer<f32>,
@@ -39,12 +40,18 @@ pub struct InsertReturn {
     drift: Drift,
     buf: Vec<f32>,
     dev_rate: u32,
+    /// Colchon minimo (s): mas grande si llega a trozos (WebView)
+    min_secs: f64,
     primed: bool,
     active: bool,
 }
 
 impl InsertReturn {
-    fn new(device: String, cons: Consumer<f32>, dev_rate: u32) -> Self {
+    pub fn new(device: String, cons: Consumer<f32>, dev_rate: u32) -> Self {
+        Self::with_buffer(device, cons, dev_rate, 0.03)
+    }
+
+    pub fn with_buffer(device: String, cons: Consumer<f32>, dev_rate: u32, min_secs: f64) -> Self {
         Self {
             device,
             cons,
@@ -52,8 +59,22 @@ impl InsertReturn {
             drift: Drift::default(),
             buf: vec![0.0; 4096 * 2],
             dev_rate,
+            min_secs,
             primed: false,
             active: false,
+        }
+    }
+
+    pub fn rate(&self) -> u32 {
+        self.dev_rate
+    }
+
+    /// Lo generado en el ultimo `produce` (vacio si no hay audio).
+    fn data(&self, n: usize) -> &[f32] {
+        if self.active {
+            &self.buf[..n * 2]
+        } else {
+            &[]
         }
     }
 
@@ -62,7 +83,7 @@ impl InsertReturn {
     /// el seco (no enmudece el canal).
     fn produce(&mut self, n: usize) {
         let base = self.dev_rate.max(1) as f64 / ENGINE_RATE as f64;
-        let target = (n as f64 * base * 3.0).max(self.dev_rate.max(1) as f64 * 0.03);
+        let target = (n as f64 * base * 3.0).max(self.dev_rate.max(1) as f64 * self.min_secs);
         let mut fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
         if fill > target * 4.0 {
             let drop = ((fill - target) as usize) * 2;
@@ -109,8 +130,17 @@ impl InsertReturn {
             },
         );
         self.active = !starved;
+        if std::env::var("MIRADIO_DEBUG_IO").is_ok() {
+            static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let k = N.fetch_add(1, Ordering::Relaxed);
+            if starved || k % 200 == 0 {
+                eprintln!("[io] {} n={} fill={:.0} target={:.0} starved={} rate={}", self.device, n, fill, target, starved, self.dev_rate);
+            }
+        }
         if starved {
             self.primed = false;
+            // Llega a trozos mas grandes que el colchon: se agranda (hasta 300 ms).
+            self.min_secs = (self.min_secs * 1.5).min(0.3);
         }
     }
 }
@@ -122,8 +152,13 @@ pub struct Shared {
     stream_tap: Option<Producer<f32>>,
     /// Salidas de envio de los inserts
     insert_sinks: Vec<SecSink>,
-    /// Entradas de retorno de los inserts
+    /// Entradas fisicas: canales de la mesa y retornos de los inserts
     returns: Vec<InsertReturn>,
+    /// Llamada y preescucha que llegan del WebView
+    pub call_feed: Option<InsertReturn>,
+    pub preview_feed: Option<InsertReturn>,
+    /// Retorno del que llama (mix-minus) hacia el WebView
+    pub ret_tap: Option<Producer<f32>>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
@@ -135,6 +170,9 @@ pub fn new_shared() -> SharedRef {
         stream_tap: None,
         insert_sinks: Vec::new(),
         returns: Vec::new(),
+        call_feed: None,
+        preview_feed: None,
+        ret_tap: None,
     }))
 }
 
@@ -327,15 +365,24 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let mut g = lock(&shared);
-        let Shared { core, sinks, stream_tap, insert_sinks, returns } = &mut *g;
+        let Shared { core, sinks, stream_tap, insert_sinks, returns, call_feed, preview_feed, ret_tap } = &mut *g;
         stretch.process(
             frames,
             ratio,
             |buf, n| {
-                // Retornos de los inserts: cada uno se remuestrea al motor.
+                // Entradas y retornos: cada uno se remuestrea al motor.
                 for r in returns.iter_mut() {
                     r.produce(n);
                 }
+                for f in [call_feed.as_mut(), preview_feed.as_mut()].into_iter().flatten() {
+                    f.produce(n);
+                }
+                let inputs: Vec<&[f32]> = core
+                    .plan
+                    .inputs
+                    .iter()
+                    .map(|id| returns.iter().find(|r| &r.device == id).map(|r| r.data(n)).unwrap_or(&[]))
+                    .collect();
                 let feeds: Vec<InsertFeed> = core
                     .plan
                     .inserts
@@ -352,7 +399,13 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                         }
                     })
                     .collect();
-                core.render_inserts(n, &feeds, |plan, _off, m| {
+                let src = Sources {
+                    returns: &feeds,
+                    inputs: &inputs,
+                    call: call_feed.as_ref().map(|f| f.data(n)).unwrap_or(&[]),
+                    preview: preview_feed.as_ref().map(|f| f.data(n)).unwrap_or(&[]),
+                };
+                core.render_inserts(n, &src, |plan, _off, m| {
                     let s = m * 2;
                     let d = plan.master_out_index();
                     buf.extend_from_slice(&plan.outs[d].buf[..s]);
@@ -369,6 +422,9 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                     }
                     if let Some(tap) = stream_tap.as_mut() {
                         push_all(tap, &plan.program[..s]);
+                    }
+                    if let Some(tap) = ret_tap.as_mut() {
+                        push_all(tap, &plan.ret[..s]);
                     }
                 });
             },

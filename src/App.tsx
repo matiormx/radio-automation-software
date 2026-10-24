@@ -43,12 +43,10 @@ import {
 } from "./api";
 import type {
   HistoryEntry,
-  InsertSettings,
   SessionState,
   Track,
   Playlist,
   PlaylistRow,
-  MixerChannel,
   Settings,
   Block,
   Campaign,
@@ -257,54 +255,27 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   });
 }
 
-const NO_INSERT: InsertSettings = { enabled: false, sendDeviceId: "", returnDeviceId: "" };
-
-function isMusicChannel(ch: MixerChannel): boolean {
-  return ch.input.kind === "app" && (ch.input.app || "music") === "music";
-}
-
-/** Buses que reciben audio del motor nativo (canales de musica o sus envios). */
-function nativeBuses(s: Settings): Set<string> {
-  const ids = new Set<string>();
-  for (const ch of s.mixerChannels) {
-    if (!isMusicChannel(ch)) continue;
-    if (ch.output.kind === "bus") ids.add(ch.output.id);
-    for (const send of ch.sends ?? []) ids.add(send.busId);
-  }
-  return ids;
-}
+type MixSlice = Pick<
+  Settings,
+  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
+>;
 
 /**
- * Con el motor nativo, la mesa web no toca los canales de musica. Los inserts
- * se reparten: los del motor nativo (musica y sus buses) no se repiten en web.
+ * Con el motor nativo la mesa entera (micros, inserts, buses y salidas) vive
+ * en Rust; la mesa web se queda vacia y solo le pasa la llamada y la preescucha.
  */
-function webMixerSlice(
-  s: Settings,
-): Pick<
-  Settings,
-  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
-> {
-  const native = nativeBuses(s);
-  return {
-    mixerChannels: s.mixerChannels.filter((ch) => !isMusicChannel(ch)),
-    mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? { ...bus, insert: NO_INSERT } : bus)),
-    monitorBusId: s.monitorBusId,
-    masterOutputDeviceId: s.masterOutputDeviceId,
-    monitorOutputDeviceId: s.monitorOutputDeviceId,
-  };
-}
+const WEB_MIX_NATIVE: MixSlice = {
+  mixerChannels: [],
+  mixerBuses: [],
+  monitorBusId: "",
+  masterOutputDeviceId: "",
+  monitorOutputDeviceId: "",
+};
 
-/** Al motor nativo solo le llegan los inserts que le pertenecen. */
-function nativeMixerSlice(
-  s: Settings,
-): Pick<
-  Settings,
-  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
-> {
-  const native = nativeBuses(s);
+function nativeMixerSlice(s: Settings): MixSlice {
   return {
-    mixerChannels: s.mixerChannels.map((ch) => (isMusicChannel(ch) ? ch : { ...ch, insert: NO_INSERT })),
-    mixerBuses: s.mixerBuses.map((bus) => (native.has(bus.id) ? bus : { ...bus, insert: NO_INSERT })),
+    mixerChannels: s.mixerChannels,
+    mixerBuses: s.mixerBuses,
     monitorBusId: s.monitorBusId,
     masterOutputDeviceId: s.masterOutputDeviceId,
     monitorOutputDeviceId: s.monitorOutputDeviceId,
@@ -471,11 +442,12 @@ export default function App() {
     mixerRef.current = mixer;
     setMixer(mixer);
     const useNative = settingsRef.current.audioEngine === "native";
-    // Motor nativo (beta): la musica la reproduce y mezcla Rust. La mesa web
-    // sigue con microfonos, preescucha y llamadas.
+    // Motor nativo: la musica y toda la mesa las lleva Rust. La mesa web
+    // solo le pasa la voz de la llamada y la preescucha.
     const player = useNative ? new NativePlayer((msg) => showToast(msg)) : new RadioPlayer(mixer);
     if (useNative) {
-      mixer.apply(webMixerSlice(settingsRef.current));
+      mixer.setNativeEngine(true);
+      mixer.apply(WEB_MIX_NATIVE);
       const nat = player as NativePlayer;
       nat.applyMixer(nativeMixerSlice(settingsRef.current));
       nat.setVolume(settingsRef.current.masterVolume);
@@ -872,7 +844,7 @@ export default function App() {
   useEffect(() => {
     const p = playerRef.current;
     if (p instanceof NativePlayer) {
-      mixerRef.current?.apply(webMixerSlice(settings));
+      mixerRef.current?.apply(WEB_MIX_NATIVE);
       p.applyMixer(nativeMixerSlice(settings));
     } else {
       mixerRef.current?.apply(settings);

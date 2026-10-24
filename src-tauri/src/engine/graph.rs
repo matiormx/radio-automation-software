@@ -55,6 +55,21 @@ pub struct InsertCfg {
     pub return_device_id: String,
 }
 
+/// Nivelador automatico (igual que el de la mesa web).
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LevelerCfg {
+    pub enabled: bool,
+    pub target_lufs: f64,
+    pub max_gain_db: f64,
+}
+
+impl Default for LevelerCfg {
+    fn default() -> Self {
+        LevelerCfg { enabled: false, target_lufs: -16.0, max_gain_db: 9.0 }
+    }
+}
+
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChannelCfg {
@@ -71,6 +86,7 @@ pub struct ChannelCfg {
     pub solo: bool,
     pub sends: Vec<SendCfg>,
     pub insert: InsertCfg,
+    pub leveler: LevelerCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -92,6 +108,7 @@ pub struct BusCfg {
     pub pan: f64,
     pub insert: InsertCfg,
     pub sends: Vec<SendCfg>,
+    pub leveler: LevelerCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -185,6 +202,7 @@ struct Chan {
     open: bool,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
+    leveler: Option<Leveler>,
 }
 
 struct Bus {
@@ -199,6 +217,7 @@ struct Bus {
     /// Indice en `Plan::inserts`, si el bus tiene insert
     insert: Option<usize>,
     sends: Vec<Send>,
+    leveler: Option<Leveler>,
 }
 
 /// Un insert activo de la mesa (canal o bus).
@@ -254,6 +273,8 @@ pub struct Plan {
     call_fallback: bool,
     pub monitor: Vec<f32>,
     pub program: Vec<f32>,
+    /// Retorno para el que llama (mix-minus): todo menos su propia voz
+    pub ret: Vec<f32>,
     /// Inserts activos, en el mismo orden que `insert_sends`
     pub inserts: Vec<InsertRoute>,
     /// Audio seco de cada insert (se entrega a la tarjeta de envio)
@@ -262,6 +283,150 @@ pub struct Plan {
     tmp: Vec<f32>,
     /// Tramo de entrada ya con gain/AGC, antes de inserts
     pre: Vec<f32>,
+    /// Tramo del canal tras su nivelador
+    lv: Vec<f32>,
+}
+
+/// Biquad estereo (formulas RBJ).
+#[derive(Clone, Copy, Default)]
+struct Biquad {
+    b: [f32; 3],
+    a: [f32; 2],
+    z: [[f32; 2]; 2],
+}
+
+impl Biquad {
+    fn highpass(rate: f32, f0: f32, q: f32) -> Self {
+        let w = 2.0 * std::f32::consts::PI * f0 / rate;
+        let (sn, cs) = w.sin_cos();
+        let alpha = sn / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Biquad {
+            b: [(1.0 + cs) / 2.0 / a0, -(1.0 + cs) / a0, (1.0 + cs) / 2.0 / a0],
+            a: [-2.0 * cs / a0, (1.0 - alpha) / a0],
+            z: [[0.0; 2]; 2],
+        }
+    }
+
+    fn highshelf(rate: f32, f0: f32, gain_db: f32) -> Self {
+        let a = 10f32.powf(gain_db / 40.0);
+        let w = 2.0 * std::f32::consts::PI * f0 / rate;
+        let (sn, cs) = w.sin_cos();
+        let alpha = sn / 2.0 * std::f32::consts::SQRT_2;
+        let sa = 2.0 * a.sqrt() * alpha;
+        let a0 = (a + 1.0) - (a - 1.0) * cs + sa;
+        Biquad {
+            b: [
+                a * ((a + 1.0) + (a - 1.0) * cs + sa) / a0,
+                -2.0 * a * ((a - 1.0) + (a + 1.0) * cs) / a0,
+                a * ((a + 1.0) + (a - 1.0) * cs - sa) / a0,
+            ],
+            a: [2.0 * ((a - 1.0) - (a + 1.0) * cs) / a0, ((a + 1.0) - (a - 1.0) * cs - sa) / a0],
+            z: [[0.0; 2]; 2],
+        }
+    }
+
+    #[inline]
+    fn tick(&mut self, ch: usize, x: f32) -> f32 {
+        let z = &mut self.z[ch];
+        let y = self.b[0] * x + z[0];
+        z[0] = self.b[1] * x - self.a[0] * y + z[1];
+        z[1] = self.b[2] * x - self.a[1] * y;
+        y
+    }
+}
+
+/// Nivelador como el de la mesa web: mide la sonoridad (filtro K
+/// simplificado, ventana de 3 s), mueve despacio la ganancia hacia el
+/// objetivo dentro de un margen y detras pone un limitador de pico.
+/// Con silencio la ganancia se congela.
+#[derive(Clone, Copy)]
+struct Leveler {
+    target_lufs: f32,
+    max_gain_db: f32,
+    hp: Biquad,
+    shelf: Biquad,
+    ms: f32,
+    primed: bool,
+    gain_db: f32,
+    gain: f32,
+    /// Atenuacion actual del limitador (1 = nada)
+    lim: f32,
+}
+
+impl Leveler {
+    fn new(cfg: &LevelerCfg) -> Option<Leveler> {
+        if !cfg.enabled {
+            return None;
+        }
+        let rate = 48_000.0;
+        Some(Leveler {
+            target_lufs: cfg.target_lufs as f32,
+            max_gain_db: cfg.max_gain_db.max(0.0) as f32,
+            hp: Biquad::highpass(rate, 38.0, 0.5),
+            shelf: Biquad::highshelf(rate, 1500.0, 4.0),
+            ms: 0.0,
+            primed: false,
+            gain_db: 0.0,
+            gain: 1.0,
+            lim: 1.0,
+        })
+    }
+
+    /// Conserva lo medido al rehacer la mesa (cambiar un fader no lo reinicia).
+    fn carry(mut self, prev: Option<&Leveler>) -> Leveler {
+        if let Some(p) = prev {
+            self.hp.z = p.hp.z;
+            self.shelf.z = p.shelf.z;
+            self.ms = p.ms;
+            self.primed = p.primed;
+            self.gain_db = p.gain_db.clamp(-self.max_gain_db, self.max_gain_db);
+            self.gain = p.gain;
+            self.lim = p.lim;
+        }
+        self
+    }
+
+    fn process(&mut self, buf: &mut [f32], frames: usize) {
+        let mut sum = 0.0f32;
+        for f in buf.chunks_exact(2) {
+            let l = self.shelf.tick(0, self.hp.tick(0, f[0]));
+            let r = self.shelf.tick(1, self.hp.tick(1, f[1]));
+            sum += 0.5 * (l * l + r * r);
+        }
+        let inst = sum / frames.max(1) as f32;
+        let inst_lufs = -0.691 + 10.0 * inst.max(1e-12).log10();
+        if inst_lufs >= -50.0 {
+            let dt = frames as f32 / 48_000.0;
+            if !self.primed {
+                self.ms = inst;
+                self.primed = true;
+            } else {
+                self.ms += (1.0 - (-dt / 3.0).exp()) * (inst - self.ms);
+            }
+            let lufs = -0.691 + 10.0 * self.ms.max(1e-12).log10();
+            let wanted = (self.target_lufs - lufs).clamp(-self.max_gain_db, self.max_gain_db);
+            let delta = wanted - self.gain_db;
+            self.gain_db += if delta > 0.0 { delta.min(2.0 * dt) } else { delta.max(-6.0 * dt) };
+        }
+        // Rampa de ganancia en el bloque y limitador a -1 dBFS.
+        let target = 10f32.powf(self.gain_db / 20.0);
+        let step = (target - self.gain) / frames.max(1) as f32;
+        let thr = 0.891;
+        let release = (-1.0 / (0.12 * 48_000.0f32)).exp();
+        let mut g = self.gain;
+        for f in buf.chunks_exact_mut(2) {
+            g += step;
+            let l = f[0] * g;
+            let r = f[1] * g;
+            let peak = l.abs().max(r.abs());
+            let need = if peak > thr { thr / peak } else { 1.0 };
+            self.lim = if need < self.lim { need } else { need.min(1.0 - (1.0 - self.lim) * release) };
+            f[0] = l * self.lim;
+            f[1] = r * self.lim;
+        }
+        self.gain = target;
+    }
 }
 
 /// Control automatico de ganancia por bloques, sencillo y estable.
@@ -449,7 +614,11 @@ impl Plan {
                 let level = if sc.pre { if !b.muted { base } else { 0.0 } } else { base };
                 sends.push(Send { bus: target, g: Smooth::new(level), pre: sc.pre });
             }
+            let leveler = Leveler::new(&b.leveler).map(|lv| {
+                lv.carry(prev.and_then(|p| p.buses.iter().find(|x| x.key == key)).and_then(|x| x.leveler.as_ref()))
+            });
             buses.push(Bus {
+                leveler,
                 gl,
                 gr,
                 key,
@@ -556,7 +725,11 @@ impl Plan {
                 10f64.powf(c.input_gain_db.min(24.0) / 20.0) as f32
             };
             let agc = Agc::new(&c.agc);
+            let leveler = Leveler::new(&c.leveler).map(|lv| {
+                lv.carry(prev.and_then(|p| p.chans.iter().find(|x| x.key == key)).and_then(|x| x.leveler.as_ref()))
+            });
             chans.push(Chan {
+                leveler,
                 gl,
                 gr,
                 key,
@@ -608,6 +781,8 @@ impl Plan {
             call_fallback: !call,
             monitor: buf(),
             program: buf(),
+            ret: buf(),
+            lv: buf(),
             tmp: buf(),
             pre: buf(),
         }
@@ -714,6 +889,7 @@ impl Plan {
         for s in self.insert_sends.iter_mut() {
             s.buf[..n].iter_mut().for_each(|x| *x = 0.0);
         }
+        self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
         let silence: &[f32] = &[];
         for c in self.chans.iter_mut() {
             let raw: &[f32] = match c.src {
@@ -753,6 +929,13 @@ impl Plan {
                     }
                 }
             }
+            if let Some(lv) = c.leveler.as_mut() {
+                if src.len() >= n {
+                    self.lv[..n].copy_from_slice(&src[..n]);
+                    lv.process(&mut self.lv[..n], frames);
+                    src = &self.lv[..n];
+                }
+            }
             let gl = c.gl.gains(frames);
             let gr = c.gr.gains(frames);
             let sends: &mut Vec<Send> = &mut c.sends;
@@ -767,6 +950,11 @@ impl Plan {
             tmp.iter_mut().for_each(|x| *x = 0.0);
             add_scaled2(tmp, &src[..n], gl, gr);
             c.meter.feed(tmp);
+            if c.src != Source::Call {
+                for (o, v) in self.ret[..n].iter_mut().zip(tmp.iter()) {
+                    *o += *v;
+                }
+            }
             let dst = match c.dest {
                 Dest::Bus(i) => &mut self.buses[i].buf[..n],
                 Dest::Out(i) => &mut self.outs[i].buf[..n],
@@ -796,6 +984,9 @@ impl Plan {
                 add_scaled(&mut self.outs[out].buf[..n], &src[..n], (1.0, 0.0));
             }
         }
+        if self.music_fallback && music.len() >= n {
+            add_scaled(&mut self.ret[..n], &music[..n], (1.0, 0.0));
+        }
         for bi in self.bus_order.clone() {
             let b = &mut self.buses[bi];
             // Insert de bus: se envia la suma del bus antes del fader/pan y,
@@ -812,6 +1003,9 @@ impl Plan {
                         b.buf[..n].copy_from_slice(&feed.data[..n]);
                     }
                 }
+            }
+            if let Some(lv) = b.leveler.as_mut() {
+                lv.process(&mut b.buf[..n], frames);
             }
             if b.sends.iter().any(|s| s.pre) {
                 self.pre[..n].copy_from_slice(&b.buf[..n]);

@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { InsertSettings, Settings } from "./types";
 import { Leveler, levelerOf } from "./leveler";
+import { NativeBridge } from "./nativeBridge";
 
 /**
  * Mesa de mezclas de la aplicacion.
@@ -201,6 +202,7 @@ export class SoundMixer {
   /** Cancela decodificaciones de preescucha que ya no interesan */
   private previewJob = 0;
   private disposed = false;
+  private bridge: NativeBridge | null = null;
   private monitorAnalyser: AnalyserNode;
   private streamAnalyser: AnalyserNode;
   private streamData: Float32Array<ArrayBuffer>;
@@ -576,12 +578,18 @@ export class SoundMixer {
 
     // Sin canal para una fuente de la app, esta sigue saliendo por la salida
     // del sistema para no dejar la radio muda por una configuracion a medias.
-    if (!musicUsed) {
-      this.musicInput.connect(this.deviceMix(this.masterDeviceId));
-      this.musicInput.connect(this.returnMix);
+    // Con el motor nativo la mesa esta en Rust: aqui solo se capturan la
+    // llamada y la preescucha para mandarselas.
+    if (this.bridge) {
+      this.bridge.reconnect();
+    } else {
+      if (!musicUsed) {
+        this.musicInput.connect(this.deviceMix(this.masterDeviceId));
+        this.musicInput.connect(this.returnMix);
+      }
+      if (!callUsed) this.callInput.connect(this.deviceMix(this.masterDeviceId));
+      if (!previewUsed) this.previewInput.connect(this.deviceMix(this.monitorDeviceId));
     }
-    if (!callUsed) this.callInput.connect(this.deviceMix(this.masterDeviceId));
-    if (!previewUsed) this.previewInput.connect(this.deviceMix(this.monitorDeviceId));
 
     // Liberar entradas fisicas que ya no usa ningun canal.
     for (const [id, src] of this.inputSources) {
@@ -654,8 +662,29 @@ export class SoundMixer {
 
   /** Pista con el retorno (programa menos la voz del que llama), una copia por llamada. */
   getCallReturnTrack(): MediaStreamTrack | null {
+    this.bridge?.ensureReturn();
     const track = this.returnDest.stream.getAudioTracks()[0];
     return track ? track.clone() : null;
+  }
+
+  /**
+   * Motor nativo: la mesa web se queda sin canales y solo pasa la llamada y
+   * la preescucha al motor (y recibe de el el retorno del que llama).
+   */
+  setNativeEngine(on: boolean) {
+    if (this.disposed) return;
+    if (on && !this.bridge) {
+      this.bridge = new NativeBridge(
+        this.ctx,
+        { call: this.callInput, preview: this.previewInput },
+        this.returnDest,
+      );
+      void this.bridge.start().then(() => this.bridge?.reconnect());
+    } else if (!on && this.bridge) {
+      this.bridge.stop();
+      this.bridge = null;
+    }
+    this.apply(this.config);
   }
 
   /** Señal del programa (mismo bus que el VU) para el motor de emisión. */
@@ -808,6 +837,8 @@ export class SoundMixer {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.bridge?.stop();
+    this.bridge = null;
     this.stopPreview();
     if (this.monitorTap) {
       try {

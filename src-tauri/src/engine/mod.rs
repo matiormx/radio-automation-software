@@ -46,11 +46,18 @@ pub struct Engine {
     app: AppHandle,
     /// Lector del audio en directo (para pararlo)
     live_stop: Mutex<Option<Arc<AtomicBool>>>,
+    /// Llamada y preescucha que manda el WebView: (anillo, frecuencia)
+    feeds: Mutex<[Option<(rtrb::Producer<f32>, u32)>; 2]>,
+    /// Lector del retorno del que llama (para pararlo)
+    ret_stop: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
         if let Some(s) = self.live_stop.lock().ok().and_then(|mut g| g.take()) {
+            s.store(true, Ordering::SeqCst);
+        }
+        if let Some(s) = self.ret_stop.lock().ok().and_then(|mut g| g.take()) {
             s.store(true, Ordering::SeqCst);
         }
         self.stop.store(true, Ordering::SeqCst);
@@ -146,7 +153,7 @@ impl Engine {
                 .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None) }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), feeds: Mutex::new([None, None]), ret_stop: Mutex::new(None) }
     }
 
     fn apply(&self, op: Op) {
@@ -158,7 +165,13 @@ impl Engine {
                     let mut g = lock(&self.shared);
                     let vol = g.core.volume();
                     let plan = Plan::build(&config, vol, Some(&g.core.plan));
-                    let (sends, returns) = plan.insert_devices();
+                    let (sends, mut returns) = plan.insert_devices();
+                    // Las entradas fisicas de los canales se abren igual que los retornos.
+                    for id in &plan.inputs {
+                        if !returns.contains(id) {
+                            returns.push(id.clone());
+                        }
+                    }
                     self.io.set_route(
                         plan.output_devices(),
                         sends,
@@ -375,6 +388,163 @@ pub fn engine_cmd(state: State<'_, EngineState>, op: Op) -> Result<(), String> {
     Ok(())
 }
 
+impl Engine {
+    /// Audio de la llamada (0) o la preescucha (1) que llega del WebView.
+    fn feed(&self, which: usize, rate: u32, data: &[f32]) {
+        let mut feeds = self.feeds.lock().unwrap_or_else(|e| e.into_inner());
+        let slot = &mut feeds[which];
+        let stale = match slot.as_ref() {
+            Some((p, r)) => *r != rate || p.is_abandoned(),
+            None => true,
+        };
+        if stale {
+            // 2 s de colchon a la frecuencia del WebView.
+            let (prod, cons) = rtrb::RingBuffer::<f32>::new((rate as usize * 4).max(16384));
+            let name = if which == 0 { "call" } else { "preview" };
+            let feed = io::InsertReturn::with_buffer(name.into(), cons, rate, 0.12);
+            let old = {
+                let mut g = lock(&self.shared);
+                if which == 0 { g.call_feed.replace(feed) } else { g.preview_feed.replace(feed) }
+            };
+            drop(old);
+            *slot = Some((prod, rate));
+        }
+        if let Some((prod, _)) = slot.as_mut() {
+            if prod.slots() >= data.len() {
+                for &x in data {
+                    let _ = prod.push(x);
+                }
+            }
+        }
+    }
+
+    /// Envia al WebView el retorno del que llama (f32le estereo a `rate`).
+    fn start_return(&self, rate: u32, channel: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>) {
+        if let Some(s) = self.ret_stop.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            s.store(true, Ordering::SeqCst);
+        }
+        let (prod, mut cons) = rtrb::RingBuffer::<f32>::new(ENGINE_RATE as usize * 2);
+        let old = lock(&self.shared).ret_tap.replace(prod);
+        drop(old);
+        let stop = Arc::new(AtomicBool::new(false));
+        *self.ret_stop.lock().unwrap_or_else(|e| e.into_inner()) = Some(stop.clone());
+        let _ = std::thread::Builder::new().name("miradio-call-return".into()).spawn(move || {
+            let mut rs = LinearResampler::new(ENGINE_RATE, rate.clamp(8000, 192000));
+            let mut chunk: Vec<f32> = Vec::with_capacity(8192);
+            let mut out: Vec<f32> = Vec::with_capacity(8192);
+            let (mut sent, mut last_log) = (0usize, std::time::Instant::now());
+            while !stop.load(Ordering::SeqCst) && !cons.is_abandoned() {
+                std::thread::sleep(Duration::from_millis(20));
+                // Mas de 150 ms acumulados: se recorta para no sumar retardo.
+                let max = (ENGINE_RATE as usize * 2 * 15) / 100;
+                while cons.slots() > max {
+                    let _ = cons.pop();
+                }
+                chunk.clear();
+                while let Ok(v) = cons.pop() {
+                    chunk.push(v);
+                }
+                if chunk.len() < 2 {
+                    continue;
+                }
+                out.clear();
+                rs.process(&chunk, &mut out);
+                let mut bytes = Vec::with_capacity(out.len() * 4);
+                for v in &out {
+                    bytes.extend_from_slice(&v.to_le_bytes());
+                }
+                let len = bytes.len();
+                if channel.send(tauri::ipc::InvokeResponseBody::Raw(bytes)).is_err() {
+                    break;
+                }
+                if std::env::var("MIRADIO_DEBUG_IO").is_ok() {
+                    sent += len;
+                    if last_log.elapsed() >= Duration::from_secs(2) {
+                        eprintln!("[ret] {} bytes/s a {rate} Hz", sent / 2);
+                        sent = 0;
+                        last_log = std::time::Instant::now();
+                    }
+                }
+            }
+        });
+    }
+}
+
+/// Remuestreo lineal estereo (retorno de la llamada: voz, sin exigencias).
+struct LinearResampler {
+    step: f64,
+    pos: f64,
+    last: (f32, f32),
+}
+
+impl LinearResampler {
+    fn new(from: u32, to: u32) -> Self {
+        LinearResampler { step: from as f64 / to as f64, pos: 0.0, last: (0.0, 0.0) }
+    }
+
+    /// `pos` es la posicion relativa al primer frame del bloque, con el
+    /// frame anterior (`last`) en -1.
+    fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        let frames = input.len() / 2;
+        if frames == 0 {
+            return;
+        }
+        let at = |i: isize| -> (f32, f32) {
+            if i < 0 {
+                self.last
+            } else {
+                let i = i as usize;
+                (input[i * 2], input[i * 2 + 1])
+            }
+        };
+        while self.pos < (frames - 1) as f64 {
+            let i = self.pos.floor() as isize;
+            let t = (self.pos - i as f64) as f32;
+            let (a, b) = (at(i), at(i + 1));
+            out.push(a.0 + (b.0 - a.0) * t);
+            out.push(a.1 + (b.1 - a.1) * t);
+            self.pos += self.step;
+        }
+        self.pos -= frames as f64;
+        self.last = (input[(frames - 1) * 2], input[(frames - 1) * 2 + 1]);
+    }
+}
+
+/// Audio de la llamada o la preescucha del WebView (f32 estereo entrelazado
+/// en el cuerpo; cabeceras `x-src`: call|preview y `x-rate`).
+#[tauri::command]
+pub fn engine_feed(request: tauri::ipc::Request<'_>, state: State<'_, EngineState>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("Se esperaba audio binario".into());
+    };
+    let header = |k: &str| request.headers().get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let which = match header("x-src").as_str() {
+        "call" => 0,
+        "preview" => 1,
+        _ => return Err("Fuente desconocida".into()),
+    };
+    let rate: u32 = header("x-rate").parse().unwrap_or(48000).clamp(8000, 192000);
+    let data: Vec<f32> = body.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let g = state.0.lock().map_err(|_| "El motor no responde".to_string())?;
+    if let Some(engine) = g.as_ref() {
+        engine.feed(which, rate, &data[..data.len() / 2 * 2]);
+    }
+    Ok(())
+}
+
+/// Abre el retorno del que llama (mix-minus del motor) hacia el WebView.
+#[tauri::command]
+pub fn engine_call_return(
+    state: State<'_, EngineState>,
+    rate: u32,
+    channel: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<(), String> {
+    let g = state.0.lock().map_err(|_| "El motor no responde".to_string())?;
+    let engine = g.as_ref().ok_or_else(|| "El motor nativo no está en marcha".to_string())?;
+    engine.start_return(rate, channel);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn engine_devices() -> Vec<String> {
     io::list_outputs()
@@ -394,6 +564,22 @@ mod contract_tests {
     }
 
     /// Las ordenes tal como las manda nativeEngine.ts.
+    #[test]
+    fn linear_resampler_keeps_rate_and_continuity() {
+        let mut rs = LinearResampler::new(48000, 44100);
+        let mut out = Vec::new();
+        let ramp: Vec<f32> = (0..9600).flat_map(|i| [i as f32, i as f32]).collect();
+        for c in ramp.chunks(960) {
+            rs.process(c, &mut out);
+        }
+        let frames = out.len() / 2;
+        assert!((frames as i64 - 8820).abs() <= 2, "{frames}");
+        for w in out.chunks_exact(2).collect::<Vec<_>>().windows(2) {
+            let d = w[1][0] - w[0][0];
+            assert!((d - 48000.0 / 44100.0).abs() < 1e-3, "salto {d}");
+        }
+    }
+
     #[test]
     fn ops_from_js() {
         assert!(matches!(op(r#"{"op":"playAt","index":3}"#), Op::PlayAt { index: 3 }));

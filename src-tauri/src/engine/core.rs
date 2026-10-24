@@ -22,6 +22,15 @@ pub struct Core {
 /// Constante de tiempo de los medidores (s).
 const METER_TAU: f32 = 0.06;
 
+/// Audio que entra al motor desde fuera de la musica.
+#[derive(Default)]
+pub struct Sources<'a> {
+    pub returns: &'a [InsertFeed<'a>],
+    pub inputs: &'a [&'a [f32]],
+    pub call: &'a [f32],
+    pub preview: &'a [f32],
+}
+
 fn ema(prev: f32, block_ms: f32, frames: usize, rate: u32) -> f32 {
     let a = (-(frames as f32) / (METER_TAU * rate as f32)).exp();
     prev * a + block_ms * (1.0 - a)
@@ -75,15 +84,18 @@ impl Core {
     where
         F: FnMut(&Plan, usize, usize),
     {
-        self.render_inserts(frames, &[], sink);
+        self.render_inserts(frames, &Sources::default(), sink);
     }
 
-    /// Render con el audio de retorno de los inserts. Cada `insert_returns[i]`
-    /// corresponde a `plan.inserts[i]` y debe traer `frames` frames.
-    pub fn render_inserts<F>(&mut self, frames: usize, insert_returns: &[InsertFeed], mut sink: F)
+    /// Render con las fuentes externas: retornos de inserts (`returns[i]`
+    /// para `plan.inserts[i]`), entradas fisicas (`inputs[i]` para
+    /// `plan.inputs[i]`), llamada y preescucha. Cada una trae `frames` frames
+    /// o viene vacia (silencio).
+    pub fn render_inserts<F>(&mut self, frames: usize, src: &Sources, mut sink: F)
     where
         F: FnMut(&Plan, usize, usize),
     {
+        let insert_returns = src.returns;
         let mut done = 0;
         while done < frames {
             let n = (frames - done).min(MAX_BLOCK);
@@ -102,7 +114,20 @@ impl Core {
                     active: f.active,
                 })
                 .collect();
-            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[], &feeds);
+            let range = done * 2..done * 2 + s;
+            let inputs: Vec<&[f32]> = src
+                .inputs
+                .iter()
+                .map(|d| if d.len() >= range.end { &d[range.clone()] } else { &[][..] })
+                .collect();
+            for (dst, from) in [(&mut self.call, src.call), (&mut self.preview, src.preview)] {
+                if from.len() >= range.end {
+                    dst[..s].copy_from_slice(&from[range.clone()]);
+                } else {
+                    dst[..s].iter_mut().for_each(|x| *x = 0.0);
+                }
+            }
+            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &inputs, &feeds);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));

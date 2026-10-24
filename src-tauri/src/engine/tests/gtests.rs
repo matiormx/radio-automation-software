@@ -1,4 +1,4 @@
-use crate::engine::core::Core;
+use crate::engine::core::{Core, Sources};
 use crate::engine::graph::*;
 use crate::engine::pcm::Pcm;
 use crate::engine::voices::{Env, Voice};
@@ -149,7 +149,7 @@ fn channel_insert_bypass_then_return_replaces_dry() {
     let ret = vec![0.25f32; 1024 * 2];
     c.render_inserts(
         1024,
-        &[InsertFeed { data: &ret[..], active: true }],
+        &Sources { returns: &[InsertFeed { data: &ret[..], active: true }], ..Default::default() },
         |plan, _, n| {
             let out = plan.out_index("cardA").unwrap();
             assert!((plan.outs[out].buf[(n - 1) * 2] - 0.25).abs() < 1e-3);
@@ -171,7 +171,7 @@ fn bus_insert_is_sent_before_fader_and_return_replaces_sum() {
         assert!((plan.outs[out].buf[(n - 1) * 2] - 0.25).abs() < 1e-3);
     });
     let ret = vec![0.2f32; 1024 * 2];
-    c.render_inserts(1024, &[InsertFeed { data: &ret[..], active: true }], |plan, _, n| {
+    c.render_inserts(1024, &Sources { returns: &[InsertFeed { data: &ret[..], active: true }], ..Default::default() }, |plan, _, n| {
         let out = plan.out_index("cardA").unwrap();
         assert!((plan.outs[out].buf[(n - 1) * 2] - 0.1).abs() < 1e-3, "retorno pasa por el fader del bus");
     });
@@ -188,4 +188,78 @@ fn insert_devices_are_deduplicated() {
     let (sends, returns) = p.insert_devices();
     assert_eq!(sends, vec!["S".to_string()]);
     assert_eq!(returns, vec!["R".to_string(), "R2".to_string()]);
+}
+
+#[test]
+fn physical_input_insert_and_mix_minus_return() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"bus","id":"P"},"gainDb":0,"muted":false},
+      {"id":"mic","input":{"kind":"device","deviceId":"Mic"},"output":{"kind":"bus","id":"P"},"gainDb":0,"muted":false},
+      {"id":"tel","input":{"kind":"app","app":"call"},"output":{"kind":"bus","id":"P"},"gainDb":0,"muted":false}],
+      "mixerBuses":[{"id":"P","outputDeviceId":"cardA","gainDb":0,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"procIn","returnDeviceId":"procOut"}}],"monitorBusId":""}"#);
+    assert_eq!(c.plan.inputs, vec!["Mic".to_string()]);
+    let mic = vec![0.1f32; 512 * 2];
+    let call = vec![0.2f32; 512 * 2];
+    let inputs: [&[f32]; 1] = [&mic[..]];
+    c.render_inserts(512, &Sources { inputs: &inputs, call: &call, ..Default::default() }, |plan, _, n| {
+        // Musica + micro + llamada entran al bus y salen por el envio del insert.
+        assert!((plan.insert_sends[0].buf[(n - 1) * 2] - 0.8).abs() < 1e-3);
+        // El que llama no se oye a si mismo.
+        assert!((plan.ret[(n - 1) * 2] - 0.6).abs() < 1e-3);
+    });
+}
+
+fn core_with_sine(amp: f32) -> Core {
+    let mut c = Core::new(48000);
+    let data: Vec<f32> = (0..48000 * 20)
+        .flat_map(|i| {
+            let v = amp * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 48000.0).sin();
+            [v, v]
+        })
+        .collect();
+    let pcm = Arc::new(Pcm { rate: 48000, data });
+    c.play.voices.add(Voice { id: 0, pcm, start_at: 0, from: 0, end: 48000 * 10, stop_at: None, gain: Env::constant(1.0), norm: 1.0 });
+    c
+}
+
+fn peak_of(c: &mut Core, dev: &str) -> f32 {
+    let mut peak = 0f32;
+    c.render(1024, |plan, _, n| {
+        let o = &plan.outs[plan.out_index(dev).unwrap()].buf[..n * 2];
+        peak = o.iter().fold(peak, |a, b| a.max(b.abs()));
+    });
+    peak
+}
+
+#[test]
+fn native_leveler_raises_quiet_channel_and_limits_peaks() {
+    // Seno flojo; objetivo -16 LUFS con 9 dB de margen: sube los 9 dB.
+    let mut c = core_with_sine(0.02);
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,
+       "leveler":{"enabled":true,"targetLufs":-16,"maxGainDb":9}}],"mixerBuses":[],"monitorBusId":""}"#);
+    let mut last = 0.0;
+    for _ in 0..(48000 * 8 / 1024) {
+        last = peak_of(&mut c, "cardA");
+    }
+    let gain_db = 20.0 * (last / 0.02f32).log10();
+    assert!(gain_db > 8.0 && gain_db < 9.2, "subio {gain_db} dB");
+    // Rehacer la mesa no reinicia lo medido.
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,
+       "leveler":{"enabled":true,"targetLufs":-16,"maxGainDb":9}}],"mixerBuses":[],"monitorBusId":""}"#);
+    last = peak_of(&mut c, "cardA");
+    assert!(20.0 * (last / 0.02f32).log10() > 8.0);
+
+    let mut loud = core_with_sine(0.9);
+    apply(&mut loud, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,
+       "leveler":{"enabled":true,"targetLufs":-6,"maxGainDb":9}}],"mixerBuses":[],"monitorBusId":""}"#);
+    let mut peak = 0f32;
+    for _ in 0..200 {
+        peak = peak.max(peak_of(&mut loud, "cardA"));
+    }
+    assert!(peak <= 0.9, "limitador {peak}");
 }

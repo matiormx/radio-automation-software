@@ -8,6 +8,8 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     const o = (options && options.processorOptions) || {};
     this.cap = o.capacity || sampleRate * 2 * 30;
     this.pre = o.prebuffer || sampleRate * 2;
+    // En tiempo real (retorno de la llamada) no se deja crecer el retardo.
+    this.maxFill = o.maxFill || 0;
     this.buf = new Float32Array(this.cap);
     this.r = 0;
     this.w = 0;
@@ -23,6 +25,12 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
           this.buf[this.w] = d[i];
           this.w = (this.w + 1) % this.cap;
           this.fill++;
+        }
+        if (this.maxFill > 0 && this.fill > this.maxFill) {
+          let drop = this.fill - this.pre;
+          drop -= drop % 2;
+          this.r = (this.r + drop) % this.cap;
+          this.fill -= drop;
         }
       }
     };
