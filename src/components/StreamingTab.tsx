@@ -2,7 +2,7 @@ import { useState } from "react";
 import type {
   IcecastCodec,
   IcecastStream,
-  RtspOutput,
+  RtmpOutput,
   Settings,
   StreamingSettings,
 } from "../types";
@@ -57,8 +57,8 @@ export function StreamingTab({ settings, onChange }: Props) {
     setEditing(created.id);
   };
 
-  const updateRtsp = (patch: Partial<RtspOutput>) =>
-    set({ rtsp: { ...st.rtsp, ...patch } });
+  const updateRtmp = (patch: Partial<RtmpOutput>) =>
+    set({ rtmp: { ...st.rtmp, ...patch } });
 
   return (
     <>
@@ -66,8 +66,8 @@ export function StreamingTab({ settings, onChange }: Props) {
         <div>
           <h4>Streaming</h4>
           <p className="hint">
-            Emisión de audio a Icecast en FLAC o AAC y salida de vídeo por RTSP
-            a un servidor externo. El motor usa FFmpeg y se inicia con el botón
+            Emisión de audio a Icecast en FLAC o AAC y salida de vídeo por RTMP
+            a un servidor externo (por ejemplo Restream). El motor usa FFmpeg y se inicia con el botón
             EMITIR de la cabecera. La captura toma lo que envíes a la salida
             Streaming de la mesa (canales o buses); si nada va a ella, toma el
             mismo bus que el VU de salida. PCM 48 kHz estéreo.
@@ -392,47 +392,33 @@ export function StreamingTab({ settings, onChange }: Props) {
       </fieldset>
 
       <fieldset className="fieldset">
-        <legend>Vídeo por RTSP</legend>
+        <legend>Vídeo por RTMP</legend>
         <label className="check-field">
           <input
             type="checkbox"
-            checked={st.rtsp.enabled}
-            onChange={(e) => updateRtsp({ enabled: e.target.checked })}
+            checked={st.rtmp.enabled}
+            onChange={(e) => updateRtmp({ enabled: e.target.checked })}
           />
-          Emitir vídeo por RTSP
+          Emitir vídeo por RTMP
         </label>
         <label className="field">
-          <span className="field-label">Servidor RTSP</span>
+          <span className="field-label">Servidor RTMP</span>
           <input
-            value={st.rtsp.url}
-            placeholder="rtsp://servidor:8554/miradio"
-            onChange={(e) => updateRtsp({ url: e.target.value })}
+            value={st.rtmp.url}
+            placeholder="rtmp://live.restream.io/live/TU_CLAVE"
+            onChange={(e) => updateRtmp({ url: e.target.value })}
           />
         </label>
-        <div className="rtsp-grid">
-          <label className="field">
-            <span className="field-label">Transporte</span>
-            <select
-              value={st.rtsp.transport}
-              onChange={(e) =>
-                updateRtsp({
-                  transport: e.target.value === "udp" ? "udp" : "tcp",
-                })
-              }
-            >
-              <option value="tcp">TCP</option>
-              <option value="udp">UDP</option>
-            </select>
-          </label>
+        <div className="rtmp-grid">
           <label className="field">
             <span className="field-label">Ancho</span>
             <input
               type="number"
               min={320}
               max={7680}
-              value={st.rtsp.width}
+              value={st.rtmp.width}
               onChange={(e) =>
-                updateRtsp({ width: Math.max(0, Number(e.target.value) || 0) })
+                updateRtmp({ width: Math.max(0, Number(e.target.value) || 0) })
               }
             />
           </label>
@@ -442,9 +428,9 @@ export function StreamingTab({ settings, onChange }: Props) {
               type="number"
               min={240}
               max={4320}
-              value={st.rtsp.height}
+              value={st.rtmp.height}
               onChange={(e) =>
-                updateRtsp({ height: Math.max(0, Number(e.target.value) || 0) })
+                updateRtmp({ height: Math.max(0, Number(e.target.value) || 0) })
               }
             />
           </label>
@@ -454,9 +440,9 @@ export function StreamingTab({ settings, onChange }: Props) {
               type="number"
               min={1}
               max={120}
-              value={st.rtsp.fps}
+              value={st.rtmp.fps}
               onChange={(e) =>
-                updateRtsp({ fps: Math.max(1, Number(e.target.value) || 25) })
+                updateRtmp({ fps: Math.max(1, Number(e.target.value) || 25) })
               }
             />
           </label>
@@ -467,9 +453,9 @@ export function StreamingTab({ settings, onChange }: Props) {
                 type="number"
                 min={0}
                 max={100000}
-                value={st.rtsp.bitrateKbps}
+                value={st.rtmp.bitrateKbps}
                 onChange={(e) =>
-                  updateRtsp({
+                  updateRtmp({
                     bitrateKbps: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
@@ -484,9 +470,9 @@ export function StreamingTab({ settings, onChange }: Props) {
                 type="number"
                 min={1}
                 max={10}
-                value={st.rtsp.keyframeSecs}
+                value={st.rtmp.keyframeSecs}
                 onChange={(e) =>
-                  updateRtsp({
+                  updateRtmp({
                     keyframeSecs: Math.max(1, Number(e.target.value) || 2),
                   })
                 }
@@ -496,9 +482,10 @@ export function StreamingTab({ settings, onChange }: Props) {
           </label>
         </div>
         <p className="hint">
-          La emisión RTSP empuja el programa de vídeo al servidor indicado. Usa
-          la primera entrada de vídeo activa. La salida NDI se activará en la
-          segunda fase.
+          La emisión RTMP empuja el programa de vídeo al servidor indicado. Para
+          Restream usa <code>rtmp://live.restream.io/live/TU_CLAVE</code>, donde
+          TU_CLAVE es la clave de emisión de tu panel de Restream. Usa la
+          primera entrada de vídeo activa.
         </p>
       </fieldset>
     </>

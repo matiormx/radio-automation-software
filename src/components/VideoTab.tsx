@@ -11,7 +11,7 @@ interface Props {
 
 const INPUT_KIND: Record<VideoInputKind, string> = {
   file: "Archivo",
-  rtsp: "RTSP",
+  rtmp: "RTMP",
   ndi: "NDI",
 };
 
@@ -19,7 +19,7 @@ const OUTPUT_KIND: Record<VideoOutputKind, string> = {
   screen: "Pantalla / HDMI",
   decklink: "Tarjeta SDI",
   ndi: "NDI",
-  rtsp: "RTSP",
+  rtmp: "RTMP",
 };
 
 function uid(): string {
@@ -45,7 +45,7 @@ function newOutput(): VideoOutput {
 }
 
 function inputPlaceholder(kind: VideoInputKind): string {
-  if (kind === "rtsp") return "rtsp://servidor/canal";
+  if (kind === "rtmp") return "rtmp://servidor/live/clave";
   if (kind === "ndi") return "NOMBRE DE LA FUENTE NDI";
   return "Ruta del archivo de vídeo";
 }
@@ -54,7 +54,7 @@ function outputPlaceholder(kind: VideoOutputKind): string {
   if (kind === "screen") return "0 = monitor principal";
   if (kind === "decklink") return "0, 1…";
   if (kind === "ndi") return "NOMBRE DE SALIDA NDI";
-  return "rtsp://servidor/salida";
+  return "rtmp://live.restream.io/live/clave";
 }
 
 export function VideoTab({ settings, onChange }: Props) {
@@ -140,7 +140,7 @@ export function VideoTab({ settings, onChange }: Props) {
       <fieldset className="fieldset">
         <legend>Canales de entrada</legend>
         {v.inputs.length === 0 && (
-          <p className="hint">Añade un archivo, una fuente RTSP o una fuente NDI.</p>
+          <p className="hint">Añade un archivo, una fuente RTMP o una fuente NDI.</p>
         )}
         {v.inputs.map((ch) => (
           <div className="io-card" key={ch.id}>

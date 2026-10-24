@@ -79,10 +79,10 @@ biblioteca y reglas de rotación).
   del equipo o la predeterminada. El **VU vertical** entre la biblioteca y
   la lista muestra el nivel de la salida general o del bus elegido en
   Sonido.
-- **Vídeo y streaming**: canales de entrada (archivo, RTSP o NDI) y de
-  salida (pantalla/HDMI, tarjeta SDI, NDI o RTSP), con formato, FPS y
+- **Vídeo y streaming**: canales de entrada (archivo, RTMP o NDI) y de
+  salida (pantalla/HDMI, tarjeta SDI, NDI o RTMP), con formato, FPS y
   bitrate por salida. El motor FFmpeg emite audio por Icecast en FLAC o
-  AAC y vídeo por RTSP; se inicia y detiene con el botón **EMITIR** de la
+  AAC y vídeo por RTMP; se inicia y detiene con el botón **EMITIR** de la
   cabecera.
 - **Arranque y silencio**: en Ajustes > General se puede reproducir la
   lista automáticamente al abrir la app y activar la detección de
@@ -187,20 +187,21 @@ campaña sigue activa hasta que se desactive o se le ponga una fecha.
 ## Vídeo y streaming
 
 En **Ajustes > Vídeo** se definen los canales de entrada y salida. Las
-entradas pueden ser archivos de vídeo, URLs RTSP o fuentes NDI; las salidas,
-una pantalla/HDMI, una tarjeta SDI, NDI o una URL RTSP. Cada salida guarda su
+entradas pueden ser archivos de vídeo, URLs RTMP o fuentes NDI; las salidas,
+una pantalla/HDMI, una tarjeta SDI, NDI o una URL RTMP. Cada salida guarda su
 resolución, FPS y bitrate. La mezcla inicial hace cortes entre la fuente
 activa.
 
 En **Ajustes > Streaming** se configuran una o varias emisiones de audio por
 Icecast (FLAC sin pérdida o AAC con bitrate) con servidor, puerto, montaje,
-credenciales y metadatos públicos, además de la salida de vídeo RTSP con
-transporte TCP/UDP, resolución, FPS, bitrate y keyframes.
+credenciales y metadatos públicos, además de la salida de vídeo RTMP con
+resolución, FPS, bitrate y keyframes. Para emitir por **Restream** se usa la
+URL `rtmp://live.restream.io/live/TU_CLAVE`.
 
 El botón **EMITIR** de la cabecera arranca y detiene el motor. La captura de
 audio toma el mismo bus que el VU de salida en PCM s16le a 48 kHz estéreo;
-FFmpeg lo transcodifica a FLAC/AAC para Icecast y a AAC para RTSP. Las
-salidas RTSP usan la primera entrada de vídeo activa y hacen cortes, sin
+FFmpeg lo transcodifica a FLAC/AAC para Icecast y a AAC para RTMP. Las
+salidas RTMP usan la primera entrada de vídeo activa y hacen cortes, sin
 mezcla. La salida a pantalla/HDMI usa la salida SDL de FFmpeg y la salida SDI
 requiere una build de FFmpeg con DeckLink y el SDK instalado.
 

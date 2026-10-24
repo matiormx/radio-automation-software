@@ -177,17 +177,16 @@ pub fn stream_start(
         }
     }
 
-    if settings.streaming.rtsp.enabled {
+    if settings.streaming.rtmp.enabled {
         requested += 1;
-        match rtsp_args(
+        match rtmp_args(
             &settings.video,
-            &settings.streaming.rtsp.url,
-            &settings.streaming.rtsp.transport,
-            settings.streaming.rtsp.width,
-            settings.streaming.rtsp.height,
-            settings.streaming.rtsp.fps,
-            settings.streaming.rtsp.bitrate_kbps,
-            settings.streaming.rtsp.keyframe_secs,
+            &settings.streaming.rtmp.url,
+            settings.streaming.rtmp.width,
+            settings.streaming.rtmp.height,
+            settings.streaming.rtmp.fps,
+            settings.streaming.rtmp.bitrate_kbps,
+            settings.streaming.rtmp.keyframe_secs,
         ) {
             Ok(args) => {
                 if let Err(error) = spawn_process(
@@ -195,15 +194,15 @@ pub fn stream_start(
                     &shared,
                     &ffmpeg,
                     args,
-                    "rtsp".to_string(),
-                    "RTSP".to_string(),
-                    "rtsp",
+                    "rtmp".to_string(),
+                    "RTMP".to_string(),
+                    "rtmp",
                     true,
                 ) {
                     errors.push(error);
                 }
             }
-            Err(error) => errors.push(format!("RTSP: {error}")),
+            Err(error) => errors.push(format!("RTMP: {error}")),
         }
     }
 
@@ -217,10 +216,9 @@ pub fn stream_start(
             };
             let args = match output.kind.as_str() {
                 "screen" | "decklink" => video_output_args(output, &settings.video),
-                "rtsp" => rtsp_args(
+                "rtmp" => rtmp_args(
                     &settings.video,
                     &output.source,
-                    "tcp",
                     output.width,
                     output.height,
                     output.fps,
@@ -232,7 +230,7 @@ pub fn stream_start(
             };
             match args {
                 Ok(args) => {
-                    let wants_audio = output.kind == "rtsp";
+                    let wants_audio = output.kind == "rtmp";
                     if let Err(error) = spawn_process(
                         &mut inner,
                         &shared,
@@ -253,7 +251,7 @@ pub fn stream_start(
 
     if requested == 0 {
         return Err(
-            "No hay salidas activas. Activa una emisión Icecast, RTSP o un canal de vídeo."
+            "No hay salidas activas. Activa una emisión Icecast, RTMP o un canal de vídeo."
                 .to_string(),
         );
     }
@@ -567,10 +565,9 @@ fn icecast_args(stream: &IcecastStream) -> Result<Vec<String>, String> {
     Ok(args)
 }
 
-fn rtsp_args(
+fn rtmp_args(
     video: &VideoSettings,
     url: &str,
-    transport: &str,
     width: u32,
     height: u32,
     fps: u32,
@@ -579,10 +576,14 @@ fn rtsp_args(
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
-        return Err("falta la URL RTSP".to_string());
+        return Err("falta la URL RTMP".to_string());
+    }
+    let lower = url.to_ascii_lowercase();
+    if !lower.starts_with("rtmp://") && !lower.starts_with("rtmps://") {
+        return Err("la URL RTMP debe empezar por rtmp:// o rtmps://".to_string());
     }
     if !video.enabled {
-        return Err("activa el motor de vídeo para emitir por RTSP".to_string());
+        return Err("activa el motor de vídeo para emitir por RTMP".to_string());
     }
     let input = pick_video_input(video)?;
     let mut args = base_input_args();
@@ -596,11 +597,6 @@ fn rtsp_args(
     let bitrate = bitrate_kbps.clamp(100, 100_000);
     let keyframe = keyframe_secs.clamp(1, 10);
     let gop = fps.saturating_mul(keyframe).max(1);
-    let transport = if transport.eq_ignore_ascii_case("udp") {
-        "udp"
-    } else {
-        "tcp"
-    };
 
     args.extend([arg("-c:v"), arg("libx264")]);
     args.extend([arg("-preset"), arg("veryfast")]);
@@ -619,8 +615,8 @@ fn rtsp_args(
     args.extend([arg("-b:a"), arg("128k")]);
     args.extend([arg("-ar"), arg("48000")]);
     args.extend([arg("-ac"), arg("2")]);
-    args.extend([arg("-f"), arg("rtsp")]);
-    args.extend([arg("-rtsp_transport"), arg(transport)]);
+    args.extend([arg("-f"), arg("flv")]);
+    args.extend([arg("-flvflags"), arg("no_duration_filesize")]);
     args.push(url.to_string());
     Ok(args)
 }
@@ -681,9 +677,7 @@ fn video_input_args(input: &VideoInput) -> Result<Vec<String>, String> {
             arg("-i"),
             source.to_string(),
         ]),
-        "rtsp" => Ok(vec![
-            arg("-rtsp_transport"),
-            arg("tcp"),
+        "rtmp" => Ok(vec![
             arg("-i"),
             source.to_string(),
         ]),
@@ -815,15 +809,36 @@ fn sanitize_error(line: &str) -> String {
         let split = position + 3;
         let (head, tail) = rest.split_at(split);
         out.push_str(head);
-        if let Some(at) = tail.find('@') {
-            let (credentials, after) = tail.split_at(at);
-            if !credentials.contains(' ') && !credentials.contains('\n') {
-                out.push_str("***");
-                rest = after;
-                continue;
+        let end = tail
+            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | ']' | ','))
+            .unwrap_or(tail.len());
+        let (url, after) = tail.split_at(end);
+        let scheme = head
+            .trim_end_matches("://")
+            .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '.' || c == '-'))
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if scheme == "rtmp" || scheme == "rtmps" {
+            let (prefix, host_path) = match url.find('@') {
+                Some(at) => ("***@", &url[at + 1..]),
+                None => ("", url),
+            };
+            out.push_str(prefix);
+            match host_path.find('/') {
+                Some(slash) => {
+                    out.push_str(&host_path[..slash]);
+                    out.push_str("/***");
+                }
+                None => out.push_str(host_path),
             }
+        } else if let Some(at) = url.find('@') {
+            out.push_str("***");
+            out.push_str(&url[at..]);
+        } else {
+            out.push_str(url);
         }
-        rest = tail;
+        rest = after;
     }
     out.push_str(rest);
     out
@@ -926,9 +941,12 @@ mod tests {
         let clean = sanitize_error("Error opening output icecast://source:secret@host/mount");
         assert!(!clean.contains("secret"));
         assert!(clean.contains("icecast://***@host/mount"));
-        let slash = sanitize_error("Error rtsp://user:pa/ss@host/live");
+        let slash = sanitize_error("Error rtmp://user:pa/ss@host/live");
         assert!(!slash.contains("pa/ss"));
-        assert!(slash.contains("rtsp://***@host/live"));
+        assert!(slash.contains("rtmp://***@host/***"));
+        let key = sanitize_error("Error opening output rtmp://live.restream.io/live/clave-secreta");
+        assert!(!key.contains("clave-secreta"));
+        assert!(key.contains("rtmp://live.restream.io/***"));
     }
 }
 

@@ -337,9 +337,9 @@ export default function App() {
   const hasStreamOutputs = useMemo(
     () =>
       settings.streaming.icecast.some((stream) => stream.enabled) ||
-      settings.streaming.rtsp.enabled ||
+      settings.streaming.rtmp.enabled ||
       (settings.video.enabled && settings.video.outputs.some((output) => output.enabled)),
-    [settings.streaming.icecast, settings.streaming.rtsp.enabled, settings.video.enabled, settings.video.outputs],
+    [settings.streaming.icecast, settings.streaming.rtmp.enabled, settings.video.enabled, settings.video.outputs],
   );
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
@@ -1635,7 +1635,7 @@ export default function App() {
       return;
     }
     if (!hasStreamOutputs) {
-      showToast("Configura una salida Icecast, RTSP o de vídeo antes de emitir");
+      showToast("Configura una salida Icecast, RTMP o de vídeo antes de emitir");
       return;
     }
     const mixer = mixerRef.current;

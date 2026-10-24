@@ -29,7 +29,7 @@ function floatToPcm16(samples: Float32Array): Uint8Array {
 /**
  * Captura PCM de la señal del programa (mismo bus que el VU) y la envia a
  * FFmpeg en fragmentos s16le de 48 kHz estereo. El backend reparte cada
- * fragmento a las salidas Icecast y RTSP activas.
+ * fragmento a las salidas Icecast y RTMP activas.
  */
 export class StreamEncoder {
   private node: AudioWorkletNode | null = null;

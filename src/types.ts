@@ -381,14 +381,14 @@ export interface MixerBus {
   sends?: MixerSend[];
 }
 
-export type VideoInputKind = "file" | "rtsp" | "ndi";
-export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtsp";
+export type VideoInputKind = "file" | "rtmp" | "ndi";
+export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtmp";
 
 export interface VideoInput {
   id: string;
   name: string;
   kind: VideoInputKind;
-  /** Ruta de archivo, URL RTSP o nombre de la fuente NDI */
+  /** Ruta de archivo, URL RTMP o nombre de la fuente NDI */
   source: string;
   enabled: boolean;
 }
@@ -397,7 +397,7 @@ export interface VideoOutput {
   id: string;
   name: string;
   kind: VideoOutputKind;
-  /** Monitor, dispositivo DeckLink, nombre NDI o URL RTSP */
+  /** Monitor, dispositivo DeckLink, nombre NDI o URL RTMP */
   source: string;
   enabled: boolean;
   width: number;
@@ -443,10 +443,9 @@ export interface IcecastStream {
   genre: string;
 }
 
-export interface RtspOutput {
+export interface RtmpOutput {
   enabled: boolean;
   url: string;
-  transport: "tcp" | "udp";
   width: number;
   height: number;
   fps: number;
@@ -456,7 +455,7 @@ export interface RtspOutput {
 
 export interface StreamingSettings {
   icecast: IcecastStream[];
-  rtsp: RtspOutput;
+  rtmp: RtmpOutput;
   /** Empezar a emitir al abrir MiRadio */
   autoStart?: boolean;
 }
@@ -707,10 +706,9 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   streaming: {
     icecast: [],
-    rtsp: {
+    rtmp: {
       enabled: false,
       url: "",
-      transport: "tcp",
       width: 1920,
       height: 1080,
       fps: 25,

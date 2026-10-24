@@ -2789,7 +2789,7 @@ body {
 }
 .io-format .field,
 .stream-grid .field,
-.rtsp-grid .field { flex-direction: column; align-items: stretch; gap: 4px; }
+.rtmp-grid .field { flex-direction: column; align-items: stretch; gap: 4px; }
 .io-format .field-unit { justify-content: flex-start; }
 .io-format .field-unit input { width: 100%; }
 
@@ -2802,13 +2802,13 @@ body {
 .stream-checks { display: flex; flex-wrap: wrap; gap: 14px; }
 .stream-add { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.rtsp-grid {
+.rtmp-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
-.rtsp-grid .field-unit { justify-content: flex-start; }
-.rtsp-grid .field-unit input { width: 100%; }
+.rtmp-grid .field-unit { justify-content: flex-start; }
+.rtmp-grid .field-unit input { width: 100%; }
 
 /* ---------- mesa de sonido ---------- */
 
@@ -3052,7 +3052,7 @@ body {
   .camp-dates { grid-template-columns: 1fr; }
   .camp-hours { grid-template-columns: repeat(8, minmax(0, 1fr)); }
   .io-card-head { flex-wrap: wrap; }
-  .io-format, .stream-grid, .rtsp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .io-format, .stream-grid, .rtmp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stream-wide { grid-column: span 2; }
 }
 

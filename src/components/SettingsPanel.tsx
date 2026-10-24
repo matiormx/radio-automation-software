@@ -300,7 +300,7 @@ export function SettingsPanel({
               onClick={() => onTabChange("streaming")}
             >
               Streaming
-              <span>Icecast, FLAC, AAC y RTSP</span>
+              <span>Icecast, FLAC, AAC y RTMP</span>
             </button>
             <button
               type="button"

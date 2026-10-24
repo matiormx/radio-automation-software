@@ -543,7 +543,7 @@ impl Default for StationEvent {
 pub struct VideoInput {
     pub id: String,
     pub name: String,
-    /// "file", "rtsp" o "ndi"
+    /// "file", "rtmp" o "ndi"
     pub kind: String,
     pub source: String,
     pub enabled: bool,
@@ -566,7 +566,7 @@ impl Default for VideoInput {
 pub struct VideoOutput {
     pub id: String,
     pub name: String,
-    /// "screen", "decklink", "ndi" o "rtsp"
+    /// "screen", "decklink", "ndi" o "rtmp"
     pub kind: String,
     pub source: String,
     pub enabled: bool,
@@ -659,11 +659,9 @@ impl Default for IcecastStream {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
-pub struct RtspOutput {
+pub struct RtmpOutput {
     pub enabled: bool,
     pub url: String,
-    /// "tcp" o "udp"
-    pub transport: String,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -671,12 +669,11 @@ pub struct RtspOutput {
     pub keyframe_secs: u32,
 }
 
-impl Default for RtspOutput {
+impl Default for RtmpOutput {
     fn default() -> Self {
         Self {
             enabled: false,
             url: String::new(),
-            transport: "tcp".to_string(),
             width: 1920,
             height: 1080,
             fps: 25,
@@ -701,7 +698,7 @@ pub struct StudioCallsSettings {
 #[serde(rename_all = "camelCase", default)]
 pub struct StreamingSettings {
     pub icecast: Vec<IcecastStream>,
-    pub rtsp: RtspOutput,
+    pub rtmp: RtmpOutput,
     /// Empezar a emitir al abrir MiRadio
     pub auto_start: bool,
 }
@@ -710,7 +707,7 @@ impl Default for StreamingSettings {
     fn default() -> Self {
         Self {
             icecast: Vec::new(),
-            rtsp: RtspOutput::default(),
+            rtmp: RtmpOutput::default(),
             auto_start: false,
         }
     }
