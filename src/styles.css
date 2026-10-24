@@ -3890,3 +3890,5 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .badge-q-low { background: rgba(230,90,70,.18); color: #ff8e7a; }
 
 .mx-slot-bus { cursor: default; color: var(--text); background: rgba(79,140,255,.12); }
+.badge-q-mid { background: rgba(240,150,50,.18); color: #ffb366; }
+.badge-q-ok { background: rgba(200,190,90,.16); color: #d8cf8a; }

@@ -20,7 +20,7 @@ import { pickScanFolder, scanFolder } from "../api";
 import { listen } from "@tauri-apps/api/event";
 
 const LOSSLESS = new Set(["flac", "wav", "aif", "aiff", "alac", "ape", "wv"]);
-const LOSSY_LOW = new Set(["mp3", "wma", "mp2"]);
+const LOSSY = new Set(["mp3", "wma", "mp2", "aac", "m4a", "ogg", "opus"]);
 
 /** Etiqueta de calidad: FLAC / Hi-Res, o aviso de MP3 de baja calidad. */
 export function qualityBadge(t: Track): ReactNode {
@@ -39,11 +39,21 @@ export function qualityBadge(t: Track): ReactNode {
       </span>
     );
   }
-  if (LOSSY_LOW.has(fmt)) {
+  if (LOSSY.has(fmt)) {
+    // Con pérdida: ≤128 kbps mala calidad; 256-320 aceptable; nunca al nivel de FLAC.
+    const k = t.audioKbps ?? 0;
+    const tier = k === 0 ? "unk" : k <= 128 ? "low" : k < 256 ? "mid" : "ok";
+    const text = tier === "low" ? "mala calidad" : tier === "mid" ? "calidad justa" : tier === "ok" ? "aceptable" : "con pérdida";
+    const tip =
+      tier === "ok"
+        ? "Con pérdida: aceptable, pero por debajo de FLAC o Hi-Res"
+        : tier === "low"
+          ? "Con pérdida y bitrate bajo: mala calidad para emitir"
+          : "Con pérdida: mejor sustituir por FLAC si es posible";
     return (
-      <span className="badge-q badge-q-low" title={`Con pérdida: calidad baja para emitir${detail ? ` · ${detail}` : ""}`}>
+      <span className={`badge-q badge-q-${tier === "low" ? "low" : tier === "ok" ? "ok" : "mid"}`} title={`${tip}${detail ? ` · ${detail}` : ""}`}>
         {fmt.toUpperCase()}
-        {t.audioKbps ? ` ${t.audioKbps}` : ""} · baja calidad
+        {k ? ` ${k}` : ""} · {text}
       </span>
     );
   }
