@@ -9,13 +9,15 @@ interface Props {
 }
 
 const EVENTS: { id: string; label: string }[] = [
-  { id: "track", label: "Título de la pista en reproducción" },
+  { id: "track", label: "Título de la pista en reproducción (con LIVE activo no se avisa de cada canción)" },
+  { id: "live", label: "Activar o desactivar el modo LIVE" },
+  { id: "program", label: "Cambio de programa con LIVE activo" },
   { id: "server", label: "Conexión o desconexión del servidor" },
   { id: "silence", label: "Detector de silencio" },
   { id: "error", label: "Errores" },
 ];
 
-const VARS = "{text} {title} {artist} {album} {file} {event} {message}";
+const VARS = "{text} {title} {artist} {album} {file} {event} {message} {program} {state}";
 
 function newRule(): NotificationRule {
   return {
@@ -26,7 +28,7 @@ function newRule(): NotificationRule {
     method: "GET",
     body: "",
     bodyFormat: "form",
-    events: ["track"],
+    events: ["track", "live", "program"],
     titleSource: "currentsong",
   };
 }

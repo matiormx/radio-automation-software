@@ -140,6 +140,22 @@ pub fn notify_fire(
     let vars = base_vars(&event, vars);
     for n in list.into_iter().filter(|n| n.enabled && !n.url.trim().is_empty() && n.events.contains(&event)) {
         let mut v = vars.clone();
+        // El LIVE pesa mas que la cancion: con LIVE activo no se avisa de
+        // cada cancion (salvo los avisos que usan el texto LIVE, que ya
+        // llevan el programa y no cambian con la musica).
+        if event == "track" && v.get("live_mode").map(|x| x == "1").unwrap_or(false) && n.title_source != "live" {
+            continue;
+        }
+        if event == "live" || event == "program" {
+            let text = v.get("text").cloned().unwrap_or_default();
+            if let Ok(mut last) = state.last.lock() {
+                // Si el aviso de cancion ya mando este mismo texto, no se repite.
+                if n.events.iter().any(|e| e == "track") && last.get(&n.id) == Some(&text) && !text.is_empty() {
+                    continue;
+                }
+                last.insert(n.id.clone(), text);
+            }
+        }
         if event == "track" {
             let key = if n.title_source == "live" { "live" } else { "currentsong" };
             let text = v.get(key).cloned().unwrap_or_default();

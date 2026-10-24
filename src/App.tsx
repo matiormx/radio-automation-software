@@ -2472,12 +2472,36 @@ export default function App() {
     void notifyFire("track", {
       currentsong: nowPlayingText ?? "",
       live: liveText ?? "",
+      live_mode: settingsRef.current.liveMode ? "1" : "0",
       artist: songFields?.artist ?? "",
       title: songFields?.title ?? "",
       album: songFields?.album ?? "",
       file: nowPlayingTrack?.file ?? "",
     }).catch(() => undefined);
   }, [nowPlayingText, liveText, songFields, nowPlayingTrack]);
+
+  // Notificaciones del modo LIVE y del cambio de programa (pesan mas que la cancion).
+  const liveNotifyRef = useRef<{ live: boolean; program: string } | null>(null);
+  useEffect(() => {
+    const prev = liveNotifyRef.current;
+    const cur = { live: !!settings.liveMode, program: settings.liveProgramId ?? "" };
+    liveNotifyRef.current = cur;
+    if (!prev) return; // al abrir la app no se avisa
+    const vars = {
+      text: (cur.live ? liveText : nowPlayingText) ?? "",
+      live: liveText ?? "",
+      currentsong: nowPlayingText ?? "",
+      state: cur.live ? "on" : "off",
+      program: selectedProgram?.name ?? "",
+      title: cur.live ? selectedProgram?.name ?? "" : songFields?.title ?? "",
+      artist: cur.live ? selectedProgram?.subtitle ?? "" : songFields?.artist ?? "",
+      message: cur.live ? `LIVE: ${selectedProgram?.name ?? ""}` : "LIVE desactivado",
+    };
+    if (prev.live !== cur.live) void notifyFire("live", vars).catch(() => undefined);
+    else if (cur.live && prev.program !== cur.program)
+      void notifyFire("program", { ...vars, message: `Programa: ${selectedProgram?.name ?? ""}` }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.liveMode, settings.liveProgramId]);
 
   // Estado de la emision (API y notificaciones): servidor conectado / caido.
   const streamWasRef = useRef<boolean | null>(null);
