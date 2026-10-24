@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-export type WorkspacePanelId = "library" | "center" | "playlist";
+export type WorkspacePanelId = "library" | "vu" | "center";
 
 export interface WorkspacePanel {
   id: WorkspacePanelId;
@@ -40,23 +40,23 @@ interface MoveState {
   target: number;
 }
 
-const PANEL_IDS: WorkspacePanelId[] = ["library", "center", "playlist"];
-const DEFAULT_ORDER: WorkspacePanelId[] = ["library", "center", "playlist"];
+const PANEL_IDS: WorkspacePanelId[] = ["library", "vu", "center"];
+const DEFAULT_ORDER: WorkspacePanelId[] = ["library", "vu", "center"];
 const DEFAULT_SIZES: Record<WorkspacePanelId, number> = {
-  library: 36,
-  center: 30,
-  playlist: 34,
+  library: 40,
+  vu: 3,
+  center: 57,
 };
 const MIN_WIDTHS: Record<WorkspacePanelId, number> = {
   library: 300,
-  center: 260,
-  playlist: 280,
+  vu: 34,
+  center: 420,
 };
 const GAP = 8;
-const STORAGE_KEY = "miradio.workspace.v1";
+const STORAGE_KEY = "miradio.workspace.v2";
 
 function isPanelId(value: unknown): value is WorkspacePanelId {
-  return value === "library" || value === "center" || value === "playlist";
+  return value === "library" || value === "vu" || value === "center";
 }
 
 function loadLayout(key: string): LayoutState {

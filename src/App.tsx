@@ -2881,8 +2881,23 @@ export default function App() {
             ),
           },
           {
+            id: "vu",
+            title: "Vúmetro",
+            content: (
+              <VuMeter
+                mixer={native ?? mixer}
+                source={settings.vuSource ?? "master"}
+                buses={settings.mixerBuses.map((b) => ({ id: b.id, name: b.name }))}
+                monitorBusId={settings.monitorBusId}
+                onSelect={(vuSource, busId) =>
+                  updateSettings({ ...settingsRef.current, vuSource, monitorBusId: busId })
+                }
+              />
+            ),
+          },
+          {
             id: "center",
-            title: "Reproductor y vúmetro",
+            title: "Reproductor y lista",
             content: (
               <div className="workspace-center">
                 {liveRun && (
@@ -2927,40 +2942,78 @@ export default function App() {
                     setSettingsOpen(true);
                   }}
                 />
-                <div className="workspace-center-main">
-                  <VuMeter
-                    mixer={native ?? mixer}
-                    source={settings.vuSource ?? "master"}
-                    buses={settings.mixerBuses.map((b) => ({ id: b.id, name: b.name }))}
-                    monitorBusId={settings.monitorBusId}
-                    onSelect={(vuSource, busId) =>
-                      updateSettings({ ...settingsRef.current, vuSource, monitorBusId: busId })
-                    }
-                  />
-                  <DeckZone
-                    title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
-                    artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
-                    album={liveRun ? liveRun.meta.album : deckRow?.album ?? ""}
-                    cover={liveRun ? liveRun.meta.cover : deckRow?.cover ?? ""}
-                    current={
-                      liveRun ? Math.max(0, (liveClock - liveRun.startedAt) / 1000) : pos.cur
-                    }
-                    total={liveRun ? (liveRun.endsAt - liveRun.startedAt) / 1000 : pos.total}
-                    spinning={liveRun ? true : !paused && playingRow >= 0}
-                    next={nextRow ? nextRow.title : null}
-                    nextArtist={nextRow?.artist ?? ""}
-                    nextAlbum={nextRow?.album ?? ""}
-                    nextCover={nextRow?.cover ?? ""}
-                    nextDuration={nextRow?.durationSecs ?? 0}
-                    onSeek={seek}
-                    isVideo={
-                      !liveRun &&
-                      !!deckRow &&
-                      isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")
-                    }
-                    videoSource={videoSource}
-                  />
-                </div>
+                <DeckZone
+                  title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
+                  artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
+                  album={liveRun ? liveRun.meta.album : deckRow?.album ?? ""}
+                  cover={liveRun ? liveRun.meta.cover : deckRow?.cover ?? ""}
+                  current={
+                    liveRun ? Math.max(0, (liveClock - liveRun.startedAt) / 1000) : pos.cur
+                  }
+                  total={liveRun ? (liveRun.endsAt - liveRun.startedAt) / 1000 : pos.total}
+                  spinning={liveRun ? true : !paused && playingRow >= 0}
+                  next={nextRow ? nextRow.title : null}
+                  nextArtist={nextRow?.artist ?? ""}
+                  nextAlbum={nextRow?.album ?? ""}
+                  nextCover={nextRow?.cover ?? ""}
+                  nextDuration={nextRow?.durationSecs ?? 0}
+                  onSeek={seek}
+                  isVideo={
+                    !liveRun &&
+                    !!deckRow &&
+                    isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")
+                  }
+                  videoSource={videoSource}
+                />
+                <PlaylistZone
+                  playlists={playlists}
+                  activeId={view?.id ?? ""}
+                  airId={active?.id ?? ""}
+                  rows={viewRows}
+                  playingRow={view && active && view.id === active.id ? playingRow : -1}
+                  nextRow={
+                    nextPick
+                      ? nextPick.listId === view?.id
+                        ? nextPick.index
+                        : -1
+                      : view && active && view.id === active.id && playingRow >= 0
+                        ? playingRow + 1
+                        : -1
+                  }
+                  nextElsewhere={
+                    nextPick && nextPick.listId !== view?.id
+                      ? `${pickRows?.[nextPick.index]?.title ?? ""} · ${playlists.find((p) => p.id === nextPick.listId)?.name ?? ""}`
+                      : ""
+                  }
+                  autoIds={autoIds}
+                  estStart={view && active && view.id === active.id ? estStart : []}
+                  onSelect={setViewId}
+                  onSetNext={setNextRow}
+                  onClearNext={() => setNextPick(null)}
+                  onGenerate={() => void generateView()}
+                  pastVisible={settings.pastVisible ?? 5}
+                  leavingRow={
+                    removeAfter &&
+                    view?.id === removeAfter.listId &&
+                    view.id === active?.id &&
+                    playingRow >= 0
+                      ? playingRow
+                      : -1
+                  }
+                  onNew={() => void newPlaylist()}
+                  onRemovePlaylist={() => void removeActivePlaylist()}
+                  onClearPlaylist={() => void clearActivePlaylist()}
+                  onRename={renamePlaylist}
+                  onPlayRow={playViewRow}
+                  onReorder={reorderRow}
+                  onRemove={removeRow}
+                  onDropTrack={dropTrackAt}
+                  blocks={blocks}
+                  onPreview={previewRow}
+                  onEditMeta={editRowMeta}
+                  onEditCuts={editRowCuts}
+                  onToggleBlock={toggleRowBlock}
+                />
                 {chatCfg.enabled && !chatCfg.floating && (
                   <ChatPanel
                     config={{
@@ -2976,61 +3029,6 @@ export default function App() {
                   />
                 )}
               </div>
-            ),
-          },
-          {
-            id: "playlist",
-            title: "Lista de emisión",
-            content: (
-              <PlaylistZone
-                playlists={playlists}
-                activeId={view?.id ?? ""}
-                airId={active?.id ?? ""}
-                rows={viewRows}
-                playingRow={view && active && view.id === active.id ? playingRow : -1}
-                nextRow={
-                  nextPick
-                    ? nextPick.listId === view?.id
-                      ? nextPick.index
-                      : -1
-                    : view && active && view.id === active.id && playingRow >= 0
-                      ? playingRow + 1
-                      : -1
-                }
-                nextElsewhere={
-                  nextPick && nextPick.listId !== view?.id
-                    ? `${pickRows?.[nextPick.index]?.title ?? ""} · ${playlists.find((p) => p.id === nextPick.listId)?.name ?? ""}`
-                    : ""
-                }
-                autoIds={autoIds}
-                estStart={view && active && view.id === active.id ? estStart : []}
-                onSelect={setViewId}
-                onSetNext={setNextRow}
-                onClearNext={() => setNextPick(null)}
-                onGenerate={() => void generateView()}
-                pastVisible={settings.pastVisible ?? 5}
-                leavingRow={
-                  removeAfter &&
-                  view?.id === removeAfter.listId &&
-                  view.id === active?.id &&
-                  playingRow >= 0
-                    ? playingRow
-                    : -1
-                }
-                onNew={() => void newPlaylist()}
-                onRemovePlaylist={() => void removeActivePlaylist()}
-                onClearPlaylist={() => void clearActivePlaylist()}
-                onRename={renamePlaylist}
-                onPlayRow={playViewRow}
-                onReorder={reorderRow}
-                onRemove={removeRow}
-                onDropTrack={dropTrackAt}
-                blocks={blocks}
-                onPreview={previewRow}
-                onEditMeta={editRowMeta}
-                onEditCuts={editRowCuts}
-                onToggleBlock={toggleRowBlock}
-              />
             ),
           },
         ]}
