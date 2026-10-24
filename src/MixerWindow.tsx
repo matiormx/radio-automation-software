@@ -315,6 +315,7 @@ function useDevices(isNative: boolean) {
   const [inputs, setInputs] = useState<Device[]>([]);
   const [outputs, setOutputs] = useState<Device[]>([]);
   const [insertInputs, setInsertInputs] = useState<Device[]>([]);
+  const [webInputs, setWebInputs] = useState<Device[]>([]);
   const [chanMap, setChanMap] = useState<Record<string, number>>(() => {
     try {
       return JSON.parse(localStorage.getItem("mx-in-channels") || "{}") as Record<string, number>;
@@ -341,11 +342,21 @@ function useDevices(isNative: boolean) {
         if (d.kind === "audiooutput" && d.deviceId !== "default")
           outs.push({ id: d.deviceId, label: d.label || `Salida ${outs.length + 1}`, kind: "audiooutput" });
       }
-      setInputs(ins);
+      setWebInputs(ins);
       if (isNative) {
         const names = await nativeInputs().catch(() => [] as string[]);
         setInsertInputs(nativeDeviceOptions(names, "audioinput"));
+        // Con el motor nativo, los canales capturan las tarjetas por su nombre
+        // del sistema; el par/canal se elige aparte en el canal.
+        const pairs = new Map<string, number>();
+        for (const n of names) {
+          const m = /^(.*)#(\d+)$/.exec(n);
+          const base = m ? m[1] : n;
+          pairs.set(base, Math.max(pairs.get(base) ?? 1, m ? Number(m[2]) : 1));
+        }
+        setInputs(Array.from(pairs, ([id, p]) => ({ id, label: id, kind: "audioinput" as const, channels: p * 2 })));
       } else {
+        setInputs(ins);
         setInsertInputs(ins);
       }
       if (isNative) {
@@ -406,7 +417,7 @@ function useDevices(isNative: boolean) {
     }
     await refresh();
   }, [refresh]);
-  return { inputs, insertInputs, outputs, detect };
+  return { inputs, webInputs, insertInputs, outputs, detect };
 }
 
 // ------------------------------------------------------------ ventana
@@ -453,7 +464,7 @@ export function MixerWindow() {
 
   const s = shared?.settings;
   const isNative = s?.audioEngine === "native";
-  const { inputs, insertInputs, outputs, detect } = useDevices(!!isNative);
+  const { inputs, webInputs, insertInputs, outputs, detect } = useDevices(!!isNative);
 
   if (!s) {
     return (
@@ -473,6 +484,7 @@ export function MixerWindow() {
         meters={meters}
         isNative={!!isNative}
         inputs={inputs}
+        webInputs={webInputs}
         insertInputs={insertInputs}
         outputs={outputs}
         onDetect={detect}
@@ -485,7 +497,7 @@ export function MixerWindow() {
 export function MixerEmbedded({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
   const meters = useRef<MeterMap>(new Map());
   const isNative = settings.audioEngine === "native";
-  const { inputs, insertInputs, outputs, detect } = useDevices(isNative);
+  const { inputs, webInputs, insertInputs, outputs, detect } = useDevices(isNative);
   useEffect(() => {
     const offs: Array<Promise<() => void>> = [];
     type M = { key: string; l: number; r: number }[];
@@ -509,6 +521,7 @@ export function MixerEmbedded({ settings, onChange }: { settings: Settings; onCh
         meters={meters}
         isNative={isNative}
         inputs={inputs}
+        webInputs={webInputs}
         insertInputs={insertInputs}
         outputs={outputs}
         onDetect={detect}
@@ -525,6 +538,7 @@ function MixerBoard({
   meters,
   isNative,
   inputs,
+  webInputs,
   insertInputs,
   outputs,
   onDetect,
@@ -534,12 +548,33 @@ function MixerBoard({
   meters: React.MutableRefObject<MeterMap>;
   isNative: boolean;
   inputs: Device[];
+  webInputs: Device[];
   insertInputs: Device[];
   outputs: Device[];
   onDetect: () => void;
 }) {
   const channels = s.mixerChannels ?? [];
   const buses = s.mixerBuses ?? [];
+  // Motor nativo: las entradas guardadas con el id del WebView se pasan al
+  // nombre de la tarjeta en el sistema (mismo nombre que ve Windows).
+  useEffect(() => {
+    if (!isNative || inputs.length === 0 || webInputs.length === 0) return;
+    const names = new Set(inputs.map((d) => d.id));
+    const clean = (l: string) => l.replace(/^(Predeterminado|Default|Comunicaciones|Communications)\s*-\s*/i, "").trim();
+    let changed = false;
+    const next = channels.map((c) => {
+      if (c.input.kind !== "device") return c;
+      const id = c.input.deviceId;
+      if (!id || id === "none" || id === "default" || names.has(id)) return c;
+      const web = webInputs.find((d) => d.id === id);
+      const label = web ? clean(web.label) : "";
+      if (!label || !names.has(label)) return c;
+      changed = true;
+      return { ...c, input: { ...c.input, deviceId: label } };
+    });
+    if (changed) commit({ ...s, mixerChannels: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNative, inputs, webInputs]);
   const patchChannel = (id: string, patch: Partial<MixerChannel>) =>
     commit({ ...s, mixerChannels: channels.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const patchBus = (id: string, patch: Partial<MixerBus>) =>
@@ -623,7 +658,21 @@ function MixerBoard({
         >
           Detectar entradas
         </button>
-        <span className="mx-engine">{isNative ? "Motor nativo" : "Motor web"}</span>
+        <label className="mx-engine" title="Nativo: todo el audio (música, entradas, preescucha, llamadas) se mezcla en MiRadio y va a las tarjetas por su nombre del sistema. Web: el motor de la ventana (solo estéreo por tarjeta).">
+          Motor{" "}
+          <select
+            value={isNative ? "native" : "web"}
+            aria-label="Motor de audio"
+            onChange={(e) => {
+              const next = e.target.value === "native" ? "native" : "web";
+              if (!window.confirm("Cambiar de motor detiene la reproducción. ¿Continuar? (No lo cambies en pleno directo.)")) return;
+              commit({ ...s, audioEngine: next });
+            }}
+          >
+            <option value="native">Nativo</option>
+            <option value="web">Web</option>
+          </select>
+        </label>
       </div>
       <div className="mx-notes">
         {missingApps.map((app) => (

@@ -215,3 +215,27 @@ fn device_pairs_parse() {
     assert_eq!(split_pair("VAIO3#3"), ("VAIO3", 3));
     assert_eq!(split_pair("A#B"), ("A#B", 1));
 }
+
+#[test]
+fn physical_input_channel_reaches_stream_bus() {
+    // Mesa con solo una entrada fisica (retorno de una mesa externa) a Streaming.
+    let mut c = core_with_music(0.0);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"y","input":{"kind":"device","deviceId":"Yamaha","channel":3},"output":{"kind":"device","id":"streaming"},"gainDb":0,"muted":false}],"mixerBuses":[],"monitorBusId":""}"#);
+    assert_eq!(c.plan.inputs, vec!["Yamaha#3".to_string()]);
+    let (_, rets) = c.plan.insert_devices();
+    assert_eq!(rets, vec!["Yamaha#3".to_string()]);
+    let sig = vec![0.4f32; 1024 * 2];
+    let mut got = 0f32;
+    c.render_all(1024, &[], &[InsertFeed { data: &sig[..], active: true }], |plan, _, n| {
+        got = plan.program[(n - 1) * 2];
+    });
+    assert!((got - 0.4).abs() < 1e-3, "{got}");
+}
+
+#[test]
+fn input_ids_parse() {
+    use crate::engine::io::parse_input;
+    assert_eq!(parse_input("VAIO"), ("VAIO", 0, false));
+    assert_eq!(parse_input("VAIO#3"), ("VAIO", 4, false));
+    assert_eq!(parse_input("VAIO!5"), ("VAIO", 4, true));
+}

@@ -81,7 +81,24 @@ impl Core {
 
     /// Igual que `render`, con el retorno de los procesadores externos de
     /// los inserts (`feeds[i]` para `plan.inserts[i]`).
-    pub fn render_inserts<F>(&mut self, frames: usize, feeds: &[InsertFeed], mut sink: F)
+    pub fn render_inserts<F>(&mut self, frames: usize, feeds: &[InsertFeed], sink: F)
+    where
+        F: FnMut(&Plan, usize, usize),
+    {
+        self.render_all(frames, feeds, &[], sink);
+    }
+
+    /// Igual, y ademas con el audio de las entradas fisicas de los canales
+    /// (`inputs[i]` para `plan.inputs[i]`).
+    pub fn render_all<F>(&mut self, frames: usize, feeds: &[InsertFeed], inputs: &[InsertFeed], sink: F)
+    where
+        F: FnMut(&Plan, usize, usize),
+    {
+        self.render_apps(frames, feeds, inputs, &[], sink);
+    }
+
+    /// Igual, con el audio del WebView: `apps[0]` preescucha, `apps[1]` llamadas.
+    pub fn render_apps<F>(&mut self, frames: usize, feeds: &[InsertFeed], inputs: &[InsertFeed], apps: &[InsertFeed], mut sink: F)
     where
         F: FnMut(&Plan, usize, usize),
     {
@@ -107,7 +124,26 @@ impl Core {
                     }
                 })
                 .collect();
-            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[], &part);
+            let ins: Vec<&[f32]> = inputs
+                .iter()
+                .map(|f| {
+                    if f.active && f.data.len() >= (done + n) * 2 {
+                        &f.data[done * 2..(done + n) * 2]
+                    } else {
+                        &[][..]
+                    }
+                })
+                .collect();
+            // Preescucha y llamadas llegan del WebView; sin datos, silencio.
+            for (i, buf) in [&mut self.preview, &mut self.call].into_iter().enumerate() {
+                match apps.get(i) {
+                    Some(f) if f.active && f.data.len() >= (done + n) * 2 => {
+                        buf[..s].copy_from_slice(&f.data[done * 2..(done + n) * 2])
+                    }
+                    _ => buf[..s].iter_mut().for_each(|x| *x = 0.0),
+                }
+            }
+            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &ins, &part);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));

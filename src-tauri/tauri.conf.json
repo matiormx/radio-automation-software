@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MiRadio",
-  "version": "0.5.21",
+  "version": "0.5.22",
   "identifier": "com.miradio.app",
   "build": {
     "beforeDevCommand": "npm run dev",

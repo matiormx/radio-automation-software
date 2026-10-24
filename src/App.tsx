@@ -79,6 +79,7 @@ import { VuMeter } from "./components/VuMeter";
 import { Splitter } from "./components/Splitter";
 import { ChatPanel } from "./components/ChatPanel";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { NativeAppFeed } from "./nativeFeed";
 import { NativePlayer } from "./nativeEngine";
 import { closeVideoOut, openToolWindow, openVideoOut, prewarmToolWindow, publishState, serveMain } from "./bridge";
 import type { VideoState } from "./videoSurface";
@@ -262,9 +263,11 @@ function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuse
     // Los inserts los lleva el motor nativo (sus tarjetas se eligen por nombre
     // del sistema, no por el id del WebView), asi que aqui se quitan.
     mixerChannels: s.mixerChannels
-      .filter((ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"))
+      // Todo va por el motor nativo (la preescucha y las llamadas se le
+      // mandan desde el WebView): la mesa web queda vacia y no suena nada doble.
+      .filter(() => false)
       .map((ch) => ({ ...ch, insert: undefined })),
-    mixerBuses: s.mixerBuses.map((b) => ({ ...b, insert: undefined })),
+    mixerBuses: [],
     monitorBusId: s.monitorBusId,
   };
 }
@@ -431,12 +434,16 @@ export default function App() {
     const useNative = settingsRef.current.audioEngine === "native";
     // Motor nativo (beta): la musica la reproduce y mezcla Rust. La mesa web
     // sigue con microfonos, preescucha y llamadas.
+    let appFeed: NativeAppFeed | null = null;
     const player = useNative ? new NativePlayer((msg) => showToast(msg)) : new RadioPlayer(mixer);
     if (useNative) {
       mixer.apply(webMixerSlice(settingsRef.current));
       const nat = player as NativePlayer;
       nat.applyMixer(settingsRef.current);
       nat.setVolume(settingsRef.current.masterVolume);
+      appFeed = new NativeAppFeed(mixer);
+      void mixer.resume();
+      void appFeed.start();
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
       nat.loop = false;
@@ -468,6 +475,7 @@ export default function App() {
       player.onEnded = null;
       player.onDiag = null;
       player.dispose();
+      appFeed?.dispose();
       playerRef.current = null;
       setNative(null);
       mixer.dispose();

@@ -1,7 +1,7 @@
 class PcmCaptureProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    this.frames = 4096;
+    this.frames = (options && options.processorOptions && options.processorOptions.frames) || 4096;
     this.buffer = new Float32Array(this.frames * 2);
     this.offset = 0;
   }

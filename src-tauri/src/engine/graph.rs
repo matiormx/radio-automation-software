@@ -23,6 +23,23 @@ pub fn db_to_gain(db: f64) -> f32 {
     }
 }
 
+/// Id de captura de una entrada: `nombre` (canales 1-2), `nombre#P` (par P) o
+/// `nombre!K` (un solo canal K, para canales en mono).
+fn input_key(name: &str, channel: u32, mono: bool) -> String {
+    if name == NONE_DEVICE {
+        return name.to_string();
+    }
+    if mono && channel > 0 {
+        return format!("{name}!{channel}");
+    }
+    let pair = channel.max(1);
+    if pair == 1 {
+        name.to_string()
+    } else {
+        format!("{name}#{pair}")
+    }
+}
+
 fn norm_device(id: &str) -> String {
     let s = id.trim();
     if s.is_empty() {
@@ -38,6 +55,8 @@ pub struct InputCfg {
     pub kind: String,
     pub app: String,
     pub device_id: String,
+    /// Estereo: par de canales (1 = 1-2...). Mono: canal de la tarjeta (0 = los dos lados)
+    pub channel: u32,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -379,7 +398,9 @@ impl Plan {
                     }
                 }
             } else {
-                let d = norm_device(&c.input.device_id);
+                let name = norm_device(&c.input.device_id);
+                let mono = !c.mono_mode.is_empty() && c.mono_mode != "off";
+                let d = input_key(&name, c.input.channel, mono);
                 let i = inputs.iter().position(|x| *x == d).unwrap_or_else(|| {
                     inputs.push(d);
                     inputs.len() - 1
@@ -464,6 +485,12 @@ impl Plan {
             }
             if !returns.contains(&i.return_device) {
                 returns.push(i.return_device.clone());
+            }
+        }
+        // Las entradas fisicas de los canales se capturan igual que los retornos.
+        for i in &self.inputs {
+            if i != NONE_DEVICE && !returns.contains(i) {
+                returns.push(i.clone());
             }
         }
         (sends, returns)

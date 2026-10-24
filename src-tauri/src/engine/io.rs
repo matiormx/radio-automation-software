@@ -130,12 +130,14 @@ pub struct Shared {
     insert_sinks: Vec<SecSink>,
     /// Retornos de los inserts (entradas del equipo)
     returns: Vec<InsertReturn>,
+    /// Audio que manda el WebView (preescucha y llamadas), con su reloj
+    pub apps: Vec<InsertReturn>,
 }
 
 pub type SharedRef = Arc<Mutex<Shared>>;
 
 pub fn new_shared() -> SharedRef {
-    Arc::new(Mutex::new(Shared { core: Core::new(ENGINE_RATE), sinks: Vec::new(), stream_tap: None, insert_sinks: Vec::new(), returns: Vec::new() }))
+    Arc::new(Mutex::new(Shared { core: Core::new(ENGINE_RATE), sinks: Vec::new(), stream_tap: None, insert_sinks: Vec::new(), returns: Vec::new(), apps: Vec::new() }))
 }
 
 /// Candado que sobrevive a un panico en otro hilo (la radio no se para).
@@ -227,9 +229,23 @@ pub fn list_inputs() -> Vec<String> {
     list_devices(false)
 }
 
+/// Id de entrada -> (tarjeta, primer canal, mono). `nombre!K` es el canal K
+/// solo; `nombre#P` o `nombre`, el par P.
+pub fn parse_input(id: &str) -> (&str, usize, bool) {
+    if let Some((name, k)) = id.rsplit_once('!') {
+        if let Ok(k) = k.parse::<usize>() {
+            if k >= 1 && !name.is_empty() {
+                return (name, k - 1, true);
+            }
+        }
+    }
+    let (name, pair) = split_pair(id);
+    (name, (pair - 1) * 2, false)
+}
+
 fn find_input(id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
-    let (id, _) = split_pair(id);
+    let (id, _, _) = parse_input(id);
     if id == DEFAULT_DEVICE {
         return host.default_input_device();
     }
@@ -286,7 +302,7 @@ where
 }
 
 #[inline]
-fn open_input<F>(device: &cpal::Device, pair: usize, push: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
+fn open_input<F>(device: &cpal::Device, first: usize, mono: bool, push: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
 where
     F: FnMut(&[f32]) + Send + 'static,
 {
@@ -297,19 +313,19 @@ where
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
     let stream = match format {
-        SampleFormat::F32 => build_input::<f32, F>(device, &config, pair, push, failed),
-        SampleFormat::I16 => build_input::<i16, F>(device, &config, pair, push, failed),
-        SampleFormat::I32 => build_input::<i32, F>(device, &config, pair, push, failed),
-        SampleFormat::U16 => build_input::<u16, F>(device, &config, pair, push, failed),
-        SampleFormat::I24 => build_input::<cpal::I24, F>(device, &config, pair, push, failed),
-        SampleFormat::F64 => build_input::<f64, F>(device, &config, pair, push, failed),
+        SampleFormat::F32 => build_input::<f32, F>(device, &config, first, mono, push, failed),
+        SampleFormat::I16 => build_input::<i16, F>(device, &config, first, mono, push, failed),
+        SampleFormat::I32 => build_input::<i32, F>(device, &config, first, mono, push, failed),
+        SampleFormat::U16 => build_input::<u16, F>(device, &config, first, mono, push, failed),
+        SampleFormat::I24 => build_input::<cpal::I24, F>(device, &config, first, mono, push, failed),
+        SampleFormat::F64 => build_input::<f64, F>(device, &config, first, mono, push, failed),
         other => return Err(format!("Formato de entrada no soportado: {other}")),
     }?;
     stream.play().map_err(|e| format!("No se pudo arrancar la entrada: {e}"))?;
     Ok((stream, rate))
 }
 
-fn build_input<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, pair: usize, mut push: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
+fn build_input<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, first: usize, mono: bool, mut push: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
 where
     T: SizedSample,
     f32: FromSample<T>,
@@ -326,10 +342,10 @@ where
                 scratch.reserve(frames * 2);
                 // Par de canales elegido (1 = 1-2, 2 = 3-4...); si la tarjeta
                 // tiene menos canales, se usa el ultimo.
-                let a = ((pair.max(1) - 1) * 2).min(channels - 1);
+                let a = first.min(channels - 1);
                 for f in data.chunks_exact(channels) {
                     let l = f32::from_sample(f[a]);
-                    if a + 1 < channels {
+                    if !mono && a + 1 < channels {
                         scratch.push(l);
                         scratch.push(f32::from_sample(f[a + 1]));
                     } else {
@@ -372,7 +388,7 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let mut g = lock(&shared);
-        let Shared { core, sinks, stream_tap, insert_sinks, returns } = &mut *g;
+        let Shared { core, sinks, stream_tap, insert_sinks, returns, apps } = &mut *g;
         stretch.process(
             frames,
             ratio,
@@ -381,6 +397,16 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                 for r in returns.iter_mut() {
                     r.produce(n);
                 }
+                for a in apps.iter_mut() {
+                    a.produce(n);
+                }
+                let app_feeds: Vec<InsertFeed> = ["app:preview", "app:call"]
+                    .iter()
+                    .map(|k| match apps.iter().find(|a| a.device == *k && a.active) {
+                        Some(a) => InsertFeed { data: &a.buf[..n * 2], active: true },
+                        None => InsertFeed { data: &[], active: false },
+                    })
+                    .collect();
                 let feeds: Vec<InsertFeed> = core
                     .plan
                     .inserts
@@ -397,7 +423,16 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
                         }
                     })
                     .collect();
-                core.render_inserts(n, &feeds, |plan, _off, m| {
+                let in_feeds: Vec<InsertFeed> = core
+                    .plan
+                    .inputs
+                    .iter()
+                    .map(|key| match returns.iter().find(|r| r.device == *key && r.active) {
+                        Some(r) => InsertFeed { data: &r.buf[..n * 2], active: true },
+                        None => InsertFeed { data: &[], active: false },
+                    })
+                    .collect();
+                core.render_apps(n, &feeds, &in_feeds, &app_feeds, |plan, _off, m| {
                     let s = m * 2;
                     match plan.out_index(DEFAULT_DEVICE) {
                         Some(d) => buf.extend_from_slice(&plan.outs[d].buf[..s]),
@@ -721,7 +756,8 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let failed = Arc::new(AtomicBool::new(false));
             match open_input(
                 &dev,
-                split_pair(id).1,
+                parse_input(id).1,
+                parse_input(id).2,
                 move |stereo: &[f32]| {
                     for &v in stereo {
                         let _ = prod.push(v);

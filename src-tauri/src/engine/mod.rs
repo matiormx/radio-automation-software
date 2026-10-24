@@ -46,6 +46,8 @@ pub struct Engine {
     app: AppHandle,
     /// Lector del audio en directo (para pararlo)
     live_stop: Mutex<Option<Arc<AtomicBool>>>,
+    /// Anillos del audio que manda el WebView (preescucha, llamadas)
+    app_feeds: Mutex<std::collections::HashMap<String, (u32, rtrb::Producer<f32>)>>,
 }
 
 impl Drop for Engine {
@@ -146,7 +148,7 @@ impl Engine {
                 .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None) }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()) }
     }
 
     fn apply(&self, op: Op) {
@@ -374,6 +376,43 @@ pub fn engine_cmd(state: State<'_, EngineState>, op: Op) -> Result<(), String> {
 #[tauri::command]
 pub fn engine_devices() -> Vec<String> {
     io::list_outputs()
+}
+
+impl Engine {
+    /// Audio s16le estereo que manda el WebView (preescucha o llamadas) a su
+    /// frecuencia; el motor lo remuestrea y absorbe la deriva de reloj.
+    fn feed(&self, src: &str, rate: u32, data: &[u8]) {
+        let key = format!("app:{src}");
+        let mut feeds = self.app_feeds.lock().unwrap_or_else(|e| e.into_inner());
+        let fresh = feeds.get(&key).map(|(r, _)| *r != rate).unwrap_or(true);
+        if fresh {
+            let (prod, cons) = rtrb::RingBuffer::<f32>::new((rate.max(8000) as usize) * 2);
+            let mut g = lock(&self.shared);
+            g.apps.retain(|a| a.device != key);
+            g.apps.push(io::InsertReturn::new(key.clone(), cons, rate));
+            drop(g);
+            feeds.insert(key.clone(), (rate, prod));
+        }
+        if let Some((_, prod)) = feeds.get_mut(&key) {
+            for c in data.chunks_exact(2) {
+                let v = i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0;
+                let _ = prod.push(v);
+            }
+        }
+    }
+}
+
+/// Preescucha y llamadas del WebView hacia el motor nativo.
+#[tauri::command]
+pub fn engine_feed(state: State<'_, EngineState>, src: String, rate: u32, data: Vec<u8>) -> Result<(), String> {
+    if src != "preview" && src != "call" {
+        return Err("Fuente desconocida".into());
+    }
+    let g = state.0.lock().map_err(|_| "El motor no responde".to_string())?;
+    if let Some(engine) = g.as_ref() {
+        engine.feed(&src, rate, &data);
+    }
+    Ok(())
 }
 
 /// Entradas del equipo (para elegir el retorno de un insert).
