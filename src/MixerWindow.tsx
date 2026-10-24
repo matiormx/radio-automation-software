@@ -12,7 +12,7 @@ import {
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
-import type { MixerBus, MixerChannel, MixerSend, Settings } from "./types";
+import type { MixerAgc, MixerBus, MixerChannel, MixerSend, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
 
 /**
@@ -829,11 +829,12 @@ function ChannelStrip({
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "in" | "out" | `send:${number}`>("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "in" | "gain" | "out" | `send:${number}`>("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
   const monoOn = (ch.monoMode ?? "off") !== "off";
+  const agcMode: MixerAgc = ch.agc === "slow" || ch.agc === "fast" ? ch.agc : "off";
   const inChannels = inputs.find((d) => d.id === ch.input.deviceId)?.channels ?? 2;
   const inputLabel =
     ch.input.kind === "app"
@@ -940,6 +941,41 @@ function ChannelStrip({
               </small>
             </label>
           )}
+        </Pop>
+        <button
+          type="button"
+          className={`mx-slot ${agcMode !== "off" ? "mx-slot-on" : ""}`}
+          title="Ganancia de entrada / control automático de ganancia"
+          onClick={() => setPop(pop === "gain" ? "" : "gain")}
+        >
+          {agcMode === "slow" ? "AGC lento" : agcMode === "fast" ? "AGC rápido" : `Gain ${fmtDb(ch.inputGainDb ?? 0)}`}
+        </button>
+        <Pop open={pop === "gain"} onClose={close}>
+          <div className="mx-pop-title">Ganancia de entrada</div>
+          <label className="mixer-field">
+            <span>Control automático (AGC)</span>
+            <select value={agcMode} onChange={(e) => onPatch({ agc: e.target.value as MixerAgc })}>
+              <option value="off">Apagado (ganancia manual)</option>
+              <option value="slow">Lento (voz, programa)</option>
+              <option value="fast">Rápido</option>
+            </select>
+          </label>
+          <label className="mixer-field">
+            <span>Ganancia {fmtDb(ch.inputGainDb ?? 0)} dB</span>
+            <input
+              type="range"
+              min={-24}
+              max={24}
+              step={0.5}
+              disabled={agcMode !== "off"}
+              value={ch.inputGainDb ?? 0}
+              onDoubleClick={() => onPatch({ inputGainDb: 0 })}
+              onChange={(e) => onPatch({ inputGainDb: Number(e.target.value) })}
+            />
+          </label>
+          <small className="mx-hint">
+            Antes de inserts y fader. El AGC lleva la señal a unos −18 dB (sube hasta +18 dB) y solo funciona con el motor nativo.
+          </small>
         </Pop>
       </div>
 
@@ -1186,6 +1222,12 @@ function BusStrip({
   return (
     <section className="mx-strip mx-bus" aria-label={bus.name}>
       <div className="mx-section">
+        <span className="mx-label">ENTRADA{isMonitor ? " · VU" : ""}</span>
+        <span className="mx-slot mx-slot-bus" title={`Lo que envían los canales al bus «${bus.name}»`}>
+          Bus {bus.name}
+        </span>
+      </div>
+      <div className="mx-section">
         <span className="mx-label">INSERTS</span>
         <button
           type="button"
@@ -1209,10 +1251,7 @@ function BusStrip({
         </Pop>
       </div>
       <div className="mx-section mx-grow-top">
-        <span className="mx-label">BUS{isMonitor ? " · VU" : ""}</span>
-      </div>
-      <div className="mx-section">
-        <span className="mx-label">I/O</span>
+        <span className="mx-label">SALIDA</span>
         <button type="button" className="mx-slot" title={outputLabel} onClick={() => setPop(pop === "io" ? "" : "io")}>
           {outputLabel}
         </button>

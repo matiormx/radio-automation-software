@@ -88,6 +88,10 @@ pub struct ChannelCfg {
     pub solo: bool,
     /// "" (estereo), "sum" (L+R), "left" (solo L) o "right" (solo R), sacado por los dos lados
     pub mono_mode: String,
+    /// Ganancia de entrada (dB), antes de inserts y fader
+    pub input_gain_db: f64,
+    /// "off", "slow" o "fast"; si no es "off", sustituye a input_gain_db
+    pub agc: String,
     pub sends: Vec<SendCfg>,
     pub insert: InsertCfg,
 }
@@ -214,6 +218,8 @@ struct Chan {
     open: bool,
     /// 0 estereo, 1 suma L+R, 2 solo L, 3 solo R
     mono: u8,
+    input_gain: f32,
+    agc: Option<Agc>,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
 }
@@ -264,6 +270,7 @@ pub struct Plan {
     /// Tramo del canal ya con su fader (para envios y medidor)
     tmp: Vec<f32>,
     mono: Vec<f32>,
+    pre: Vec<f32>,
     /// Inserts activos, en el mismo orden que `insert_sends`
     pub inserts: Vec<InsertRoute>,
     /// Audio seco de cada insert (se entrega a la tarjeta de envio)
@@ -317,6 +324,57 @@ fn add_scaled(dst: &mut [f32], src: &[f32], g: (f32, f32)) {
         v += step;
         d[0] += s[0] * v;
         d[1] += s[1] * v;
+    }
+}
+
+/// Control automatico de ganancia por bloques, sencillo y estable.
+#[derive(Clone, Copy, Debug)]
+struct Agc {
+    mode: u8,
+    target_db: f32,
+    max_gain_db: f32,
+    up_db_s: f32,
+    down_db_s: f32,
+    gain_db: f32,
+    ms: f32,
+    primed: bool,
+}
+
+impl Agc {
+    fn new(mode: &str) -> Option<Agc> {
+        let (m, up, down) = match mode {
+            "slow" => (1, 1.5, 4.0),
+            "fast" => (2, 8.0, 16.0),
+            _ => return None,
+        };
+        Some(Agc { mode: m, target_db: -18.0, max_gain_db: 18.0, up_db_s: up, down_db_s: down, gain_db: 0.0, ms: 0.0, primed: false })
+    }
+
+    fn gain_for(&mut self, buf: &[f32], frames: usize) -> f32 {
+        let mut sum = 0.0f32;
+        for f in buf {
+            sum += f * f;
+        }
+        let inst = (sum / buf.len().max(1) as f32).max(1e-12);
+        let inst_db = 10.0 * inst.log10();
+        // En silencio (o casi) no se sube: se mantiene la ganancia.
+        if !inst.is_finite() || inst_db < -50.0 {
+            return 10f32.powf(self.gain_db / 20.0);
+        }
+        let dt = frames as f32 / 48_000.0;
+        if !self.primed {
+            self.ms = inst;
+            self.primed = true;
+        } else {
+            let coeff = 1.0 - (-dt / 3.0).exp();
+            self.ms += coeff * (inst - self.ms);
+        }
+        let level = 10.0 * self.ms.max(1e-12).log10();
+        let wanted = (self.target_db - level).clamp(-self.max_gain_db, self.max_gain_db);
+        let delta = wanted - self.gain_db;
+        let rate = if delta > 0.0 { self.up_db_s } else { self.down_db_s };
+        self.gain_db += delta.clamp(-rate * dt, rate * dt);
+        10f32.powf(self.gain_db / 20.0)
     }
 }
 
@@ -435,7 +493,17 @@ impl Plan {
                 sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
             }
             let insert = insert_of(&c.insert, &key, &mut inserts);
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
+            let input_gain = if c.input_gain_db.is_finite() { 10f64.powf(c.input_gain_db.clamp(-60.0, 24.0) / 20.0) as f32 } else { 1.0 };
+            let agc = Agc::new(&c.agc).map(|mut a| {
+                // Sigue desde la ganancia que llevaba (sin saltos al tocar la mesa).
+                if let Some(old) = prev.and_then(|p| p.chans.iter().find(|x| x.key == key)).and_then(|x| x.agc) {
+                    if old.mode == a.mode {
+                        a = old;
+                    }
+                }
+                a
+            });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -468,6 +536,7 @@ impl Plan {
             ret: buf(),
             tmp: buf(),
             mono: buf(),
+            pre: buf(),
             inserts,
             insert_sends,
         }
@@ -574,6 +643,17 @@ impl Plan {
                 Source::Call => call,
                 Source::Input(i) => inputs.get(i).copied().unwrap_or(silence),
             };
+            // Ganancia de entrada (o control automatico), antes de todo.
+            if src.len() >= n && (c.agc.is_some() || c.input_gain != 1.0) {
+                let gain = match c.agc.as_mut() {
+                    Some(agc) => agc.gain_for(&src[..n], frames),
+                    None => c.input_gain,
+                };
+                for (d, x) in self.pre[..n].iter_mut().zip(src[..n].iter()) {
+                    *d = *x * gain;
+                }
+                src = &self.pre[..n];
+            }
             // Insert de canal: se envia la senal seca y, si el procesador ya
             // devuelve audio, se usa el retorno en lugar del seco.
             if let Some(ii) = c.insert {

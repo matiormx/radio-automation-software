@@ -427,7 +427,12 @@ export class SoundMixer {
       const lv = levelerFor(`ch:${ch.id}`, ch);
       if (lv) lv.output.connect(head);
       // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
-      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : head);
+      const insertEntry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : head);
+      // Ganancia de entrada, antes de inserts y fader (el AGC solo existe en el motor nativo).
+      const entry = this.ctx.createGain();
+      entry.gain.value = dbToGain(ch.inputGainDb ?? 0);
+      entry.connect(insertEntry);
+      this.faders.push(entry);
       for (const send of ch.sends ?? []) {
         const busEntry = this.busGains.get(send.busId);
         if (!busEntry) continue;

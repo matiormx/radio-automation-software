@@ -245,3 +245,16 @@ fn mono_output_ids_parse() {
     use crate::engine::io::parse_input;
     assert_eq!(parse_input("VBMatrix In 1 (VB-Audio Matrix VAIO)!2"), ("VBMatrix In 1 (VB-Audio Matrix VAIO)", 1, true));
 }
+
+#[test]
+fn input_gain_and_agc() {
+    let mut c = core_with_music(0.25);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"inputGainDb":6.0206}],"mixerBuses":[],"monitorBusId":""}"#);
+    let l = levels(&mut c, 2048);
+    assert!((l["default"] - 0.5).abs() < 1e-3, "{:?}", l);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"agc":"fast"}],"mixerBuses":[],"monitorBusId":""}"#);
+    let mut last = 0.0;
+    for _ in 0..20 { last = levels(&mut c, 4800)["default"]; }
+    // 0.25 constante (~-12 dBFS) baja hacia -18 dB (~0.126).
+    assert!(last < 0.2 && last > 0.08, "{last}");
+}
