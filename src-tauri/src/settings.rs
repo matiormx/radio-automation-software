@@ -264,6 +264,7 @@ pub struct MixerChannel {
     pub insert: InsertSettings,
     pub pan: f32,
     pub solo: bool,
+    pub mono: bool,
     pub sends: Vec<MixerSend>,
 }
 
@@ -283,6 +284,7 @@ impl Default for MixerChannel {
             insert: InsertSettings::default(),
             pan: 0.0,
             solo: false,
+            mono: false,
             sends: Vec::new(),
         }
     }

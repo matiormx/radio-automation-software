@@ -344,6 +344,8 @@ export interface MixerChannel {
   /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;
   solo?: boolean;
+  /** Mezcla L+R y lo saca igual por los dos lados */
+  mono?: boolean;
   sends?: MixerSend[];
 }
 

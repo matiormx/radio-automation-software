@@ -20,13 +20,17 @@ pub struct PlayCore {
     pub voices: Voices,
     /// Nivel cuadratico medio reciente de la musica (deteccion de silencio)
     pub music_ms: f32,
+    /// Nivel cuadratico medio de lo que recibe el streaming (detector de silencio)
+    pub sig_ms: f32,
+    /// El detector de silencio solo vale si la musica tiene canal en la mesa
+    pub sig_valid: bool,
     /// Audio de internet en directo (eventos de emision)
     pub live: Option<super::live::LiveIn>,
 }
 
 impl PlayCore {
     pub fn new(rate: u32) -> Self {
-        PlayCore { rate, now: 0, voices: Voices::default(), music_ms: 0.0, live: None }
+        PlayCore { rate, now: 0, voices: Voices::default(), music_ms: 0.0, sig_ms: 0.0, sig_valid: true, live: None }
     }
 
     pub fn secs(&self, frames: u64) -> f64 {
@@ -546,9 +550,9 @@ impl Player {
             return;
         }
 
-        if self.silence_skip && core.now > d.start_at {
+        if self.silence_skip && core.sig_valid && core.now > d.start_at {
             let threshold = 10f64.powf(self.silence_threshold_db / 20.0);
-            let rms = (core.music_ms.max(0.0) as f64).sqrt();
+            let rms = (core.sig_ms.max(0.0) as f64).sqrt();
             if rms < threshold {
                 match self.silent_since {
                     None => self.silent_since = Some(core.now),

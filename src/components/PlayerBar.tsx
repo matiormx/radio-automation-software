@@ -124,7 +124,7 @@ export function PlayerBar({
       <div className="pb-divider" />
 
       <div className="pb-group-seg pb-vol">
-        <span className="pb-label">VOLUMEN</span>
+        <span className="pb-label" title="Volumen de las salidas de tarjeta. No afecta al streaming.">VOL. SALIDAS</span>
         <input
           type="range"
           min={0}

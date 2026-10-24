@@ -38,7 +38,7 @@ impl Sim {
             buf.iter_mut().for_each(|x| *x = 0.0);
             self.core.voices.render(self.core.now, &mut buf);
             let ms = buf.iter().map(|x| x * x).sum::<f32>() / buf.len() as f32;
-            self.core.music_ms = ms;
+            self.core.sig_ms = ms;
             self.core.now += block as u64;
             self.core.voices.dead.clear();
             if k % 2 == 0 { self.p.tick(&mut self.core, &mut self.ld); }

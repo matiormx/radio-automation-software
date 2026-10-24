@@ -597,7 +597,8 @@ export class RadioPlayer {
       this.master = this.mixer.musicInput;
       // El medidor lo mantiene la mesa: apply() desconecta musicInput al
       // reconfigurarse y un medidor propio se quedaba mudo (falso silencio).
-      const analyser = this.mixer.musicAnalyser;
+      // El detector de silencio mide lo que recibe el streaming, no la fuente.
+      const analyser = this.mixer.getStreamAnalyser();
       this.silenceAnalyser = analyser;
       this.silenceData = new Float32Array(new ArrayBuffer(analyser.fftSize * 4));
     }
@@ -635,7 +636,7 @@ export class RadioPlayer {
   private isSilent(): boolean {
     const analyser = this.silenceAnalyser;
     const data = this.silenceData;
-    if (!analyser || !data) return false;
+    if (!analyser || !data || !this.mixer.musicRouted) return false;
     analyser.getFloatTimeDomainData(data);
     let sum = 0;
     for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];

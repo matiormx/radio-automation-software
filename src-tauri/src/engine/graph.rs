@@ -65,6 +65,8 @@ pub struct ChannelCfg {
     pub muted: bool,
     pub pan: f64,
     pub solo: bool,
+    /// Mezcla L+R y lo saca por los dos lados (fuentes que solo llegan por un lado)
+    pub mono: bool,
     pub sends: Vec<SendCfg>,
     pub insert: InsertCfg,
 }
@@ -189,6 +191,7 @@ struct Chan {
     meter: Meter,
     pan: f64,
     open: bool,
+    mono: bool,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
 }
@@ -232,13 +235,11 @@ pub struct Plan {
     monitor_bus: Option<usize>,
     stream_out: Option<usize>,
     default_out: usize,
-    music_fallback: bool,
-    preview_fallback: bool,
-    call_fallback: bool,
     pub monitor: Vec<f32>,
     pub program: Vec<f32>,
     /// Tramo del canal ya con su fader (para envios y medidor)
     tmp: Vec<f32>,
+    mono: Vec<f32>,
     /// Inserts activos, en el mismo orden que `insert_sends`
     pub inserts: Vec<InsertRoute>,
     /// Audio seco de cada insert (se entrega a la tarjeta de envio)
@@ -361,20 +362,16 @@ impl Plan {
         let any_solo = cfg.mixer_channels.iter().any(|c| c.solo);
         let mut inputs: Vec<String> = Vec::new();
         let mut chans = Vec::new();
-        let (mut music, mut preview, mut call) = (false, false, false);
         for c in &cfg.mixer_channels {
             let src = if c.input.kind == "app" {
                 match c.input.app.as_str() {
                     "preview" => {
-                        preview = true;
                         Source::Preview
                     }
                     "call" => {
-                        call = true;
                         Source::Call
                     }
                     _ => {
-                        music = true;
                         Source::Music
                     }
                 }
@@ -412,7 +409,7 @@ impl Plan {
                 sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
             }
             let insert = insert_of(&c.insert, &key, &mut inserts);
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, insert });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, mono: c.mono, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -440,15 +437,18 @@ impl Plan {
             monitor_bus,
             stream_out,
             default_out,
-            music_fallback: !music,
-            preview_fallback: !preview,
-            call_fallback: !call,
             monitor: buf(),
             program: buf(),
             tmp: buf(),
+            mono: buf(),
             inserts,
             insert_sends,
         }
+    }
+
+    /// Hay algun canal con la musica de la app.
+    pub fn has_music(&self) -> bool {
+        self.chans.iter().any(|c| c.src == Source::Music)
     }
 
     /// Tarjetas de envio y entradas de retorno de los inserts activos.
@@ -558,6 +558,15 @@ impl Plan {
                     }
                 }
             }
+            // Mono: L y R se mezclan y salen iguales por los dos lados.
+            if c.mono && src.len() >= n {
+                for (d, s) in self.mono[..n].chunks_exact_mut(2).zip(src[..n].chunks_exact(2)) {
+                    let m = (s[0] + s[1]) * 0.5;
+                    d[0] = m;
+                    d[1] = m;
+                }
+                src = &self.mono[..n];
+            }
             let gl = c.gl.gains(frames);
             let gr = c.gr.gains(frames);
             let sends: &mut Vec<Send> = &mut c.sends;
@@ -589,14 +598,8 @@ impl Plan {
                 }
             }
         }
-        // Fuentes de la app sin canal: salen por la predeterminada para no
-        // dejar la radio muda por una configuracion a medias.
-        let d = self.default_out;
-        for (used, src) in [(self.music_fallback, music), (self.preview_fallback, preview), (self.call_fallback, call)] {
-            if used && src.len() >= n {
-                add_scaled(&mut self.outs[d].buf[..n], &src[..n], (1.0, 0.0));
-            }
-        }
+        // Una fuente de la app sin canal no sale por ningun sitio: la interfaz
+        // lo avisa y deja crear el canal (nada de enrutados ocultos).
         for (bi, b) in self.buses.iter_mut().enumerate() {
             // Insert de bus: se envia la suma del bus antes del fader/pan y,
             // cuando hay retorno, este sustituye al seco.
@@ -630,11 +633,11 @@ impl Plan {
             scale(&mut o.buf[..n], g);
         }
         if self.monitor_bus.is_none() {
-            self.monitor[..n].copy_from_slice(&self.outs[d].buf[..n]);
+            self.monitor[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]);
         }
         match self.stream_out {
             Some(s) => self.program[..n].copy_from_slice(&self.outs[s].buf[..n]),
-            None => self.program[..n].copy_from_slice(&self.monitor[..n]),
+            None => self.program[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]),
         }
     }
 }

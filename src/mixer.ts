@@ -119,6 +119,8 @@ export class SoundMixer {
   private disposed = false;
   private monitorAnalyser: AnalyserNode;
   private streamAnalyser: AnalyserNode;
+  /** Algun canal lleva la musica de la app (si no, el detector de silencio no vale) */
+  musicRouted = true;
   private streamData: Float32Array<ArrayBuffer>;
   private monitorData: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
@@ -356,7 +358,8 @@ export class SoundMixer {
       : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorAnalyser);
-    // Los encoders toman la salida Streaming si algo va a ella; si no, el VU.
+    // Los encoders toman la salida Streaming si algo va a ella; si no, la
+    // salida predeterminada (se avisa en la mesa; no depende del VU).
     const streamUsed =
       cfg.mixerBuses.some(
         (b) => normDevice(b.outputDeviceId) === STREAM_DEVICE,
@@ -367,7 +370,7 @@ export class SoundMixer {
           normDevice(ch.output.id) === STREAM_DEVICE,
       );
     if (streamUsed) this.streamMix.connect(this.programTap);
-    else monitorTap.connect(this.programTap);
+    else this.deviceMix(DEFAULT_DEVICE).connect(this.programTap);
     this.monitorTap = monitorTap;
 
     const anySolo = cfg.mixerChannels.some((c) => c.solo);
@@ -382,14 +385,28 @@ export class SoundMixer {
       const pre = this.ctx.createGain();
       this.faders.push(pre);
       pre.connect(gain);
+      // Mono: L+R se mezclan (downmix a 1 canal) y vuelven a salir por los dos lados.
+      let head: GainNode = pre;
+      if (ch.mono) {
+        const mono = this.ctx.createGain();
+        mono.channelCount = 1;
+        mono.channelCountMode = "explicit";
+        mono.channelInterpretation = "speakers";
+        pre.channelCount = 2;
+        pre.channelCountMode = "explicit";
+        pre.channelInterpretation = "speakers";
+        mono.connect(pre);
+        this.faders.push(mono);
+        head = mono;
+      }
       const panNode = panner(ch.pan);
       gain.connect(panNode.input);
       const pan = panNode.output;
       meterFor(`ch:${ch.id}`, pan);
       const lv = levelerFor(`ch:${ch.id}`, ch);
-      if (lv) lv.output.connect(pre);
+      if (lv) lv.output.connect(head);
       // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
-      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : pre);
+      const entry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : head);
       for (const send of ch.sends ?? []) {
         const busEntry = this.busGains.get(send.busId);
         if (!busEntry) continue;
@@ -440,14 +457,11 @@ export class SoundMixer {
       this.levelers.delete(key);
     }
 
-    // Sin canal para una fuente de la app, esta sigue saliendo por la salida
-    // del sistema para no dejar la radio muda por una configuracion a medias.
-    if (!musicUsed) {
-      this.musicInput.connect(this.deviceMix(DEFAULT_DEVICE));
-      this.musicInput.connect(this.returnMix);
-    }
-    if (!callUsed) this.callInput.connect(this.deviceMix(DEFAULT_DEVICE));
-    if (!previewUsed) this.previewInput.connect(this.deviceMix(DEFAULT_DEVICE));
+    // Una fuente de la app sin canal no sale por ningun sitio (nada oculto):
+    // la mesa muestra el aviso y permite crear el canal.
+    this.musicRouted = musicUsed;
+    void callUsed;
+    void previewUsed;
 
     // Liberar entradas fisicas que ya no usa ningun canal.
     for (const [id, src] of this.inputSources) {
@@ -553,6 +567,11 @@ export class SoundMixer {
   getMonitorLevel(): { level: number; db: number } {
     if (this.disposed) return { level: 0, db: -60 };
     return levelOf(this.monitorAnalyser, this.monitorData);
+  }
+
+  /** Analizador de lo que va a los encoders de streaming (detector de silencio). */
+  getStreamAnalyser(): AnalyserNode {
+    return this.streamAnalyser;
   }
 
   /** Nivel de lo que va a los encoders de streaming. */

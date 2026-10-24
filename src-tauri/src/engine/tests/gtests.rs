@@ -23,11 +23,13 @@ fn levels(c: &mut Core, frames: usize) -> std::collections::HashMap<String, f32>
 fn apply(c: &mut Core, j: &str) { let p = Plan::build(&cfg(j), c.volume(), Some(&c.plan)); c.swap_plan(p); }
 
 #[test]
-fn no_channels_music_to_default() {
+fn no_channels_means_silence_and_no_hidden_route() {
     let mut c = core_with_music(0.5);
     let l = levels(&mut c, 1024);
-    assert_eq!(l["default"], 0.5);
-    assert_eq!(l["_program"], 0.5);
+    // Sin canal la musica no sale por ningun sitio (nada oculto).
+    assert_eq!(l["default"], 0.0);
+    assert_eq!(l["_program"], 0.0);
+    assert!(!c.plan.has_music());
 }
 
 #[test]
@@ -54,7 +56,7 @@ fn master_volume_and_monitor_bus() {
     let l = levels(&mut c, 2048);
     assert!((l["cardX"] - 0.25).abs() < 1e-3, "{:?}", l);
     assert!((l["_monitor"] - 0.5).abs() < 1e-3, "monitor bus is pre master volume");
-    assert!((l["_program"] - 0.5).abs() < 1e-3);
+    assert!(l["_program"].abs() < 1e-3, "sin salida Streaming, el programa es la salida predeterminada (aqui vacia)");
 }
 
 #[test]
@@ -186,4 +188,12 @@ fn insert_without_send_or_return_is_ignored_and_devices_deduplicated() {
     let (sends, returns) = p.insert_devices();
     assert_eq!(sends, vec!["S".to_string()]);
     assert_eq!(returns, vec!["R".to_string(), "R2".to_string()]);
+}
+
+#[test]
+fn mono_channel_mixes_sides() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"mono":true}],"mixerBuses":[],"monitorBusId":""}"#);
+    let l = levels(&mut c, 2048);
+    assert!(l["default"] > 0.0, "{:?}", l);
 }

@@ -469,6 +469,8 @@ export function MixerEmbedded({ settings, onChange }: { settings: Settings; onCh
   );
 }
 
+const APP_NAMES = { music: "Música", preview: "Preescucha", call: "Llamadas" } as const;
+
 function MixerBoard({
   s,
   commit,
@@ -495,16 +497,16 @@ function MixerBoard({
   const patchBus = (id: string, patch: Partial<MixerBus>) =>
     commit({ ...s, mixerBuses: buses.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
 
-  const addChannel = () =>
+  const addChannel = (app: "music" | "preview" | "call" = "music", named = false) =>
     commit({
       ...s,
       mixerChannels: [
         ...channels,
         {
           id: newId(),
-          name: `Canal ${channels.length + 1}`,
+          name: named ? APP_NAMES[app] : `Canal ${channels.length + 1}`,
           color: nextColor(channels.length),
-          input: { kind: "app", app: "music", deviceId: "" },
+          input: { kind: "app", app, deviceId: "" },
           output: buses[0] ? { kind: "bus", id: buses[0].id } : { kind: "device", id: "default" },
           gainDb: 0,
           muted: false,
@@ -539,12 +541,21 @@ function MixerBoard({
       monitorBusId: s.monitorBusId === id ? "" : s.monitorBusId,
     });
 
+  const usedApps = new Set(
+    channels.filter((c) => c.input.kind === "app").map((c) => (c.input.app || "music") as string),
+  );
+  const missingApps = (["music", "preview", "call"] as const).filter((a) => !usedApps.has(a));
+  const toStream = (id: string) => (id || "").trim().toLowerCase() === "streaming";
+  const streamFeeds = [
+    ...channels.filter((c) => c.output.kind === "device" && toStream(c.output.id)).map((c) => `canal ${c.name}`),
+    ...buses.filter((b) => toStream(b.outputDeviceId)).map((b) => `bus ${b.name}`),
+  ];
   const masterDb = s.masterVolume <= 0.001 ? MIN_GAIN_DB : 20 * Math.log10(s.masterVolume);
 
   return (
     <div className="mx-board">
       <div className="mx-bar">
-        <button type="button" className="btn btn-sm" onClick={addChannel}>
+        <button type="button" className="btn btn-sm" onClick={() => addChannel()}>
           + Canal
         </button>
         <button type="button" className="btn btn-sm" onClick={addBus}>
@@ -559,6 +570,31 @@ function MixerBoard({
           Detectar entradas
         </button>
         <span className="mx-engine">{isNative ? "Motor nativo" : "Motor web"}</span>
+      </div>
+      <div className="mx-notes">
+        {missingApps.map((app) => (
+          <div key={app} className={`mx-note ${app === "music" ? "mx-note-warn" : ""}`}>
+            <span>
+              {app === "music"
+                ? "La música no tiene canal: no suena por ninguna salida y el detector de silencio no actúa."
+                : app === "preview"
+                  ? "La preescucha no tiene canal: no se oirá."
+                  : "Las llamadas no tienen canal: no se oirá a los oyentes."}
+            </span>
+            <button type="button" className="btn btn-sm" onClick={() => addChannel(app, true)}>
+              Crear canal «{APP_NAMES[app]}»
+            </button>
+          </div>
+        ))}
+        <div className="mx-note">
+          <span>
+            <strong>Streaming recibe:</strong>{" "}
+            {streamFeeds.length > 0
+              ? streamFeeds.join(", ")
+              : "nada enrutado; los encoders reciben una copia de la salida predeterminada"}
+            . El detector de silencio mide esta señal.
+          </span>
+        </div>
       </div>
       <div className="mx-strips">
         {channels.length === 0 && buses.length === 0 && (
@@ -595,8 +631,8 @@ function MixerBoard({
         <div className="mx-sep" />
         <section className="mx-strip mx-master" aria-label="Master">
           <div className="mx-section mx-grow-top">
-            <span className="mx-label">MASTER</span>
-            <span className="mx-hint">Volumen general de las salidas (no afecta al streaming)</span>
+            <span className="mx-label">MASTER · SALIDAS</span>
+            <span className="mx-hint">Volumen de las salidas de tarjeta. No afecta al streaming.</span>
           </div>
           <div className="mx-fader-row">
             <Fader
@@ -710,6 +746,8 @@ function ChannelStrip({
         : ch.output.id === "default" || !ch.output.id
           ? "Predeterminada"
           : outputs.find((d) => d.id === ch.output.id)?.label ?? "Salida";
+  const ownBus = ch.output.kind === "bus" ? ch.output.id : "";
+  const freeBus = buses.find((b) => b.id !== ownBus && !sends.some((x) => x.busId === b.id));
   const setSend = (i: number, patch: Partial<MixerSend> | null) => {
     const next = sends.slice();
     if (patch === null) next.splice(i, 1);
@@ -791,22 +829,18 @@ function ChannelStrip({
 
       <div className="mx-section">
         <span className="mx-label">SENDS</span>
-        {[0, 1, 2].map((i) => {
+        {Array.from({ length: sends.length + (freeBus ? 1 : 0) }, (_, i) => i).map((i) => {
           const sd = sends[i];
           return (
             <button
               key={i}
               type="button"
               className={`mx-slot ${sd ? (sd.muted ? "mx-slot-muted" : "mx-slot-send") : ""}`}
-              disabled={!sd && (buses.length === 0 || i > sends.length)}
-              title={buses.length === 0 ? "Crea un bus para poder enviar" : undefined}
+              title={sd ? undefined : "Añadir un envío a otro bus"}
               onClick={() => {
                 if (!sd) {
-                  const free = buses.find(
-                    (b) => !sends.some((x) => x.busId === b.id) && !(ch.output.kind === "bus" && ch.output.id === b.id),
-                  );
-                  if (!free) return;
-                  onPatch({ sends: [...sends, { busId: free.id, gainDb: 0, pre: false, muted: false }] });
+                  if (!freeBus) return;
+                  onPatch({ sends: [...sends, { busId: freeBus.id, gainDb: 0, pre: false, muted: false }] });
                 }
                 setPop(`send:${i}`);
               }}
@@ -822,17 +856,20 @@ function ChannelStrip({
             </button>
           );
         })}
+        {buses.length === 0 && <span className="mx-hint">Crea un bus para poder enviar</span>}
         {sends.map((sd, i) => (
           <Pop key={i} open={pop === `send:${i}`} onClose={close}>
             <div className="mx-pop-title">Envío {i + 1}</div>
             <label className="mixer-field">
               <span>Bus</span>
               <select value={sd.busId} onChange={(e) => setSend(i, { busId: e.target.value })}>
-                {buses.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
+                {buses
+                  .filter((b) => b.id === sd.busId || (b.id !== ownBus && !sends.some((x) => x.busId === b.id)))
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
               </select>
             </label>
             <label className="mixer-field">
@@ -882,7 +919,11 @@ function ChannelStrip({
               onChange={(e) => {
                 const [kind, ...rest] = e.target.value.split(":");
                 const v = rest.join(":");
-                onPatch({ output: kind === "bus" ? { kind: "bus", id: v } : { kind: "device", id: v || "default" } });
+                onPatch({
+                  output: kind === "bus" ? { kind: "bus", id: v } : { kind: "device", id: v || "default" },
+                  // Un envio al mismo bus de salida se sumaria dos veces: se quita.
+                  ...(kind === "bus" ? { sends: sends.filter((x) => x.busId !== v) } : {}),
+                });
               }}
             >
               {buses.length > 0 && (
@@ -913,6 +954,15 @@ function ChannelStrip({
       <PanKnob pan={ch.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />
 
       <div className="mx-buttons">
+        <button
+          type="button"
+          className={`mx-btn mx-mono ${ch.mono ? "mx-on" : ""}`}
+          aria-pressed={!!ch.mono}
+          title="Mono: mezcla L+R y lo saca igual por los dos lados (para fuentes que solo llegan por un lado)"
+          onClick={() => onPatch({ mono: !ch.mono })}
+        >
+          Mono
+        </button>
         <button
           type="button"
           className={`mx-btn mx-solo ${ch.solo ? "mx-on" : ""}`}

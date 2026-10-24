@@ -114,6 +114,8 @@ impl Core {
             let decay = (-(n as f32) / (0.3 * rate as f32)).exp();
             self.monitor_peak = (self.monitor_peak * decay).max(peak);
             self.stream_ms = ema(self.stream_ms, mean_square(&self.plan.program[..s]), n, rate);
+            self.play.sig_ms = self.stream_ms;
+            self.play.sig_valid = self.plan.has_music();
             sink(&self.plan, done, n);
             self.play.now += n as u64;
             done += n;
