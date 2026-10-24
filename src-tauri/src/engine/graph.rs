@@ -45,48 +45,17 @@ pub struct OutputCfg {
     pub id: String,
 }
 
-/// Insert por tarjetas: la senal sale por `send_device_id` y vuelve por
-/// `return_device_id` (una entrada del equipo).
-#[derive(Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub struct InsertCfg {
-    pub enabled: bool,
-    pub send_device_id: String,
-    pub return_device_id: String,
-}
-
-/// Nivelador automatico (igual que el de la mesa web).
-#[derive(Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase", default)]
-pub struct LevelerCfg {
-    pub enabled: bool,
-    pub target_lufs: f64,
-    pub max_gain_db: f64,
-}
-
-impl Default for LevelerCfg {
-    fn default() -> Self {
-        LevelerCfg { enabled: false, target_lufs: -16.0, max_gain_db: 9.0 }
-    }
-}
-
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChannelCfg {
     pub id: String,
     pub input: InputCfg,
     pub output: OutputCfg,
-    /// Ganancia de entrada, antes de inserts y del fader.
-    pub input_gain_db: f64,
-    /// "off", "slow" o "fast"; si no es "off", ignora input_gain_db.
-    pub agc: String,
     pub gain_db: f64,
     pub muted: bool,
     pub pan: f64,
     pub solo: bool,
     pub sends: Vec<SendCfg>,
-    pub insert: InsertCfg,
-    pub leveler: LevelerCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -106,9 +75,6 @@ pub struct BusCfg {
     pub gain_db: f64,
     pub muted: bool,
     pub pan: f64,
-    pub insert: InsertCfg,
-    pub sends: Vec<SendCfg>,
-    pub leveler: LevelerCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -117,10 +83,6 @@ pub struct MixConfig {
     pub mixer_channels: Vec<ChannelCfg>,
     pub mixer_buses: Vec<BusCfg>,
     pub monitor_bus_id: String,
-    /// Tarjeta de salida del Master; vacio = predeterminada.
-    pub master_output_device_id: String,
-    /// Tarjeta de salida de monitorizacion/preescucha; vacio = predeterminada.
-    pub monitor_output_device_id: String,
 }
 
 /// Fuente de un canal.
@@ -188,10 +150,6 @@ struct Send {
 struct Chan {
     key: String,
     src: Source,
-    /// Ganancia de entrada fija (si no hay AGC)
-    input_gain: f32,
-    /// Control automatico de ganancia; si existe, sustituye a input_gain
-    agc: Option<Agc>,
     /// Ganancia final por lado: fader, silencio, solo y panorama
     gl: Smooth,
     gr: Smooth,
@@ -200,9 +158,6 @@ struct Chan {
     meter: Meter,
     pan: f64,
     open: bool,
-    /// Indice en `Plan::inserts`, si el canal tiene insert
-    insert: Option<usize>,
-    leveler: Option<Leveler>,
 }
 
 struct Bus {
@@ -214,29 +169,6 @@ struct Bus {
     meter: Meter,
     pan: f64,
     open: bool,
-    /// Indice en `Plan::inserts`, si el bus tiene insert
-    insert: Option<usize>,
-    sends: Vec<Send>,
-    leveler: Option<Leveler>,
-}
-
-/// Un insert activo de la mesa (canal o bus).
-pub struct InsertRoute {
-    pub key: String,
-    pub send_device: String,
-    pub return_device: String,
-}
-
-/// Salida de un insert: el audio seco que hay que entregar al procesador.
-pub struct InsertSend {
-    pub device: String,
-    pub buf: Vec<f32>,
-}
-
-/// Audio que llega del procesador externo para un insert.
-pub struct InsertFeed<'a> {
-    pub data: &'a [f32],
-    pub active: bool,
 }
 
 /// Balance estereo: -1 todo a la izquierda, 1 a la derecha.
@@ -265,226 +197,13 @@ pub struct Plan {
     monitor_bus: Option<usize>,
     stream_out: Option<usize>,
     default_out: usize,
-    monitor_out: usize,
-    /// Orden de proceso de los buses para que los envios lleguen antes.
-    bus_order: Vec<usize>,
     music_fallback: bool,
     preview_fallback: bool,
     call_fallback: bool,
     pub monitor: Vec<f32>,
     pub program: Vec<f32>,
-    /// Retorno para el que llama (mix-minus): todo menos su propia voz
-    pub ret: Vec<f32>,
-    /// Inserts activos, en el mismo orden que `insert_sends`
-    pub inserts: Vec<InsertRoute>,
-    /// Audio seco de cada insert (se entrega a la tarjeta de envio)
-    pub insert_sends: Vec<InsertSend>,
     /// Tramo del canal ya con su fader (para envios y medidor)
     tmp: Vec<f32>,
-    /// Tramo de entrada ya con gain/AGC, antes de inserts
-    pre: Vec<f32>,
-    /// Tramo del canal tras su nivelador
-    lv: Vec<f32>,
-}
-
-/// Biquad estereo (formulas RBJ).
-#[derive(Clone, Copy, Default)]
-struct Biquad {
-    b: [f32; 3],
-    a: [f32; 2],
-    z: [[f32; 2]; 2],
-}
-
-impl Biquad {
-    fn highpass(rate: f32, f0: f32, q: f32) -> Self {
-        let w = 2.0 * std::f32::consts::PI * f0 / rate;
-        let (sn, cs) = w.sin_cos();
-        let alpha = sn / (2.0 * q);
-        let a0 = 1.0 + alpha;
-        Biquad {
-            b: [(1.0 + cs) / 2.0 / a0, -(1.0 + cs) / a0, (1.0 + cs) / 2.0 / a0],
-            a: [-2.0 * cs / a0, (1.0 - alpha) / a0],
-            z: [[0.0; 2]; 2],
-        }
-    }
-
-    fn highshelf(rate: f32, f0: f32, gain_db: f32) -> Self {
-        let a = 10f32.powf(gain_db / 40.0);
-        let w = 2.0 * std::f32::consts::PI * f0 / rate;
-        let (sn, cs) = w.sin_cos();
-        let alpha = sn / 2.0 * std::f32::consts::SQRT_2;
-        let sa = 2.0 * a.sqrt() * alpha;
-        let a0 = (a + 1.0) - (a - 1.0) * cs + sa;
-        Biquad {
-            b: [
-                a * ((a + 1.0) + (a - 1.0) * cs + sa) / a0,
-                -2.0 * a * ((a - 1.0) + (a + 1.0) * cs) / a0,
-                a * ((a + 1.0) + (a - 1.0) * cs - sa) / a0,
-            ],
-            a: [2.0 * ((a - 1.0) - (a + 1.0) * cs) / a0, ((a + 1.0) - (a - 1.0) * cs - sa) / a0],
-            z: [[0.0; 2]; 2],
-        }
-    }
-
-    #[inline]
-    fn tick(&mut self, ch: usize, x: f32) -> f32 {
-        let z = &mut self.z[ch];
-        let y = self.b[0] * x + z[0];
-        z[0] = self.b[1] * x - self.a[0] * y + z[1];
-        z[1] = self.b[2] * x - self.a[1] * y;
-        y
-    }
-}
-
-/// Nivelador como el de la mesa web: mide la sonoridad (filtro K
-/// simplificado, ventana de 3 s), mueve despacio la ganancia hacia el
-/// objetivo dentro de un margen y detras pone un limitador de pico.
-/// Con silencio la ganancia se congela.
-#[derive(Clone, Copy)]
-struct Leveler {
-    target_lufs: f32,
-    max_gain_db: f32,
-    hp: Biquad,
-    shelf: Biquad,
-    ms: f32,
-    primed: bool,
-    gain_db: f32,
-    gain: f32,
-    /// Atenuacion actual del limitador (1 = nada)
-    lim: f32,
-}
-
-impl Leveler {
-    fn new(cfg: &LevelerCfg) -> Option<Leveler> {
-        if !cfg.enabled {
-            return None;
-        }
-        let rate = 48_000.0;
-        Some(Leveler {
-            target_lufs: cfg.target_lufs as f32,
-            max_gain_db: cfg.max_gain_db.max(0.0) as f32,
-            hp: Biquad::highpass(rate, 38.0, 0.5),
-            shelf: Biquad::highshelf(rate, 1500.0, 4.0),
-            ms: 0.0,
-            primed: false,
-            gain_db: 0.0,
-            gain: 1.0,
-            lim: 1.0,
-        })
-    }
-
-    /// Conserva lo medido al rehacer la mesa (cambiar un fader no lo reinicia).
-    fn carry(mut self, prev: Option<&Leveler>) -> Leveler {
-        if let Some(p) = prev {
-            self.hp.z = p.hp.z;
-            self.shelf.z = p.shelf.z;
-            self.ms = p.ms;
-            self.primed = p.primed;
-            self.gain_db = p.gain_db.clamp(-self.max_gain_db, self.max_gain_db);
-            self.gain = p.gain;
-            self.lim = p.lim;
-        }
-        self
-    }
-
-    fn process(&mut self, buf: &mut [f32], frames: usize) {
-        let mut sum = 0.0f32;
-        for f in buf.chunks_exact(2) {
-            let l = self.shelf.tick(0, self.hp.tick(0, f[0]));
-            let r = self.shelf.tick(1, self.hp.tick(1, f[1]));
-            sum += 0.5 * (l * l + r * r);
-        }
-        let inst = sum / frames.max(1) as f32;
-        let inst_lufs = -0.691 + 10.0 * inst.max(1e-12).log10();
-        if inst_lufs >= -50.0 {
-            let dt = frames as f32 / 48_000.0;
-            if !self.primed {
-                self.ms = inst;
-                self.primed = true;
-            } else {
-                self.ms += (1.0 - (-dt / 3.0).exp()) * (inst - self.ms);
-            }
-            let lufs = -0.691 + 10.0 * self.ms.max(1e-12).log10();
-            let wanted = (self.target_lufs - lufs).clamp(-self.max_gain_db, self.max_gain_db);
-            let delta = wanted - self.gain_db;
-            self.gain_db += if delta > 0.0 { delta.min(2.0 * dt) } else { delta.max(-6.0 * dt) };
-        }
-        // Rampa de ganancia en el bloque y limitador a -1 dBFS.
-        let target = 10f32.powf(self.gain_db / 20.0);
-        let step = (target - self.gain) / frames.max(1) as f32;
-        let thr = 0.891;
-        let release = (-1.0 / (0.12 * 48_000.0f32)).exp();
-        let mut g = self.gain;
-        for f in buf.chunks_exact_mut(2) {
-            g += step;
-            let l = f[0] * g;
-            let r = f[1] * g;
-            let peak = l.abs().max(r.abs());
-            let need = if peak > thr { thr / peak } else { 1.0 };
-            self.lim = if need < self.lim { need } else { need.min(1.0 - (1.0 - self.lim) * release) };
-            f[0] = l * self.lim;
-            f[1] = r * self.lim;
-        }
-        self.gain = target;
-    }
-}
-
-/// Control automatico de ganancia por bloques, sencillo y estable.
-#[derive(Clone, Copy)]
-struct Agc {
-    target_db: f32,
-    max_gain_db: f32,
-    up_db_s: f32,
-    down_db_s: f32,
-    gain_db: f32,
-    ms: f32,
-    primed: bool,
-}
-
-impl Agc {
-    fn new(mode: &str) -> Option<Agc> {
-        let (up, down) = match mode {
-            "slow" => (1.5, 4.0),
-            "fast" => (8.0, 16.0),
-            _ => return None,
-        };
-        Some(Agc {
-            target_db: -18.0,
-            max_gain_db: 18.0,
-            up_db_s: up,
-            down_db_s: down,
-            gain_db: 0.0,
-            ms: 0.0,
-            primed: false,
-        })
-    }
-
-    fn gain_for(&mut self, buf: &[f32], frames: usize) -> f32 {
-        let mut sum = 0.0f32;
-        for f in buf {
-            sum += f * f;
-        }
-        let n = buf.len().max(1) as f32;
-        let inst = (sum / n).max(1e-12);
-        let inst_db = 10.0 * inst.log10();
-        if !inst.is_finite() || inst_db < -50.0 {
-            return 10f32.powf(self.gain_db / 20.0);
-        }
-        let dt = frames as f32 / 48_000.0;
-        if !self.primed {
-            self.ms = inst;
-            self.primed = true;
-        } else {
-            let coeff = 1.0 - (-dt / 3.0).exp();
-            self.ms += coeff * (inst - self.ms);
-        }
-        let lufs = -0.691 + 10.0 * self.ms.max(1e-12).log10();
-        let wanted = (self.target_db - lufs).clamp(-self.max_gain_db, self.max_gain_db);
-        let delta = wanted - self.gain_db;
-        let rate = if delta > 0.0 { self.up_db_s } else { self.down_db_s };
-        self.gain_db += delta.clamp(-rate * dt, rate * dt);
-        10f32.powf(self.gain_db / 20.0)
-    }
 }
 
 /// Suma con ganancias distintas por lado (cada una en rampa).
@@ -522,25 +241,6 @@ fn add_scaled(dst: &mut [f32], src: &[f32], g: (f32, f32)) {
     }
 }
 
-/// Registra el insert de un canal o bus. Sin envio y retorno elegidos no hay
-/// insert (asi el ajuste a medias suena directo).
-fn insert_of(cfg: &InsertCfg, key: &str, inserts: &mut Vec<InsertRoute>) -> Option<usize> {
-    if !cfg.enabled {
-        return None;
-    }
-    let send = cfg.send_device_id.trim();
-    let ret = cfg.return_device_id.trim();
-    if send.is_empty() || ret.is_empty() {
-        return None;
-    }
-    inserts.push(InsertRoute {
-        key: key.to_string(),
-        send_device: send.to_string(),
-        return_device: ret.to_string(),
-    });
-    Some(inserts.len() - 1)
-}
-
 fn scale(buf: &mut [f32], g: (f32, f32)) {
     let (mut v, step) = g;
     if step == 0.0 && v == 1.0 {
@@ -569,9 +269,7 @@ impl Plan {
             outs.push(Out { device: d, buf: buf(), is_stream, vol: Smooth::new(v) });
             outs.len() - 1
         };
-        let master_device = norm_device(&cfg.master_output_device_id);
-        let default_out = out_index(&master_device, &mut outs);
-        let monitor_out = out_index(&cfg.monitor_output_device_id, &mut outs);
+        let default_out = out_index(DEFAULT_DEVICE, &mut outs);
 
         // Ganancias actuales del plan anterior (rampa en vez de salto).
         let prev_lr = |key: &str, l: f32, r: f32| -> (Smooth, Smooth) {
@@ -593,75 +291,16 @@ impl Plan {
             Smooth { cur: cur.unwrap_or(target), target }
         };
 
-        let mut inserts: Vec<InsertRoute> = Vec::new();
         let mut buses = Vec::new();
         for b in &cfg.mixer_buses {
             let g = if b.muted { 0.0 } else { db_to_gain(b.gain_db) };
             let (l, r) = balance(g, b.pan);
-            let out = if norm_device(&b.output_device_id) == DEFAULT_DEVICE {
-                default_out
-            } else {
-                out_index(&b.output_device_id, &mut outs)
-            };
+            let out = out_index(&b.output_device_id, &mut outs);
             let key = format!("bus:{}", b.id);
             let (gl, gr) = prev_lr(&key, l, r);
-            let insert = insert_of(&b.insert, &key, &mut inserts);
-            let mut sends = Vec::new();
-            for sc in &b.sends {
-                let Some(target) = cfg.mixer_buses.iter().position(|x| x.id == sc.bus_id) else { continue };
-                if target == buses.len() { continue; }
-                let base = if sc.muted { 0.0 } else { db_to_gain(sc.gain_db) };
-                let level = if sc.pre { if !b.muted { base } else { 0.0 } } else { base };
-                sends.push(Send { bus: target, g: Smooth::new(level), pre: sc.pre });
-            }
-            let leveler = Leveler::new(&b.leveler).map(|lv| {
-                lv.carry(prev.and_then(|p| p.buses.iter().find(|x| x.key == key)).and_then(|x| x.leveler.as_ref()))
-            });
-            buses.push(Bus {
-                leveler,
-                gl,
-                gr,
-                key,
-                out,
-                buf: buf(),
-                meter: Meter::default(),
-                pan: b.pan,
-                open: !b.muted,
-                insert,
-                sends,
-            });
+            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted });
         }
         let bus_ids: Vec<&str> = cfg.mixer_buses.iter().map(|b| b.id.as_str()).collect();
-        let bus_order = {
-            let n = buses.len();
-            let mut indeg = vec![0usize; n];
-            for b in &buses {
-                for s in &b.sends {
-                    if s.bus < n {
-                        indeg[s.bus] += 1;
-                    }
-                }
-            }
-            let mut queue: Vec<usize> = (0..n).filter(|i| indeg[*i] == 0).collect();
-            let mut order = Vec::with_capacity(n);
-            while let Some(i) = queue.pop() {
-                order.push(i);
-                for s in &buses[i].sends {
-                    if s.bus >= n {
-                        continue;
-                    }
-                    indeg[s.bus] -= 1;
-                    if indeg[s.bus] == 0 {
-                        queue.push(s.bus);
-                    }
-                }
-            }
-            if order.len() == n {
-                order
-            } else {
-                (0..n).collect()
-            }
-        };
 
         let any_solo = cfg.mixer_channels.iter().any(|c| c.solo);
         let mut inputs: Vec<String> = Vec::new();
@@ -696,8 +335,6 @@ impl Plan {
                     Some(i) => Dest::Bus(i),
                     None => Dest::Out(default_out),
                 }
-            } else if norm_device(&c.output.id) == DEFAULT_DEVICE {
-                Dest::Out(default_out)
             } else {
                 Dest::Out(out_index(&c.output.id, &mut outs))
             };
@@ -718,31 +355,7 @@ impl Plan {
                 let target = if sc.pre { if open { base } else { 0.0 } } else { base };
                 sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
             }
-            let insert = insert_of(&c.insert, &key, &mut inserts);
-            let input_gain = if c.input_gain_db <= MIN_GAIN_DB {
-                0.0
-            } else {
-                10f64.powf(c.input_gain_db.min(24.0) / 20.0) as f32
-            };
-            let agc = Agc::new(&c.agc);
-            let leveler = Leveler::new(&c.leveler).map(|lv| {
-                lv.carry(prev.and_then(|p| p.chans.iter().find(|x| x.key == key)).and_then(|x| x.leveler.as_ref()))
-            });
-            chans.push(Chan {
-                leveler,
-                gl,
-                gr,
-                key,
-                src,
-                input_gain,
-                agc,
-                dest,
-                sends,
-                meter: Meter::default(),
-                pan: c.pan,
-                open,
-                insert,
-            });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -760,31 +373,20 @@ impl Plan {
             cfg.mixer_buses.iter().position(|b| b.id == cfg.monitor_bus_id)
         };
         let stream_out = outs.iter().position(|o| o.is_stream);
-        let insert_sends: Vec<InsertSend> = inserts
-            .iter()
-            .map(|i| InsertSend { device: i.send_device.clone(), buf: buf() })
-            .collect();
         Plan {
             chans,
             buses,
             outs,
             inputs,
-            inserts,
-            insert_sends,
             monitor_bus,
             stream_out,
             default_out,
-            monitor_out,
-            bus_order,
             music_fallback: !music,
             preview_fallback: !preview,
             call_fallback: !call,
             monitor: buf(),
             program: buf(),
-            ret: buf(),
-            lv: buf(),
             tmp: buf(),
-            pre: buf(),
         }
     }
 
@@ -827,58 +429,9 @@ impl Plan {
         self.outs.iter().position(|o| o.device == device)
     }
 
-    /// Indice de la salida que usa la tarjeta reloj (Master).
-    pub fn master_out_index(&self) -> usize {
-        self.default_out
-    }
-
-    /// Tarjeta de salida del Master.
-    pub fn master_device(&self) -> String {
-        self.outs[self.default_out].device.clone()
-    }
-
-    /// Tarjetas secundarias que el motor debe abrir (sin la del Master).
-    pub fn output_devices(&self) -> Vec<String> {
-        self.outs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != self.default_out)
-            .map(|(_, o)| o.device.clone())
-            .collect()
-    }
-
-    /// Tarjetas de envio y entradas de retorno de los inserts activos.
-    pub fn insert_devices(&self) -> (Vec<String>, Vec<String>) {
-        let mut sends = Vec::new();
-        let mut returns = Vec::new();
-        for i in &self.inserts {
-            if !sends.contains(&i.send_device) {
-                sends.push(i.send_device.clone());
-            }
-            if !returns.contains(&i.return_device) {
-                returns.push(i.return_device.clone());
-            }
-        }
-        (sends, returns)
-    }
-
     /// Mezcla un bloque de `frames` (<= MAX_BLOCK). Las fuentes son estereo
     /// entrelazado; `inputs[i]` corresponde a `self.inputs[i]`.
     pub fn render(&mut self, frames: usize, music: &[f32], preview: &[f32], call: &[f32], inputs: &[&[f32]]) {
-        self.render_inserts(frames, music, preview, call, inputs, &[]);
-    }
-
-    /// Igual que `render`, pero con el audio que devuelven los procesadores
-    /// externos de los inserts (`insert_returns[i]` para `inserts[i]`).
-    pub fn render_inserts(
-        &mut self,
-        frames: usize,
-        music: &[f32],
-        preview: &[f32],
-        call: &[f32],
-        inputs: &[&[f32]],
-        insert_returns: &[InsertFeed],
-    ) {
         let n = frames.min(MAX_BLOCK) * 2;
         for b in self.buses.iter_mut() {
             b.buf[..n].iter_mut().for_each(|x| *x = 0.0);
@@ -886,56 +439,14 @@ impl Plan {
         for o in self.outs.iter_mut() {
             o.buf[..n].iter_mut().for_each(|x| *x = 0.0);
         }
-        for s in self.insert_sends.iter_mut() {
-            s.buf[..n].iter_mut().for_each(|x| *x = 0.0);
-        }
-        self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
         let silence: &[f32] = &[];
         for c in self.chans.iter_mut() {
-            let raw: &[f32] = match c.src {
+            let src: &[f32] = match c.src {
                 Source::Music => music,
                 Source::Preview => preview,
                 Source::Call => call,
                 Source::Input(i) => inputs.get(i).copied().unwrap_or(silence),
             };
-            let mut src = raw;
-            if raw.len() >= n {
-                let gain = match c.agc.as_mut() {
-                    Some(agc) => agc.gain_for(&raw[..n], frames),
-                    None => c.input_gain,
-                };
-                let pre = &mut self.pre[..n];
-                for (d, s) in pre.chunks_exact_mut(2).zip(raw[..n].chunks_exact(2)) {
-                    d[0] = s[0] * gain;
-                    d[1] = s[1] * gain;
-                }
-                src = &self.pre[..n];
-            }
-            // Insert de canal: se envia la senal seca y, si el procesador ya
-            // devuelve audio, se usa el retorno en lugar del seco.
-            if let Some(ii) = c.insert {
-                let has_src = src.len() >= n;
-                if let Some(send) = self.insert_sends.get_mut(ii) {
-                    if has_src {
-                        for (d, s) in send.buf[..n].chunks_exact_mut(2).zip(src[..n].chunks_exact(2)) {
-                            d[0] += s[0];
-                            d[1] += s[1];
-                        }
-                    }
-                }
-                if let Some(feed) = insert_returns.get(ii) {
-                    if has_src && feed.active && feed.data.len() >= n {
-                        src = &feed.data[..n];
-                    }
-                }
-            }
-            if let Some(lv) = c.leveler.as_mut() {
-                if src.len() >= n {
-                    self.lv[..n].copy_from_slice(&src[..n]);
-                    lv.process(&mut self.lv[..n], frames);
-                    src = &self.lv[..n];
-                }
-            }
             let gl = c.gl.gains(frames);
             let gr = c.gr.gains(frames);
             let sends: &mut Vec<Send> = &mut c.sends;
@@ -950,11 +461,6 @@ impl Plan {
             tmp.iter_mut().for_each(|x| *x = 0.0);
             add_scaled2(tmp, &src[..n], gl, gr);
             c.meter.feed(tmp);
-            if c.src != Source::Call {
-                for (o, v) in self.ret[..n].iter_mut().zip(tmp.iter()) {
-                    *o += *v;
-                }
-            }
             let dst = match c.dest {
                 Dest::Bus(i) => &mut self.buses[i].buf[..n],
                 Dest::Out(i) => &mut self.outs[i].buf[..n],
@@ -975,48 +481,16 @@ impl Plan {
         // Fuentes de la app sin canal: salen por la predeterminada para no
         // dejar la radio muda por una configuracion a medias.
         let d = self.default_out;
-        for (used, src, out) in [
-            (self.music_fallback, music, d),
-            (self.preview_fallback, preview, self.monitor_out),
-            (self.call_fallback, call, d),
-        ] {
+        for (used, src) in [(self.music_fallback, music), (self.preview_fallback, preview), (self.call_fallback, call)] {
             if used && src.len() >= n {
-                add_scaled(&mut self.outs[out].buf[..n], &src[..n], (1.0, 0.0));
+                add_scaled(&mut self.outs[d].buf[..n], &src[..n], (1.0, 0.0));
             }
         }
-        if self.music_fallback && music.len() >= n {
-            add_scaled(&mut self.ret[..n], &music[..n], (1.0, 0.0));
-        }
-        for bi in self.bus_order.clone() {
-            let b = &mut self.buses[bi];
-            // Insert de bus: se envia la suma del bus antes del fader/pan y,
-            // cuando hay retorno, este sustituye al seco (igual que en el web).
-            if let Some(ii) = b.insert {
-                if let Some(send) = self.insert_sends.get_mut(ii) {
-                    for (d, s) in send.buf[..n].chunks_exact_mut(2).zip(b.buf[..n].chunks_exact(2)) {
-                        d[0] += s[0];
-                        d[1] += s[1];
-                    }
-                }
-                if let Some(feed) = insert_returns.get(ii) {
-                    if feed.active && feed.data.len() >= n {
-                        b.buf[..n].copy_from_slice(&feed.data[..n]);
-                    }
-                }
-            }
-            if let Some(lv) = b.leveler.as_mut() {
-                lv.process(&mut b.buf[..n], frames);
-            }
-            if b.sends.iter().any(|s| s.pre) {
-                self.pre[..n].copy_from_slice(&b.buf[..n]);
-            }
+        for (bi, b) in self.buses.iter_mut().enumerate() {
             let gl = b.gl.gains(frames);
             let gr = b.gr.gains(frames);
             scale2(&mut b.buf[..n], gl, gr);
             b.meter.feed(&b.buf[..n]);
-            if !b.sends.is_empty() {
-                self.tmp[..n].copy_from_slice(&b.buf[..n]);
-            }
             let out = &mut self.outs[b.out].buf[..n];
             for (o, s) in out.iter_mut().zip(b.buf[..n].iter()) {
                 *o += *s;
@@ -1024,25 +498,13 @@ impl Plan {
             if self.monitor_bus == Some(bi) {
                 self.monitor[..n].copy_from_slice(&b.buf[..n]);
             }
-            let mut send_ops: Vec<(usize, (f32, f32), bool)> = Vec::new();
-            for s in b.sends.iter_mut() {
-                let g = s.g.gains(frames);
-                send_ops.push((s.bus, g, s.pre));
-            }
-            for (target, g, pre) in send_ops {
-                if target >= self.buses.len() || target == bi {
-                    continue;
-                }
-                let src = if pre { &self.pre[..n] } else { &self.tmp[..n] };
-                add_scaled(&mut self.buses[target].buf[..n], src, g);
-            }
         }
         for o in self.outs.iter_mut() {
             let g = o.vol.gains(frames);
             scale(&mut o.buf[..n], g);
         }
         if self.monitor_bus.is_none() {
-            self.monitor[..n].copy_from_slice(&self.outs[self.monitor_out].buf[..n]);
+            self.monitor[..n].copy_from_slice(&self.outs[d].buf[..n]);
         }
         match self.stream_out {
             Some(s) => self.program[..n].copy_from_slice(&self.outs[s].buf[..n]),

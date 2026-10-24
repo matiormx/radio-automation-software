@@ -1,7 +1,7 @@
 //! Nucleo del motor: reloj, voces de musica y mesa. Lo protege un candado;
 //! el hilo de audio llama a `render` y el de control maneja el reproductor.
 
-use super::graph::{InsertFeed, MixConfig, Plan, MAX_BLOCK};
+use super::graph::{MixConfig, Plan, MAX_BLOCK};
 use super::player::PlayCore;
 
 pub struct Core {
@@ -21,15 +21,6 @@ pub struct Core {
 
 /// Constante de tiempo de los medidores (s).
 const METER_TAU: f32 = 0.06;
-
-/// Audio que entra al motor desde fuera de la musica.
-#[derive(Default)]
-pub struct Sources<'a> {
-    pub returns: &'a [InsertFeed<'a>],
-    pub inputs: &'a [&'a [f32]],
-    pub call: &'a [f32],
-    pub preview: &'a [f32],
-}
 
 fn ema(prev: f32, block_ms: f32, frames: usize, rate: u32) -> f32 {
     let a = (-(frames as f32) / (METER_TAU * rate as f32)).exp();
@@ -79,23 +70,12 @@ impl Core {
     }
 
     /// Mezcla `frames` y entrega cada tramo (<= MAX_BLOCK) a `sink` con la
-    /// mesa ya calculada (sin retornos de insert).
-    pub fn render<F>(&mut self, frames: usize, sink: F)
+    /// mesa ya calculada. `inputs` da el audio de las entradas fisicas para
+    /// el tramo pedido (offset en frames, frames).
+    pub fn render<F>(&mut self, frames: usize, mut sink: F)
     where
         F: FnMut(&Plan, usize, usize),
     {
-        self.render_inserts(frames, &Sources::default(), sink);
-    }
-
-    /// Render con las fuentes externas: retornos de inserts (`returns[i]`
-    /// para `plan.inserts[i]`), entradas fisicas (`inputs[i]` para
-    /// `plan.inputs[i]`), llamada y preescucha. Cada una trae `frames` frames
-    /// o viene vacia (silencio).
-    pub fn render_inserts<F>(&mut self, frames: usize, src: &Sources, mut sink: F)
-    where
-        F: FnMut(&Plan, usize, usize),
-    {
-        let insert_returns = src.returns;
         let mut done = 0;
         while done < frames {
             let n = (frames - done).min(MAX_BLOCK);
@@ -107,27 +87,7 @@ impl Core {
             }
             let rate = self.play.rate;
             self.play.music_ms = ema(self.play.music_ms, mean_square(&self.music[..s]), n, rate);
-            let feeds: Vec<InsertFeed> = insert_returns
-                .iter()
-                .map(|f| InsertFeed {
-                    data: if f.data.len() >= done * 2 + s { &f.data[done * 2..done * 2 + s] } else { &[] },
-                    active: f.active,
-                })
-                .collect();
-            let range = done * 2..done * 2 + s;
-            let inputs: Vec<&[f32]> = src
-                .inputs
-                .iter()
-                .map(|d| if d.len() >= range.end { &d[range.clone()] } else { &[][..] })
-                .collect();
-            for (dst, from) in [(&mut self.call, src.call), (&mut self.preview, src.preview)] {
-                if from.len() >= range.end {
-                    dst[..s].copy_from_slice(&from[range.clone()]);
-                } else {
-                    dst[..s].iter_mut().for_each(|x| *x = 0.0);
-                }
-            }
-            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &inputs, &feeds);
+            self.plan.render(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[]);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));

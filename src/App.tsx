@@ -256,30 +256,14 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   });
 }
 
-type MixSlice = Pick<
-  Settings,
-  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
->;
-
-/**
- * Con el motor nativo la mesa entera (micros, inserts, buses y salidas) vive
- * en Rust; la mesa web se queda vacia y solo le pasa la llamada y la preescucha.
- */
-const WEB_MIX_NATIVE: MixSlice = {
-  mixerChannels: [],
-  mixerBuses: [],
-  monitorBusId: "",
-  masterOutputDeviceId: "",
-  monitorOutputDeviceId: "",
-};
-
-function nativeMixerSlice(s: Settings): MixSlice {
+/** Con el motor nativo, la mesa web no toca los canales de musica. */
+function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
   return {
-    mixerChannels: s.mixerChannels,
+    mixerChannels: s.mixerChannels.filter(
+      (ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"),
+    ),
     mixerBuses: s.mixerBuses,
     monitorBusId: s.monitorBusId,
-    masterOutputDeviceId: s.masterOutputDeviceId,
-    monitorOutputDeviceId: s.monitorOutputDeviceId,
   };
 }
 
@@ -443,14 +427,13 @@ export default function App() {
     mixerRef.current = mixer;
     setMixer(mixer);
     const useNative = settingsRef.current.audioEngine === "native";
-    // Motor nativo: la musica y toda la mesa las lleva Rust. La mesa web
-    // solo le pasa la voz de la llamada y la preescucha.
+    // Motor nativo (beta): la musica la reproduce y mezcla Rust. La mesa web
+    // sigue con microfonos, preescucha y llamadas.
     const player = useNative ? new NativePlayer((msg) => showToast(msg)) : new RadioPlayer(mixer);
     if (useNative) {
-      mixer.setNativeEngine(true);
-      mixer.apply(WEB_MIX_NATIVE);
+      mixer.apply(webMixerSlice(settingsRef.current));
       const nat = player as NativePlayer;
-      nat.applyMixer(nativeMixerSlice(settingsRef.current));
+      nat.applyMixer(settingsRef.current);
       nat.setVolume(settingsRef.current.masterVolume);
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
@@ -847,19 +830,12 @@ export default function App() {
   useEffect(() => {
     const p = playerRef.current;
     if (p instanceof NativePlayer) {
-      mixerRef.current?.apply(WEB_MIX_NATIVE);
-      p.applyMixer(nativeMixerSlice(settings));
+      mixerRef.current?.apply(webMixerSlice(settings));
+      p.applyMixer(settings);
     } else {
       mixerRef.current?.apply(settings);
     }
-  }, [
-    settings.mixerChannels,
-    settings.mixerBuses,
-    settings.monitorBusId,
-    settings.masterOutputDeviceId,
-    settings.monitorOutputDeviceId,
-    native,
-  ]);
+  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, native]);
 
   // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la mesa.
   useEffect(() => {
@@ -3003,6 +2979,7 @@ export default function App() {
           showToast={showToast}
           tab={settingsTab}
           onTabChange={setSettingsTab}
+          mixer={mixerRef.current}
           studio={studio}
           callMuted={callMuted}
           onCallMute={muteCaller}

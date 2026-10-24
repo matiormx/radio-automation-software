@@ -7,7 +7,8 @@ import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
-import { SoundTab } from "./SoundTab";
+import { MixerPanel } from "./MixerPanel";
+import type { SoundMixer } from "../mixer";
 import { AiTab } from "./AiTab";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
@@ -42,6 +43,7 @@ interface SettingsPanelProps {
   showToast: (msg: string) => void;
   tab: SettingsTab;
   onTabChange: (tab: SettingsTab) => void;
+  mixer: SoundMixer | null;
   studio: StudioSnapshot;
   callMuted: boolean;
   onCallMute: (muted: boolean) => void;
@@ -189,6 +191,7 @@ export function SettingsPanel({
   showToast,
   tab,
   onTabChange,
+  mixer,
   studio,
   callMuted,
   onCallMute,
@@ -244,7 +247,7 @@ export function SettingsPanel({
               onClick={() => onTabChange("sound")}
             >
               Sonido
-              <span>Entradas, salidas y nombres</span>
+              <span>Mesa de mezclas y salidas</span>
             </button>
             <button
               type="button"
@@ -351,7 +354,7 @@ export function SettingsPanel({
                 onClearLogo={onClearLogo}
               />
             )}
-            {tab === "sound" && <SoundTab settings={s} onChange={onChange} />}
+            {tab === "sound" && <MixerPanel settings={s} mixer={mixer} onChange={onChange} />}
             {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}

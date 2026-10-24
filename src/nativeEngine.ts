@@ -24,10 +24,7 @@ interface StatePayload {
   streamDb?: number;
 }
 
-type MixerSlice = Pick<
-  Settings,
-  "mixerChannels" | "mixerBuses" | "monitorBusId" | "masterOutputDeviceId" | "monitorOutputDeviceId"
->;
+type MixerSlice = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
 
 /**
  * Arranque y parada del motor en orden estricto: al cambiar de motor (o al
@@ -42,11 +39,6 @@ function inOrder<T>(fn: () => Promise<T>): Promise<T> {
 
 export function nativeDevices(): Promise<string[]> {
   return invoke<string[]>("engine_devices");
-}
-
-/** Entradas (retorno de inserts) disponibles en el motor nativo. */
-export function nativeInputs(): Promise<string[]> {
-  return invoke<string[]>("engine_inputs");
 }
 
 export class NativePlayer {
@@ -209,8 +201,6 @@ export class NativePlayer {
         mixerChannels: cfg.mixerChannels ?? [],
         mixerBuses: cfg.mixerBuses ?? [],
         monitorBusId: cfg.monitorBusId ?? "",
-        masterOutputDeviceId: cfg.masterOutputDeviceId ?? "",
-        monitorOutputDeviceId: cfg.monitorOutputDeviceId ?? "",
       },
     });
   }
