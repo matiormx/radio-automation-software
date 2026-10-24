@@ -2399,6 +2399,21 @@ export default function App() {
     };
     const lr = liveRunRef.current;
     const liveNowMs = Date.now();
+    const s = settingsRef.current;
+    const program = s.liveMode
+      ? (s.programs ?? []).find((p) => p.id === s.liveProgramId) ?? null
+      : null;
+    const programCurrent = program
+      ? {
+          id: `live:program:${program.id}`,
+          artist: program.subtitle ?? "",
+          title: program.name ?? "",
+          album: program.album ?? "",
+          file: "",
+          durationSecs: 0,
+          cover: program.cover ?? "",
+        }
+      : null;
     const current = lr
       ? {
           id: `live:${lr.eventId}`,
@@ -2409,14 +2424,15 @@ export default function App() {
           durationSecs: (lr.endsAt - lr.startedAt) / 1000,
           cover: lr.meta.cover,
         }
-      : idx >= 0
-        ? toPub(list[idx]?.id)
-        : null;
+      : programCurrent ?? (idx >= 0 ? toPub(list[idx]?.id) : null);
+    const isProgram = !lr && programCurrent !== null;
     const pos = lr
       ? { cur: Math.max(0, (liveNowMs - lr.startedAt) / 1000), total: (lr.endsAt - lr.startedAt) / 1000 }
-      : exactPosRef.current;
+      : isProgram
+        ? { cur: 0, total: 0 }
+        : exactPosRef.current;
     void apiPublish({
-      state: !current ? "stop" : !lr && pausedNowRef.current ? "pause" : "play",
+      state: !current ? "stop" : lr || isProgram ? "play" : pausedNowRef.current ? "pause" : "play",
       posMs: current ? Math.max(0, pos.cur * 1000) : 0,
       lenMs: current ? Math.max(0, pos.total * 1000) : 0,
       current,
@@ -2429,8 +2445,8 @@ export default function App() {
         return idx >= 0 ? toPub(list[idx + 1]?.id) : null;
       })(),
       queue: list.flatMap((r) => toPub(r.id) ?? []),
-      currentIndex: idx,
-      castTitle: nowPlayingTextRef.current ?? "",
+      currentIndex: isProgram ? -1 : idx,
+      castTitle: isProgram ? liveTextRef.current ?? "" : nowPlayingTextRef.current ?? "",
       volume: settingsRef.current.masterVolume ?? 1,
       listName: playlistsRef.current.find((pl) => pl.id === activeIdRef.current)?.name ?? "",
       scheduler: settingsRef.current.eventsEnabled !== false && !settingsRef.current.liveMode,
@@ -2460,7 +2476,20 @@ export default function App() {
   }, []);
   useEffect(() => {
     publishApiState();
-  }, [playingRow, paused, rows, tracks, nextPick, publishApiState, liveRun]);
+  }, [
+    playingRow,
+    paused,
+    rows,
+    tracks,
+    nextPick,
+    publishApiState,
+    liveRun,
+    settings.liveMode,
+    settings.liveProgramId,
+    settings.programs,
+    settings.liveTemplate,
+    settings.nowPlayingTemplate,
+  ]);
   useEffect(() => {
     const t = window.setInterval(publishApiState, 2000);
     return () => window.clearInterval(t);
@@ -2473,12 +2502,14 @@ export default function App() {
       currentsong: nowPlayingText ?? "",
       live: liveText ?? "",
       live_mode: settingsRef.current.liveMode ? "1" : "0",
-      artist: songFields?.artist ?? "",
-      title: songFields?.title ?? "",
-      album: songFields?.album ?? "",
-      file: nowPlayingTrack?.file ?? "",
+      state: settingsRef.current.liveMode ? "on" : "off",
+      program: liveProgram?.name ?? "",
+      artist: liveProgram?.subtitle ?? songFields?.artist ?? "",
+      title: liveProgram?.name ?? songFields?.title ?? "",
+      album: liveProgram?.album ?? songFields?.album ?? "",
+      file: liveProgram ? "" : nowPlayingTrack?.file ?? "",
     }).catch(() => undefined);
-  }, [nowPlayingText, liveText, songFields, nowPlayingTrack]);
+  }, [nowPlayingText, liveText, songFields, nowPlayingTrack, liveProgram]);
 
   // Notificaciones del modo LIVE y del cambio de programa (pesan mas que la cancion).
   const liveNotifyRef = useRef<{ live: boolean; program: string } | null>(null);
