@@ -258,3 +258,17 @@ fn input_gain_and_agc() {
     // 0.25 constante (~-12 dBFS) baja hacia -18 dB (~0.126).
     assert!(last < 0.2 && last > 0.08, "{last}");
 }
+
+#[test]
+fn output_limiter_and_compressor() {
+    // Musica a 0.5 con +12 dB de fader: sin limitador recortaria a 1.0.
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":12,"muted":false}],"mixerBuses":[],"monitorBusId":""}"#);
+    let mut peak = 0f32;
+    for _ in 0..4 { c.render(2048, |plan, _, n| { for v in &plan.outs[0].buf[..n * 2] { peak = peak.max(v.abs()); } }); }
+    assert!(peak <= 0.892, "limitador {peak}");
+    // Compresor 4:1 a -20 dB: 0.5 (-6 dB) baja claramente.
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,"compressor":{"enabled":true,"thresholdDb":-20,"ratio":4,"attackMs":1,"releaseMs":50,"makeupDb":0}}],"mixerBuses":[],"monitorBusId":""}"#);
+    let l = levels(&mut c, 9600);
+    assert!(l["default"] < 0.2, "{:?}", l);
+}

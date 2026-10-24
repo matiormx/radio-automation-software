@@ -8,6 +8,7 @@ import {
   newId,
   nextColor,
   type Device,
+  CompressorControls,
 } from "./components/MixerPanel";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
@@ -829,7 +830,7 @@ function ChannelStrip({
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "in" | "gain" | "out" | `send:${number}`>("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "in" | "gain" | "out" | `send:${number}`>("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
@@ -995,6 +996,16 @@ function ChannelStrip({
         >
           {ch.leveler?.enabled ? "Nivelador" : "—"}
         </button>
+        <button
+          type="button"
+          className={`mx-slot ${ch.compressor?.enabled ? "mx-slot-on" : ""}`}
+          onClick={() => setPop(pop === "comp" ? "" : "comp")}
+        >
+          {ch.compressor?.enabled ? `Comp ${ch.compressor.ratio}:1` : "—"}
+        </button>
+        <Pop open={pop === "comp"} onClose={close}>
+          <CompressorControls owner={ch} label={ch.name} onChange={(compressor) => onPatch({ compressor })} />
+        </Pop>
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls
             owner={ch}
@@ -1213,7 +1224,7 @@ function BusStrip({
   onPatch: (patch: Partial<MixerBus>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "io">("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "io">("");
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
   const outputLabel =
@@ -1243,6 +1254,16 @@ function BusStrip({
         >
           {bus.leveler?.enabled ? "Nivelador" : "—"}
         </button>
+        <button
+          type="button"
+          className={`mx-slot ${bus.compressor?.enabled ? "mx-slot-on" : ""}`}
+          onClick={() => setPop(pop === "comp" ? "" : "comp")}
+        >
+          {bus.compressor?.enabled ? `Comp ${bus.compressor.ratio}:1` : "—"}
+        </button>
+        <Pop open={pop === "comp"} onClose={close}>
+          <CompressorControls owner={bus} label={bus.name} onChange={(compressor) => onPatch({ compressor })} />
+        </Pop>
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls owner={bus} label={bus.name} inputs={inputs} outputs={outputs} onChange={(insert) => onPatch({ insert })} />
         </Pop>

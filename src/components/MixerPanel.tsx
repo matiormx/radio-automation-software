@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  CompressorSettings,
   InsertSettings,
   LevelerSettings,
   MixerBus,
@@ -20,6 +21,60 @@ interface MixerPanelProps {
 }
 
 /** Nivelador automatico de ganancia de un canal o bus: se activa aqui. */
+const COMP_DEFAULT: CompressorSettings = { enabled: false, thresholdDb: -18, ratio: 3, attackMs: 10, releaseMs: 200, makeupDb: 0 };
+
+/** Compresor de un canal o bus (antes del fader). */
+export function CompressorControls({
+  owner,
+  label,
+  onChange,
+}: {
+  owner: { compressor?: CompressorSettings };
+  label: string;
+  onChange: (compressor: CompressorSettings) => void;
+}) {
+  const c: CompressorSettings = { ...COMP_DEFAULT, ...(owner.compressor ?? {}) };
+  const set = (patch: Partial<CompressorSettings>) => onChange({ ...c, ...patch });
+  const num = (key: keyof Omit<CompressorSettings, "enabled">, text: string, min: number, max: number, step: number) => (
+    <label>
+      <span>{text}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={c[key]}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v)) set({ [key]: Math.max(min, Math.min(max, v)) } as Partial<CompressorSettings>);
+        }}
+      />
+    </label>
+  );
+  return (
+    <div className="mixer-leveler">
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={c.enabled}
+          aria-label={`Compresor de ${label}`}
+          onChange={(e) => set({ enabled: e.target.checked })}
+        />
+        <span>Compresor</span>
+      </label>
+      {c.enabled && (
+        <div className="mixer-leveler-params">
+          {num("thresholdDb", "Umbral (dB)", -60, 0, 1)}
+          {num("ratio", "Ratio (:1)", 1, 20, 0.5)}
+          {num("attackMs", "Ataque (ms)", 0.1, 200, 1)}
+          {num("releaseMs", "Relajación (ms)", 10, 2000, 10)}
+          {num("makeupDb", "Ganancia (dB)", 0, 24, 0.5)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LevelerControls({
   owner,
   label,

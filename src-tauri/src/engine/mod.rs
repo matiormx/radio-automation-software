@@ -4,6 +4,7 @@
 //! evento `engine://state` (posicion, indice, fin, avisos y VU) ~30 veces/s.
 
 pub mod core;
+pub mod dsp;
 pub mod graph;
 pub mod io;
 pub mod live;

@@ -280,6 +280,15 @@ export interface MixerOutput {
 }
 
 /** Nivelador automatico de ganancia de un canal o bus (ver leveler.ts). */
+export interface CompressorSettings {
+  enabled: boolean;
+  thresholdDb: number;
+  ratio: number;
+  attackMs: number;
+  releaseMs: number;
+  makeupDb: number;
+}
+
 export interface LevelerSettings {
   enabled: boolean;
   /** Sonoridad objetivo en LUFS */
@@ -348,6 +357,7 @@ export interface MixerChannel {
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
+  compressor?: CompressorSettings;
   insert?: InsertSettings;
   /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;
@@ -365,6 +375,7 @@ export interface MixerBus {
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
+  compressor?: CompressorSettings;
   insert?: InsertSettings;
   pan?: number;
   sends?: MixerSend[];

@@ -6,6 +6,8 @@
 
 use serde::Deserialize;
 
+use super::dsp::{Compressor, CompressorCfg, Leveler, LevelerCfg, Limiter};
+
 pub const DEFAULT_DEVICE: &str = "default";
 pub const STREAM_DEVICE: &str = "streaming";
 /// Salida «Ninguna»: la senal no va a ninguna tarjeta (solo envios).
@@ -94,6 +96,8 @@ pub struct ChannelCfg {
     pub agc: String,
     pub sends: Vec<SendCfg>,
     pub insert: InsertCfg,
+    pub leveler: LevelerCfg,
+    pub compressor: CompressorCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -114,6 +118,8 @@ pub struct BusCfg {
     pub muted: bool,
     pub pan: f64,
     pub insert: InsertCfg,
+    pub leveler: LevelerCfg,
+    pub compressor: CompressorCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -220,6 +226,8 @@ struct Chan {
     mono: u8,
     input_gain: f32,
     agc: Option<Agc>,
+    leveler: Option<Leveler>,
+    comp: Option<Compressor>,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
 }
@@ -235,6 +243,8 @@ struct Bus {
     open: bool,
     /// Indice en `Plan::inserts`, si el bus tiene insert
     insert: Option<usize>,
+    leveler: Option<Leveler>,
+    comp: Option<Compressor>,
 }
 
 /// Balance estereo: -1 todo a la izquierda, 1 a la derecha.
@@ -251,6 +261,7 @@ pub struct Out {
     /// La salida Streaming no lleva volumen maestro
     pub is_stream: bool,
     vol: Smooth,
+    limiter: Limiter,
 }
 
 pub struct Plan {
@@ -271,6 +282,7 @@ pub struct Plan {
     tmp: Vec<f32>,
     mono: Vec<f32>,
     pre: Vec<f32>,
+    lv: Vec<f32>,
     /// Inserts activos, en el mismo orden que `insert_sends`
     pub inserts: Vec<InsertRoute>,
     /// Audio seco de cada insert (se entrega a la tarjeta de envio)
@@ -403,7 +415,7 @@ impl Plan {
             }
             let is_stream = d == STREAM_DEVICE;
             let v = if is_stream { 1.0 } else { volume };
-            outs.push(Out { device: d, buf: buf(), is_stream, vol: Smooth::new(v) });
+            outs.push(Out { device: d, buf: buf(), is_stream, vol: Smooth::new(v), limiter: Limiter::default() });
             outs.len() - 1
         };
         let default_out = out_index(DEFAULT_DEVICE, &mut outs);
@@ -437,7 +449,10 @@ impl Plan {
             let key = format!("bus:{}", b.id);
             let (gl, gr) = prev_lr(&key, l, r);
             let insert = insert_of(&b.insert, &key, &mut inserts);
-            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted, insert });
+            let pb = prev.and_then(|p| p.buses.iter().find(|x| x.key == key));
+            let leveler = Leveler::new(&b.leveler).map(|lv| lv.carry(pb.and_then(|x| x.leveler.as_ref())));
+            let comp = Compressor::new(&b.compressor).map(|c| c.carry(pb.and_then(|x| x.comp.as_ref())));
+            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted, insert, leveler, comp });
         }
         let bus_ids: Vec<&str> = cfg.mixer_buses.iter().map(|b| b.id.as_str()).collect();
 
@@ -503,7 +518,10 @@ impl Plan {
                 }
                 a
             });
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
+            let pc = prev.and_then(|p| p.chans.iter().find(|x| x.key == key));
+            let leveler = Leveler::new(&c.leveler).map(|lv| lv.carry(pc.and_then(|x| x.leveler.as_ref())));
+            let comp = Compressor::new(&c.compressor).map(|x| x.carry(pc.and_then(|y| y.comp.as_ref())));
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -511,6 +529,7 @@ impl Plan {
             for o in outs.iter_mut() {
                 if let Some(po) = p.outs.iter().find(|x| x.device == o.device) {
                     o.vol.cur = po.vol.cur;
+                    o.limiter = po.limiter;
                 }
             }
         }
@@ -537,6 +556,7 @@ impl Plan {
             tmp: buf(),
             mono: buf(),
             pre: buf(),
+            lv: buf(),
             inserts,
             insert_sends,
         }
@@ -685,6 +705,17 @@ impl Plan {
                 }
                 src = &self.mono[..n];
             }
+            // Nivelador y compresor del canal (antes del fader).
+            if (c.leveler.is_some() || c.comp.is_some()) && src.len() >= n {
+                self.lv[..n].copy_from_slice(&src[..n]);
+                if let Some(lv) = c.leveler.as_mut() {
+                    lv.process(&mut self.lv[..n], frames);
+                }
+                if let Some(cp) = c.comp.as_mut() {
+                    cp.process(&mut self.lv[..n]);
+                }
+                src = &self.lv[..n];
+            }
             let gl = c.gl.gains(frames);
             let gr = c.gr.gains(frames);
             let sends: &mut Vec<Send> = &mut c.sends;
@@ -739,6 +770,12 @@ impl Plan {
                     }
                 }
             }
+            if let Some(lv) = b.leveler.as_mut() {
+                lv.process(&mut b.buf[..n], frames);
+            }
+            if let Some(cp) = b.comp.as_mut() {
+                cp.process(&mut b.buf[..n]);
+            }
             let gl = b.gl.gains(frames);
             let gr = b.gr.gains(frames);
             scale2(&mut b.buf[..n], gl, gr);
@@ -754,6 +791,8 @@ impl Plan {
         for o in self.outs.iter_mut() {
             let g = o.vol.gains(frames);
             scale(&mut o.buf[..n], g);
+            // Nada pasa de -1 dBFS: sin recorte duro en la tarjeta ni en el streaming.
+            o.limiter.process(&mut o.buf[..n]);
         }
         if self.monitor_bus.is_none() {
             self.monitor[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]);

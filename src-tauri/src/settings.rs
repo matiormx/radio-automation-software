@@ -269,6 +269,7 @@ pub struct MixerChannel {
     pub gain_db: f32,
     pub muted: bool,
     pub leveler: LevelerSettings,
+    pub compressor: CompressorSettings,
     pub insert: InsertSettings,
     pub pan: f32,
     pub solo: bool,
@@ -290,6 +291,7 @@ impl Default for MixerChannel {
             gain_db: 0.0,
             muted: false,
             leveler: LevelerSettings::default(),
+            compressor: CompressorSettings::default(),
             insert: InsertSettings::default(),
             pan: 0.0,
             solo: false,
@@ -331,6 +333,23 @@ impl Default for InsertSettings {
 /// Nivelador automatico de ganancia de un canal o bus.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
+pub struct CompressorSettings {
+    pub enabled: bool,
+    pub threshold_db: f32,
+    pub ratio: f32,
+    pub attack_ms: f32,
+    pub release_ms: f32,
+    pub makeup_db: f32,
+}
+
+impl Default for CompressorSettings {
+    fn default() -> Self {
+        Self { enabled: false, threshold_db: -18.0, ratio: 3.0, attack_ms: 10.0, release_ms: 200.0, makeup_db: 0.0 }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
 pub struct LevelerSettings {
     pub enabled: bool,
     /// Sonoridad objetivo (LUFS).
@@ -359,6 +378,7 @@ pub struct MixerBus {
     pub gain_db: f32,
     pub muted: bool,
     pub leveler: LevelerSettings,
+    pub compressor: CompressorSettings,
     pub insert: InsertSettings,
     pub pan: f32,
     pub sends: Vec<MixerSend>,
@@ -374,6 +394,7 @@ impl Default for MixerBus {
             gain_db: 0.0,
             muted: false,
             leveler: LevelerSettings::default(),
+            compressor: CompressorSettings::default(),
             insert: InsertSettings::default(),
             pan: 0.0,
             sends: Vec::new(),

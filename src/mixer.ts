@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { InsertSettings, Settings } from "./types";
+import type { CompressorSettings, InsertSettings, Settings } from "./types";
 import { Leveler, levelerOf } from "./leveler";
 
 /**
@@ -352,10 +352,11 @@ export class SoundMixer {
       this.liveFaders.set(`bus:${bus.id}`, { gain, open: !bus.muted });
       meterFor(`bus:${bus.id}`, pan.output);
       const lv = levelerFor(`bus:${bus.id}`, bus);
-      if (lv) lv.output.connect(gain);
+      const busComp = this.compressorFor(bus, gain);
+      if (lv) lv.output.connect(busComp);
       this.busGains.set(
         bus.id,
-        insertFor(`bus:${bus.id}`, bus, lv ? lv.input : gain),
+        insertFor(`bus:${bus.id}`, bus, lv ? lv.input : busComp),
       );
     }
 
@@ -425,9 +426,10 @@ export class SoundMixer {
       const pan = panNode.output;
       meterFor(`ch:${ch.id}`, pan);
       const lv = levelerFor(`ch:${ch.id}`, ch);
-      if (lv) lv.output.connect(head);
+      const compIn = this.compressorFor(ch, head);
+      if (lv) lv.output.connect(compIn);
       // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
-      const insertEntry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : head);
+      const insertEntry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : compIn);
       // Ganancia de entrada, antes de inserts y fader (el AGC solo existe en el motor nativo).
       const entry = this.ctx.createGain();
       entry.gain.value = dbToGain(ch.inputGainDb ?? 0);
@@ -550,6 +552,26 @@ export class SoundMixer {
     src.el.srcObject = null;
     src.el.remove();
     this.callSources.delete(id);
+  }
+
+  /** Compresor del canal/bus (si esta activo): devuelve el nodo de entrada. */
+  private compressorFor(owner: { compressor?: CompressorSettings }, next: GainNode): GainNode {
+    const c = owner.compressor;
+    if (!c?.enabled) return next;
+    const comp = this.ctx.createDynamicsCompressor();
+    comp.threshold.value = Math.max(-60, Math.min(0, c.thresholdDb));
+    comp.ratio.value = Math.max(1, Math.min(20, c.ratio));
+    comp.knee.value = 6;
+    comp.attack.value = Math.max(0.0001, c.attackMs / 1000);
+    comp.release.value = Math.max(0.01, c.releaseMs / 1000);
+    const input = this.ctx.createGain();
+    const makeup = this.ctx.createGain();
+    makeup.gain.value = dbToGain(Math.max(0, c.makeupDb));
+    input.connect(comp);
+    comp.connect(makeup);
+    makeup.connect(next);
+    this.faders.push(input, makeup, comp as unknown as GainNode);
+    return input;
   }
 
   /** Suma un nodo al retorno de los oyentes (motor nativo: su mix-minus). */
