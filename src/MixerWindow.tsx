@@ -342,7 +342,16 @@ function useDevices(isNative: boolean) {
     media?.addEventListener?.("devicechange", refresh);
     return () => media?.removeEventListener?.("devicechange", refresh);
   }, [refresh]);
-  return { inputs, outputs };
+  const detect = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices?.getUserMedia?.({ audio: true });
+      stream?.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* sin permiso */
+    }
+    await refresh();
+  }, [refresh]);
+  return { inputs, outputs, detect };
 }
 
 // ------------------------------------------------------------ ventana
@@ -389,7 +398,7 @@ export function MixerWindow() {
 
   const s = shared?.settings;
   const isNative = s?.audioEngine === "native";
-  const { inputs, outputs } = useDevices(!!isNative);
+  const { inputs, outputs, detect } = useDevices(!!isNative);
 
   if (!s) {
     return (
@@ -400,6 +409,74 @@ export function MixerWindow() {
     );
   }
 
+  return (
+    <div className="tool-window mx-window">
+      <MixerTitle />
+      <MixerBoard
+        s={s}
+        commit={commit}
+        meters={meters}
+        isNative={!!isNative}
+        inputs={inputs}
+        outputs={outputs}
+        onDetect={detect}
+      />
+    </div>
+  );
+}
+
+/** La misma mesa, dentro de Ajustes → Sonido. */
+export function MixerEmbedded({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
+  const meters = useRef<MeterMap>(new Map());
+  const isNative = settings.audioEngine === "native";
+  const { inputs, outputs, detect } = useDevices(isNative);
+  useEffect(() => {
+    const offs: Array<Promise<() => void>> = [];
+    type M = { key: string; l: number; r: number }[];
+    const take = (list: M) => {
+      const now = performance.now();
+      for (const m of list) meters.current.set(m.key, { l: m.l, r: m.r, at: now });
+    };
+    offs.push(listen<M>("engine://meters", (e) => take(e.payload)));
+    offs.push(listen<M>("mixer://meters", (e) => take(e.payload)));
+    void callMain("meters", true).catch(() => undefined);
+    return () => {
+      void callMain("meters", false).catch(() => undefined);
+      for (const o of offs) void o.then((fn) => fn());
+    };
+  }, []);
+  return (
+    <div className="mx-embedded mx-window">
+      <MixerBoard
+        s={settings}
+        commit={onChange}
+        meters={meters}
+        isNative={isNative}
+        inputs={inputs}
+        outputs={outputs}
+        onDetect={detect}
+      />
+    </div>
+  );
+}
+
+function MixerBoard({
+  s,
+  commit,
+  meters,
+  isNative,
+  inputs,
+  outputs,
+  onDetect,
+}: {
+  s: Settings;
+  commit: (next: Settings) => void;
+  meters: React.MutableRefObject<MeterMap>;
+  isNative: boolean;
+  inputs: Device[];
+  outputs: Device[];
+  onDetect: () => void;
+}) {
   const channels = s.mixerChannels ?? [];
   const buses = s.mixerBuses ?? [];
   const patchChannel = (id: string, patch: Partial<MixerChannel>) =>
@@ -454,16 +531,24 @@ export function MixerWindow() {
   const masterDb = s.masterVolume <= 0.001 ? MIN_GAIN_DB : 20 * Math.log10(s.masterVolume);
 
   return (
-    <div className="tool-window mx-window">
-      <MixerTitle>
+    <div className="mx-board">
+      <div className="mx-bar">
         <button type="button" className="btn btn-sm" onClick={addChannel}>
           + Canal
         </button>
         <button type="button" className="btn btn-sm" onClick={addBus}>
           + Bus
         </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          title="Pide permiso para ver los nombres de las entradas y vuelve a buscar tarjetas"
+          onClick={onDetect}
+        >
+          Detectar entradas
+        </button>
         <span className="mx-engine">{isNative ? "Motor nativo" : "Motor web"}</span>
-      </MixerTitle>
+      </div>
       <div className="mx-strips">
         {channels.length === 0 && buses.length === 0 && (
           <div className="mx-empty">
@@ -517,6 +602,7 @@ export function MixerWindow() {
     </div>
   );
 }
+
 
 function MixerTitle({ children }: { children?: ReactNode }) {
   return (
