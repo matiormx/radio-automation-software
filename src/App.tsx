@@ -77,7 +77,7 @@ import { MusicBrowser } from "./components/MusicBrowser";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
-import { Splitter } from "./components/Splitter";
+import { WorkspaceLayout } from "./components/WorkspaceLayout";
 import { ChatPanel } from "./components/ChatPanel";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { NativeAppFeed } from "./nativeFeed";
@@ -2591,11 +2591,6 @@ export default function App() {
     [updateSettings],
   );
 
-  // ---- panel izquierdo de ancho ajustable ----
-  const mainRef = useRef<HTMLElement | null>(null);
-  const [leftDrag, setLeftDrag] = useState(0);
-  const leftWidth = leftDrag > 0 ? leftDrag : (settings.leftPanelWidth ?? 0);
-  const autoLeftWidth = () => (mainRef.current?.querySelector(".browser-panel") as HTMLElement | null)?.offsetWidth ?? 540;
   // ---- video: lo que suena, para la vista previa y la ventana de emision ----
   const videoSource = useCallback((): VideoState | null => {
     const lr = liveRunRef.current;
@@ -2825,170 +2820,190 @@ export default function App() {
         <WindowControls />
       </header>
 
-      <main
-        className="main"
-        ref={mainRef}
-        style={leftWidth > 0 ? ({ "--left-w": `min(${leftWidth}px, calc(100% - 560px))` } as React.CSSProperties) : undefined}
-      >
-        <MusicBrowser
-          tracks={tracks}
-          blocks={blocks}
-          history={history}
-          autoBlocks={settings.autoBlocks}
-          languages={settings.languages ?? DEFAULT_SETTINGS.languages}
-          ai={settings.ai ?? DEFAULT_SETTINGS.ai}
-          onToggleAutoBlock={toggleAutoBlock}
-          onCreateBlock={handleCreateBlock}
-          onRenameBlock={handleRenameBlock}
-          onDeleteBlock={handleDeleteBlock}
-          onScan={scanMusicFolder}
-          onPickFiles={() => void pickFiles()}
-          onAdd={addTrack}
-          onDelete={(t) => void removeTrack(t)}
-          onTrackSaved={refreshTracksAndBlocks}
-          onEditCuts={(t) => setCutsTrackId(t.id)}
-          pendingEdit={pendingEdit}
-          onPendingEditDone={() => setPendingEdit(null)}
-          showToast={showToast}
-        />
-
-        <Splitter
-          width={leftWidth > 0 ? leftWidth : autoLeftWidth()}
-          min={300}
-          max={Math.max(320, (mainRef.current?.clientWidth ?? 1400) - 560)}
-          onDrag={setLeftDrag}
-          onCommit={(w) => {
-            setLeftDrag(0);
-            updateSettings({ ...settingsRef.current, leftPanelWidth: w });
-          }}
-          onReset={() => {
-            setLeftDrag(0);
-            updateSettings({ ...settingsRef.current, leftPanelWidth: 0 });
-          }}
-        />
-        <VuMeter
-          mixer={native ?? mixer}
-          source={settings.vuSource ?? "master"}
-          buses={settings.mixerBuses.map((b) => ({ id: b.id, name: b.name }))}
-          monitorBusId={settings.monitorBusId}
-          onSelect={(vuSource, busId) =>
-            updateSettings({ ...settingsRef.current, vuSource, monitorBusId: busId })
-          }
-        />
-
-        <div className="right-col">
-          {liveRun && (
-            <div className="call-chip live-chip" role="status">
-              <span className="live-dot live-on" aria-hidden="true" />
-              EN DIRECTO · {liveRun.name} · hasta las{" "}
-              {new Date(liveRun.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              <button type="button" className="btn btn-sm" onClick={() => endLiveEvent(true)} title="Terminar ya y seguir con la lista">
-                Terminar
-              </button>
-            </div>
-          )}
-          {studio.calls.length > 0 && (
-            <button
-              type="button"
-              className="call-chip"
-              onClick={() => muteCaller(!callMuted)}
-              title={callMuted ? "Dar voz al oyente" : "Silenciar al oyente"}
-            >
-              <span className="live-dot live-on" aria-hidden="true" />
-              {callMuted ? "OYENTE SILENCIADO" : "LLAMADA AL AIRE"} · {studio.calls[0].name}
-            </button>
-          )}
-          <LiveBar
-            programs={(settings.programs ?? []).filter((program) => program.enabled)}
-            activeId={settings.liveProgramId}
-            live={settings.liveMode}
-            onSelect={(id) => updateSettings({ ...settings, liveProgramId: id })}
-            onToggleLive={(on) => updateSettings({ ...settings, liveMode: on })}
-            onOpenPrograms={() => {
-              setSettingsTab("programs");
-              setSettingsMounted(true);
-              setSettingsOpen(true);
-            }}
-          />
-          <DeckZone
-            title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
-            artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
-            album={liveRun ? liveRun.meta.album : deckRow?.album ?? ""}
-            cover={liveRun ? liveRun.meta.cover : deckRow?.cover ?? ""}
-            current={liveRun ? Math.max(0, (liveClock - liveRun.startedAt) / 1000) : pos.cur}
-            total={liveRun ? (liveRun.endsAt - liveRun.startedAt) / 1000 : pos.total}
-            spinning={liveRun ? true : !paused && playingRow >= 0}
-            next={nextRow ? nextRow.title : null}
-            nextArtist={nextRow?.artist ?? ""}
-            nextAlbum={nextRow?.album ?? ""}
-            nextCover={nextRow?.cover ?? ""}
-            nextDuration={nextRow?.durationSecs ?? 0}
-            onSeek={seek}
-            isVideo={!liveRun && !!deckRow && isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")}
-            videoSource={videoSource}
-          />
-          <PlaylistZone
-            playlists={playlists}
-            activeId={view?.id ?? ""}
-            airId={active?.id ?? ""}
-            rows={viewRows}
-            playingRow={view && active && view.id === active.id ? playingRow : -1}
-            nextRow={
-              nextPick
-                ? nextPick.listId === view?.id
-                  ? nextPick.index
-                  : -1
-                : view && active && view.id === active.id && playingRow >= 0
-                  ? playingRow + 1
-                  : -1
-            }
-            nextElsewhere={
-              nextPick && nextPick.listId !== view?.id
-                ? `${pickRows?.[nextPick.index]?.title ?? ""} · ${playlists.find((p) => p.id === nextPick.listId)?.name ?? ""}`
-                : ""
-            }
-            autoIds={autoIds}
-            estStart={view && active && view.id === active.id ? estStart : []}
-            onSelect={setViewId}
-            onSetNext={setNextRow}
-            onClearNext={() => setNextPick(null)}
-            onGenerate={() => void generateView()}
-            pastVisible={settings.pastVisible ?? 5}
-            leavingRow={
-              removeAfter && view?.id === removeAfter.listId && view.id === active?.id && playingRow >= 0
-                ? playingRow
-                : -1
-            }
-            onNew={() => void newPlaylist()}
-            onRemovePlaylist={() => void removeActivePlaylist()}
-            onClearPlaylist={() => void clearActivePlaylist()}
-            onRename={renamePlaylist}
-            onPlayRow={playViewRow}
-            onReorder={reorderRow}
-            onRemove={removeRow}
-            onDropTrack={dropTrackAt}
-            blocks={blocks}
-            onPreview={previewRow}
-            onEditMeta={editRowMeta}
-            onEditCuts={editRowCuts}
-            onToggleBlock={toggleRowBlock}
-          />
-          {chatCfg.enabled && !chatCfg.floating && (
-            <ChatPanel
-              config={{
-                serverUrl: settings.studioCalls.serverUrl,
-                token: settings.studioCalls.token,
-                name: chatCfg.name || settings.radioName || "Estudio",
-                enabled: chatCfg.enabled,
-              }}
-              floating={false}
-              onToggleFloating={() => setChat({ floating: true })}
-              collapsed={chatCfg.collapsed}
-              onToggleCollapsed={() => setChat({ collapsed: !chatCfg.collapsed })}
-            />
-          )}
-        </div>
-      </main>
+      <WorkspaceLayout
+        panels={[
+          {
+            id: "library",
+            title: "Biblioteca",
+            content: (
+              <MusicBrowser
+                tracks={tracks}
+                blocks={blocks}
+                history={history}
+                autoBlocks={settings.autoBlocks}
+                languages={settings.languages ?? DEFAULT_SETTINGS.languages}
+                ai={settings.ai ?? DEFAULT_SETTINGS.ai}
+                onToggleAutoBlock={toggleAutoBlock}
+                onCreateBlock={handleCreateBlock}
+                onRenameBlock={handleRenameBlock}
+                onDeleteBlock={handleDeleteBlock}
+                onScan={scanMusicFolder}
+                onPickFiles={() => void pickFiles()}
+                onAdd={addTrack}
+                onDelete={(t) => void removeTrack(t)}
+                onTrackSaved={refreshTracksAndBlocks}
+                onEditCuts={(t) => setCutsTrackId(t.id)}
+                pendingEdit={pendingEdit}
+                onPendingEditDone={() => setPendingEdit(null)}
+                showToast={showToast}
+              />
+            ),
+          },
+          {
+            id: "center",
+            title: "Reproductor y vúmetro",
+            content: (
+              <div className="workspace-center">
+                {liveRun && (
+                  <div className="call-chip live-chip" role="status">
+                    <span className="live-dot live-on" aria-hidden="true" />
+                    EN DIRECTO · {liveRun.name} · hasta las{" "}
+                    {new Date(liveRun.endsAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => endLiveEvent(true)}
+                      title="Terminar ya y seguir con la lista"
+                    >
+                      Terminar
+                    </button>
+                  </div>
+                )}
+                {studio.calls.length > 0 && (
+                  <button
+                    type="button"
+                    className="call-chip"
+                    onClick={() => muteCaller(!callMuted)}
+                    title={callMuted ? "Dar voz al oyente" : "Silenciar al oyente"}
+                  >
+                    <span className="live-dot live-on" aria-hidden="true" />
+                    {callMuted ? "OYENTE SILENCIADO" : "LLAMADA AL AIRE"} ·{" "}
+                    {studio.calls[0].name}
+                  </button>
+                )}
+                <LiveBar
+                  programs={(settings.programs ?? []).filter((program) => program.enabled)}
+                  activeId={settings.liveProgramId}
+                  live={settings.liveMode}
+                  onSelect={(id) => updateSettings({ ...settings, liveProgramId: id })}
+                  onToggleLive={(on) => updateSettings({ ...settings, liveMode: on })}
+                  onOpenPrograms={() => {
+                    setSettingsTab("programs");
+                    setSettingsMounted(true);
+                    setSettingsOpen(true);
+                  }}
+                />
+                <div className="workspace-center-main">
+                  <VuMeter
+                    mixer={native ?? mixer}
+                    source={settings.vuSource ?? "master"}
+                    buses={settings.mixerBuses.map((b) => ({ id: b.id, name: b.name }))}
+                    monitorBusId={settings.monitorBusId}
+                    onSelect={(vuSource, busId) =>
+                      updateSettings({ ...settingsRef.current, vuSource, monitorBusId: busId })
+                    }
+                  />
+                  <DeckZone
+                    title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
+                    artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
+                    album={liveRun ? liveRun.meta.album : deckRow?.album ?? ""}
+                    cover={liveRun ? liveRun.meta.cover : deckRow?.cover ?? ""}
+                    current={
+                      liveRun ? Math.max(0, (liveClock - liveRun.startedAt) / 1000) : pos.cur
+                    }
+                    total={liveRun ? (liveRun.endsAt - liveRun.startedAt) / 1000 : pos.total}
+                    spinning={liveRun ? true : !paused && playingRow >= 0}
+                    next={nextRow ? nextRow.title : null}
+                    nextArtist={nextRow?.artist ?? ""}
+                    nextAlbum={nextRow?.album ?? ""}
+                    nextCover={nextRow?.cover ?? ""}
+                    nextDuration={nextRow?.durationSecs ?? 0}
+                    onSeek={seek}
+                    isVideo={
+                      !liveRun &&
+                      !!deckRow &&
+                      isVideoFile(tracks.find((t) => t.id === deckRow.id)?.file ?? "")
+                    }
+                    videoSource={videoSource}
+                  />
+                </div>
+                {chatCfg.enabled && !chatCfg.floating && (
+                  <ChatPanel
+                    config={{
+                      serverUrl: settings.studioCalls.serverUrl,
+                      token: settings.studioCalls.token,
+                      name: chatCfg.name || settings.radioName || "Estudio",
+                      enabled: chatCfg.enabled,
+                    }}
+                    floating={false}
+                    onToggleFloating={() => setChat({ floating: true })}
+                    collapsed={chatCfg.collapsed}
+                    onToggleCollapsed={() => setChat({ collapsed: !chatCfg.collapsed })}
+                  />
+                )}
+              </div>
+            ),
+          },
+          {
+            id: "playlist",
+            title: "Lista de emisión",
+            content: (
+              <PlaylistZone
+                playlists={playlists}
+                activeId={view?.id ?? ""}
+                airId={active?.id ?? ""}
+                rows={viewRows}
+                playingRow={view && active && view.id === active.id ? playingRow : -1}
+                nextRow={
+                  nextPick
+                    ? nextPick.listId === view?.id
+                      ? nextPick.index
+                      : -1
+                    : view && active && view.id === active.id && playingRow >= 0
+                      ? playingRow + 1
+                      : -1
+                }
+                nextElsewhere={
+                  nextPick && nextPick.listId !== view?.id
+                    ? `${pickRows?.[nextPick.index]?.title ?? ""} · ${playlists.find((p) => p.id === nextPick.listId)?.name ?? ""}`
+                    : ""
+                }
+                autoIds={autoIds}
+                estStart={view && active && view.id === active.id ? estStart : []}
+                onSelect={setViewId}
+                onSetNext={setNextRow}
+                onClearNext={() => setNextPick(null)}
+                onGenerate={() => void generateView()}
+                pastVisible={settings.pastVisible ?? 5}
+                leavingRow={
+                  removeAfter &&
+                  view?.id === removeAfter.listId &&
+                  view.id === active?.id &&
+                  playingRow >= 0
+                    ? playingRow
+                    : -1
+                }
+                onNew={() => void newPlaylist()}
+                onRemovePlaylist={() => void removeActivePlaylist()}
+                onClearPlaylist={() => void clearActivePlaylist()}
+                onRename={renamePlaylist}
+                onPlayRow={playViewRow}
+                onReorder={reorderRow}
+                onRemove={removeRow}
+                onDropTrack={dropTrackAt}
+                blocks={blocks}
+                onPreview={previewRow}
+                onEditMeta={editRowMeta}
+                onEditCuts={editRowCuts}
+                onToggleBlock={toggleRowBlock}
+              />
+            ),
+          },
+        ]}
+      />
 
       <PlayerBar
         onOpenMixer={() => void openToolWindow("mixer")}
