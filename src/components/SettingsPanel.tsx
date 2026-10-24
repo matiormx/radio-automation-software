@@ -236,7 +236,7 @@ export function SettingsPanel({
               onClick={() => onTabChange("general")}
             >
               General
-              <span>Identidad, logo y carpeta</span>
+              <span>Identidad (nombre, eslogan y logo) y carpeta</span>
             </button>
             <button
               type="button"
@@ -331,8 +331,8 @@ export function SettingsPanel({
               className={`settings-nav-btn ${tab === "backup" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("backup")}
             >
-              Copia de seguridad
-              <span>Guardar todo o pasarlo a otro PC</span>
+              Copia y actualizaciones
+              <span>Copias de seguridad y versiones nuevas</span>
             </button>
           </nav>
 
@@ -377,7 +377,12 @@ export function SettingsPanel({
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
-            {tab === "backup" && <BackupTab showToast={showToast} />}
+            {tab === "backup" && (
+              <>
+                <UpdateSection showToast={showToast} />
+                <BackupTab showToast={showToast} />
+              </>
+            )}
             {tab === "notify" && <NotificationsTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "api" && <ApiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "calls" && (
@@ -399,7 +404,7 @@ export function SettingsPanel({
 function GeneralTab({
   settings: s,
   blocks,
-  showToast,
+  showToast: _showToast,
   onChange,
   onPickMusicFolder,
   onPickNowPlaying,
@@ -451,7 +456,33 @@ function GeneralTab({
             />
           </label>
         </div>
-      </fieldset>
+        <span className="field-label">Logo</span>
+        <div className="branding-row">
+          <div className="branding-preview">
+            {s.logoPath ? (
+              <img src={trackUrl({ file: s.logoPath })} alt="Logo de la emisora" />
+            ) : (
+              <LogoRadio size={42} />
+            )}
+          </div>
+          <div className="branding-actions">
+            <div className="branding-btns">
+              <button type="button" className="btn btn-sm" onClick={() => void onPickLogo()}>
+                Elegir imagen
+              </button>
+              {s.logoPath && (
+                <button type="button" className="ghost-btn" onClick={() => void onClearLogo()}>
+                  Quitar logo
+                </button>
+              )}
+            </div>
+            <p className="hint">
+              PNG, JPG, WebP o GIF. Se copia a los datos de la app; el original no se toca.
+              Recomendado: cuadrado o horizontal con fondo transparente.
+            </p>
+          </div>
+        </div>
+            </fieldset>
 
       <fieldset className="fieldset">
         <legend>Inicio y automatización</legend>
@@ -623,36 +654,7 @@ function GeneralTab({
         </p>
       </fieldset>
 
-      <UpdateSection showToast={showToast} />
 
-      <fieldset className="fieldset">
-        <legend>Logo</legend>
-        <div className="branding-row">
-          <div className="branding-preview">
-            {s.logoPath ? (
-              <img src={trackUrl({ file: s.logoPath })} alt="Logo de la emisora" />
-            ) : (
-              <LogoRadio size={42} />
-            )}
-          </div>
-          <div className="branding-actions">
-            <div className="branding-btns">
-              <button type="button" className="btn btn-sm" onClick={() => void onPickLogo()}>
-                Elegir imagen
-              </button>
-              {s.logoPath && (
-                <button type="button" className="ghost-btn" onClick={() => void onClearLogo()}>
-                  Quitar logo
-                </button>
-              )}
-            </div>
-            <p className="hint">
-              PNG, JPG, WebP o GIF. Se copia a los datos de la app; el original no se toca.
-              Recomendado: cuadrado o horizontal con fondo transparente.
-            </p>
-          </div>
-        </div>
-      </fieldset>
 
       <fieldset className="fieldset">
         <legend>Carpeta de música</legend>
