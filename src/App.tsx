@@ -493,7 +493,8 @@ export default function App() {
   // Evento de franja AutoDJ activo. Si varios coinciden, manda el que
   // empezó más tarde (y a igualdad, el último de la lista).
   const activeAutoEvent = useMemo(() => {
-    if (!settings.eventsEnabled) return null;
+    // Con el modo LIVE los eventos quedan en pausa.
+    if (!settings.eventsEnabled || settings.liveMode) return null;
     const manual =
       manualAuto && manualAuto.until > nowTick
         ? settings.events.find(
@@ -528,7 +529,7 @@ export default function App() {
       }
     }
     return bestEvent;
-  }, [settings.events, settings.eventsEnabled, manualAuto, blocks, nowTick]);
+  }, [settings.events, settings.eventsEnabled, settings.liveMode, manualAuto, blocks, nowTick]);
   const autoScope = activeAutoEvent
     ? { kind: activeAutoEvent.sourceKind, id: activeAutoEvent.sourceId }
     : null;
@@ -1750,10 +1751,12 @@ export default function App() {
       const now = new Date();
       if (run) {
         const ev = s.events.find((e) => e.id === run.eventId);
-        if (Date.now() >= run.endsAt || (ev && !ev.enabled)) endLiveEvent(true);
+        // LIVE: la emision de internet se corta (el estudio toma la antena).
+        if (s.liveMode) endLiveEvent(false);
+        else if (Date.now() >= run.endsAt || (ev && !ev.enabled)) endLiveEvent(true);
         return;
       }
-      if (!s.eventsEnabled) return;
+      if (!s.eventsEnabled || s.liveMode) return;
       for (const ev of s.events) {
         if (!ev.enabled || ev.kind !== "stream" || !(ev.streamUrl ?? "").trim()) continue;
         const w = streamWindow(ev, now);
@@ -1773,6 +1776,10 @@ export default function App() {
     (event: StationEvent) => {
       if (!settingsRef.current.eventsEnabled) {
         showToast("Los eventos están desactivados globalmente");
+        return;
+      }
+      if (settingsRef.current.liveMode) {
+        showToast("Modo LIVE activo: los eventos están en pausa");
         return;
       }
       if (!event.enabled) {
@@ -2079,12 +2086,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotOn, active?.id, settings.campaigns]);
 
+  // Al quitar el LIVE, lo que debia sonar durante el directo no se recupera.
+  const liveOffAt = useRef(0);
+  const wasLive = useRef(settings.liveMode);
+  useEffect(() => {
+    if (wasLive.current && !settings.liveMode) liveOffAt.current = Date.now();
+    wasLive.current = settings.liveMode;
+  }, [settings.liveMode]);
+
   // Eventos de inserción: a la hora exacta, el sonido queda como siguiente.
   useEffect(() => {
     if (!active) return;
     const check = () => {
       const s = settingsRef.current;
-      if (!s.eventsEnabled) return;
+      if (!s.eventsEnabled || s.liveMode) return;
       const now = new Date();
       const rowsNow = rowsRef.current;
       const playing = playingRowRef.current;
@@ -2109,6 +2124,7 @@ export default function App() {
             delta = now.getTime() - scheduled.getTime();
           }
           if (delta > EVENT_GRACE_MS) continue;
+          if (scheduled.getTime() < liveOffAt.current) continue;
           if (!event.days.includes(dayIso(scheduled))) continue;
           const key = `${dayKey(scheduled)} ${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`;
           if (!latest || scheduled.getTime() > latest.at) {
@@ -2417,7 +2433,7 @@ export default function App() {
       castTitle: nowPlayingTextRef.current ?? "",
       volume: settingsRef.current.masterVolume ?? 1,
       listName: playlistsRef.current.find((pl) => pl.id === activeIdRef.current)?.name ?? "",
-      scheduler: settingsRef.current.eventsEnabled !== false,
+      scheduler: settingsRef.current.eventsEnabled !== false && !settingsRef.current.liveMode,
       encoders: (() => {
         const st = streamStatusRef.current;
         return settingsRef.current.streaming.icecast.map((c) => {
@@ -2701,14 +2717,16 @@ export default function App() {
               Piloto automático</span>
           )}
           <label
-            className={`top-switch ${settings.eventsEnabled ? "switch-on" : ""}`}
+            className={`top-switch ${settings.eventsEnabled && !settings.liveMode ? "switch-on" : ""}`}
             title={
-              settings.eventsEnabled
-                ? "Desactivar temporalmente todos los eventos"
-                : "Activar los eventos programados"
+              settings.liveMode
+                ? "En pausa mientras el modo LIVE está activo; vuelven solos al quitarlo"
+                : settings.eventsEnabled
+                  ? "Desactivar temporalmente todos los eventos"
+                  : "Activar los eventos programados"
             }
           >
-            <span className="top-switch-label">EVENTOS</span>
+            <span className="top-switch-label">{settings.liveMode && settings.eventsEnabled ? "EVENTOS (LIVE)" : "EVENTOS"}</span>
             <span className="switch-track"><span className="switch-knob" /></span>
             <input
               type="checkbox"
