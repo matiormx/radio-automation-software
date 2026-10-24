@@ -1,7 +1,15 @@
-import type { Settings, VideoInput, VideoInputKind, VideoOutput, VideoOutputKind } from "../types";
+import type {
+  NdiProbe,
+  Settings,
+  VideoInput,
+  VideoInputKind,
+  VideoOutput,
+  VideoOutputKind,
+} from "../types";
 import { IconPlus, IconTrash } from "../icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listMonitors, type MonitorInfo } from "../bridge";
+import { pickFfmpegFile, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
 
 interface Props {
@@ -53,7 +61,7 @@ function inputPlaceholder(kind: VideoInputKind): string {
 function outputPlaceholder(kind: VideoOutputKind): string {
   if (kind === "screen") return "0 = monitor principal";
   if (kind === "decklink") return "0, 1…";
-  if (kind === "ndi") return "NOMBRE DE SALIDA NDI";
+  if (kind === "ndi") return "MiRadio Programa";
   return "rtmp://live.restream.io/live/clave";
 }
 
@@ -71,9 +79,51 @@ export function VideoTab({ settings, onChange }: Props) {
   const vs = settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
   const setVs = (patch: Partial<typeof vs>) => onChange({ ...settings, videoScreen: { ...vs, ...patch } });
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  const [ndi, setNdi] = useState<NdiProbe | null>(null);
+  const [ndiBusy, setNdiBusy] = useState(false);
+
   useEffect(() => {
     void listMonitors().then(setMonitors);
   }, []);
+
+  const refreshNdi = useCallback(
+    async (path = v.ndiFfmpegPath ?? "") => {
+      setNdiBusy(true);
+      try {
+        setNdi(await probeNdi(path));
+      } catch (error) {
+        setNdi({
+          available: false,
+          ffmpeg: null,
+          device: null,
+          runtime: false,
+          sources: [],
+          error: String(error),
+        });
+      } finally {
+        setNdiBusy(false);
+      }
+    },
+    [v.ndiFfmpegPath],
+  );
+
+  useEffect(() => {
+    const hasNdi =
+      v.inputs.some((input) => input.kind === "ndi") ||
+      v.outputs.some((output) => output.kind === "ndi") ||
+      (v.ndiFfmpegPath ?? "").trim() !== "";
+    if (hasNdi) void refreshNdi();
+  }, []);
+
+  const pickNdiFfmpeg = async () => {
+    const path = await pickFfmpegFile();
+    if (path) {
+      set({ ndiFfmpegPath: path });
+      void refreshNdi(path);
+    }
+  };
+
+  const ndiSources = ndi?.sources ?? [];
 
   return (
     <>
@@ -153,7 +203,11 @@ export function VideoTab({ settings, onChange }: Props) {
               />
               <select
                 value={ch.kind}
-                onChange={(e) => updateInput(ch.id, { kind: e.target.value as VideoInputKind })}
+                onChange={(e) => {
+                  const kind = e.target.value as VideoInputKind;
+                  updateInput(ch.id, { kind, source: "" });
+                  if (kind === "ndi") void refreshNdi();
+                }}
               >
                 {(Object.keys(INPUT_KIND) as VideoInputKind[]).map((k) => (
                   <option key={k} value={k}>
@@ -178,14 +232,47 @@ export function VideoTab({ settings, onChange }: Props) {
                 <IconTrash size={14} />
               </button>
             </div>
-            <label className="field">
-              <span className="field-label">Fuente</span>
-              <input
-                value={ch.source}
-                placeholder={inputPlaceholder(ch.kind)}
-                onChange={(e) => updateInput(ch.id, { source: e.target.value })}
-              />
-            </label>
+            {ch.kind === "ndi" ? (
+              <div className="ndi-source-row">
+                <label className="field">
+                  <span className="field-label">Fuente NDI</span>
+                  <input
+                    list={`ndi-sources-${ch.id}`}
+                    value={ch.source}
+                    placeholder={
+                      ndiBusy
+                        ? "Buscando fuentes…"
+                        : ndiSources.length > 0
+                          ? "Elige o escribe una fuente…"
+                          : "Nombre de la fuente NDI"
+                    }
+                    onChange={(e) => updateInput(ch.id, { source: e.target.value })}
+                  />
+                  <datalist id={`ndi-sources-${ch.id}`}>
+                    {ndiSources.map((source) => (
+                      <option key={source} value={source} />
+                    ))}
+                  </datalist>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={ndiBusy}
+                  onClick={() => void refreshNdi()}
+                >
+                  {ndiBusy ? "Buscando…" : "Buscar"}
+                </button>
+              </div>
+            ) : (
+              <label className="field">
+                <span className="field-label">Fuente</span>
+                <input
+                  value={ch.source}
+                  placeholder={inputPlaceholder(ch.kind)}
+                  onChange={(e) => updateInput(ch.id, { source: e.target.value })}
+                />
+              </label>
+            )}
           </div>
         ))}
         <button
@@ -213,9 +300,21 @@ export function VideoTab({ settings, onChange }: Props) {
               />
               <select
                 value={ch.kind}
-                onChange={(e) =>
-                  updateOutput(ch.id, { kind: e.target.value as VideoOutputKind })
-                }
+                onChange={(e) => {
+                  const kind = e.target.value as VideoOutputKind;
+                  updateOutput(ch.id, {
+                    kind,
+                    source:
+                      kind === "ndi"
+                        ? ch.name && ch.name !== "Salida"
+                          ? ch.name
+                          : "MiRadio Programa"
+                        : kind === "screen"
+                          ? "0"
+                          : "",
+                  });
+                  if (kind === "ndi") void refreshNdi();
+                }}
               >
                 {(Object.keys(OUTPUT_KIND) as VideoOutputKind[]).map((k) => (
                   <option key={k} value={k}>
@@ -241,7 +340,9 @@ export function VideoTab({ settings, onChange }: Props) {
               </button>
             </div>
             <label className="field">
-              <span className="field-label">Destino</span>
+              <span className="field-label">
+                {ch.kind === "ndi" ? "Nombre de la fuente NDI" : "Destino"}
+              </span>
               <input
                 value={ch.source}
                 placeholder={outputPlaceholder(ch.kind)}
@@ -285,24 +386,31 @@ export function VideoTab({ settings, onChange }: Props) {
                   }
                 />
               </label>
-              <label className="field">
-                <span className="field-label">Bitrate</span>
-                <span className="field-unit">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100000}
-                    value={ch.bitrateKbps}
-                    onChange={(e) =>
-                      updateOutput(ch.id, {
-                        bitrateKbps: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                  />
-                  kbps
-                </span>
-              </label>
+              {ch.kind !== "ndi" && (
+                <label className="field">
+                  <span className="field-label">Bitrate</span>
+                  <span className="field-unit">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100000}
+                      value={ch.bitrateKbps}
+                      onChange={(e) =>
+                        updateOutput(ch.id, {
+                          bitrateKbps: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                    />
+                    kbps
+                  </span>
+                </label>
+              )}
             </div>
+            {ch.kind === "ndi" && (
+              <p className="hint">
+                El audio de esta salida NDI es la mezcla que va a la salida «Streaming» de la mesa.
+              </p>
+            )}
           </div>
         ))}
         <button
@@ -314,9 +422,56 @@ export function VideoTab({ settings, onChange }: Props) {
         </button>
       </fieldset>
 
+      <fieldset className="fieldset">
+        <legend>NDI</legend>
+        <p className="hint">
+          NDI necesita un FFmpeg compilado con NDI y el NDI Runtime instalado. Si el FFmpeg de la
+          app no lo incluye, indica aquí uno que sí lo tenga. Para emitir, activa el motor de vídeo.
+        </p>
+        <div className="ndi-source-row">
+          <label className="field">
+            <span className="field-label">FFmpeg con NDI</span>
+            <input
+              value={v.ndiFfmpegPath ?? ""}
+              placeholder="ffmpeg-ndi.exe (opcional)"
+              onChange={(e) => set({ ndiFfmpegPath: e.target.value })}
+            />
+          </label>
+          <button type="button" className="btn btn-sm" onClick={() => void pickNdiFfmpeg()}>
+            Elegir…
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={ndiBusy}
+            onClick={() => void refreshNdi()}
+          >
+            {ndiBusy ? "Buscando…" : "Buscar fuentes"}
+          </button>
+        </div>
+        <p className="hint">
+          {ndiBusy
+            ? "Comprobando NDI…"
+            : ndi
+              ? ndi.available
+                ? ndi.error
+                  ? `NDI con ${ndi.ffmpeg}, pero no se pudieron listar fuentes: ${ndi.error}`
+                  : `NDI listo con ${ndi.ffmpeg}. ${ndi.sources.length} fuente(s) encontrada(s).`
+                : `NDI no disponible: ${ndi.error ?? "no se encontró un FFmpeg con NDI."}`
+              : "Pulsa «Buscar fuentes» para detectar NDI."}
+        </p>
+        {ndi?.available && ndi.sources.length > 0 && (
+          <ul className="ndi-sources">
+            {ndi.sources.map((source) => (
+              <li key={source}>{source}</li>
+            ))}
+          </ul>
+        )}
+      </fieldset>
+
       <p className="hint">
-        NDI y la salida SDI necesitan el SDK correspondiente. En esta fase NDI queda preparado en
-        los canales y la tarjeta SDI requiere el SDK DeckLink instalado en el equipo.
+        La tarjeta SDI requiere el SDK DeckLink instalado en el equipo. NDI usa FFmpeg con soporte
+        NDI; el audio de NDI sale de la salida «Streaming» de la mesa.
       </p>
     </>
   );

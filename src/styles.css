@@ -2793,6 +2793,20 @@ body {
 .io-format .field-unit { justify-content: flex-start; }
 .io-format .field-unit input { width: 100%; }
 
+.ndi-source-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ndi-source-row .field { flex: 1 1 auto; }
+.ndi-source-row .btn { flex: 0 0 auto; }
+.ndi-sources {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .stream-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

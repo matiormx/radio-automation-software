@@ -9,6 +9,7 @@ import type {
   Settings,
   StreamProbe,
   StreamStatus,
+  NdiProbe,
   Track,
   TrackDetails,
   NotificationRule,
@@ -289,6 +290,17 @@ export function openExternal(url: string): Promise<void> {
 
 export function probeStreaming(): Promise<StreamProbe> {
   return invoke<StreamProbe>("stream_probe");
+}
+
+export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
+  return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
+}
+
+export async function pickFfmpegFile(): Promise<string | null> {
+  return openDialog({
+    multiple: false,
+    title: "FFmpeg con soporte NDI",
+  });
 }
 
 export function getStreamStatus(): Promise<StreamStatus> {

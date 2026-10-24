@@ -67,6 +67,17 @@ pub struct StreamProbe {
     pub error: Option<String>,
 }
 
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NdiProbe {
+    pub available: bool,
+    pub ffmpeg: Option<String>,
+    pub device: Option<String>,
+    pub runtime: bool,
+    pub sources: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamOutputStatus {
@@ -116,6 +127,17 @@ pub fn stream_probe(app: AppHandle) -> StreamProbe {
 }
 
 #[tauri::command]
+pub async fn ndi_probe(app: AppHandle, ffmpeg_path: String) -> NdiProbe {
+    tauri::async_runtime::spawn_blocking(move || probe_ndi(&app, &ffmpeg_path))
+        .await
+        .unwrap_or_else(|error| NdiProbe {
+            available: false,
+            error: Some(format!("No se pudo comprobar NDI: {error}")),
+            ..NdiProbe::default()
+        })
+}
+
+#[tauri::command]
 pub fn stream_status(app: AppHandle, state: State<StreamingState>) -> StreamStatus {
     let mut inner = match state.inner.lock() {
         Ok(inner) => inner,
@@ -133,10 +155,16 @@ pub fn stream_start(
     state: State<StreamingState>,
     settings: Settings,
 ) -> Result<StreamStatus, String> {
-    let ffmpeg = find_ffmpeg(&app).ok_or_else(|| {
-        "No se encontró FFmpeg. Coloca ffmpeg.exe junto a MiRadio.exe o instálalo en PATH."
-            .to_string()
-    })?;
+    let ffmpeg = find_ffmpeg(&app)
+        .or_else(|| {
+            find_ndi_ffmpeg(&app, &settings.video.ndi_ffmpeg_path)
+                .ok()
+                .map(|(path, _)| path)
+        })
+        .ok_or_else(|| {
+            "No se encontró FFmpeg. Coloca ffmpeg.exe junto a MiRadio.exe o instálalo en PATH."
+                .to_string()
+        })?;
 
     let mut inner = state
         .inner
@@ -149,6 +177,37 @@ pub fn stream_start(
     let shared = state.inner.clone();
     let mut errors: Vec<String> = Vec::new();
     let mut requested = 0usize;
+
+    let needs_ndi = (settings.video.enabled
+        && settings
+            .video
+            .outputs
+            .iter()
+            .any(|o| o.enabled && o.kind == "ndi"))
+        || settings
+            .video
+            .inputs
+            .iter()
+            .any(|i| i.enabled && i.kind == "ndi");
+    let ndi = if needs_ndi {
+        find_ndi_ffmpeg(&app, &settings.video.ndi_ffmpeg_path).ok()
+    } else {
+        None
+    };
+    let ndi_device = ndi.as_ref().map(|(_, device)| device.as_str());
+    let ndi_ffmpeg = ndi.as_ref().map(|(path, _)| path.as_path());
+    let selected_input_is_ndi = settings
+        .video
+        .inputs
+        .iter()
+        .find(|input| input.enabled && !input.source.trim().is_empty())
+        .map(|input| input.kind == "ndi")
+        .unwrap_or(false);
+    let video_ffmpeg = if selected_input_is_ndi {
+        ndi_ffmpeg.unwrap_or(&ffmpeg)
+    } else {
+        &ffmpeg
+    };
 
     for stream in settings.streaming.icecast.iter().filter(|s| s.enabled) {
         requested += 1;
@@ -187,12 +246,13 @@ pub fn stream_start(
             settings.streaming.rtmp.fps,
             settings.streaming.rtmp.bitrate_kbps,
             settings.streaming.rtmp.keyframe_secs,
+            ndi_device,
         ) {
             Ok(args) => {
                 if let Err(error) = spawn_process(
                     &mut inner,
                     &shared,
-                    &ffmpeg,
+                    video_ffmpeg,
                     args,
                     "rtmp".to_string(),
                     "RTMP".to_string(),
@@ -215,7 +275,9 @@ pub fn stream_start(
                 output.name.clone()
             };
             let args = match output.kind.as_str() {
-                "screen" | "decklink" => video_output_args(output, &settings.video),
+                "screen" | "decklink" => {
+                    video_output_args(output, &settings.video, ndi_device)
+                }
                 "rtmp" => rtmp_args(
                     &settings.video,
                     &output.source,
@@ -224,17 +286,48 @@ pub fn stream_start(
                     output.fps,
                     output.bitrate_kbps,
                     2,
+                    ndi_device,
                 ),
-                "ndi" => Err("La salida NDI se activará en la segunda fase".to_string()),
+                "ndi" => match ndi.as_ref() {
+                    Some((_, device)) => {
+                        let source = if output.source.trim().is_empty() {
+                            if output.name.trim().is_empty() {
+                                "MiRadio"
+                            } else {
+                                output.name.trim()
+                            }
+                        } else {
+                            output.source.trim()
+                        };
+                        ndi_args(
+                            &settings.video,
+                            source,
+                            output.width,
+                            output.height,
+                            output.fps,
+                            device,
+                            ndi_device,
+                        )
+                    }
+                    None => Err(
+                        "NDI no disponible: indica un FFmpeg con soporte NDI en Ajustes > Vídeo > NDI"
+                            .to_string(),
+                    ),
+                },
                 other => Err(format!("Tipo de salida de vídeo desconocido: {other}")),
             };
             match args {
                 Ok(args) => {
-                    let wants_audio = output.kind == "rtmp";
+                    let wants_audio = output.kind == "rtmp" || output.kind == "ndi";
+                    let process_ffmpeg = if output.kind == "ndi" {
+                        ndi_ffmpeg.unwrap_or(&ffmpeg)
+                    } else {
+                        video_ffmpeg
+                    };
                     if let Err(error) = spawn_process(
                         &mut inner,
                         &shared,
-                        &ffmpeg,
+                        process_ffmpeg,
                         args,
                         format!("video:{}", output.id),
                         name,
@@ -505,6 +598,188 @@ fn probe_ffmpeg(path: &Path) -> Result<String, String> {
         .to_string())
 }
 
+fn ndi_ffmpeg_name() -> &'static str {
+    if cfg!(windows) {
+        "ffmpeg-ndi.exe"
+    } else {
+        "ffmpeg-ndi"
+    }
+}
+
+fn add_candidate(out: &mut Vec<PathBuf>, path: PathBuf) {
+    if !out.contains(&path) {
+        out.push(path);
+    }
+}
+
+fn ndi_ffmpeg_candidates(app: &AppHandle, custom: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let custom = custom.trim();
+    if !custom.is_empty() {
+        add_candidate(&mut out, PathBuf::from(custom));
+    }
+    for var in ["MIRADIO_NDI_FFMPEG", "MIRADIO_FFMPEG"] {
+        if let Ok(raw) = std::env::var(var) {
+            let raw = raw.trim();
+            if !raw.is_empty() {
+                add_candidate(&mut out, PathBuf::from(raw));
+            }
+        }
+    }
+    if let Ok(dir) = app.path().resource_dir() {
+        add_candidate(&mut out, dir.join(ndi_ffmpeg_name()));
+        add_candidate(&mut out, dir.join("bin").join(ndi_ffmpeg_name()));
+        add_candidate(&mut out, dir.join(ffmpeg_name()));
+        add_candidate(&mut out, dir.join("bin").join(ffmpeg_name()));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            add_candidate(&mut out, dir.join(ndi_ffmpeg_name()));
+            add_candidate(&mut out, dir.join("bin").join(ndi_ffmpeg_name()));
+            add_candidate(&mut out, dir.join(ffmpeg_name()));
+            add_candidate(&mut out, dir.join("bin").join(ffmpeg_name()));
+        }
+    }
+    add_candidate(&mut out, PathBuf::from(ndi_ffmpeg_name()));
+    add_candidate(&mut out, PathBuf::from(ffmpeg_name()));
+    out
+}
+
+fn ndi_device(path: &Path) -> Result<String, String> {
+    let mut command = Command::new(path);
+    command.args(["-hide_banner", "-devices"]);
+    configure_no_window(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("No se pudo ejecutar {}: {error}", path.display()))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if text.contains("libndi_newtek") {
+        Ok("libndi_newtek".to_string())
+    } else if text.contains("libndi") {
+        Ok("libndi".to_string())
+    } else {
+        Err("Este FFmpeg no incluye NDI".to_string())
+    }
+}
+
+fn find_ndi_ffmpeg(app: &AppHandle, custom: &str) -> Result<(PathBuf, String), String> {
+    for candidate in ndi_ffmpeg_candidates(app, custom) {
+        let is_path = candidate.components().count() > 1;
+        if is_path && !candidate.is_file() {
+            continue;
+        }
+        if let Ok(device) = ndi_device(&candidate) {
+            return Ok((candidate, device));
+        }
+    }
+    Err(
+        "No se encontró un FFmpeg con soporte NDI. Instala un FFmpeg compilado con NDI (libndi) y el NDI Runtime, o indica su ruta en Ajustes > Vídeo > NDI."
+            .to_string(),
+    )
+}
+
+fn probe_ndi(app: &AppHandle, custom: &str) -> NdiProbe {
+    match find_ndi_ffmpeg(app, custom) {
+        Ok((ffmpeg, device)) => {
+            let (sources, error) = match ndi_list_sources(&ffmpeg, &device) {
+                Ok(sources) => (sources, None),
+                Err(error) => (Vec::new(), Some(error)),
+            };
+            NdiProbe {
+                available: true,
+                ffmpeg: Some(ffmpeg.display().to_string()),
+                device: Some(device),
+                runtime: true,
+                sources,
+                error,
+            }
+        }
+        Err(error) => NdiProbe {
+            available: false,
+            error: Some(error),
+            ..NdiProbe::default()
+        },
+    }
+}
+
+fn ndi_list_sources(ffmpeg: &Path, device: &str) -> Result<Vec<String>, String> {
+    let mut command = Command::new(ffmpeg);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-f",
+        device,
+        "-find_sources",
+        "1",
+        "-i",
+        "dummy",
+    ]);
+    configure_no_window(&mut command);
+    let output = command
+        .output()
+        .map_err(|error| format!("No se pudo buscar fuentes NDI: {error}"))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let sources = parse_ndi_sources(&text);
+    if sources.is_empty() && !output.status.success() {
+        let detail = text
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("FFmpeg no pudo buscar fuentes NDI");
+        return Err(sanitize_error(detail));
+    }
+    Ok(sources)
+}
+
+fn parse_ndi_sources(output: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        let Some(start) = line.find('\'') else {
+            continue;
+        };
+        let rest = &line[start + 1..];
+        let Some(end) = rest.find('\'') else {
+            continue;
+        };
+        let name = rest[..end].trim();
+        if !name.is_empty() && !out.iter().any(|s| s == name) {
+            out.push(name.to_string());
+        }
+    }
+    if out.is_empty() {
+        let mut after_found = false;
+        for line in output.lines() {
+            let line = line.trim();
+            if line.contains("NDI sources") || line.contains("NDI source") {
+                after_found = true;
+                continue;
+            }
+            if !after_found || line.is_empty() || line.starts_with('[') {
+                continue;
+            }
+            let lower = line.to_ascii_lowercase();
+            if lower.contains("error") || lower.contains("failed") {
+                continue;
+            }
+            if !out.iter().any(|s| s == line) {
+                out.push(line.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn icecast_args(stream: &IcecastStream) -> Result<Vec<String>, String> {
     let codec = stream.codec.to_ascii_lowercase();
     if codec != "flac" && codec != "aac" {
@@ -573,6 +848,7 @@ fn rtmp_args(
     fps: u32,
     bitrate_kbps: u32,
     keyframe_secs: u32,
+    ndi_device: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -587,7 +863,7 @@ fn rtmp_args(
     }
     let input = pick_video_input(video)?;
     let mut args = base_input_args();
-    args.extend(video_input_args(input)?);
+    args.extend(video_input_args(input, ndi_device)?);
     args.extend([arg("-map"), arg("1:v:0")]);
     args.extend([arg("-map"), arg("0:a:0?")]);
 
@@ -621,12 +897,54 @@ fn rtmp_args(
     Ok(args)
 }
 
-fn video_output_args(output: &VideoOutput, video: &VideoSettings) -> Result<Vec<String>, String> {
+fn ndi_args(
+    video: &VideoSettings,
+    name: &str,
+    width: u32,
+    height: u32,
+    fps: u32,
+    device: &str,
+    ndi_device: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("falta el nombre de la salida NDI".to_string());
+    }
+    if !video.enabled {
+        return Err("activa el motor de vídeo para emitir por NDI".to_string());
+    }
+    let input = pick_video_input(video)?;
+    let mut args = base_input_args();
+    args.extend(video_input_args(input, ndi_device)?);
+    args.extend([arg("-map"), arg("1:v:0")]);
+    args.extend([arg("-map"), arg("0:a:0?")]);
+
+    let width = even_size(width, 16);
+    let height = even_size(height, 16);
+    let fps = fps.clamp(1, 120);
+
+    args.extend([arg("-c:v"), arg("wrapped_avframe")]);
+    args.extend([arg("-pix_fmt"), arg("uyvy422")]);
+    args.extend([arg("-s"), format!("{width}x{height}")]);
+    args.extend([arg("-r"), fps.to_string()]);
+    args.extend([arg("-c:a"), arg("pcm_s16le")]);
+    args.extend([arg("-ar"), arg("48000")]);
+    args.extend([arg("-ac"), arg("2")]);
+    args.extend([arg("-f"), arg(device)]);
+    args.push(name.to_string());
+    Ok(args)
+}
+
+fn video_output_args(
+    output: &VideoOutput,
+    video: &VideoSettings,
+    ndi_device: Option<&str>,
+) -> Result<Vec<String>, String> {
     if !video.enabled {
         return Err("activa el motor de vídeo".to_string());
     }
     let input = pick_video_input(video)?;
-    let mut args = video_input_args(input)?;
+    let mut args = video_input_args(input, ndi_device)?;
     let width = even_size(output.width, 16);
     let height = even_size(output.height, 16);
     let fps = output.fps.clamp(1, 120);
@@ -664,7 +982,7 @@ fn pick_video_input(video: &VideoSettings) -> Result<&VideoInput, String> {
         .ok_or_else(|| "no hay una entrada de vídeo activa".to_string())
 }
 
-fn video_input_args(input: &VideoInput) -> Result<Vec<String>, String> {
+fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<String>, String> {
     let source = input.source.trim();
     if source.is_empty() {
         return Err("la entrada de vídeo no tiene fuente".to_string());
@@ -677,11 +995,19 @@ fn video_input_args(input: &VideoInput) -> Result<Vec<String>, String> {
             arg("-i"),
             source.to_string(),
         ]),
-        "rtmp" => Ok(vec![
-            arg("-i"),
-            source.to_string(),
-        ]),
-        "ndi" => Err("la entrada NDI se activará en la segunda fase".to_string()),
+        "rtmp" => Ok(vec![arg("-i"), source.to_string()]),
+        "ndi" => {
+            let device = ndi_device.ok_or_else(|| {
+                "NDI no disponible: indica un FFmpeg con soporte NDI en Ajustes > Vídeo > NDI"
+                    .to_string()
+            })?;
+            Ok(vec![
+                arg("-f"),
+                arg(device),
+                arg("-i"),
+                source.to_string(),
+            ])
+        }
         other => Err(format!("tipo de entrada de vídeo desconocido: {other}")),
     }
 }
@@ -947,6 +1273,37 @@ mod tests {
         let key = sanitize_error("Error opening output rtmp://live.restream.io/live/clave-secreta");
         assert!(!key.contains("clave-secreta"));
         assert!(key.contains("rtmp://live.restream.io/***"));
+    }
+
+    #[test]
+    fn parse_ndi_sources_reads_quoted_names() {
+        let output = "[libndi_newtek @ 0x1] NDI sources:\n\
+            [libndi_newtek @ 0x1] 'CAMARA A (Programa)'\n\
+            [libndi_newtek @ 0x1] 'OBS PC'\n";
+        assert_eq!(
+            parse_ndi_sources(output),
+            vec!["CAMARA A (Programa)", "OBS PC"]
+        );
+    }
+
+    #[test]
+    fn parse_ndi_sources_falls_back_to_plain_lines() {
+        let output = "NDI sources:\nCAMARA A\nCAMARA B\n";
+        assert_eq!(parse_ndi_sources(output), vec!["CAMARA A", "CAMARA B"]);
+    }
+
+    #[test]
+    fn ndi_input_requires_device() {
+        let input = VideoInput {
+            id: "i1".to_string(),
+            name: "NDI".to_string(),
+            kind: "ndi".to_string(),
+            source: "CAMARA A".to_string(),
+            enabled: true,
+        };
+        assert!(video_input_args(&input, None).is_err());
+        let args = video_input_args(&input, Some("libndi_newtek")).expect("argumentos");
+        assert!(args.windows(2).any(|pair| pair == ["-f", "libndi_newtek"]));
     }
 }
 

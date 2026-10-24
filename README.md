@@ -79,11 +79,11 @@ biblioteca y reglas de rotación).
   del equipo o la predeterminada. El **VU vertical** entre la biblioteca y
   la lista muestra el nivel de la salida general o del bus elegido en
   Sonido.
-- **Vídeo y streaming**: canales de entrada (archivo, RTMP o NDI) y de
-  salida (pantalla/HDMI, tarjeta SDI, NDI o RTMP), con formato, FPS y
-  bitrate por salida. El motor FFmpeg emite audio por Icecast en FLAC o
-  AAC y vídeo por RTMP; se inicia y detiene con el botón **EMITIR** de la
-  cabecera.
+- **Vídeo y streaming**: canales de entrada (archivo, RTMP o NDI con
+  descubrimiento de fuentes) y de salida (pantalla/HDMI, tarjeta SDI, NDI o
+  RTMP), con formato y FPS por salida (y bitrate en RTMP). El motor FFmpeg
+  emite audio por Icecast en FLAC o AAC y vídeo por RTMP o NDI; se inicia y
+  detiene con el botón **EMITIR** de la cabecera.
 - **Arranque y silencio**: en Ajustes > General se puede reproducir la
   lista automáticamente al abrir la app y activar la detección de
   silencio, que salta a la siguiente canción (o reanuda la reproducción)
@@ -187,10 +187,10 @@ campaña sigue activa hasta que se desactive o se le ponga una fecha.
 ## Vídeo y streaming
 
 En **Ajustes > Vídeo** se definen los canales de entrada y salida. Las
-entradas pueden ser archivos de vídeo, URLs RTMP o fuentes NDI; las salidas,
-una pantalla/HDMI, una tarjeta SDI, NDI o una URL RTMP. Cada salida guarda su
-resolución, FPS y bitrate. La mezcla inicial hace cortes entre la fuente
-activa.
+entradas pueden ser archivos de vídeo, URLs RTMP o fuentes NDI descubiertas
+en la red; las salidas, una pantalla/HDMI, una tarjeta SDI, una fuente NDI o
+una URL RTMP. Cada salida guarda su resolución y FPS (y bitrate en RTMP). La
+mezcla inicial hace cortes entre la fuente activa.
 
 En **Ajustes > Streaming** se configuran una o varias emisiones de audio por
 Icecast (FLAC sin pérdida o AAC con bitrate) con servidor, puerto, montaje,
@@ -202,8 +202,9 @@ El botón **EMITIR** de la cabecera arranca y detiene el motor. La captura de
 audio toma el mismo bus que el VU de salida en PCM s16le a 48 kHz estéreo;
 FFmpeg lo transcodifica a FLAC/AAC para Icecast y a AAC para RTMP. Las
 salidas RTMP usan la primera entrada de vídeo activa y hacen cortes, sin
-mezcla. La salida a pantalla/HDMI usa la salida SDL de FFmpeg y la salida SDI
-requiere una build de FFmpeg con DeckLink y el SDK instalado.
+mezcla. Las salidas NDI llevan ese mismo audio de programa en PCM y el vídeo
+sin comprimir. La salida a pantalla/HDMI usa la salida SDL de FFmpeg y la
+salida SDI requiere una build de FFmpeg con DeckLink y el SDK instalado.
 
 MiRadio busca **FFmpeg** en este orden:
 
@@ -215,7 +216,15 @@ El instalador copia `ffmpeg.exe` si lo incluyes en la misma carpeta que
 `instalar.cmd`. Sin FFmpeg, el resto de la app funciona; al pulsar EMITIR se
 muestra el error de que no se encontró.
 
-NDI queda preparado en los canales para una segunda fase.
+Para **NDI** hace falta un FFmpeg compilado con NDI (`libndi` o
+`libndi_newtek`) y el NDI Runtime instalado. MiRadio lo busca en
+`MIRADIO_NDI_FFMPEG`, como `ffmpeg-ndi.exe` junto a `MiRadio.exe` o en
+`bin\ffmpeg-ndi.exe`, y en la ruta indicada en **Ajustes > Vídeo > NDI**. El
+botón **Buscar fuentes** lista las fuentes NDI de la red y las entradas de
+tipo NDI las ofrecen como sugerencias (también se puede escribir el nombre a
+mano). Las salidas NDI emiten con el nombre
+indicado, sin comprimir (`wrapped_avframe`, `uyvy422`), así que conviene
+ajustar resolución y FPS al ancho de banda de la red.
 
 ## Eventos de programación
 

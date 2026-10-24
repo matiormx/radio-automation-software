@@ -99,6 +99,7 @@ pub fn run() {
             settings::load_session,
             settings::auto_pick,
             streaming::stream_probe,
+            streaming::ndi_probe,
             streaming::stream_status,
             streaming::stream_start,
             streaming::stream_stop,

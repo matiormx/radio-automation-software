@@ -410,6 +410,8 @@ export interface VideoSettings {
   enabled: boolean;
   inputs: VideoInput[];
   outputs: VideoOutput[];
+  /** FFmpeg compilado con NDI; vacío = usar el FFmpeg normal */
+  ndiFfmpegPath?: string;
 }
 
 /** Ventana de video de la emision (los videos de la lista, en pantalla). */
@@ -486,6 +488,15 @@ export interface StreamProbe {
   available: boolean;
   path: string | null;
   version: string | null;
+  error: string | null;
+}
+
+export interface NdiProbe {
+  available: boolean;
+  ffmpeg: string | null;
+  device: string | null;
+  runtime: boolean;
+  sources: string[];
   error: string | null;
 }
 
@@ -703,6 +714,7 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: false,
     inputs: [],
     outputs: [],
+    ndiFfmpegPath: "",
   },
   streaming: {
     icecast: [],

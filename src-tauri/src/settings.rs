@@ -598,6 +598,8 @@ pub struct VideoSettings {
     pub enabled: bool,
     pub inputs: Vec<VideoInput>,
     pub outputs: Vec<VideoOutput>,
+    /// FFmpeg compilado con NDI; vacio = usar el FFmpeg normal.
+    pub ndi_ffmpeg_path: String,
 }
 
 impl Default for VideoSettings {
@@ -606,6 +608,7 @@ impl Default for VideoSettings {
             enabled: false,
             inputs: Vec::new(),
             outputs: Vec::new(),
+            ndi_ffmpeg_path: String::new(),
         }
     }
 }
