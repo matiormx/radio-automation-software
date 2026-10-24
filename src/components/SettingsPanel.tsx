@@ -237,6 +237,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "general" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("general")}
+              title="Identidad (nombre, eslogan y logo) y carpeta"
             >
               General
               <span>Identidad (nombre, eslogan y logo) y carpeta</span>
@@ -245,6 +246,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "sound" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("sound")}
+              title="Mesa de mezclas y salidas"
             >
               Sonido
               <span>Mesa de mezclas y salidas</span>
@@ -253,6 +255,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "ai" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("ai")}
+              title="Metadatos con Ollama local"
             >
               IA
               <span>Metadatos con Ollama local</span>
@@ -261,6 +264,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "video" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("video")}
+              title="Entradas, salidas y mezcla"
             >
               Vídeo
               <span>Entradas, salidas y mezcla</span>
@@ -269,6 +273,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "autodj" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("autodj")}
+              title="Rotación y cola automática"
             >
               AutoDJ
               <span>Rotación y cola automática</span>
@@ -277,6 +282,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "campaigns" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("campaigns")}
+              title="Anuncios y jingles"
             >
               Campañas
               <span>Anuncios y jingles</span>
@@ -285,6 +291,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "events" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("events")}
+              title="Franjas y sonidos programados"
             >
               Eventos
               <span>Franjas y sonidos programados</span>
@@ -293,6 +300,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "programs" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("programs")}
+              title="Títulos y portadas en directo"
             >
               Programas
               <span>Títulos y portadas en directo</span>
@@ -301,6 +309,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "streaming" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("streaming")}
+              title="Icecast, FLAC, AAC y RTMP"
             >
               Streaming
               <span>Icecast, FLAC, AAC y RTMP</span>
@@ -309,6 +318,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "calls" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("calls")}
+              title="Oyentes al aire desde NGRADIO"
             >
               Llamadas
               <span>Oyentes al aire desde NGRADIO</span>
@@ -317,6 +327,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "api" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("api")}
+              title="Datos para ngradio.es (como RadioBOSS)"
             >
               API
               <span>Datos para ngradio.es (como RadioBOSS)</span>
@@ -325,6 +336,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "notify" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("notify")}
+              title="Avisos GET/POST por eventos"
             >
               Notificaciones
               <span>Avisos GET/POST por eventos</span>
@@ -333,6 +345,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "backup" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("backup")}
+              title="Copias de seguridad y versiones nuevas"
             >
               Copia y actualizaciones
               <span>Copias de seguridad y versiones nuevas</span>
