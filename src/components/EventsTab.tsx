@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DEFAULT_AIR_MINS, DEFAULT_EVENT_DAYS, DEFAULT_SLOT_DAYS, isRandom, randomPool } from "../eventPick";
 import type {
   Block,
   Settings,
@@ -10,6 +11,7 @@ import type {
 } from "../types";
 import { effectiveDuration } from "../types";
 import { IconPlus, IconTrash } from "../icons";
+import { TimeWizard } from "./TimeWizard";
 import { pickImageFile, trackUrl } from "../api";
 
 const DAYS: { value: number; label: string; long: string }[] = [
@@ -62,6 +64,19 @@ function parseHM(value: string): number | null {
   return h * 60 + m;
 }
 
+/** Ordena, quita repetidas y deja al final las que aun no son validas. */
+function normalizeTimes(values: string[]): string[] {
+  const valid = Array.from(new Set(values.map((v) => v.trim()).filter((v) => parseHM(v) !== null)));
+  valid.sort((a, b) => (parseHM(a) ?? 0) - (parseHM(b) ?? 0));
+  return [...valid, ...values.filter((v) => parseHM(v.trim()) === null)];
+}
+
+/** "08:15, 08:45, 09:15 … (+5)" para la tarjeta del evento. */
+function timesText(event: StationEvent, max = 8): string {
+  const all = normalizeTimes(eventTimes(event));
+  return all.length <= max ? all.join(", ") : `${all.slice(0, max).join(", ")} … (+${all.length - max})`;
+}
+
 /** Horas configuradas de un evento sin fin (auto/insert). */
 function eventTimes(event: StationEvent): string[] {
   const times = (event.times ?? []).filter((value) => parseHM(value) !== null);
@@ -85,7 +100,7 @@ function sourceLabel(event: StationEvent, blocks: Block[]): string {
 function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track>): string[] {
   if (event.kind === "auto") {
     return [
-      `Desde las ${eventTimes(event).join(", ")}`,
+      `Desde las ${timesText(event)}`,
       daysText(event),
       `Fuente: ${sourceLabel(event, blocks)}`,
     ];
@@ -101,10 +116,15 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
     ];
   }
   const track = byId.get(event.trackId);
+  const random = isRandom(event);
   return [
-    `A las ${eventTimes(event).join(", ")}`,
+    `A las ${timesText(event)}`,
     daysText(event),
-    track ? `Biblioteca: ${track.title} · ${track.artist}` : "Pista no disponible",
+    random
+      ? `Aleatoria: ${sourceLabel(event, blocks)} · ${randomPool(event, Array.from(byId.values())).length} pistas`
+      : track
+        ? `Biblioteca: ${track.title} · ${track.artist}`
+        : "Pista no disponible",
     event.maxWaitSecs > 0
       ? `Máx. ${event.maxWaitSecs} s · ${event.onTimeout === "force" ? "forzar" : "cancelar"}`
       : event.onTimeout === "force"
@@ -124,6 +144,10 @@ function newEvent(): StationEvent {
     sourceKind: "library",
     sourceId: "a",
     trackId: "",
+    trackMode: "fixed",
+    noRepeatSlotDays: DEFAULT_SLOT_DAYS,
+    noRepeatEventDays: DEFAULT_EVENT_DAYS,
+    noRepeatAirMins: DEFAULT_AIR_MINS,
     maxWaitSecs: 60,
     onTimeout: "cancel",
     lastFired: "",
@@ -234,6 +258,19 @@ export function EventsTab({
           setError("Elige la Biblioteca A o la B.");
           return;
         }
+      } else if (draft.trackMode === "random") {
+        if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
+          setError("Elige el bloque del que saldrán las pistas.");
+          return;
+        }
+        if (randomPool(draft, tracks).length === 0) {
+          setError("La fuente elegida no tiene pistas disponibles.");
+          return;
+        }
+        if (draft.maxWaitSecs < 0 || draft.maxWaitSecs > 3600) {
+          setError("La espera máxima debe estar entre 0 y 3600 segundos.");
+          return;
+        }
       } else {
         if (!byId.has(draft.trackId)) {
           setError("Elige el sonido que se insertará.");
@@ -252,7 +289,14 @@ export function EventsTab({
       times: draft.kind === "stream" ? [] : times,
       start: draft.kind === "stream" ? draft.start : times[0],
     };
-    const exists = settings.events.some((event) => event.id === clean.id);
+    const current = settings.events.find((event) => event.id === clean.id);
+    if (current) {
+      // El planificador sigue anotando mientras se edita: se conserva lo mas reciente
+      // (salvo que el historial se haya borrado a proposito).
+      clean.lastFired = current.lastFired;
+      if ((clean.pickLog?.length ?? 0) >= (current.pickLog?.length ?? 0)) clean.pickLog = current.pickLog;
+    }
+    const exists = !!current;
     const events = exists
       ? settings.events.map((event) => (event.id === clean.id ? clean : event))
       : [...settings.events, clean];
@@ -337,12 +381,15 @@ export function EventsTab({
       ) : (
         <div className="camp-list">
           {settings.events.map((event) => {
+            const random = isRandom(event);
             const missingTrack =
-              event.kind === "insert" && !!event.trackId && !byId.has(event.trackId);
+              event.kind === "insert" && !random && !!event.trackId && !byId.has(event.trackId);
             const missingBlock =
-              event.kind === "auto" &&
+              (event.kind === "auto" || random) &&
               event.sourceKind === "block" &&
               !blocks.some((b) => b.id === event.sourceId);
+            const emptyPool =
+              random && !missingBlock && randomPool(event, tracks).length === 0;
             return (
               <div key={event.id} className={`camp-card ${event.enabled ? "" : "camp-off"}`}>
                 <div className="camp-card-main">
@@ -357,9 +404,13 @@ export function EventsTab({
                       <span key={i}>{text}</span>
                     ))}
                   </div>
-                  {(missingTrack || missingBlock) && (
+                  {(missingTrack || missingBlock || emptyPool) && (
                     <div className="camp-card-last">
-                      {missingTrack ? "La pista ya no está en la biblioteca." : "El bloque ya no existe."}
+                      {missingTrack
+                        ? "La pista ya no está en la biblioteca."
+                        : emptyPool
+                          ? "La fuente no tiene pistas disponibles."
+                          : "El bloque ya no existe."}
                     </div>
                   )}
                   {event.lastFired && (
@@ -380,14 +431,14 @@ export function EventsTab({
                     className="btn btn-sm btn-accent"
                     onClick={() => onLaunchEvent(event)}
                     disabled={
-                      !settings.eventsEnabled || !event.enabled || missingTrack || missingBlock
+                      !settings.eventsEnabled || !event.enabled || missingTrack || missingBlock || emptyPool
                     }
                     title={
                       !settings.eventsEnabled
                         ? "Activa los eventos globalmente para poder lanzarlo"
                         : !event.enabled
                           ? "Activa el evento para poder lanzarlo"
-                          : missingTrack || missingBlock
+                          : missingTrack || missingBlock || emptyPool
                             ? "Completa la fuente del evento para poder lanzarlo"
                             : "Lanzar el evento ahora"
                     }
@@ -443,6 +494,10 @@ function EventEditor({
   const q = search.trim().toLowerCase();
   const selected = byId.get(draft.trackId);
   const times = draft.times?.length ? draft.times : [draft.start];
+  const [wizard, setWizard] = useState(false);
+  const random = isRandom(draft);
+  const allTracks = useMemo(() => Array.from(byId.values()), [byId]);
+  const pool = useMemo(() => (random ? randomPool(draft, allTracks).length : 0), [random, draft, allTracks]);
   const options = useMemo(
     () =>
       Array.from(byId.values())
@@ -473,8 +528,19 @@ function EventEditor({
     if (draft.kind === "auto") setKind("insert");
   };
 
-  const setSource = (value: "track" | "url") => {
+  const setSource = (value: "track" | "random" | "url") => {
     const first = (draft.times?.[0] ?? draft.start) || "06:00";
+    if (value === "random") {
+      set({
+        kind: "insert",
+        trackMode: "random",
+        times: draft.times?.length ? draft.times : [draft.start],
+        ...(draft.sourceKind === "block" || draft.sourceId === "a" || draft.sourceId === "b"
+          ? {}
+          : { sourceKind: "library" as const, sourceId: "a" }),
+      });
+      return;
+    }
     if (value === "url") {
       set({
         kind: "stream",
@@ -485,12 +551,17 @@ function EventEditor({
       });
       return;
     }
-    set({ kind: "insert", times: draft.times?.length ? draft.times : [draft.start] });
+    set({ kind: "insert", trackMode: "fixed", times: draft.times?.length ? draft.times : [draft.start] });
   };
 
   const setTimes = (next: string[]) => {
     const values = next.length > 0 ? next : [""];
     set({ times: values, start: values[0] ?? "" });
+  };
+  /** Al soltar un campo de hora (o al anadir) los horarios se ordenan solos. */
+  const commitTimes = (list: string[] = times) => {
+    const sorted = normalizeTimes(list);
+    if (sorted.join("|") !== list.join("|") || list !== times) setTimes(sorted);
   };
 
   const setSourceKind = (sourceKind: StationEventSource) => {
@@ -503,6 +574,17 @@ function EventEditor({
 
   return (
     <div className="camp-editor">
+      {wizard && (
+        <TimeWizard
+          existing={times.filter((t) => parseHM(t) !== null)}
+          onClose={() => setWizard(false)}
+          onApply={(added, mode) => {
+            const base = mode === "add" ? times.filter((t) => parseHM(t) !== null) : [];
+            setTimes(normalizeTimes([...base, ...added]));
+            setWizard(false);
+          }}
+        />
+      )}
       <div className="camp-editor-head">
         <button type="button" className="ghost-btn" onClick={onCancel}>
           ← Volver
@@ -538,10 +620,11 @@ function EventEditor({
           <label className="field">
             <span className="field-label">Fuente del audio</span>
             <select
-              value={draft.kind === "stream" ? "url" : "track"}
-              onChange={(e) => setSource(e.target.value as "track" | "url")}
+              value={draft.kind === "stream" ? "url" : random ? "random" : "track"}
+              onChange={(e) => setSource(e.target.value as "track" | "random" | "url")}
             >
               <option value="track">Pista de la biblioteca</option>
+              <option value="random">Pista aleatoria</option>
               <option value="url">Audio de internet</option>
             </select>
           </label>
@@ -608,41 +691,58 @@ function EventEditor({
           </div>
         ) : (
           <div className="event-times">
-            <span className="field-label">
-              {draft.kind === "insert" ? "Horas exactas" : "Horarios de inicio"}
-            </span>
-            {times.map((value, index) => (
-              <div className="event-time-row" key={index}>
-                <input
-                  type="time"
-                  value={value}
-                  aria-label={`Horario ${index + 1}`}
-                  onChange={(e) => {
-                    const next = [...times];
-                    next[index] = e.target.value;
-                    setTimes(next);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  title="Quitar horario"
-                  disabled={times.length <= 1}
-                  onClick={() => setTimes(times.filter((_, i) => i !== index))}
-                >
-                  <IconTrash size={13} />
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() =>
-                setTimes([...times, addHour(times[times.length - 1] ?? draft.start)])
-              }
-            >
-              <IconPlus size={13} /> Añadir horario
-            </button>
+            <div className="event-times-head">
+              <span className="field-label">
+                {draft.kind === "insert" ? "Horas exactas" : "Horarios de inicio"}
+              </span>
+              <span className="event-times-count">
+                {times.length} {times.length === 1 ? "horario" : "horarios"}
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setWizard(true)}
+                title="Marca horas y minutos y se crean todas las combinaciones"
+              >
+                Asistente de horas
+              </button>
+            </div>
+            <div className="event-time-list">
+              {times.map((value, index) => (
+                <span className="event-time-chip" key={index}>
+                  <input
+                    type="time"
+                    value={value}
+                    aria-label={`Horario ${index + 1}`}
+                    onChange={(e) => {
+                      const next = [...times];
+                      next[index] = e.target.value;
+                      setTimes(next);
+                    }}
+                    onBlur={() => commitTimes()}
+                  />
+                  <button
+                    type="button"
+                    className="event-time-x"
+                    title="Quitar horario"
+                    aria-label={`Quitar horario ${value}`}
+                    disabled={times.length <= 1}
+                    onClick={() => setTimes(times.filter((_, i) => i !== index))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() =>
+                  commitTimes([...normalizeTimes(times), addHour(normalizeTimes(times).slice(-1)[0] ?? draft.start)])
+                }
+              >
+                <IconPlus size={13} /> Añadir
+              </button>
+            </div>
           </div>
         )}
 
@@ -694,7 +794,7 @@ function EventEditor({
               </label>
             </div>
             <p className="hint">
-              El sonido se coloca justo después del tema que esté sonando en cada una de las horas
+              {random ? "Una pista elegida al azar" : "El sonido"} se coloca justo después del tema que esté sonando en cada una de las horas
               indicadas. Si el tema actual dura más que la espera, el evento se fuerza con el
               fundido de salida o se descarta.
             </p>
@@ -756,7 +856,11 @@ function EventEditor({
         </fieldset>
       )}
 
-      {draft.kind === "insert" && (
+      {draft.kind === "insert" && random && (
+        <RandomFields draft={draft} set={set} blocks={blocks} pool={pool} byId={byId} />
+      )}
+
+      {draft.kind === "insert" && !random && (
         <fieldset className="fieldset">
           <legend>Pista de la biblioteca</legend>
           <div className="camp-spots">
@@ -836,6 +940,136 @@ function EventEditor({
         </button>
       </div>
     </div>
+  );
+}
+
+function RandomFields({
+  draft,
+  set,
+  blocks,
+  pool,
+  byId,
+}: {
+  draft: StationEvent;
+  set: (patch: Partial<StationEvent>) => void;
+  blocks: Block[];
+  pool: number;
+  byId: Map<string, Track>;
+}) {
+  const num = (value: number | undefined, fallback: number) => (Number.isFinite(value) ? (value as number) : fallback);
+  const source = draft.sourceKind === "block" ? `block:${draft.sourceId}` : `library:${draft.sourceId === "b" ? "b" : "a"}`;
+  const recent = [...(draft.pickLog ?? [])].sort((a, b) => b.at - a.at).slice(0, 6);
+  const rule = (
+    key: "noRepeatSlotDays" | "noRepeatEventDays" | "noRepeatAirMins",
+    label: string,
+    unit: string,
+    fallback: number,
+    max: number,
+    hint: string,
+  ) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <span className="field-unit">
+        <input
+          type="number"
+          min={0}
+          max={max}
+          value={num(draft[key], fallback)}
+          onChange={(e) => set({ [key]: Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))) })}
+        />
+        {unit}
+      </span>
+      <span className="hint rule-hint">{hint}</span>
+    </label>
+  );
+  return (
+    <fieldset className="fieldset">
+      <legend>Pista aleatoria</legend>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Tomarla de</span>
+          <select
+            value={source}
+            onChange={(e) => {
+              const [kind, id] = e.target.value.split(":");
+              set({ sourceKind: kind === "block" ? "block" : "library", sourceId: id });
+            }}
+          >
+            <optgroup label="Biblioteca">
+              <option value="library:a">Biblioteca A</option>
+              <option value="library:b">Biblioteca B</option>
+            </optgroup>
+            {blocks.length > 0 && (
+              <optgroup label="Bloque musical">
+                {blocks.map((block) => (
+                  <option key={block.id} value={`block:${block.id}`}>
+                    {block.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId) && (
+              <option value={source}>Bloque eliminado</option>
+            )}
+          </select>
+        </label>
+        <div className="field">
+          <span className="field-label">Disponibles</span>
+          <span className={`rule-count ${pool === 0 ? "rule-count-zero" : ""}`}>
+            {pool} {pool === 1 ? "pista" : "pistas"}
+          </span>
+        </div>
+      </div>
+
+      <div className="field-row rules-row">
+        {rule(
+          "noRepeatSlotDays",
+          "Misma hora",
+          "días",
+          DEFAULT_SLOT_DAYS,
+          365,
+          "No repetir la misma pista a esa hora durante tantos días (0 = sin regla).",
+        )}
+        {rule(
+          "noRepeatEventDays",
+          "En este evento",
+          "días",
+          DEFAULT_EVENT_DAYS,
+          365,
+          "No repetir la misma pista a ninguna hora de este evento.",
+        )}
+        {rule(
+          "noRepeatAirMins",
+          "Ya emitida",
+          "min",
+          DEFAULT_AIR_MINS,
+          10080,
+          "No elegir una pista que haya sonado en antena hace menos de esto.",
+        )}
+      </div>
+      <p className="hint">
+        Si la fuente tiene pocas pistas y no queda ninguna que cumpla las reglas, se van saltando de la última
+        a la primera para que el evento siempre suene, y se avisa al lanzarlo.
+      </p>
+
+      {recent.length > 0 && (
+        <div className="pick-log">
+          <div className="pick-log-head">
+            <span className="field-label">Últimas elegidas</span>
+            <button type="button" className="ghost-btn" onClick={() => set({ pickLog: [] })}>
+              Borrar historial
+            </button>
+          </div>
+          {recent.map((e, i) => (
+            <div className="pick-log-row" key={i}>
+              <span>{new Date(e.at).toLocaleDateString([], { day: "2-digit", month: "2-digit" })}</span>
+              <span>{e.slot}</span>
+              <span className="pick-log-title">{byId.get(e.trackId)?.title ?? "Pista eliminada"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </fieldset>
   );
 }
 

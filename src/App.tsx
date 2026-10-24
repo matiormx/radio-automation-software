@@ -89,6 +89,7 @@ import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
 import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
+import { isRandom, logPick, pickRandom, randomPool, relaxedText } from "./eventPick";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
 const EVENT_GRACE_MS = 15 * 60 * 1000;
@@ -736,6 +737,8 @@ export default function App() {
   const tracksRef = useRef(tracks);
   tracksRef.current = tracks;
   const settingsRef = useRef(settings);
+  const historyRef = useRef<HistoryEntry[]>([]);
+  historyRef.current = history;
   settingsRef.current = settings;
   const activeIdRef = useRef("");
   activeIdRef.current = active?.id ?? "";
@@ -1788,14 +1791,34 @@ export default function App() {
         return;
       }
 
-      const track = tracksRef.current.find((item) => item.id === event.trackId);
+      const playing = playingRowRef.current;
+      const currentId = playing >= 0 ? rowsRef.current[playing]?.id ?? "" : "";
+      let trackId = event.trackId;
+      let pickNote = "";
+      if (isRandom(event)) {
+        const now = new Date();
+        const slot = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+        const pick = pickRandom(event, slot, tracksRef.current, historyRef.current, now.getTime(), new Set([currentId]));
+        if (!pick.track) {
+          showToast(`El evento «${event.name}» no tiene pistas en su fuente`);
+          return;
+        }
+        trackId = pick.track.id;
+        pickNote = relaxedText(pick);
+        const entry = { slot, trackId, at: now.getTime() };
+        setSettings((prev) => {
+          const events = prev.events.map((e) => (e.id === event.id ? { ...e, pickLog: logPick(e.pickLog, entry) } : e));
+          const nextSettings = { ...prev, events };
+          void saveSettings(nextSettings).catch(() => undefined);
+          return nextSettings;
+        });
+      }
+      const track = tracksRef.current.find((item) => item.id === trackId);
       if (!track) {
         showToast(`El evento «${event.name}» no tiene una pista disponible`);
         return;
       }
-      const playing = playingRowRef.current;
-      const currentId = playing >= 0 ? rowsRef.current[playing]?.id ?? "" : "";
-      if (currentId === event.trackId) {
+      if (currentId === trackId) {
         showToast(`El evento «${event.name}» ya está sonando`);
         return;
       }
@@ -1806,9 +1829,9 @@ export default function App() {
       }
 
       void mutateListRef.current((ids) => {
-        const copy = ids.filter((id) => id !== event.trackId);
+        const copy = ids.filter((id) => id !== trackId);
         const at = Math.max(0, Math.min(copy.length, playing >= 0 ? playing + 1 : 0));
-        copy.splice(at, 0, event.trackId);
+        copy.splice(at, 0, trackId);
         return copy;
       });
 
@@ -1816,12 +1839,12 @@ export default function App() {
         eventId: event.id,
         eventName: event.name,
         playlistId,
-        trackId: event.trackId,
+        trackId,
         deadline: Date.now() + Math.max(0, event.maxWaitSecs) * 1000,
         onTimeout: event.onTimeout,
       };
       setPendingInserts((prev) => [...prev.filter((p) => p.eventId !== event.id), item]);
-      showToast(`Evento «${event.name}»: a continuación`);
+      showToast(`Evento «${event.name}»: ${isRandom(event) ? `${track.title} a continuación` : "a continuación"}${pickNote}`);
     },
     [showToast, startLiveEvent],
   );
@@ -2058,12 +2081,14 @@ export default function App() {
       const playing = playingRowRef.current;
       const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
       const currentId = playing >= 0 ? rowsNow[playing]?.id ?? "" : "";
-      const fires: { event: StationEvent; key: string; at: number }[] = [];
+      const fires: { event: StationEvent; key: string; at: number; slot: string }[] = [];
 
       for (const event of s.events) {
         if (!event.enabled || event.kind !== "insert") continue;
-        if (!event.trackId || !byId.has(event.trackId)) continue;
-        let latest: { at: number; key: string } | null = null;
+        if (isRandom(event)) {
+          if (randomPool(event, tracksRef.current).length === 0) continue;
+        } else if (!event.trackId || !byId.has(event.trackId)) continue;
+        let latest: { at: number; key: string; slot: string } | null = null;
         for (const value of eventTimes(event)) {
           const minute = parseHM(value);
           if (minute === null) continue;
@@ -2078,7 +2103,7 @@ export default function App() {
           if (!event.days.includes(dayIso(scheduled))) continue;
           const key = `${dayKey(scheduled)} ${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`;
           if (!latest || scheduled.getTime() > latest.at) {
-            latest = { at: scheduled.getTime(), key };
+            latest = { at: scheduled.getTime(), key, slot: `${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}` };
           }
         }
         if (!latest) continue;
@@ -2086,7 +2111,7 @@ export default function App() {
         const lock = `${event.id}|${latest.key}`;
         if (eventFiring.current.has(lock)) continue;
         eventFiring.current.add(lock);
-        fires.push({ event, key: latest.key, at: latest.at });
+        fires.push({ event, key: latest.key, at: latest.at, slot: latest.slot });
       }
 
       if (fires.length === 0) return;
@@ -2094,17 +2119,35 @@ export default function App() {
 
       const firedKeys = new Map<string, string>();
       const already: StationEvent[] = [];
-      const queue: { event: StationEvent; key: string }[] = [];
+      const queue: { event: StationEvent; key: string; trackId: string }[] = [];
       const queuedTracks = new Set<string>();
+      const picks = new Map<string, { slot: string; trackId: string; at: number }>();
+      const relaxedNotes: string[] = [];
+      const nowPick = Date.now();
       for (const fire of fires) {
         firedKeys.set(fire.event.id, fire.key);
-        if (fire.event.trackId === currentId) {
+        let trackId = fire.event.trackId;
+        if (isRandom(fire.event)) {
+          const pick = pickRandom(
+            fire.event,
+            fire.slot,
+            tracksRef.current,
+            historyRef.current,
+            nowPick,
+            new Set([currentId, ...queuedTracks]),
+          );
+          if (!pick.track) continue;
+          trackId = pick.track.id;
+          picks.set(fire.event.id, { slot: fire.slot, trackId, at: nowPick });
+          if (pick.relaxed.length > 0) relaxedNotes.push(`«${fire.event.name}»${relaxedText(pick)}`);
+        }
+        if (trackId === currentId) {
           already.push(fire.event);
           continue;
         }
-        if (queuedTracks.has(fire.event.trackId)) continue;
-        queuedTracks.add(fire.event.trackId);
-        queue.push({ event: fire.event, key: fire.key });
+        if (queuedTracks.has(trackId)) continue;
+        queuedTracks.add(trackId);
+        queue.push({ event: fire.event, key: fire.key, trackId });
       }
 
       const inserted: PendingInsert[] = [];
@@ -2113,9 +2156,9 @@ export default function App() {
         void mutateListRef.current((ids) => {
           let copy = [...ids];
           for (const item of queue) {
-            copy = copy.filter((id) => id !== item.event.trackId);
+            copy = copy.filter((id) => id !== item.trackId);
             const at = Math.max(0, Math.min(copy.length, base));
-            copy.splice(at, 0, item.event.trackId);
+            copy.splice(at, 0, item.trackId);
             base = at + 1;
           }
           return copy;
@@ -2126,7 +2169,7 @@ export default function App() {
             eventId: item.event.id,
             eventName: item.event.name,
             playlistId: active.id,
-            trackId: item.event.trackId,
+            trackId: item.trackId,
             deadline: nowMs + Math.max(0, item.event.maxWaitSecs) * 1000,
             onTimeout: item.event.onTimeout,
           });
@@ -2139,9 +2182,15 @@ export default function App() {
 
       if (firedKeys.size > 0) {
         setSettings((prev) => {
-          const events = prev.events.map((event) =>
-            firedKeys.has(event.id) ? { ...event, lastFired: firedKeys.get(event.id) ?? "" } : event,
-          );
+          const events = prev.events.map((event) => {
+            if (!firedKeys.has(event.id)) return event;
+            const pick = picks.get(event.id);
+            return {
+              ...event,
+              lastFired: firedKeys.get(event.id) ?? "",
+              ...(pick ? { pickLog: logPick(event.pickLog, pick) } : {}),
+            };
+          });
           const nextSettings = { ...prev, events };
           void saveSettings(nextSettings).catch(() => undefined);
           return nextSettings;
@@ -2151,10 +2200,9 @@ export default function App() {
       if (inserted.length === 1) {
         const wait = inserted[0];
         const limit = queue[0]?.event.maxWaitSecs ?? 0;
+        const title = isRandom(queue[0].event) ? byId.get(wait.trackId)?.title : "";
         showToast(
-          limit > 0
-            ? `Evento «${wait.eventName}»: a continuación (máx. ${limit} s)`
-            : `Evento «${wait.eventName}»: a continuación`,
+          `Evento «${wait.eventName}»${title ? ` · ${title}` : ""}: a continuación${limit > 0 ? ` (máx. ${limit} s)` : ""}${relaxedNotes.length ? ` ${relaxedNotes[0].slice(relaxedNotes[0].indexOf("»") + 1)}` : ""}`,
         );
       } else if (inserted.length > 1) {
         showToast(`${inserted.length} eventos insertados en la lista`);

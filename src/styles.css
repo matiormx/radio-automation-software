@@ -3670,8 +3670,147 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .event-times {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
+  gap: 8px;
+}
+.event-times-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.event-times-head .btn { margin-left: auto; }
+.event-times-count { font-size: 11px; color: var(--muted, #8a93a6); }
+.event-time-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+.event-time-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.event-time-chip input[type="time"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  width: 96px;
+  padding: 4px 4px 4px 8px;
+}
+.event-time-chip:focus-within { border-color: var(--accent); }
+.event-time-x {
+  border: 0;
+  background: transparent;
+  color: var(--muted, #8a93a6);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.event-time-x:hover:not(:disabled) { color: #ff6b6b; background: rgba(255, 107, 107, 0.12); }
+.event-time-x:disabled { opacity: 0.3; cursor: default; }
+
+/* Asistente de horas */
+.tw-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(5, 8, 14, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.tw-card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--panel, #141a26);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tw-head { display: flex; align-items: center; justify-content: space-between; }
+.tw-hint { margin: 0; }
+.tw-section { display: flex; flex-direction: column; gap: 6px; }
+.tw-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #8a93a6);
+}
+.tw-quick { display: inline-flex; gap: 4px; flex-wrap: wrap; text-transform: none; letter-spacing: 0; }
+.tw-quick button {
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.tw-quick button:hover { border-color: var(--accent); }
+.tw-grid { display: grid; gap: 4px; }
+.tw-hours { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.tw-minutes { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.tw-cell {
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 0;
+  cursor: pointer;
+}
+.tw-cell:hover { border-color: var(--accent); }
+.tw-on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.tw-preview {
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+}
+.tw-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.tw-chip {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: rgba(79, 140, 255, 0.16);
+}
+.tw-chip-dup { opacity: 0.45; text-decoration: line-through; }
+
+/* Pista aleatoria */
+.rules-row { align-items: flex-start; }
+.rule-hint { display: block; margin-top: 4px; font-size: 11px; }
+.rule-count { display: inline-block; padding: 6px 0; font-weight: 600; }
+.rule-count-zero { color: #ff6b6b; }
+.pick-log { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.pick-log-head { display: flex; align-items: center; justify-content: space-between; }
+.pick-log-row { display: flex; gap: 12px; font-size: 12px; color: var(--muted, #8a93a6); }
+.pick-log-row span:first-child, .pick-log-row span:nth-child(2) { font-variant-numeric: tabular-nums; flex: none; }
+.pick-log-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) {
+  .tw-hours, .tw-minutes { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 .event-time-row {
   display: flex;

@@ -236,6 +236,25 @@ export interface StationEvent {
   fadeSecs?: number;
   /** stream: datos que se muestran mientras suena */
   meta?: StreamMeta;
+  /** insert: "fixed" = una pista concreta; "random" = una al azar de sourceKind/sourceId */
+  trackMode?: "fixed" | "random";
+  /** random: no repetir la misma pista a la misma hora durante tantos días (0 = sin regla) */
+  noRepeatSlotDays?: number;
+  /** random: no repetir la misma pista en este evento (a cualquier hora) durante tantos días */
+  noRepeatEventDays?: number;
+  /** random: no elegir pistas que hayan sonado en antena hace menos de tantos minutos */
+  noRepeatAirMins?: number;
+  /** random: pistas elegidas (para las reglas de repetición) */
+  pickLog?: PickEntry[];
+}
+
+/** Una pista elegida al azar por un evento. */
+export interface PickEntry {
+  /** Horario HH:MM que la lanzó */
+  slot: string;
+  trackId: string;
+  /** Milisegundos desde epoch */
+  at: number;
 }
 
 export type MixerAppSource = "music" | "preview" | "call";

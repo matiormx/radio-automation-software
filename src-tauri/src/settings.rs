@@ -441,6 +441,26 @@ pub struct StationEvent {
     pub fade_secs: f64,
     /// "stream": datos que se muestran mientras suena
     pub meta: StreamMeta,
+    /// "insert": "fixed" (pista concreta) o "random" (al azar de source_kind/source_id)
+    pub track_mode: String,
+    /// "random": dias sin repetir la misma pista a la misma hora (0 = sin regla)
+    pub no_repeat_slot_days: u32,
+    /// "random": dias sin repetir la misma pista en este evento
+    pub no_repeat_event_days: u32,
+    /// "random": minutos sin elegir pistas que hayan sonado en antena
+    pub no_repeat_air_mins: u32,
+    /// "random": pistas elegidas (para las reglas de repeticion)
+    pub pick_log: Vec<PickEntry>,
+}
+
+/// Una pista elegida al azar por un evento.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PickEntry {
+    pub slot: String,
+    pub track_id: String,
+    /// Milisegundos desde epoch
+    pub at: u64,
 }
 
 /// Metadatos de una emision de internet (como los de una cancion).
@@ -477,6 +497,11 @@ impl Default for StationEvent {
             stream_url: String::new(),
             fade_secs: 3.0,
             meta: StreamMeta::default(),
+            track_mode: "fixed".to_string(),
+            no_repeat_slot_days: 7,
+            no_repeat_event_days: 1,
+            no_repeat_air_mins: 120,
+            pick_log: Vec::new(),
         }
     }
 }
@@ -1325,5 +1350,23 @@ mod artist_tests {
         s.avoid_consecutive_artist = true;
         let p = pick_tracks(&s, &library, &[], &["a".to_string()], 1, None, None, 5);
         assert_ne!(p, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn random_event_fields_roundtrip_and_default() {
+        // Un evento guardado antes de existir la pista aleatoria sigue valiendo.
+        let old: StationEvent = serde_json::from_str(r#"{"id":"e1","name":"Himno","kind":"insert","start":"08:00","trackId":"t1"}"#).unwrap();
+        assert_eq!(old.track_mode, "fixed");
+        assert_eq!((old.no_repeat_slot_days, old.no_repeat_event_days, old.no_repeat_air_mins), (7, 1, 120));
+        assert!(old.pick_log.is_empty());
+        let json = r#"{"id":"e2","kind":"insert","trackMode":"random","sourceKind":"block","sourceId":"b1",
+            "noRepeatSlotDays":14,"noRepeatEventDays":0,"noRepeatAirMins":30,
+            "pickLog":[{"slot":"08:15","trackId":"t9","at":1761290000000}]}"#;
+        let e: StationEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(e.track_mode, "random");
+        assert_eq!((e.no_repeat_slot_days, e.no_repeat_event_days, e.no_repeat_air_mins), (14, 0, 30));
+        assert_eq!(e.pick_log, vec![PickEntry { slot: "08:15".into(), track_id: "t9".into(), at: 1_761_290_000_000 }]);
+        let back: StationEvent = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+        assert_eq!(back.pick_log, e.pick_log);
     }
 }
