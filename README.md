@@ -226,6 +226,39 @@ mano). Las salidas NDI emiten con el nombre
 indicado, sin comprimir (`wrapped_avframe`, `uyvy422`), así que conviene
 ajustar resolución y FPS al ancho de banda de la red.
 
+### Compilar ffmpeg-ndi para Windows
+
+El binario no se guarda en el repositorio. Para generarlo:
+
+1. Instala [MSYS2](https://www.msys2.org/). El script instala Git y las demás
+   dependencias dentro de MSYS2.
+2. Desde la raíz del proyecto ejecuta:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build-ffmpeg-ndi.ps1
+   ```
+
+3. El script clona la última versión de
+   [lplassman/FFMPEG-NDI](https://github.com/lplassman/FFMPEG-NDI), descarga
+   FFmpeg `n5.1`, aplica los parches, compila con `libx264` y deja
+   `ffmpeg-ndi.exe` y `Processing.NDI.Lib.x64.dll` en `src-tauri\bin\`.
+4. `npm run tauri build` incluye esa carpeta en el instalador; MiRadio lo
+   detecta como `bin\ffmpeg-ndi.exe`.
+
+Si el SDK de NDI está en otra ruta, indícala con
+`-NdiSdkDir "C:\...\NDI 6 SDK"`. Si MSYS2 ya tiene las dependencias, añade
+`-SkipDeps`. Si no hay SDK, el script descarga e instala el NDI Runtime y usa
+las cabeceras MIT publicadas por DistroAV.
+
+El FFmpeg con NDI se compila con `--enable-nonfree`, así que no es
+redistribuible sin revisar las licencias de FFmpeg y NDI. Está pensado para
+builds locales o privados.
+
+Para que las releases de GitHub Actions incluyan NDI, crea la variable de
+repositorio `BUILD_NDI=true` en **Settings > Secrets and variables > Actions >
+Variables**. Sin ella, el workflow compila sin NDI; el resto de la app
+funciona y puedes añadir un FFmpeg normal aparte.
+
 ## Eventos de programación
 
 En **Ajustes > Eventos** se programan dos tipos de evento por días de la

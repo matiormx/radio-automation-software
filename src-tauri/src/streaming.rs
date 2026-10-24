@@ -548,14 +548,19 @@ pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(dir) = app.path().resource_dir() {
         candidates.push(dir.join(ffmpeg_name()));
         candidates.push(dir.join("bin").join(ffmpeg_name()));
+        candidates.push(dir.join(ndi_ffmpeg_name()));
+        candidates.push(dir.join("bin").join(ndi_ffmpeg_name()));
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.join(ffmpeg_name()));
             candidates.push(dir.join("bin").join(ffmpeg_name()));
+            candidates.push(dir.join(ndi_ffmpeg_name()));
+            candidates.push(dir.join("bin").join(ndi_ffmpeg_name()));
         }
     }
     candidates.push(PathBuf::from(ffmpeg_name()));
+    candidates.push(PathBuf::from(ndi_ffmpeg_name()));
 
     for candidate in candidates {
         let is_path = candidate.components().count() > 1;
