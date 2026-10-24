@@ -87,19 +87,43 @@ export function LevelerControls({
   );
 }
 
+/**
+ * Para un canal mono: cada tarjeta se ofrece canal a canal (`nombre!K`), asi
+ * el insert sale y vuelve por un solo canal (p. ej. un canal del VB-Matrix).
+ */
+function monoChannelOptions(devs: Device[]): Device[] {
+  const pairs = new Map<string, number>();
+  for (const d of devs) {
+    const m = /^(.*)#(\d+)$/.exec(d.id);
+    const base = m ? m[1] : d.id;
+    pairs.set(base, Math.max(pairs.get(base) ?? 1, m ? Number(m[2]) : 1));
+  }
+  const out: Device[] = [];
+  for (const [base, p] of pairs) {
+    for (let c = 1; c <= p * 2; c += 1)
+      out.push({ id: `${base}!${c}`, label: `${base} · canal ${c}`, kind: devs[0]?.kind ?? "audiooutput" });
+  }
+  return out;
+}
+
 export function InsertControls({
   owner,
   label,
-  inputs,
-  outputs,
+  inputs: allInputs,
+  outputs: allOutputs,
+  mono = false,
   onChange,
 }: {
   owner: { insert?: InsertSettings };
   label: string;
   inputs: Device[];
   outputs: Device[];
+  /** Canal mono: el insert va por un solo canal de la tarjeta */
+  mono?: boolean;
   onChange: (insert: InsertSettings) => void;
 }) {
+  const inputs = mono ? [...monoChannelOptions(allInputs), ...allInputs] : allInputs;
+  const outputs = mono ? [...monoChannelOptions(allOutputs), ...allOutputs] : allOutputs;
   const ins: InsertSettings = {
     enabled: !!owner.insert?.enabled,
     sendDeviceId: owner.insert?.sendDeviceId ?? "",
@@ -162,7 +186,9 @@ export function InsertControls({
           <p className="mixer-insert-hint">
             {incomplete
               ? "Elige envío y retorno; mientras tanto el canal suena directo."
-              : "Usa un cable virtual hacia el procesador (p. ej. SuperRack) y otro de vuelta. Añade algo de latencia."}
+              : mono
+                ? "Canal mono: elige un solo canal de envío y de retorno (arriba de la lista) o un par estéreo."
+                : "Usa un cable virtual hacia el procesador (p. ej. SuperRack) y otro de vuelta. Añade algo de latencia."}
           </p>
         </div>
       )}

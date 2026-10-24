@@ -934,7 +934,7 @@ function ChannelStrip({
                 )}
               </select>
               <small className="mx-hint">
-                {inChannels > 2
+                {inputs.find((d) => d.id === ch.input.deviceId)?.channels !== undefined
                   ? `La tarjeta ofrece ${inChannels} canales.`
                   : "Pulsa «Detectar entradas» para ver cuántos canales tiene la tarjeta."}
               </small>
@@ -965,6 +965,7 @@ function ChannelStrip({
             label={ch.name}
             inputs={insertInputs}
             outputs={outputs}
+            mono={monoOn}
             onChange={(insert) => onPatch({ insert })}
           />
         </Pop>

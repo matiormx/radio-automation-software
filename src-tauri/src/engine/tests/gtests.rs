@@ -239,3 +239,9 @@ fn input_ids_parse() {
     assert_eq!(parse_input("VAIO#3"), ("VAIO", 4, false));
     assert_eq!(parse_input("VAIO!5"), ("VAIO", 4, true));
 }
+
+#[test]
+fn mono_output_ids_parse() {
+    use crate::engine::io::parse_input;
+    assert_eq!(parse_input("VBMatrix In 1 (VB-Audio Matrix VAIO)!2"), ("VBMatrix In 1 (VB-Audio Matrix VAIO)", 1, true));
+}

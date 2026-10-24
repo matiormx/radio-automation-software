@@ -219,7 +219,7 @@ pub fn list_outputs() -> Vec<String> {
 
 fn find_output(id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
-    let (id, _) = split_pair(id);
+    let (id, _, _) = parse_input(id);
     if id == DEFAULT_DEVICE {
         return host.default_output_device();
     }
@@ -372,7 +372,19 @@ fn put(out: &mut [f32], channels: usize, k: usize, l: f32, r: f32) {
 /// Si la tarjeta no llega a ese par, no se escribe nada.
 #[inline]
 fn put_at(out: &mut [f32], channels: usize, k: usize, off: usize, l: f32, r: f32) {
+    put_sel(out, channels, k, off, false, l, r)
+}
+
+/// Como `put_at`; con `mono`, escribe solo el canal `off` (mezcla L+R).
+#[inline]
+fn put_sel(out: &mut [f32], channels: usize, k: usize, off: usize, mono: bool, l: f32, r: f32) {
     let base = k * channels;
+    if mono {
+        if off < channels {
+            out[base + off] = 0.5 * (l + r);
+        }
+        return;
+    }
     if channels == 1 {
         if off == 0 {
             out[base] = 0.5 * (l + r);
@@ -465,12 +477,11 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
 }
 
 /// Callback de una tarjeta secundaria: lee su anillo y corrige la deriva.
-fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, pair: usize) -> impl FnMut(&mut [f32], usize) + Send + 'static {
+fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, off: usize, mono: bool) -> impl FnMut(&mut [f32], usize) + Send + 'static {
     let mut stretch = Stretch::new();
     let mut drift = Drift::default();
     let base = ENGINE_RATE as f64 / dev_rate.max(1) as f64;
     let mut primed = false;
-    let off = (pair.max(1) - 1) * 2;
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let target = (frames as f64 * base * 3.0).max(ENGINE_RATE as f64 * 0.03);
@@ -509,7 +520,7 @@ fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, pair: usize) -> impl F
                     }
                 }
             },
-            |k, l, r| put_at(out, channels, k, off, l, r),
+            |k, l, r| put_sel(out, channels, k, off, mono, l, r),
         );
         if starved {
             primed = false;
@@ -680,7 +691,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
             let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
             let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate, split_pair(id).1), failed.clone()) {
+            match open_output(&dev, secondary_fill(cons, rate, parse_input(id).1, parse_input(id).2), failed.clone()) {
                 Ok((stream, _)) => {
                     lock(&shared).sinks.push(SecSink { device: id.clone(), prod });
                     secs.insert(id.clone(), Opened { _stream: stream, failed });
@@ -719,7 +730,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
             let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
             let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate, split_pair(id).1), failed.clone()) {
+            match open_output(&dev, secondary_fill(cons, rate, parse_input(id).1, parse_input(id).2), failed.clone()) {
                 Ok((stream, _)) => {
                     lock(&shared).insert_sinks.push(SecSink { device: id.clone(), prod });
                     send_secs.insert(id.clone(), Opened { _stream: stream, failed });
