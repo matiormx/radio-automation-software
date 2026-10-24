@@ -30,6 +30,7 @@ import {
   setBrandingLogo,
   trackUrl,
   backfillCovers,
+  backfillQuality,
   listHistory,
   loadSession,
   saveSession,
@@ -956,7 +957,15 @@ export default function App() {
           .then((n) => {
             if (n > 0) void listTracks().then(setTracks).catch(() => undefined);
           })
-          .catch(() => undefined);
+          .catch(() => undefined)
+          .finally(() => {
+            // Calidad (Hz, bits, kbps) de las canciones que aun no la tienen.
+            void backfillQuality()
+              .then((n) => {
+                if (n > 0) void listTracks().then(setTracks).catch(() => undefined);
+              })
+              .catch(() => undefined);
+          });
       } catch (e) {
         showToast(`Error al cargar: ${String(e)}`);
       }
@@ -1658,6 +1667,20 @@ export default function App() {
       setStreamBusy(false);
     }
   }, [streamBusy, streamStatus?.running, hasStreamOutputs, settings, failStreaming, showToast]);
+
+  // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
+  const autoStreamDone = useRef(false);
+  const toggleStreamingRef = useRef(toggleStreaming);
+  toggleStreamingRef.current = toggleStreaming;
+  useEffect(() => {
+    if (autoStreamDone.current || !mixer || !settings.streaming?.autoStart || !hasStreamOutputs) return;
+    autoStreamDone.current = true;
+    // Sin limpiar el temporizador: si cambian los ajustes en esos segundos,
+    // la emision tiene que arrancar igual (y solo una vez).
+    window.setTimeout(() => {
+      if (!streamStatusRef.current?.running) void toggleStreamingRef.current();
+    }, 3000);
+  }, [mixer, settings.streaming?.autoStart, hasStreamOutputs]);
 
   useEffect(() => {
     if (!streamStatus?.running) return;

@@ -681,6 +681,8 @@ pub struct StudioCallsSettings {
 pub struct StreamingSettings {
     pub icecast: Vec<IcecastStream>,
     pub rtsp: RtspOutput,
+    /// Empezar a emitir al abrir MiRadio
+    pub auto_start: bool,
 }
 
 impl Default for StreamingSettings {
@@ -688,6 +690,7 @@ impl Default for StreamingSettings {
         Self {
             icecast: Vec::new(),
             rtsp: RtspOutput::default(),
+            auto_start: false,
         }
     }
 }

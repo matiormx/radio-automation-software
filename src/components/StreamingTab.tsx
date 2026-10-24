@@ -82,6 +82,15 @@ export function StreamingTab({ settings, onChange }: Props) {
         <code>ffmpeg.exe</code> si está junto a <code>instalar.cmd</code>.
       </p>
 
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={!!st.autoStart}
+          onChange={(e) => set({ autoStart: e.target.checked })}
+        />
+        <span>Emitir al iniciar MiRadio (pulsa EMITIR solo, unos segundos después de abrir)</span>
+      </label>
+
       <fieldset className="fieldset">
         <legend>Audio por Icecast</legend>
         {st.icecast.length === 0 && (

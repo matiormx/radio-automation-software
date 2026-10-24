@@ -97,6 +97,16 @@ pub struct Track {
     /// Idioma de la cancion (codigo: es, en, pt, de, fr…); vacio = sin especificar
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub language: String,
+    /// Calidad del archivo: frecuencia (Hz), bits y kbps (0 = desconocido)
+    #[serde(default)]
+    pub audio_rate: u32,
+    #[serde(default)]
+    pub audio_bits: u8,
+    #[serde(default)]
+    pub audio_kbps: u32,
+    /// Ya se leyo la calidad del archivo
+    #[serde(default)]
+    pub audio_checked: bool,
 }
 
 fn default_library() -> String {
@@ -491,6 +501,29 @@ fn read_metadata(
     }
 }
 
+/// Frecuencia, bits y kbps del archivo (0 si no se sabe).
+fn read_audio_props(path: &Path) -> (u32, u8, u32) {
+    match read_from_path(path) {
+        Ok(tagged) => {
+            let p = tagged.properties();
+            (
+                p.sample_rate().unwrap_or(0),
+                p.bit_depth().unwrap_or(0),
+                p.audio_bitrate().or_else(|| p.overall_bitrate()).unwrap_or(0),
+            )
+        }
+        Err(_) => (0, 0, 0),
+    }
+}
+
+fn fill_audio_props(t: &mut Track) {
+    let (r, b, k) = read_audio_props(Path::new(t.file.trim()));
+    t.audio_rate = r;
+    t.audio_bits = b;
+    t.audio_kbps = k;
+    t.audio_checked = true;
+}
+
 /// Antes de separar «intro» y «mix», un unico marcador (`mix_point`) servia
 /// para las dos cosas y se colocaba al principio de la pista. Un mix en la
 /// primera mitad no puede ser un mix (va al final): es un marcador de intro
@@ -608,10 +641,20 @@ pub struct TrackResolved {
     pub analyzed_at: u64,
     pub cover: String,
     pub language: String,
+    /// Extension en minusculas (flac, mp3...)
+    pub format: String,
+    pub audio_rate: u32,
+    pub audio_bits: u8,
+    pub audio_kbps: u32,
 }
 
 impl TrackResolved {
     fn from(t: Track, data_dir: &Path) -> Self {
+        let format = Path::new(t.file.trim())
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         let missing =
             t.file.trim().is_empty() || !Path::new(t.file.trim()).is_file();
         Self {
@@ -642,6 +685,10 @@ impl TrackResolved {
             fade_out_start: t.fade_out_start,
             analyzed_at: t.analyzed_at,
             cover: cover_abs(data_dir, &t.cover),
+            format,
+            audio_rate: t.audio_rate,
+            audio_bits: t.audio_bits,
+            audio_kbps: t.audio_kbps,
             language: t.language,
         }
     }
@@ -737,7 +784,10 @@ pub fn import_files(
             cover: String::new(),
             cover_checked: false,
             language: String::new(),
+            ..Default::default()
         };
+        let mut rec = rec;
+        fill_audio_props(&mut rec);
         imported_ids.push(id);
         tracks.push(rec);
     }
@@ -759,44 +809,26 @@ pub fn import_files(
     Ok(resolve_all(imported, &state.data_dir))
 }
 
-/// Cataloga los archivos que ya estan en la carpeta de musica
-/// predefinida y no estan en la biblioteca (sin copiar nada):
-/// estilo RadioDJ. Utiles tras mover la carpeta o poner canciones
-/// a mano. Devuelve cuantas canciones nuevas se catalogaron.
-#[tauri::command]
-pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
-    let _guard = lock_library();
-    let dir = music_dir(&state);
-    if !dir.is_dir() {
-        return Ok(0);
-    }
-    let mut tracks = read_library_internal(&state.data_dir);
-    let known: HashSet<String> = tracks
-        .iter()
-        .map(|t| normalize_path(&t.file))
-        .collect();
-
-    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_file() && is_allowed(p))
-        .collect();
-    entries.sort();
-
+/// Cataloga archivos en su sitio (sin copiarlos ni meterlos en bloques).
+/// Devuelve cuantas canciones nuevas se anadieron.
+fn catalog_in_place(data_dir: &Path, tracks: &mut Vec<Track>, entries: Vec<PathBuf>, mut progress: impl FnMut(usize, usize)) -> usize {
+    let mut known: HashSet<String> = tracks.iter().map(|t| normalize_path(&t.file)).collect();
+    let total = entries.len();
     let mut added = 0usize;
     let mut added_keys: HashSet<String> = HashSet::new();
-    for path in entries {
+    for (i, path) in entries.into_iter().enumerate() {
+        if i % 50 == 0 {
+            progress(i, total);
+        }
         let key = normalize_path(&path.to_string_lossy());
-        if known.contains(&key) {
+        if !known.insert(key) {
             continue;
         }
         let (seed_title, seed_artist) = display_name_from_file(&path);
         let (title, artist, album, genre, year, duration) =
             read_metadata(&path, seed_title, seed_artist);
-        let id = Uuid::new_v4().simple().to_string();
-        let rec = Track {
-            id: id.clone(),
+        let mut rec = Track {
+            id: Uuid::new_v4().simple().to_string(),
             title,
             artist,
             album,
@@ -809,39 +841,133 @@ pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("archivo")
                 .to_string(),
-            file_name: String::new(),
-            blocks: Vec::new(),
-            tags: Vec::new(),
             library: "a".to_string(),
-            lufs: None,
-            gain_db: None,
-            true_peak_db: None,
-            limited: false,
-            trim_start: 0.0,
-            trim_end: None,
-            auto_trim_start: 0.0,
-            auto_trim_end: None,
-            trim_manual: false,
-            intro_point: 0.0,
-            mix_point: 0.0,
-            fade_out_start: 0.0,
-            analysis_sig: String::new(),
-            analyzed_at: 0,
-            cover: String::new(),
-            cover_checked: false,
-            language: String::new(),
+            ..Default::default()
         };
+        fill_audio_props(&mut rec);
         added_keys.insert(cover_key(&rec));
         tracks.push(rec);
         added += 1;
     }
-
+    progress(total, total);
     for key in &added_keys {
-        sync_album_cover(&state.data_dir, &mut tracks, key);
+        sync_album_cover(data_dir, tracks, key);
     }
-    cleanup_covers(&state.data_dir, &tracks);
+    cleanup_covers(data_dir, tracks);
+    added
+}
+
+/// Archivos de audio de una carpeta y sus subcarpetas (sin seguir enlaces
+/// ni entrar en carpetas del sistema).
+fn walk_audio(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            let p = e.path();
+            if ft.is_symlink() {
+                continue;
+            }
+            if ft.is_dir() {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                if name.starts_with('.') || name.starts_with('$') || name == "system volume information" || name == "windows" {
+                    continue;
+                }
+                stack.push(p);
+            } else if ft.is_file() && is_allowed(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Cataloga los archivos que ya estan en la carpeta de musica
+/// predefinida y no estan en la biblioteca (sin copiar nada):
+/// estilo RadioDJ. Utiles tras mover la carpeta o poner canciones
+/// a mano. Devuelve cuantas canciones nuevas se catalogaron.
+#[tauri::command]
+pub fn scan_music_folder(state: State<'_, AppState>) -> Result<usize, String> {
+    let _guard = lock_library();
+    let dir = music_dir(&state);
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let mut tracks = read_library_internal(&state.data_dir);
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && is_allowed(p))
+        .collect();
+    entries.sort();
+    let added = catalog_in_place(&state.data_dir, &mut tracks, entries, |_, _| {});
     write_library(&state.data_dir, &tracks)?;
     Ok(added)
+}
+
+/// Escanea una carpeta o un disco entero (con subcarpetas) y anade al
+/// catalogo general lo que no estaba, sin copiar archivos ni meterlos en
+/// bloques. Avisa del progreso con el evento `library://scan`.
+#[tauri::command]
+pub async fn scan_folder(app: tauri::AppHandle, state: State<'_, AppState>, path: String) -> Result<usize, String> {
+    use tauri::Emitter;
+    let data_dir = state.data_dir.clone();
+    let root = PathBuf::from(path.trim());
+    if !root.is_dir() {
+        return Err("La carpeta no existe".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = app.emit("library://scan", serde_json::json!({ "phase": "list", "done": 0, "total": 0 }));
+        let entries = walk_audio(&root);
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&data_dir);
+        let added = catalog_in_place(&data_dir, &mut tracks, entries, |done, total| {
+            let _ = app.emit("library://scan", serde_json::json!({ "phase": "read", "done": done, "total": total }));
+        });
+        write_library(&data_dir, &tracks)?;
+        Ok::<usize, String>(added)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Lee la calidad (Hz, bits, kbps) de las canciones que aun no la tienen.
+#[tauri::command]
+pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, String> {
+    let data_dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let pending: Vec<(String, String)> = read_library_internal(&data_dir)
+            .into_iter()
+            .filter(|t| !t.audio_checked && Path::new(t.file.trim()).is_file())
+            .map(|t| (t.id, t.file))
+            .collect();
+        if pending.is_empty() {
+            return Ok::<usize, String>(0);
+        }
+        // Se lee fuera del candado (puede tardar) y luego se guarda de una vez.
+        let props: Vec<(String, (u32, u8, u32))> =
+            pending.into_iter().map(|(id, f)| (id, read_audio_props(Path::new(f.trim())))).collect();
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&data_dir);
+        let mut n = 0;
+        for (id, (r, b, k)) in props {
+            if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
+                t.audio_rate = r;
+                t.audio_bits = b;
+                t.audio_kbps = k;
+                t.audio_checked = true;
+                n += 1;
+            }
+        }
+        write_library(&data_dir, &tracks)?;
+        Ok(n)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn normalize_path(p: &str) -> String {
@@ -1758,6 +1884,7 @@ pub fn import_playlist(
             cover: String::new(),
             cover_checked: false,
             language: String::new(),
+            ..Default::default()
         };
         added_keys.insert(cover_key(&rec));
         index.insert(normalize_path(&rec.file), tracks.len());

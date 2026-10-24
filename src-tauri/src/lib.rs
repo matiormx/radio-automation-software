@@ -67,6 +67,8 @@ pub fn run() {
             library::clear_track_cover,
             library::track_details,
             library::backfill_covers,
+            library::backfill_quality,
+            library::scan_folder,
             library::relink_track,
             library::delete_track,
             library::list_blocks,

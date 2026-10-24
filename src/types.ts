@@ -37,6 +37,12 @@ export interface Track {
   cover: string;
   /** Codigo de idioma de la cancion ("es", "en"…); vacio = sin indicar */
   language?: string;
+  /** Extension del archivo en minusculas (flac, mp3…) */
+  format?: string;
+  /** Calidad del archivo (0 = desconocida) */
+  audioRate?: number;
+  audioBits?: number;
+  audioKbps?: number;
   /** Intro superpuesto que el reproductor mezcla sobre esta pista (lo calcula la app) */
   introOverlay?: IntroOverlay;
 }
@@ -440,6 +446,8 @@ export interface RtspOutput {
 export interface StreamingSettings {
   icecast: IcecastStream[];
   rtsp: RtspOutput;
+  /** Empezar a emitir al abrir MiRadio */
+  autoStart?: boolean;
 }
 
 export interface StreamOutputStatus {

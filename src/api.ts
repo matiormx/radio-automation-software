@@ -70,6 +70,20 @@ export function deezerTrack(id: number): Promise<DeezerTrack> {
   return invoke<DeezerTrack>("deezer_track", { id });
 }
 
+/** Escanea una carpeta o disco (con subcarpetas) y cataloga sin copiar. */
+export function scanFolder(path: string): Promise<number> {
+  return invoke<number>("scan_folder", { path });
+}
+
+export function backfillQuality(): Promise<number> {
+  return invoke<number>("backfill_quality");
+}
+
+export async function pickScanFolder(): Promise<string | null> {
+  const p = await openDialog({ directory: true, multiple: false, title: "Carpeta o disco que escanear" });
+  return typeof p === "string" ? p : null;
+}
+
 export function scanMusicFolder(): Promise<number> {
   return invoke<number>("scan_music_folder");
 }

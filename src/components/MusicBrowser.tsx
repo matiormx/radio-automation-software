@@ -16,6 +16,39 @@ import {
   isVideoFile,
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
+import { pickScanFolder, scanFolder } from "../api";
+import { listen } from "@tauri-apps/api/event";
+
+const LOSSLESS = new Set(["flac", "wav", "aif", "aiff", "alac", "ape", "wv"]);
+const LOSSY_LOW = new Set(["mp3", "wma", "mp2"]);
+
+/** Etiqueta de calidad: FLAC / Hi-Res, o aviso de MP3 de baja calidad. */
+export function qualityBadge(t: Track): ReactNode {
+  const fmt = (t.format ?? "").toLowerCase();
+  const rate = t.audioRate ?? 0;
+  const bits = t.audioBits ?? 0;
+  const detail = [rate ? `${(rate / 1000).toFixed(rate % 1000 ? 1 : 0)} kHz` : "", bits ? `${bits} bits` : "", t.audioKbps ? `${t.audioKbps} kbps` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  if (LOSSLESS.has(fmt)) {
+    const hires = rate > 48000 || bits > 16;
+    return (
+      <span className={`badge-q ${hires ? "badge-q-hires" : "badge-q-lossless"}`} title={`Sin pérdida${detail ? ` · ${detail}` : ""}`}>
+        {fmt.toUpperCase()}
+        {hires ? " Hi-Res" : ""}
+      </span>
+    );
+  }
+  if (LOSSY_LOW.has(fmt)) {
+    return (
+      <span className="badge-q badge-q-low" title={`Con pérdida: calidad baja para emitir${detail ? ` · ${detail}` : ""}`}>
+        {fmt.toUpperCase()}
+        {t.audioKbps ? ` ${t.audioKbps}` : ""} · baja calidad
+      </span>
+    );
+  }
+  return null;
+}
 import { AiMetadataModal } from "./AiMetadataModal";
 import {
   IconPlus,
@@ -546,6 +579,35 @@ export function MusicBrowser({
 
   const [deezerOpen, setDeezerOpen] = useState(false);
 
+  const [scanInfo, setScanInfo] = useState("");
+  const doScanFolder = async () => {
+    const dir = await pickScanFolder().catch(() => null);
+    if (!dir) return;
+    setScanning(true);
+    setScanInfo("Buscando archivos…");
+    const off = listen<{ phase: string; done: number; total: number }>("library://scan", (e) => {
+      const p = e.payload;
+      setScanInfo(p.phase === "list" ? "Buscando archivos…" : `Leyendo ${p.done} de ${p.total}…`);
+    });
+    try {
+      const n = await scanFolder(dir);
+      if (n > 0) await onTrackSaved();
+      showToast(
+        n === 0
+          ? "No había canciones nuevas en esa carpeta"
+          : n === 1
+            ? "1 canción añadida al catálogo"
+            : `${n} canciones añadidas al catálogo`,
+      );
+    } catch (e) {
+      showToast(`No se pudo escanear: ${String(e)}`);
+    } finally {
+      void off.then((fn) => fn());
+      setScanInfo("");
+      setScanning(false);
+    }
+  };
+
   const doScan = async () => {
     setScanning(true);
     try {
@@ -684,6 +746,7 @@ export function MusicBrowser({
                       )}
                       {isVideoFile(t.file) && <span className="badge-video">VÍDEO</span>}
                       {t.library === "b" && <span className="chip chip-lib">B</span>}
+                      {qualityBadge(t)}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
                     </span>
                     <span className="brow-sub">
@@ -776,6 +839,16 @@ export function MusicBrowser({
         >
           <IconScan size={14} />
           Escanear
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => void doScanFolder()}
+          disabled={scanning}
+          title="Elegir una carpeta o un disco duro y añadir sus canciones (con subcarpetas) al catálogo general, sin copiarlas ni meterlas en bloques"
+        >
+          <IconScan size={14} />
+          {scanInfo || "Escanear carpeta o disco…"}
         </button>
         <button
           type="button"
