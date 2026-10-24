@@ -3263,7 +3263,7 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .mixer-swatch-on { border-color: var(--text, #fff); box-shadow: 0 0 0 1px rgba(0,0,0,.6) inset; }
 
 .stream-list { display: flex; flex-direction: column; gap: 6px; }
-.stream-row { padding: 6px 10px; }
+.stream-row, .io-row { padding: 6px 10px; }
 .device-group { display: flex; flex-direction: column; gap: 6px; }
 .device-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 2px; }
 .device-head strong { font-size: 12px; }

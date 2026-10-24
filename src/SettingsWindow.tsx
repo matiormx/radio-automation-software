@@ -13,6 +13,7 @@ export interface SharedState {
   settings: Settings;
   studio: StudioSnapshot;
   callMuted: boolean;
+  streaming?: boolean;
 }
 
 /**
@@ -146,6 +147,7 @@ export function SettingsWindow() {
         studio={shared.studio}
         callMuted={shared.callMuted}
         onCallMute={(muted) => void call("muteCaller", muted)}
+        streaming={!!shared.streaming}
       />
       {toast && (
         <div className="toast" role="status">

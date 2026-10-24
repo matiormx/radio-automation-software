@@ -2556,7 +2556,7 @@ export default function App() {
   // ---- ventanas de herramientas (Ajustes...) ----
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});
   bridgeRef.current = {
-    getState: () => ({ settings, studio, callMuted }),
+    getState: () => ({ settings, studio, callMuted, streaming: !!streamStatus?.running }),
     updateSettings: (s: Settings) => updateSettings(s),
     chooseMusicFolder: () => chooseMusicFolder(),
     chooseLogo: () => chooseLogo(),
@@ -2605,8 +2605,8 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    publishState({ settings, studio, callMuted });
-  }, [settings, studio, callMuted]);
+    publishState({ settings, studio, callMuted, streaming: !!streamStatus?.running });
+  }, [settings, studio, callMuted, streamStatus?.running]);
   // ---- chat de NGRADIO: acoplado aqui o en su ventana ----
   const chatCfg = settings.chat ?? DEFAULT_SETTINGS.chat;
   useEffect(() => {
@@ -3107,6 +3107,7 @@ export default function App() {
           studio={studio}
           callMuted={callMuted}
           onCallMute={muteCaller}
+          streaming={!!streamStatus?.running}
         />
       )}
 

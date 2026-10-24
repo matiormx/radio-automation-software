@@ -45,6 +45,8 @@ interface SettingsPanelProps {
   studio: StudioSnapshot;
   callMuted: boolean;
   onCallMute: (muted: boolean) => void;
+  /** La emisión está en marcha; las salidas de vídeo se compactan. */
+  streaming?: boolean;
   /** En su propia ventana: sin fondo modal ni cabecera de dialogo */
   windowed?: boolean;
 }
@@ -192,6 +194,7 @@ export function SettingsPanel({
   studio,
   callMuted,
   onCallMute,
+  streaming = false,
   windowed = false,
 }: SettingsPanelProps) {
   const s = settings;
@@ -353,7 +356,7 @@ export function SettingsPanel({
             )}
             {tab === "sound" && <MixerEmbedded settings={s} onChange={onChange} />}
             {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
-            {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
+            {tab === "video" && <VideoTab settings={s} onChange={onChange} streaming={streaming} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab
