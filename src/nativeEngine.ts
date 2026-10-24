@@ -41,6 +41,11 @@ export function nativeDevices(): Promise<string[]> {
   return invoke<string[]>("engine_devices");
 }
 
+/** Entradas del equipo, por nombre (retorno de los inserts). */
+export function nativeInputs(): Promise<string[]> {
+  return invoke<string[]>("engine_inputs");
+}
+
 export class NativePlayer {
   onTick: ((current: number, total: number) => void) | null = null;
   onIndexChange: ((index: number) => void) | null = null;

@@ -127,3 +127,63 @@ fn pan_solo_sends_and_meters() {
     assert_eq!(lr["cardP"], (0.0, 0.0));
     assert!((lr["cardB"].1 - 0.5).abs() < 1e-3);
 }
+
+#[test]
+fn channel_insert_bypass_then_return_replaces_dry() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"cardA"},"gainDb":0,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"procIn","returnDeviceId":"procOut"}}],
+      "mixerBuses":[],"monitorBusId":""}"#);
+    let mut sent = Vec::new();
+    c.render(1024, |plan, _, n| {
+        assert_eq!(plan.inserts.len(), 1);
+        assert_eq!(plan.inserts[0].send_device, "procIn");
+        assert_eq!(plan.inserts[0].return_device, "procOut");
+        sent = plan.insert_sends[0].buf[..n * 2].to_vec();
+        assert!((plan.outs[plan.out_index("cardA").unwrap()].buf[(n - 1) * 2] - 0.5).abs() < 1e-3);
+    });
+    assert!(sent.iter().all(|v| (*v - 0.5).abs() < 1e-3), "el envio lleva el seco");
+
+    // Retorno activo: sale el retorno, no el seco, y el envio sigue seco.
+    let ret = vec![0.25f32; 1024 * 2];
+    c.render_inserts(1024, &[InsertFeed { data: &ret[..], active: true }], |plan, _, n| {
+        let out = plan.out_index("cardA").unwrap();
+        assert!((plan.outs[out].buf[(n - 1) * 2] - 0.25).abs() < 1e-3);
+        assert!((plan.insert_sends[0].buf[(n - 1) * 2] - 0.5).abs() < 1e-3);
+    });
+}
+
+#[test]
+fn bus_insert_is_sent_before_fader_and_return_replaces_sum() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[
+      {"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"bus","id":"B"},"gainDb":0,"muted":false}],
+      "mixerBuses":[{"id":"B","outputDeviceId":"cardA","gainDb":-6.0206,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"busIn","returnDeviceId":"busOut"}}],"monitorBusId":""}"#);
+    c.render(1024, |plan, _, n| {
+        assert!((plan.insert_sends[0].buf[(n - 1) * 2] - 0.5).abs() < 1e-3, "envio pre-fader");
+        let out = plan.out_index("cardA").unwrap();
+        assert!((plan.outs[out].buf[(n - 1) * 2] - 0.25).abs() < 1e-3);
+    });
+    let ret = vec![0.2f32; 1024 * 2];
+    c.render_inserts(1024, &[InsertFeed { data: &ret[..], active: true }], |plan, _, n| {
+        let out = plan.out_index("cardA").unwrap();
+        assert!((plan.outs[out].buf[(n - 1) * 2] - 0.1).abs() < 1e-3, "retorno pasa por el fader del bus");
+    });
+}
+
+#[test]
+fn insert_without_send_or_return_is_ignored_and_devices_deduplicated() {
+    let p = Plan::build(&cfg(r#"{"mixerChannels":[
+      {"id":"a","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"S","returnDeviceId":"R"}},
+      {"id":"b","input":{"kind":"app","app":"preview"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"S","returnDeviceId":"R2"}},
+      {"id":"c","input":{"kind":"app","app":"call"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,
+       "insert":{"enabled":true,"sendDeviceId":"S","returnDeviceId":""}}],
+      "mixerBuses":[],"monitorBusId":""}"#), 1.0, None);
+    let (sends, returns) = p.insert_devices();
+    assert_eq!(sends, vec!["S".to_string()]);
+    assert_eq!(returns, vec!["R".to_string(), "R2".to_string()]);
+}

@@ -1,7 +1,7 @@
 //! Nucleo del motor: reloj, voces de musica y mesa. Lo protege un candado;
 //! el hilo de audio llama a `render` y el de control maneja el reproductor.
 
-use super::graph::{MixConfig, Plan, MAX_BLOCK};
+use super::graph::{InsertFeed, MixConfig, Plan, MAX_BLOCK};
 use super::player::PlayCore;
 
 pub struct Core {
@@ -72,7 +72,16 @@ impl Core {
     /// Mezcla `frames` y entrega cada tramo (<= MAX_BLOCK) a `sink` con la
     /// mesa ya calculada. `inputs` da el audio de las entradas fisicas para
     /// el tramo pedido (offset en frames, frames).
-    pub fn render<F>(&mut self, frames: usize, mut sink: F)
+    pub fn render<F>(&mut self, frames: usize, sink: F)
+    where
+        F: FnMut(&Plan, usize, usize),
+    {
+        self.render_inserts(frames, &[], sink);
+    }
+
+    /// Igual que `render`, con el retorno de los procesadores externos de
+    /// los inserts (`feeds[i]` para `plan.inserts[i]`).
+    pub fn render_inserts<F>(&mut self, frames: usize, feeds: &[InsertFeed], mut sink: F)
     where
         F: FnMut(&Plan, usize, usize),
     {
@@ -87,7 +96,18 @@ impl Core {
             }
             let rate = self.play.rate;
             self.play.music_ms = ema(self.play.music_ms, mean_square(&self.music[..s]), n, rate);
-            self.plan.render(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[]);
+            // El retorno de cada insert viene para todo `frames`: se corta el tramo.
+            let part: Vec<InsertFeed> = feeds
+                .iter()
+                .map(|f| {
+                    if f.active && f.data.len() >= (done + n) * 2 {
+                        InsertFeed { data: &f.data[done * 2..(done + n) * 2], active: true }
+                    } else {
+                        InsertFeed { data: &[], active: false }
+                    }
+                })
+                .collect();
+            self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &[], &part);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
             let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));

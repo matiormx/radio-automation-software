@@ -45,6 +45,16 @@ pub struct OutputCfg {
     pub id: String,
 }
 
+/// Insert por tarjetas: la senal sale por `send_device_id` y vuelve por
+/// `return_device_id` (una entrada del equipo).
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InsertCfg {
+    pub enabled: bool,
+    pub send_device_id: String,
+    pub return_device_id: String,
+}
+
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChannelCfg {
@@ -56,6 +66,7 @@ pub struct ChannelCfg {
     pub pan: f64,
     pub solo: bool,
     pub sends: Vec<SendCfg>,
+    pub insert: InsertCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -75,6 +86,7 @@ pub struct BusCfg {
     pub gain_db: f64,
     pub muted: bool,
     pub pan: f64,
+    pub insert: InsertCfg,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -99,6 +111,25 @@ pub enum Source {
 enum Dest {
     Bus(usize),
     Out(usize),
+}
+
+/// Un insert activo de la mesa (canal o bus).
+pub struct InsertRoute {
+    pub key: String,
+    pub send_device: String,
+    pub return_device: String,
+}
+
+/// Salida de un insert: el audio seco que hay que entregar al procesador.
+pub struct InsertSend {
+    pub device: String,
+    pub buf: Vec<f32>,
+}
+
+/// Audio que llega del procesador externo para un insert.
+pub struct InsertFeed<'a> {
+    pub data: &'a [f32],
+    pub active: bool,
 }
 
 /// Ganancia que se mueve en rampa durante un bloque (sin chasquidos).
@@ -158,6 +189,8 @@ struct Chan {
     meter: Meter,
     pan: f64,
     open: bool,
+    /// Indice en `Plan::inserts`, si el canal tiene insert
+    insert: Option<usize>,
 }
 
 struct Bus {
@@ -169,6 +202,8 @@ struct Bus {
     meter: Meter,
     pan: f64,
     open: bool,
+    /// Indice en `Plan::inserts`, si el bus tiene insert
+    insert: Option<usize>,
 }
 
 /// Balance estereo: -1 todo a la izquierda, 1 a la derecha.
@@ -204,6 +239,25 @@ pub struct Plan {
     pub program: Vec<f32>,
     /// Tramo del canal ya con su fader (para envios y medidor)
     tmp: Vec<f32>,
+    /// Inserts activos, en el mismo orden que `insert_sends`
+    pub inserts: Vec<InsertRoute>,
+    /// Audio seco de cada insert (se entrega a la tarjeta de envio)
+    pub insert_sends: Vec<InsertSend>,
+}
+
+/// Registra el insert de un canal o bus. Sin envio y retorno elegidos no hay
+/// insert (asi el ajuste a medias suena directo).
+fn insert_of(cfg: &InsertCfg, key: &str, inserts: &mut Vec<InsertRoute>) -> Option<usize> {
+    if !cfg.enabled {
+        return None;
+    }
+    let send = cfg.send_device_id.trim();
+    let ret = cfg.return_device_id.trim();
+    if send.is_empty() || ret.is_empty() {
+        return None;
+    }
+    inserts.push(InsertRoute { key: key.to_string(), send_device: send.to_string(), return_device: ret.to_string() });
+    Some(inserts.len() - 1)
 }
 
 /// Suma con ganancias distintas por lado (cada una en rampa).
@@ -291,6 +345,7 @@ impl Plan {
             Smooth { cur: cur.unwrap_or(target), target }
         };
 
+        let mut inserts: Vec<InsertRoute> = Vec::new();
         let mut buses = Vec::new();
         for b in &cfg.mixer_buses {
             let g = if b.muted { 0.0 } else { db_to_gain(b.gain_db) };
@@ -298,7 +353,8 @@ impl Plan {
             let out = out_index(&b.output_device_id, &mut outs);
             let key = format!("bus:{}", b.id);
             let (gl, gr) = prev_lr(&key, l, r);
-            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted });
+            let insert = insert_of(&b.insert, &key, &mut inserts);
+            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted, insert });
         }
         let bus_ids: Vec<&str> = cfg.mixer_buses.iter().map(|b| b.id.as_str()).collect();
 
@@ -355,7 +411,8 @@ impl Plan {
                 let target = if sc.pre { if open { base } else { 0.0 } } else { base };
                 sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
             }
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open });
+            let insert = insert_of(&c.insert, &key, &mut inserts);
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -373,6 +430,8 @@ impl Plan {
             cfg.mixer_buses.iter().position(|b| b.id == cfg.monitor_bus_id)
         };
         let stream_out = outs.iter().position(|o| o.is_stream);
+        let insert_sends: Vec<InsertSend> =
+            inserts.iter().map(|i| InsertSend { device: i.send_device.clone(), buf: buf() }).collect();
         Plan {
             chans,
             buses,
@@ -387,7 +446,24 @@ impl Plan {
             monitor: buf(),
             program: buf(),
             tmp: buf(),
+            inserts,
+            insert_sends,
         }
+    }
+
+    /// Tarjetas de envio y entradas de retorno de los inserts activos.
+    pub fn insert_devices(&self) -> (Vec<String>, Vec<String>) {
+        let mut sends = Vec::new();
+        let mut returns = Vec::new();
+        for i in &self.inserts {
+            if !sends.contains(&i.send_device) {
+                sends.push(i.send_device.clone());
+            }
+            if !returns.contains(&i.return_device) {
+                returns.push(i.return_device.clone());
+            }
+        }
+        (sends, returns)
     }
 
     /// Mueve un fader en vivo (mientras se arrastra), sin rehacer la mesa.
@@ -432,7 +508,24 @@ impl Plan {
     /// Mezcla un bloque de `frames` (<= MAX_BLOCK). Las fuentes son estereo
     /// entrelazado; `inputs[i]` corresponde a `self.inputs[i]`.
     pub fn render(&mut self, frames: usize, music: &[f32], preview: &[f32], call: &[f32], inputs: &[&[f32]]) {
+        self.render_inserts(frames, music, preview, call, inputs, &[]);
+    }
+
+    /// Igual que `render`, pero con el audio que devuelven los procesadores
+    /// externos de los inserts (`insert_returns[i]` para `inserts[i]`).
+    pub fn render_inserts(
+        &mut self,
+        frames: usize,
+        music: &[f32],
+        preview: &[f32],
+        call: &[f32],
+        inputs: &[&[f32]],
+        insert_returns: &[InsertFeed],
+    ) {
         let n = frames.min(MAX_BLOCK) * 2;
+        for s in self.insert_sends.iter_mut() {
+            s.buf[..n].iter_mut().for_each(|x| *x = 0.0);
+        }
         for b in self.buses.iter_mut() {
             b.buf[..n].iter_mut().for_each(|x| *x = 0.0);
         }
@@ -441,12 +534,30 @@ impl Plan {
         }
         let silence: &[f32] = &[];
         for c in self.chans.iter_mut() {
-            let src: &[f32] = match c.src {
+            let mut src: &[f32] = match c.src {
                 Source::Music => music,
                 Source::Preview => preview,
                 Source::Call => call,
                 Source::Input(i) => inputs.get(i).copied().unwrap_or(silence),
             };
+            // Insert de canal: se envia la senal seca y, si el procesador ya
+            // devuelve audio, se usa el retorno en lugar del seco.
+            if let Some(ii) = c.insert {
+                let has_src = src.len() >= n;
+                if let Some(send) = self.insert_sends.get_mut(ii) {
+                    if has_src {
+                        for (d, s) in send.buf[..n].chunks_exact_mut(2).zip(src[..n].chunks_exact(2)) {
+                            d[0] += s[0];
+                            d[1] += s[1];
+                        }
+                    }
+                }
+                if let Some(feed) = insert_returns.get(ii) {
+                    if has_src && feed.active && feed.data.len() >= n {
+                        src = &feed.data[..n];
+                    }
+                }
+            }
             let gl = c.gl.gains(frames);
             let gr = c.gr.gains(frames);
             let sends: &mut Vec<Send> = &mut c.sends;
@@ -487,6 +598,21 @@ impl Plan {
             }
         }
         for (bi, b) in self.buses.iter_mut().enumerate() {
+            // Insert de bus: se envia la suma del bus antes del fader/pan y,
+            // cuando hay retorno, este sustituye al seco.
+            if let Some(ii) = b.insert {
+                if let Some(send) = self.insert_sends.get_mut(ii) {
+                    for (d, s) in send.buf[..n].chunks_exact_mut(2).zip(b.buf[..n].chunks_exact(2)) {
+                        d[0] += s[0];
+                        d[1] += s[1];
+                    }
+                }
+                if let Some(feed) = insert_returns.get(ii) {
+                    if feed.active && feed.data.len() >= n {
+                        b.buf[..n].copy_from_slice(&feed.data[..n]);
+                    }
+                }
+            }
             let gl = b.gl.gains(frames);
             let gr = b.gr.gains(frames);
             scale2(&mut b.buf[..n], gl, gr);

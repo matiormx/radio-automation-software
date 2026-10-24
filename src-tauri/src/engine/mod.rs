@@ -159,7 +159,8 @@ impl Engine {
                     let vol = g.core.volume();
                     let plan = Plan::build(&config, vol, Some(&g.core.plan));
                     let devices: Vec<String> = plan.outs.iter().map(|o| o.device.clone()).collect();
-                    self.io.set_devices(devices);
+                    let (sends, returns) = plan.insert_devices();
+                    self.io.set_route(devices, sends, returns);
                     g.core.swap_plan(plan)
                 };
                 drop(old);
@@ -373,6 +374,12 @@ pub fn engine_cmd(state: State<'_, EngineState>, op: Op) -> Result<(), String> {
 #[tauri::command]
 pub fn engine_devices() -> Vec<String> {
     io::list_outputs()
+}
+
+/// Entradas del equipo (para elegir el retorno de un insert).
+#[tauri::command]
+pub fn engine_inputs() -> Vec<String> {
+    io::list_inputs()
 }
 
 #[cfg(test)]

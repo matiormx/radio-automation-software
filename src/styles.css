@@ -533,6 +533,42 @@ body {
   letter-spacing: 1px;
   color: var(--text-faint);
 }
+.vu-src {
+  max-height: 64px;
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vu-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--panel-2, #1b2029);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px #0008;
+}
+.vu-menu-title { font-size: 10.5px; color: var(--text-faint); padding: 2px 8px 6px; }
+.vu-menu-item {
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim, #c5ccd8);
+  font-size: 12px;
+  cursor: pointer;
+}
+.vu-menu-item:hover { background: #ffffff12; }
+.vu-menu-on { color: var(--text, #fff); }
 .vu-track {
   position: relative;
   flex: 1;

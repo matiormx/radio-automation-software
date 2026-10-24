@@ -10,7 +10,7 @@ import {
   type Device,
 } from "./components/MixerPanel";
 import { callMain, onMainState } from "./bridge";
-import { nativeDevices } from "./nativeEngine";
+import { nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerBus, MixerChannel, MixerSend, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
@@ -314,6 +314,7 @@ function Pop({ open, onClose, children }: { open: boolean; onClose: () => void; 
 function useDevices(isNative: boolean) {
   const [inputs, setInputs] = useState<Device[]>([]);
   const [outputs, setOutputs] = useState<Device[]>([]);
+  const [insertInputs, setInsertInputs] = useState<Device[]>([]);
   const refresh = useCallback(async () => {
     try {
       const list = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
@@ -326,6 +327,12 @@ function useDevices(isNative: boolean) {
           outs.push({ id: d.deviceId, label: d.label || `Salida ${outs.length + 1}`, kind: "audiooutput" });
       }
       setInputs(ins);
+      if (isNative) {
+        const names = await nativeInputs().catch(() => [] as string[]);
+        setInsertInputs(names.map((n) => ({ id: n, label: n, kind: "audioinput" as const })));
+      } else {
+        setInsertInputs(ins);
+      }
       if (isNative) {
         const names = await nativeDevices().catch(() => [] as string[]);
         setOutputs(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
@@ -351,7 +358,7 @@ function useDevices(isNative: boolean) {
     }
     await refresh();
   }, [refresh]);
-  return { inputs, outputs, detect };
+  return { inputs, insertInputs, outputs, detect };
 }
 
 // ------------------------------------------------------------ ventana
@@ -398,7 +405,7 @@ export function MixerWindow() {
 
   const s = shared?.settings;
   const isNative = s?.audioEngine === "native";
-  const { inputs, outputs, detect } = useDevices(!!isNative);
+  const { inputs, insertInputs, outputs, detect } = useDevices(!!isNative);
 
   if (!s) {
     return (
@@ -418,6 +425,7 @@ export function MixerWindow() {
         meters={meters}
         isNative={!!isNative}
         inputs={inputs}
+        insertInputs={insertInputs}
         outputs={outputs}
         onDetect={detect}
       />
@@ -429,7 +437,7 @@ export function MixerWindow() {
 export function MixerEmbedded({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
   const meters = useRef<MeterMap>(new Map());
   const isNative = settings.audioEngine === "native";
-  const { inputs, outputs, detect } = useDevices(isNative);
+  const { inputs, insertInputs, outputs, detect } = useDevices(isNative);
   useEffect(() => {
     const offs: Array<Promise<() => void>> = [];
     type M = { key: string; l: number; r: number }[];
@@ -453,6 +461,7 @@ export function MixerEmbedded({ settings, onChange }: { settings: Settings; onCh
         meters={meters}
         isNative={isNative}
         inputs={inputs}
+        insertInputs={insertInputs}
         outputs={outputs}
         onDetect={detect}
       />
@@ -466,6 +475,7 @@ function MixerBoard({
   meters,
   isNative,
   inputs,
+  insertInputs,
   outputs,
   onDetect,
 }: {
@@ -474,6 +484,7 @@ function MixerBoard({
   meters: React.MutableRefObject<MeterMap>;
   isNative: boolean;
   inputs: Device[];
+  insertInputs: Device[];
   outputs: Device[];
   onDetect: () => void;
 }) {
@@ -561,6 +572,7 @@ function MixerBoard({
             ch={ch}
             buses={buses}
             inputs={inputs}
+            insertInputs={insertInputs}
             outputs={outputs}
             meters={meters}
             onPatch={(patch) => patchChannel(ch.id, patch)}
@@ -573,7 +585,7 @@ function MixerBoard({
             key={bus.id}
             bus={bus}
             outputs={outputs}
-            inputs={inputs}
+            inputs={insertInputs}
             meters={meters}
             isMonitor={s.monitorBusId === bus.id}
             onPatch={(patch) => patchBus(bus.id, patch)}
@@ -663,6 +675,7 @@ function ChannelStrip({
   ch,
   buses,
   inputs,
+  insertInputs,
   outputs,
   meters,
   onPatch,
@@ -671,6 +684,7 @@ function ChannelStrip({
   ch: MixerChannel;
   buses: MixerBus[];
   inputs: Device[];
+  insertInputs: Device[];
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
   onPatch: (patch: Partial<MixerChannel>) => void;
@@ -765,7 +779,7 @@ function ChannelStrip({
           <InsertControls
             owner={ch}
             label={ch.name}
-            inputs={inputs}
+            inputs={insertInputs}
             outputs={outputs}
             onChange={(insert) => onPatch({ insert })}
           />

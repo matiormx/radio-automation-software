@@ -259,10 +259,12 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
 /** Con el motor nativo, la mesa web no toca los canales de musica. */
 function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
   return {
-    mixerChannels: s.mixerChannels.filter(
-      (ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"),
-    ),
-    mixerBuses: s.mixerBuses,
+    // Los inserts los lleva el motor nativo (sus tarjetas se eligen por nombre
+    // del sistema, no por el id del WebView), asi que aqui se quitan.
+    mixerChannels: s.mixerChannels
+      .filter((ch) => !(ch.input.kind === "app" && (ch.input.app || "music") === "music"))
+      .map((ch) => ({ ...ch, insert: undefined })),
+    mixerBuses: s.mixerBuses.map((b) => ({ ...b, insert: undefined })),
     monitorBusId: s.monitorBusId,
   };
 }
@@ -2794,7 +2796,11 @@ export default function App() {
         <VuMeter
           mixer={native ?? mixer}
           source={settings.vuSource ?? "master"}
-          onSourceChange={(vuSource) => updateSettings({ ...settingsRef.current, vuSource })}
+          buses={settings.mixerBuses.map((b) => ({ id: b.id, name: b.name }))}
+          monitorBusId={settings.monitorBusId}
+          onSelect={(vuSource, busId) =>
+            updateSettings({ ...settingsRef.current, vuSource, monitorBusId: busId })
+          }
         />
 
         <div className="right-col">
