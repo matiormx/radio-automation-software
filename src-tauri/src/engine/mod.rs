@@ -158,7 +158,7 @@ impl Engine {
                     let mut g = lock(&self.shared);
                     let vol = g.core.volume();
                     let plan = Plan::build(&config, vol, Some(&g.core.plan));
-                    let devices: Vec<String> = plan.outs.iter().map(|o| o.device.clone()).collect();
+                    let devices: Vec<String> = plan.outs.iter().filter(|o| o.device != graph::NONE_DEVICE).map(|o| o.device.clone()).collect();
                     let (sends, returns) = plan.insert_devices();
                     self.io.set_route(devices, sends, returns);
                     g.core.swap_plan(plan)

@@ -152,24 +152,70 @@ fn push_all(prod: &mut Producer<f32>, data: &[f32]) {
     }
 }
 
-/// Nombres de las tarjetas de salida disponibles.
-pub fn list_outputs() -> Vec<String> {
+/// Un id de dispositivo es el nombre de la tarjeta o `nombre#N`, donde N es el
+/// par de canales (1 = canales 1-2, 2 = 3-4...). Sin sufijo es el par 1.
+pub fn split_pair(id: &str) -> (&str, usize) {
+    if let Some((name, n)) = id.rsplit_once('#') {
+        if let Ok(n) = n.parse::<usize>() {
+            if n >= 1 && !name.is_empty() {
+                return (name, n);
+            }
+        }
+    }
+    (id, 1)
+}
+
+/// Canales que ofrece una tarjeta (formato por defecto y los soportados).
+fn max_channels(dev: &cpal::Device, output: bool) -> usize {
+    let mut n = if output {
+        dev.default_output_config().map(|c| c.channels() as usize).unwrap_or(2)
+    } else {
+        dev.default_input_config().map(|c| c.channels() as usize).unwrap_or(2)
+    };
+    if output {
+        if let Ok(cfgs) = dev.supported_output_configs() {
+            for c in cfgs {
+                n = n.max(c.channels() as usize);
+            }
+        }
+    } else if let Ok(cfgs) = dev.supported_input_configs() {
+        for c in cfgs {
+            n = n.max(c.channels() as usize);
+        }
+    }
+    n
+}
+
+fn list_devices(output: bool) -> Vec<String> {
     let host = cpal::default_host();
-    let mut names = Vec::new();
-    if let Ok(devs) = host.output_devices() {
+    let mut names: Vec<String> = Vec::new();
+    let devs = if output { host.output_devices() } else { host.input_devices() };
+    if let Ok(devs) = devs {
         for d in devs {
-            if let Ok(n) = d.name() {
-                if !names.contains(&n) {
-                    names.push(n);
-                }
+            let Ok(n) = d.name() else { continue };
+            if names.contains(&n) {
+                continue;
+            }
+            let pairs = (max_channels(&d, output) / 2).clamp(1, 32);
+            names.push(n.clone());
+            // Las tarjetas multicanal (p. ej. VB-Matrix VAIO, 8 canales)
+            // ofrecen cada par de canales como una salida/entrada.
+            for k in 2..=pairs {
+                names.push(format!("{n}#{k}"));
             }
         }
     }
     names
 }
 
+/// Nombres de las tarjetas de salida disponibles (con sus pares de canales).
+pub fn list_outputs() -> Vec<String> {
+    list_devices(true)
+}
+
 fn find_output(id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
+    let (id, _) = split_pair(id);
     if id == DEFAULT_DEVICE {
         return host.default_output_device();
     }
@@ -178,22 +224,12 @@ fn find_output(id: &str) -> Option<cpal::Device> {
 
 /// Nombres de las entradas disponibles (para el retorno de los inserts).
 pub fn list_inputs() -> Vec<String> {
-    let host = cpal::default_host();
-    let mut names = Vec::new();
-    if let Ok(devs) = host.input_devices() {
-        for d in devs {
-            if let Ok(n) = d.name() {
-                if !names.contains(&n) {
-                    names.push(n);
-                }
-            }
-        }
-    }
-    names
+    list_devices(false)
 }
 
 fn find_input(id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
+    let (id, _) = split_pair(id);
     if id == DEFAULT_DEVICE {
         return host.default_input_device();
     }
@@ -250,7 +286,7 @@ where
 }
 
 #[inline]
-fn open_input<F>(device: &cpal::Device, push: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
+fn open_input<F>(device: &cpal::Device, pair: usize, push: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
 where
     F: FnMut(&[f32]) + Send + 'static,
 {
@@ -261,19 +297,19 @@ where
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
     let stream = match format {
-        SampleFormat::F32 => build_input::<f32, F>(device, &config, push, failed),
-        SampleFormat::I16 => build_input::<i16, F>(device, &config, push, failed),
-        SampleFormat::I32 => build_input::<i32, F>(device, &config, push, failed),
-        SampleFormat::U16 => build_input::<u16, F>(device, &config, push, failed),
-        SampleFormat::I24 => build_input::<cpal::I24, F>(device, &config, push, failed),
-        SampleFormat::F64 => build_input::<f64, F>(device, &config, push, failed),
+        SampleFormat::F32 => build_input::<f32, F>(device, &config, pair, push, failed),
+        SampleFormat::I16 => build_input::<i16, F>(device, &config, pair, push, failed),
+        SampleFormat::I32 => build_input::<i32, F>(device, &config, pair, push, failed),
+        SampleFormat::U16 => build_input::<u16, F>(device, &config, pair, push, failed),
+        SampleFormat::I24 => build_input::<cpal::I24, F>(device, &config, pair, push, failed),
+        SampleFormat::F64 => build_input::<f64, F>(device, &config, pair, push, failed),
         other => return Err(format!("Formato de entrada no soportado: {other}")),
     }?;
     stream.play().map_err(|e| format!("No se pudo arrancar la entrada: {e}"))?;
     Ok((stream, rate))
 }
 
-fn build_input<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, mut push: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
+fn build_input<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, pair: usize, mut push: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
 where
     T: SizedSample,
     f32: FromSample<T>,
@@ -288,14 +324,17 @@ where
                 let frames = data.len() / channels;
                 scratch.clear();
                 scratch.reserve(frames * 2);
+                // Par de canales elegido (1 = 1-2, 2 = 3-4...); si la tarjeta
+                // tiene menos canales, se usa el ultimo.
+                let a = ((pair.max(1) - 1) * 2).min(channels - 1);
                 for f in data.chunks_exact(channels) {
-                    let l = f32::from_sample(f[0]);
-                    if channels == 1 {
+                    let l = f32::from_sample(f[a]);
+                    if a + 1 < channels {
                         scratch.push(l);
-                        scratch.push(l);
+                        scratch.push(f32::from_sample(f[a + 1]));
                     } else {
                         scratch.push(l);
-                        scratch.push(f32::from_sample(f[1]));
+                        scratch.push(l);
                     }
                 }
                 push(&scratch);
@@ -308,12 +347,21 @@ where
 
 #[inline]
 fn put(out: &mut [f32], channels: usize, k: usize, l: f32, r: f32) {
+    put_at(out, channels, k, 0, l, r);
+}
+
+/// Escribe un par estereo a partir del canal `off` (0 = canales 1-2, 2 = 3-4...).
+/// Si la tarjeta no llega a ese par, no se escribe nada.
+#[inline]
+fn put_at(out: &mut [f32], channels: usize, k: usize, off: usize, l: f32, r: f32) {
     let base = k * channels;
     if channels == 1 {
-        out[base] = 0.5 * (l + r);
-    } else {
-        out[base] = l;
-        out[base + 1] = r;
+        if off == 0 {
+            out[base] = 0.5 * (l + r);
+        }
+    } else if off + 1 < channels {
+        out[base + off] = l;
+        out[base + off + 1] = r;
     }
 }
 
@@ -377,11 +425,12 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
 }
 
 /// Callback de una tarjeta secundaria: lee su anillo y corrige la deriva.
-fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32) -> impl FnMut(&mut [f32], usize) + Send + 'static {
+fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, pair: usize) -> impl FnMut(&mut [f32], usize) + Send + 'static {
     let mut stretch = Stretch::new();
     let mut drift = Drift::default();
     let base = ENGINE_RATE as f64 / dev_rate.max(1) as f64;
     let mut primed = false;
+    let off = (pair.max(1) - 1) * 2;
     move |out: &mut [f32], channels: usize| {
         let frames = out.len() / channels;
         let target = (frames as f64 * base * 3.0).max(ENGINE_RATE as f64 * 0.03);
@@ -420,7 +469,7 @@ fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32) -> impl FnMut(&mut [f3
                     }
                 }
             },
-            |k, l, r| put(out, channels, k, l, r),
+            |k, l, r| put_at(out, channels, k, off, l, r),
         );
         if starved {
             primed = false;
@@ -591,7 +640,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
             let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
             let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate), failed.clone()) {
+            match open_output(&dev, secondary_fill(cons, rate, split_pair(id).1), failed.clone()) {
                 Ok((stream, _)) => {
                     lock(&shared).sinks.push(SecSink { device: id.clone(), prod });
                     secs.insert(id.clone(), Opened { _stream: stream, failed });
@@ -630,7 +679,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
             let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
             let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate), failed.clone()) {
+            match open_output(&dev, secondary_fill(cons, rate, split_pair(id).1), failed.clone()) {
                 Ok((stream, _)) => {
                     lock(&shared).insert_sinks.push(SecSink { device: id.clone(), prod });
                     send_secs.insert(id.clone(), Opened { _stream: stream, failed });
@@ -672,6 +721,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             let failed = Arc::new(AtomicBool::new(false));
             match open_input(
                 &dev,
+                split_pair(id).1,
                 move |stereo: &[f32]| {
                     for &v in stereo {
                         let _ = prod.push(v);

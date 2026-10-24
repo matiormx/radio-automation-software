@@ -11,7 +11,7 @@ import { levelerOf } from "../leveler";
 import { IconPlus, IconTrash } from "../icons";
 import type { SoundMixer } from "../mixer";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "../mixer";
-import { nativeDevices } from "../nativeEngine";
+import { nativeDeviceOptions, nativeDevices } from "../nativeEngine";
 
 interface MixerPanelProps {
   settings: Settings;
@@ -303,7 +303,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
     let alive = true;
     void nativeDevices()
       .then((names) => {
-        if (alive) setNativeOuts(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
+        if (alive) setNativeOuts(nativeDeviceOptions(names, "audiooutput"));
       })
       .catch(() => alive && setNativeOuts([]));
     return () => {
@@ -700,6 +700,9 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           </option>
                         </optgroup>
                         <optgroup label="Tarjetas de salida">
+                          <option value="device:none">
+                            Ninguna (solo envíos)
+                          </option>
                           <option value="device:default">
                             Salida predeterminada
                           </option>
@@ -710,6 +713,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           ))}
                           {ch.output.kind === "device" &&
                             ch.output.id !== "default" &&
+                            ch.output.id !== "none" &&
                             ch.output.id !== "streaming" &&
                             !outputs.some((d) => d.id === ch.output.id) && (
                               <option value={`device:${ch.output.id}`}>
@@ -821,6 +825,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                           <option value="streaming">
                             Streaming (encoders)
                           </option>
+                          <option value="none">Ninguna (solo envíos)</option>
                           <option value="default">Salida predeterminada</option>
                           {outputs.map((d) => (
                             <option key={d.id} value={d.id}>
@@ -828,6 +833,7 @@ export function MixerPanel({ settings, mixer, onChange }: MixerPanelProps) {
                             </option>
                           ))}
                           {bus.outputDeviceId !== "default" &&
+                            bus.outputDeviceId !== "none" &&
                             bus.outputDeviceId !== "streaming" &&
                             !outputs.some(
                               (d) => d.id === bus.outputDeviceId,

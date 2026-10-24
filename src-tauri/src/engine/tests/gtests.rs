@@ -197,3 +197,21 @@ fn mono_channel_mixes_sides() {
     let l = levels(&mut c, 2048);
     assert!(l["default"] > 0.0, "{:?}", l);
 }
+
+#[test]
+fn none_output_sends_nowhere_but_feeds_sends() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"none"},"gainDb":0,"muted":false,"sends":[{"busId":"B","gainDb":0,"pre":false,"muted":false}]}],
+      "mixerBuses":[{"id":"B","outputDeviceId":"cardX","gainDb":0,"muted":false}],"monitorBusId":""}"#);
+    let l = levels(&mut c, 2048);
+    assert!((l["cardX"] - 0.5).abs() < 1e-3, "{:?}", l);
+    assert_eq!(l["default"], 0.0);
+}
+
+#[test]
+fn device_pairs_parse() {
+    use crate::engine::io::split_pair;
+    assert_eq!(split_pair("VAIO3"), ("VAIO3", 1));
+    assert_eq!(split_pair("VAIO3#3"), ("VAIO3", 3));
+    assert_eq!(split_pair("A#B"), ("A#B", 1));
+}

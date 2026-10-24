@@ -8,6 +8,8 @@ use serde::Deserialize;
 
 pub const DEFAULT_DEVICE: &str = "default";
 pub const STREAM_DEVICE: &str = "streaming";
+/// Salida «Ninguna»: la senal no va a ninguna tarjeta (solo envios).
+pub const NONE_DEVICE: &str = "none";
 pub const MIN_GAIN_DB: f64 = -60.0;
 pub const MAX_GAIN_DB: f64 = 12.0;
 /// Frames maximos por bloque; bloques mayores se parten.

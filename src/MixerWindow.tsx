@@ -10,7 +10,7 @@ import {
   type Device,
 } from "./components/MixerPanel";
 import { callMain, onMainState } from "./bridge";
-import { nativeDevices, nativeInputs } from "./nativeEngine";
+import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerBus, MixerChannel, MixerSend, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
@@ -329,13 +329,13 @@ function useDevices(isNative: boolean) {
       setInputs(ins);
       if (isNative) {
         const names = await nativeInputs().catch(() => [] as string[]);
-        setInsertInputs(names.map((n) => ({ id: n, label: n, kind: "audioinput" as const })));
+        setInsertInputs(nativeDeviceOptions(names, "audioinput"));
       } else {
         setInsertInputs(ins);
       }
       if (isNative) {
         const names = await nativeDevices().catch(() => [] as string[]);
-        setOutputs(names.map((n) => ({ id: n, label: n, kind: "audiooutput" as const })));
+        setOutputs(nativeDeviceOptions(names, "audiooutput"));
       } else {
         setOutputs(outs);
       }
@@ -506,8 +506,14 @@ function MixerBoard({
           id: newId(),
           name: named ? APP_NAMES[app] : `Canal ${channels.length + 1}`,
           color: nextColor(channels.length),
-          input: { kind: "app", app, deviceId: "" },
-          output: buses[0] ? { kind: "bus", id: buses[0].id } : { kind: "device", id: "default" },
+          // Un canal nuevo no tiene entrada ni salida hasta que se elijan;
+          // los de aplicacion (musica, preescucha, llamadas) salen ya conectados.
+          input: named ? { kind: "app", app, deviceId: "" } : { kind: "device", app: "", deviceId: "none" },
+          output: !named
+            ? { kind: "device", id: "none" }
+            : buses[0]
+              ? { kind: "bus", id: buses[0].id }
+              : { kind: "device", id: "default" },
           gainDb: 0,
           muted: false,
         },
@@ -737,11 +743,15 @@ function ChannelStrip({
         : ch.input.app === "call"
           ? "Llamadas"
           : "Música"
-      : inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada";
+      : ch.input.deviceId === "none"
+        ? "Ninguna"
+        : inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada";
   const outputLabel =
     ch.output.kind === "bus"
       ? busName(ch.output.id)
-      : ch.output.id === "streaming"
+      : ch.output.id === "none"
+        ? "Ninguna"
+        : ch.output.id === "streaming"
         ? "Streaming"
         : ch.output.id === "default" || !ch.output.id
           ? "Predeterminada"
@@ -785,6 +795,7 @@ function ChannelStrip({
                 <option value="app:call">Llamadas de oyentes</option>
               </optgroup>
               <optgroup label="Entradas">
+                <option value="device:none">Ninguna</option>
                 <option value="device:default">Entrada predeterminada</option>
                 {inputs.map((d) => (
                   <option key={d.id} value={`device:${d.id}`}>
@@ -937,6 +948,7 @@ function ChannelStrip({
               )}
               <optgroup label="Emisión">
                 <option value="device:streaming">Streaming (encoders)</option>
+                <option value="device:none">Ninguna (solo envíos)</option>
               </optgroup>
               <optgroup label="Tarjetas">
                 <option value="device:default">Salida predeterminada</option>
@@ -1022,7 +1034,7 @@ function BusStrip({
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
   const outputLabel =
-    out === "streaming" ? "Streaming" : out === "default" ? "Predeterminada" : outputs.find((d) => d.id === out)?.label ?? "Salida";
+    out === "none" ? "Ninguna" : out === "streaming" ? "Streaming" : out === "default" ? "Predeterminada" : outputs.find((d) => d.id === out)?.label ?? "Salida";
   const key = `bus:${bus.id}`;
   return (
     <section className="mx-strip mx-bus" aria-label={bus.name}>
@@ -1062,6 +1074,7 @@ function BusStrip({
             <span>Salida</span>
             <select value={out} onChange={(e) => onPatch({ outputDeviceId: e.target.value })}>
               <option value="streaming">Streaming (encoders)</option>
+              <option value="none">Ninguna (solo envíos)</option>
               <option value="default">Salida predeterminada</option>
               {outputs.map((d) => (
                 <option key={d.id} value={d.id}>

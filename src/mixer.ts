@@ -17,6 +17,8 @@ import { Leveler, levelerOf } from "./leveler";
 const DEFAULT_DEVICE = "default";
 /** Salida virtual: lo que entra a los encoders de streaming */
 export const STREAM_DEVICE = "streaming";
+/** Salida «Ninguna»: no va a ninguna tarjeta */
+export const NONE_DEVICE = "none";
 export const MIN_GAIN_DB = -60;
 export const MAX_GAIN_DB = 12;
 
@@ -282,6 +284,7 @@ export class SoundMixer {
     const usedDevices = new Set<string>([DEFAULT_DEVICE]);
     for (const bus of cfg.mixerBuses)
       usedDevices.add(normDevice(bus.outputDeviceId));
+    usedDevices.delete(NONE_DEVICE);
     for (const ch of cfg.mixerChannels) {
       if (ch.output.kind === "device")
         usedDevices.add(normDevice(ch.output.id));
@@ -340,7 +343,8 @@ export class SoundMixer {
       gain.gain.value = bus.muted ? 0 : dbToGain(bus.gainDb);
       const pan = panner(bus.pan);
       gain.connect(pan.input);
-      pan.output.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
+      if (normDevice(bus.outputDeviceId) !== NONE_DEVICE)
+        pan.output.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
       this.faders.push(gain);
       this.busFaders.set(bus.id, pan.output);
       this.liveFaders.set(`bus:${bus.id}`, { gain, open: !bus.muted });
@@ -433,8 +437,11 @@ export class SoundMixer {
         }
       } else {
         const id = normDevice(ch.input.deviceId);
-        inputDevices.add(id);
-        this.connectInput(id, entry);
+        // Entrada «Ninguna»: el canal no recibe nada.
+        if (id !== NONE_DEVICE) {
+          inputDevices.add(id);
+          this.connectInput(id, entry);
+        }
       }
 
       // Todo lo que no es la voz del que llama alimenta su retorno.
@@ -446,7 +453,7 @@ export class SoundMixer {
         if (busGain) pan.connect(busGain);
         else pan.connect(this.deviceMix(DEFAULT_DEVICE));
       } else {
-        pan.connect(this.deviceMix(normDevice(ch.output.id)));
+        if (normDevice(ch.output.id) !== NONE_DEVICE) pan.connect(this.deviceMix(normDevice(ch.output.id)));
       }
     }
 

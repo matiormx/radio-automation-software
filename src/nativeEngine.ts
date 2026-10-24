@@ -301,3 +301,25 @@ export class NativePlayer {
     this.waiters = this.waiters.filter((w) => !w(s));
   }
 }
+
+/**
+ * Tarjetas del motor nativo como opciones de la mesa. Las multicanal traen un
+ * id `nombre#N` por cada par de canales (N=1 es el propio nombre).
+ */
+export function nativeDeviceOptions<K extends "audioinput" | "audiooutput">(
+  names: string[],
+  kind: K,
+): Array<{ id: string; label: string; kind: K }> {
+  const multi = new Set<string>();
+  for (const n of names) {
+    const m = /^(.*)#(\d+)$/.exec(n);
+    if (m) multi.add(m[1]);
+  }
+  return names.map((n) => {
+    const m = /^(.*)#(\d+)$/.exec(n);
+    const base = m ? m[1] : n;
+    const pair = m ? Number(m[2]) : 1;
+    const label = multi.has(base) ? `${base} · canales ${pair * 2 - 1}-${pair * 2}` : n;
+    return { id: n, label, kind };
+  });
+}
