@@ -104,6 +104,8 @@ interface MusicBrowserProps {
   /** Peticion de edicion de metadatos desde otra zona de la app */
   pendingEdit: { id: string; n: number } | null;
   onPendingEditDone: () => void;
+  /** Bloque sobre el que se estan soltando archivos */
+  dropBlockId?: string;
   showToast: (msg: string) => void;
 }
 
@@ -146,6 +148,41 @@ interface FolderNode {
   path: string;
   count: number;
   children: FolderNode[];
+}
+
+type BlockLayoutItem =
+  | { kind: "block"; id: string }
+  | { kind: "separator"; id: string; title: string };
+
+const BLOCK_LAYOUT_KEY = "miradio.blocks.layout";
+const SIDE_WIDTH_KEY = "miradio.music.sideWidth";
+
+function loadBlockLayout(): BlockLayoutItem[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BLOCK_LAYOUT_KEY) ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is BlockLayoutItem => {
+      if (!item || typeof item !== "object") return false;
+      const entry = item as Partial<BlockLayoutItem>;
+      if (entry.kind === "block") return typeof entry.id === "string";
+      return (
+        entry.kind === "separator" &&
+        typeof entry.id === "string" &&
+        typeof entry.title === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function layoutItemKey(item: BlockLayoutItem): string {
+  return `${item.kind}:${item.id}`;
+}
+
+function loadSideWidth(): number {
+  const value = Number(localStorage.getItem(SIDE_WIDTH_KEY));
+  return Number.isFinite(value) && value >= 120 ? Math.min(480, value) : 186;
 }
 
 const MODES: { id: Mode; label: string }[] = [
@@ -310,6 +347,7 @@ export function MusicBrowser({
   onEditCuts,
   pendingEdit,
   onPendingEditDone,
+  dropBlockId = "",
   showToast,
 }: MusicBrowserProps) {
   const [mode, setMode] = useState<Mode>("folders");
@@ -327,6 +365,14 @@ export function MusicBrowser({
   const [renameValue, setRenameValue] = useState("");
   const [scanning, setScanning] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sideWidth, setSideWidth] = useState(loadSideWidth);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [blockLayout, setBlockLayout] = useState<BlockLayoutItem[]>(loadBlockLayout);
+  const [newSeparator, setNewSeparator] = useState("");
+  const [renamingSeparator, setRenamingSeparator] = useState("");
+  const [separatorValue, setSeparatorValue] = useState("");
+  const [draggingBlock, setDraggingBlock] = useState("");
+  const [dragOverBlock, setDragOverBlock] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const blockNames = useMemo(() => {
@@ -334,6 +380,121 @@ export function MusicBrowser({
     for (const b of blocks) m.set(b.id, b.name);
     return m;
   }, [blocks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BLOCK_LAYOUT_KEY, JSON.stringify(blockLayout));
+    } catch {
+      /* sin almacenamiento */
+    }
+  }, [blockLayout]);
+
+  // Mantiene el orden guardado y descarta bloques que ya no existen.
+  useEffect(() => {
+    setBlockLayout((prev) => {
+      const valid = new Set(blocks.map((block) => block.id));
+      const seen = new Set<string>();
+      const next: BlockLayoutItem[] = [];
+      for (const item of prev) {
+        if (item.kind === "separator") {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          next.push(item);
+        } else if (valid.has(item.id) && !seen.has(`block:${item.id}`)) {
+          seen.add(`block:${item.id}`);
+          next.push(item);
+        }
+      }
+      for (const block of blocks) {
+        if (!seen.has(`block:${block.id}`)) next.push({ kind: "block", id: block.id });
+      }
+      if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
+      return next;
+    });
+  }, [blocks]);
+
+  const blockItems = useMemo(() => {
+    const valid = new Set(blocks.map((block) => block.id));
+    const seen = new Set<string>();
+    const items: BlockLayoutItem[] = [];
+    for (const item of blockLayout) {
+      if (item.kind === "separator") {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        items.push(item);
+      } else if (valid.has(item.id) && !seen.has(`block:${item.id}`)) {
+        seen.add(`block:${item.id}`);
+        items.push(item);
+      }
+    }
+    for (const block of blocks) {
+      if (!seen.has(`block:${block.id}`)) items.push({ kind: "block", id: block.id });
+    }
+    return items;
+  }, [blockLayout, blocks]);
+
+  const addSeparator = () => {
+    const title = newSeparator.trim();
+    if (!title) return;
+    setBlockLayout([
+      ...blockItems,
+      { kind: "separator", id: `sep${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, title },
+    ]);
+    setNewSeparator("");
+  };
+
+  const commitSeparatorRename = () => {
+    const id = renamingSeparator;
+    const title = separatorValue.trim();
+    setRenamingSeparator("");
+    if (!id || !title) return;
+    setBlockLayout((prev) =>
+      prev.map((item) => (item.kind === "separator" && item.id === id ? { ...item, title } : item)),
+    );
+  };
+
+  const removeSeparator = (id: string) => {
+    setBlockLayout(blockItems.filter((item) => !(item.kind === "separator" && item.id === id)));
+  };
+
+  const moveBlockItem = (fromKey: string, toKey: string) => {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    const from = blockItems.findIndex((item) => layoutItemKey(item) === fromKey);
+    const to = blockItems.findIndex((item) => layoutItemKey(item) === toKey);
+    if (from < 0 || to < 0) return;
+    const next = [...blockItems];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setBlockLayout(next);
+  };
+
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    resizeRef.current = { startX: e.clientX, startWidth: sideWidth };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const resizeTo = (startX: number, startWidth: number, clientX: number) =>
+    Math.max(120, Math.min(480, startWidth + clientX - startX));
+  const moveResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const state = resizeRef.current;
+    if (!state) return;
+    setSideWidth(resizeTo(state.startX, state.startWidth, e.clientX));
+  };
+  const finishResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const state = resizeRef.current;
+    if (!state) return;
+    const width = resizeTo(state.startX, state.startWidth, e.clientX);
+    resizeRef.current = null;
+    setSideWidth(width);
+    try {
+      localStorage.setItem(SIDE_WIDTH_KEY, String(width));
+    } catch {
+      /* sin almacenamiento */
+    }
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
 
   const folderTree = useMemo(() => buildFolderTree(tracks), [tracks]);
 
@@ -838,52 +999,66 @@ export function MusicBrowser({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <button type="button" className="btn btn-sm" onClick={onPickFiles} title="Importar archivos de audio o vídeo">
+        <button
+          type="button"
+          className="btn btn-sm icon-only"
+          onClick={onPickFiles}
+          title="Importar archivos de audio o vídeo"
+          aria-label="Importar archivos de audio o vídeo"
+        >
           <IconImport size={14} />
-          Importar
         </button>
         <button
           type="button"
-          className="btn btn-sm"
+          className="btn btn-sm icon-only"
           onClick={() => void doScan()}
           disabled={scanning}
           title="Catalogar los archivos de la carpeta de música"
+          aria-label="Catalogar los archivos de la carpeta de música"
         >
           <IconScan size={14} />
-          Escanear
         </button>
         <button
           type="button"
-          className="btn btn-sm"
+          className="btn btn-sm icon-only"
           onClick={() => void doScanFolder()}
           disabled={scanning}
-          title="Elegir una carpeta o un disco duro y añadir sus canciones (con subcarpetas) al catálogo general, sin copiarlas ni meterlas en bloques"
+          title={
+            scanInfo ||
+            "Elegir una carpeta o un disco duro y añadir sus canciones (con subcarpetas) al catálogo general, sin copiarlas ni meterlas en bloques"
+          }
+          aria-label="Escanear una carpeta o un disco duro"
         >
-          <IconScan size={14} />
-          {scanInfo || "Escanear carpeta o disco…"}
+          <IconFolder size={14} />
         </button>
         <button
           type="button"
-          className="btn btn-sm"
+          className="btn btn-sm icon-only"
           onClick={() => void openPlaylistImport()}
           title="Importar una lista .m3u/.m3u8 a un bloque"
+          aria-label="Importar una lista a un bloque"
         >
           <IconList size={14} />
-          Lista
         </button>
         <button
           type="button"
-          className="btn btn-sm"
+          className="btn btn-sm icon-only"
           onClick={() => setAiOpen(true)}
           title="Analizar idioma y estilos con IA local"
+          aria-label="Analizar idioma y estilos con IA local"
         >
           <IconSparkles size={14} />
-          IA
         </button>
       </div>
 
-      <div className="browser-body">
-        <aside className="browser-side" aria-label="Filtros">
+      <div
+        className="browser-body"
+        style={{ gridTemplateColumns: `${sideWidth}px 6px minmax(0, 1fr)` }}
+      >
+        <aside
+          className={`browser-side ${dropBlockId ? "browser-side-drop" : ""}`}
+          aria-label="Filtros"
+        >
           {mode === "folders" && (
             <>
               <button
@@ -941,75 +1116,191 @@ export function MusicBrowser({
                 <span className="nav-name">Toda la biblioteca</span>
                 <span className="nav-count">{tracks.length}</span>
               </button>
-              {blocks.map((b) => (
-                <div
-                  key={b.id}
-                  className={`nav-item nav-item-block ${selection === b.id ? "nav-item-on" : ""}`}
-                  onClick={() => setSelection(b.id)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") setSelection(b.id);
-                  }}
-                  title={`${b.name} · ${blockCounts.get(b.id) ?? 0} canciones`}
-                >
-                  {renamingId === b.id ? (
-                    <input
-                      className="block-rename"
-                      value={renameValue}
-                      autoFocus
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onBlur={() => void submitRename()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void submitRename();
-                        if (e.key === "Escape") setRenamingId("");
+              {blockItems.map((item) => {
+                const key = layoutItemKey(item);
+                if (item.kind === "separator") {
+                  return (
+                    <div
+                      key={key}
+                      className={`block-sep ${dragOverBlock === key ? "block-sep-over" : ""} ${
+                        draggingBlock === key ? "block-sep-dragging" : ""
+                      }`}
+                      draggable={renamingSeparator !== item.id}
+                      onDragStart={(e) => {
+                        if ((e.target as HTMLElement).closest("input,button")) {
+                          e.preventDefault();
+                          return;
+                        }
+                        setDraggingBlock(key);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", key);
                       }}
-                    />
-                  ) : (
-                    <span className="nav-name">{b.name}</span>
-                  )}
-                  <span className="nav-count">{blockCounts.get(b.id) ?? 0}</span>
-                  <button
-                    type="button"
-                    className={`nav-bolt ${autoBlocks.includes(b.id) ? "nav-bolt-on" : ""}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleAutoBlock(b.id);
+                      onDragEnd={() => {
+                        setDraggingBlock("");
+                        setDragOverBlock("");
+                      }}
+                      onDragOver={(e) => {
+                        if (!draggingBlock) return;
+                        e.preventDefault();
+                        setDragOverBlock(key);
+                      }}
+                      onDrop={(e) => {
+                        const from = draggingBlock || e.dataTransfer.getData("text/plain");
+                        if (!from) return;
+                        e.preventDefault();
+                        moveBlockItem(from, key);
+                        setDraggingBlock("");
+                        setDragOverBlock("");
+                      }}
+                    >
+                      <span className="block-sep-grip" aria-hidden="true">
+                        ⋮⋮
+                      </span>
+                      {renamingSeparator === item.id ? (
+                        <input
+                          className="block-sep-input"
+                          value={separatorValue}
+                          autoFocus
+                          onChange={(e) => setSeparatorValue(e.target.value)}
+                          onBlur={commitSeparatorRename}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitSeparatorRename();
+                            if (e.key === "Escape") setRenamingSeparator("");
+                          }}
+                        />
+                      ) : (
+                        <span className="block-sep-title" title={item.title}>
+                          {item.title}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="nav-act"
+                        title="Renombrar separador"
+                        onClick={() => {
+                          setRenamingSeparator(item.id);
+                          setSeparatorValue(item.title);
+                        }}
+                      >
+                        <IconEdit size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        className="nav-act nav-act-danger"
+                        title="Quitar separador (los bloques no se tocan)"
+                        onClick={() => removeSeparator(item.id)}
+                      >
+                        <IconTrash size={11} />
+                      </button>
+                    </div>
+                  );
+                }
+                const b = blocks.find((block) => block.id === item.id);
+                if (!b) return null;
+                return (
+                  <div
+                    key={b.id}
+                    data-block-drop={b.id}
+                    className={`nav-item nav-item-block ${selection === b.id ? "nav-item-on" : ""} ${
+                      dropBlockId === b.id ? "nav-item-drop" : ""
+                    } ${dragOverBlock === key ? "nav-item-drag-over" : ""} ${
+                      draggingBlock === key ? "nav-item-dragging" : ""
+                    }`}
+                    draggable={renamingId !== b.id}
+                    onDragStart={(e) => {
+                      if ((e.target as HTMLElement).closest("input,button")) {
+                        e.preventDefault();
+                        return;
+                      }
+                      setDraggingBlock(key);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", key);
                     }}
-                    title={
-                      autoBlocks.includes(b.id)
-                        ? "El piloto automático elige de este bloque"
-                        : "El piloto automático ignora este bloque"
-                    }
-                  >
-                    <IconBolt size={11} />
-                  </button>
-                  <button
-                    type="button"
-                    className="nav-act"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenamingId(b.id);
-                      setRenameValue(b.name);
+                    onDragEnd={() => {
+                      setDraggingBlock("");
+                      setDragOverBlock("");
                     }}
-                    title="Renombrar bloque"
-                  >
-                    <IconEdit size={11} />
-                  </button>
-                  <button
-                    type="button"
-                    className="nav-act nav-act-danger"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void tryDeleteBlock(b);
+                    onDragOver={(e) => {
+                      if (!draggingBlock) return;
+                      e.preventDefault();
+                      setDragOverBlock(key);
                     }}
-                    title="Eliminar bloque (las canciones no se tocan)"
+                    onDrop={(e) => {
+                      const from = draggingBlock || e.dataTransfer.getData("text/plain");
+                      if (!from) return;
+                      e.preventDefault();
+                      moveBlockItem(from, key);
+                      setDraggingBlock("");
+                      setDragOverBlock("");
+                    }}
+                    onClick={() => setSelection(b.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") setSelection(b.id);
+                    }}
+                    title={`${b.name} · ${blockCounts.get(b.id) ?? 0} canciones · arrastra para ordenar`}
                   >
-                    <IconTrash size={11} />
-                  </button>
-                </div>
-              ))}
+                    {renamingId === b.id ? (
+                      <input
+                        className="block-rename"
+                        value={renameValue}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => void submitRename()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void submitRename();
+                          if (e.key === "Escape") setRenamingId("");
+                        }}
+                      />
+                    ) : (
+                      <span className="nav-name">{b.name}</span>
+                    )}
+                    <span className="nav-count">{blockCounts.get(b.id) ?? 0}</span>
+                    <span className="nav-block-acts">
+                      <button
+                        type="button"
+                        className={`nav-bolt ${autoBlocks.includes(b.id) ? "nav-bolt-on" : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleAutoBlock(b.id);
+                        }}
+                        title={
+                          autoBlocks.includes(b.id)
+                            ? "El piloto automático elige de este bloque"
+                            : "El piloto automático ignora este bloque"
+                        }
+                      >
+                        <IconBolt size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        className="nav-act"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingId(b.id);
+                          setRenameValue(b.name);
+                        }}
+                        title="Renombrar bloque"
+                      >
+                        <IconEdit size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        className="nav-act nav-act-danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void tryDeleteBlock(b);
+                        }}
+                        title="Eliminar bloque (las canciones no se tocan)"
+                      >
+                        <IconTrash size={11} />
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
               <button
                 type="button"
                 className={`nav-item ${selection === NONE ? "nav-item-on" : ""}`}
@@ -1028,6 +1319,24 @@ export function MusicBrowser({
                   }}
                 />
                 <button type="button" className="btn btn-sm" onClick={() => void tryCreateBlock()}>
+                  <IconPlus size={13} />
+                </button>
+              </div>
+              <div className="block-new">
+                <input
+                  placeholder="Título del separador…"
+                  value={newSeparator}
+                  onChange={(e) => setNewSeparator(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addSeparator();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  title="Añadir separador"
+                  onClick={addSeparator}
+                >
                   <IconPlus size={13} />
                 </button>
               </div>
@@ -1108,6 +1417,29 @@ export function MusicBrowser({
             </>
           )}
         </aside>
+
+        <div
+          className="browser-split"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Ancho de la lista de carpetas y bloques"
+          tabIndex={0}
+          onPointerDown={startResize}
+          onPointerMove={moveResize}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          onKeyDown={(e) => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            const width = Math.max(120, Math.min(480, sideWidth + (e.key === "ArrowLeft" ? -16 : 16)));
+            setSideWidth(width);
+            try {
+              localStorage.setItem(SIDE_WIDTH_KEY, String(width));
+            } catch {
+              /* sin almacenamiento */
+            }
+          }}
+        />
 
         <div className="browser-main">
           <div className="browser-crumbs">

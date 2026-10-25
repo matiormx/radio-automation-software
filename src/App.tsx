@@ -276,6 +276,8 @@ function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuse
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const blocksRef = useRef<Block[]>([]);
+  blocksRef.current = blocks;
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [activeId, setActiveId] = useState("");
   const [playingRow, setPlayingRow] = useState(-1);
@@ -290,6 +292,7 @@ export default function App() {
   const [normStatus, setNormStatus] = useState<NormalizerStatus | null>(null);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const [dropHover, setDropHover] = useState(false);
+  const [dropBlockId, setDropBlockId] = useState("");
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
   const [clock, setClock] = useState("");
@@ -1054,7 +1057,9 @@ export default function App() {
 
   // Arrastrar archivos desde el escritorio
   const doImport = useCallback(
-    async (paths: string[], library: "a" | "b" = "a") => {
+    async (paths: string[], library: "a" | "b" = "a", blockId?: string | null) => {
+      const targetBlock =
+        blockId && blocksRef.current.some((block) => block.id === blockId) ? blockId : null;
       let ok = paths.filter(extOk);
       if (ok.length === 0) {
         showToast("Formato no reconocido. Usa audio (mp3, wav, flac, m4a…) o vídeo (mp4, m4v, mov, avi, mkv…)");
@@ -1081,8 +1086,18 @@ export default function App() {
         }
         if (ok.length === 0) return;
         const added = await importFiles(ok, library);
+        if (targetBlock) {
+          await Promise.all(added.map((track) => setTrackBlocks(track.id, [targetBlock])));
+        }
         setTracks(await listTracks());
-        const where = library === "b" ? " a la biblioteca B" : "";
+        const blockName = targetBlock
+          ? blocksRef.current.find((block) => block.id === targetBlock)?.name ?? ""
+          : "";
+        const where = blockName
+          ? ` en «${blockName}»`
+          : library === "b"
+            ? " a la biblioteca B"
+            : "";
         showToast(
           added.length === 1
             ? `1 canción importada${where}`
@@ -1097,23 +1112,42 @@ export default function App() {
     [showToast],
   );
 
+  // Bloque de la lista de música bajo el puntero al arrastrar archivos.
+  const blockAtDrop = useCallback((position?: { x: number; y: number }): string => {
+    if (!position) return "";
+    const dpr = window.devicePixelRatio || 1;
+    const element = document.elementFromPoint(position.x / dpr, position.y / dpr);
+    return element?.closest<HTMLElement>("[data-block-drop]")?.dataset.blockDrop ?? "";
+  }, []);
+
   useEffect(() => {
     let alive = true;
     let unlisten: (() => void) | undefined;
     void onWindowFileDrop({
       onDrop: (paths, position) => {
         if (!alive) return;
+        const blockId = blockAtDrop(position);
         setDropHover(false);
+        setDropBlockId("");
         if (normalizerRef.current) {
           const dpr = window.devicePixelRatio || 1;
           const cssX = position ? position.x / dpr : window.innerWidth / 2;
-          void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b");
+          void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b", blockId || null);
+        } else if (blockId) {
+          void doImport(paths, "a", blockId);
         } else {
           void doImport(paths);
         }
       },
-      onEnter: () => setDropHover(true),
-      onLeave: () => setDropHover(false),
+      onEnter: (position) => {
+        setDropHover(true);
+        setDropBlockId(blockAtDrop(position));
+      },
+      onOver: (position) => setDropBlockId(blockAtDrop(position)),
+      onLeave: () => {
+        setDropHover(false);
+        setDropBlockId("");
+      },
     }).then((u) => {
       unlisten = u;
     });
@@ -2909,6 +2943,7 @@ export default function App() {
                 onEditCuts={(t) => setCutsTrackId(t.id)}
                 pendingEdit={pendingEdit}
                 onPendingEditDone={() => setPendingEdit(null)}
+                dropBlockId={dropBlockId}
                 showToast={showToast}
               />
             ),
@@ -3198,7 +3233,7 @@ export default function App() {
         </div>
       )}
 
-      {dropHover && (
+      {dropHover && !dropBlockId && (
         <div className="drop-overlay" aria-hidden="true">
         <div className="drop-overlay-box">
           <strong>Suelta los archivos</strong>

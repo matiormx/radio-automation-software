@@ -391,7 +391,8 @@ export async function pickSingleAudioFile(): Promise<string | null> {
 export async function onWindowFileDrop(
   handlers: {
     onDrop?: (paths: string[], position?: { x: number; y: number }) => void;
-    onEnter?: () => void;
+    onEnter?: (position?: { x: number; y: number }) => void;
+    onOver?: (position?: { x: number; y: number }) => void;
     onLeave?: () => void;
   },
 ): Promise<() => void> {
@@ -399,7 +400,9 @@ export async function onWindowFileDrop(
     if (event.payload.type === "drop" && event.payload.paths.length > 0) {
       handlers.onDrop?.(event.payload.paths, event.payload.position);
     } else if (event.payload.type === "enter") {
-      handlers.onEnter?.();
+      handlers.onEnter?.(event.payload.position);
+    } else if (event.payload.type === "over") {
+      handlers.onOver?.(event.payload.position);
     } else if (event.payload.type === "leave") {
       handlers.onLeave?.();
     }
