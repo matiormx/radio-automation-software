@@ -7,6 +7,8 @@
 use serde::Deserialize;
 
 use super::dsp::{Compressor, CompressorCfg, Leveler, LevelerCfg, Limiter};
+use super::vst::{Host as VstHost, PluginCfg};
+use std::sync::Arc;
 
 pub const DEFAULT_DEVICE: &str = "default";
 pub const STREAM_DEVICE: &str = "streaming";
@@ -23,6 +25,11 @@ pub fn db_to_gain(db: f64) -> f32 {
     } else {
         10f64.powf(db.min(MAX_GAIN_DB) / 20.0) as f32
     }
+}
+
+/// Plugins activos ya cargados de una ranura (los que faltan se saltan).
+fn fx_of(cfgs: &[PluginCfg]) -> Vec<Arc<VstHost>> {
+    cfgs.iter().filter(|p| p.enabled).filter_map(|p| super::vst::get(&p.id)).collect()
 }
 
 /// Id de captura de una entrada: `nombre` (canales 1-2), `nombre#P` (par P) o
@@ -98,6 +105,8 @@ pub struct ChannelCfg {
     pub insert: InsertCfg,
     pub leveler: LevelerCfg,
     pub compressor: CompressorCfg,
+    /// Plugins VST3 (en orden, despues del compresor)
+    pub plugins: Vec<PluginCfg>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -120,6 +129,8 @@ pub struct BusCfg {
     pub insert: InsertCfg,
     pub leveler: LevelerCfg,
     pub compressor: CompressorCfg,
+    /// Plugins VST3 (en orden, despues del compresor)
+    pub plugins: Vec<PluginCfg>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -228,6 +239,7 @@ struct Chan {
     agc: Option<Agc>,
     leveler: Option<Leveler>,
     comp: Option<Compressor>,
+    fx: Vec<Arc<VstHost>>,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
 }
@@ -245,6 +257,7 @@ struct Bus {
     insert: Option<usize>,
     leveler: Option<Leveler>,
     comp: Option<Compressor>,
+    fx: Vec<Arc<VstHost>>,
 }
 
 /// Balance estereo: -1 todo a la izquierda, 1 a la derecha.
@@ -452,7 +465,7 @@ impl Plan {
             let pb = prev.and_then(|p| p.buses.iter().find(|x| x.key == key));
             let leveler = Leveler::new(&b.leveler).map(|lv| lv.carry(pb.and_then(|x| x.leveler.as_ref())));
             let comp = Compressor::new(&b.compressor).map(|c| c.carry(pb.and_then(|x| x.comp.as_ref())));
-            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted, insert, leveler, comp });
+            buses.push(Bus { gl, gr, key, out, buf: buf(), meter: Meter::default(), pan: b.pan, open: !b.muted, insert, leveler, comp, fx: fx_of(&b.plugins) });
         }
         let bus_ids: Vec<&str> = cfg.mixer_buses.iter().map(|b| b.id.as_str()).collect();
 
@@ -521,7 +534,7 @@ impl Plan {
             let pc = prev.and_then(|p| p.chans.iter().find(|x| x.key == key));
             let leveler = Leveler::new(&c.leveler).map(|lv| lv.carry(pc.and_then(|x| x.leveler.as_ref())));
             let comp = Compressor::new(&c.compressor).map(|x| x.carry(pc.and_then(|y| y.comp.as_ref())));
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -706,13 +719,16 @@ impl Plan {
                 src = &self.mono[..n];
             }
             // Nivelador y compresor del canal (antes del fader).
-            if (c.leveler.is_some() || c.comp.is_some()) && src.len() >= n {
+            if (c.leveler.is_some() || c.comp.is_some() || !c.fx.is_empty()) && src.len() >= n {
                 self.lv[..n].copy_from_slice(&src[..n]);
                 if let Some(lv) = c.leveler.as_mut() {
                     lv.process(&mut self.lv[..n], frames);
                 }
                 if let Some(cp) = c.comp.as_mut() {
                     cp.process(&mut self.lv[..n]);
+                }
+                for fx in &c.fx {
+                    fx.process(&mut self.lv[..n], frames);
                 }
                 src = &self.lv[..n];
             }
@@ -775,6 +791,9 @@ impl Plan {
             }
             if let Some(cp) = b.comp.as_mut() {
                 cp.process(&mut b.buf[..n]);
+            }
+            for fx in &b.fx {
+                fx.process(&mut b.buf[..n], frames);
             }
             let gl = b.gl.gains(frames);
             let gr = b.gr.gains(frames);

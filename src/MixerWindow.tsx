@@ -9,6 +9,7 @@ import {
   nextColor,
   type Device,
   CompressorControls,
+  PluginSlots,
 } from "./components/MixerControls";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
@@ -58,6 +59,14 @@ function fmtDb(db: number): string {
   if (db <= MIN_GAIN_DB) return "−∞";
   const r = Math.round(db * 10) / 10;
   return `${r > 0 ? "+" : ""}${r.toFixed(1)}`;
+}
+
+/** Rotulo de la ranura de plugins: «FX», «FX · Nombre» o «FX · 3». */
+function fxLabel(plugins: { name: string }[] | undefined): string {
+  const list = plugins ?? [];
+  if (list.length === 0) return "FX";
+  if (list.length === 1) return `FX · ${list[0].name}`;
+  return `FX · ${list.length}`;
 }
 
 type MonoMode = "off" | "sum" | "left" | "right";
@@ -724,6 +733,7 @@ function MixerBoard({
             insertInputs={insertInputs}
             outputs={outputs}
             meters={meters}
+            isNative={isNative}
             onPatch={(patch) => patchChannel(ch.id, patch)}
             onRemove={() => removeChannel(ch.id)}
           />
@@ -737,6 +747,7 @@ function MixerBoard({
             inputs={insertInputs}
             meters={meters}
             isMonitor={s.monitorBusId === bus.id}
+            isNative={isNative}
             onPatch={(patch) => patchBus(bus.id, patch)}
             onRemove={() => removeBus(bus.id)}
           />
@@ -827,6 +838,7 @@ function ChannelStrip({
   insertInputs,
   outputs,
   meters,
+  isNative,
   onPatch,
   onRemove,
 }: {
@@ -836,10 +848,11 @@ function ChannelStrip({
   insertInputs: Device[];
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
+  isNative: boolean;
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "in" | "gain" | "out" | `send:${number}`>("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "in" | "gain" | "out" | `send:${number}`>("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
@@ -1015,6 +1028,17 @@ function ChannelStrip({
         </button>
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={ch} label={ch.name} onChange={(compressor) => onPatch({ compressor })} />
+        </Pop>
+        <button
+          type="button"
+          className={`mx-slot ${(ch.plugins ?? []).some((p) => p.enabled) ? "mx-slot-on" : ""}`}
+          title={(ch.plugins ?? []).map((p) => p.name).join(" → ") || "Plugins VST3"}
+          onClick={() => setPop(pop === "vst" ? "" : "vst")}
+        >
+          {fxLabel(ch.plugins)}
+        </button>
+        <Pop open={pop === "vst"} onClose={close}>
+          <PluginSlots owner={ch} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         </Pop>
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls
@@ -1211,6 +1235,7 @@ function BusStrip({
   inputs,
   outputs,
   meters,
+  isNative,
   isMonitor,
   onPatch,
   onRemove,
@@ -1219,11 +1244,12 @@ function BusStrip({
   inputs: Device[];
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
+  isNative: boolean;
   isMonitor: boolean;
   onPatch: (patch: Partial<MixerBus>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "io">("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "io">("");
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
   const outputLabel =
@@ -1262,6 +1288,17 @@ function BusStrip({
         </button>
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={bus} label={bus.name} onChange={(compressor) => onPatch({ compressor })} />
+        </Pop>
+        <button
+          type="button"
+          className={`mx-slot ${(bus.plugins ?? []).some((p) => p.enabled) ? "mx-slot-on" : ""}`}
+          title={(bus.plugins ?? []).map((p) => p.name).join(" → ") || "Plugins VST3"}
+          onClick={() => setPop(pop === "vst" ? "" : "vst")}
+        >
+          {fxLabel(bus.plugins)}
+        </button>
+        <Pop open={pop === "vst"} onClose={close}>
+          <PluginSlots owner={bus} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         </Pop>
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls owner={bus} label={bus.name} inputs={inputs} outputs={outputs} onChange={(insert) => onPatch({ insert })} />

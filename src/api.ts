@@ -302,6 +302,21 @@ export function probeStreaming(): Promise<StreamProbe> {
   return invoke<StreamProbe>("stream_probe");
 }
 
+/** Plugins VST3 instalados (carpetas estándar). */
+export function vstScan(): Promise<{ name: string; vendor: string; category: string; path: string }[]> {
+  return invoke("vst_scan");
+}
+
+/** Abre la ventana del plugin de una ranura. */
+export function vstEditor(slot: string): Promise<void> {
+  return invoke("vst_editor", { slot });
+}
+
+export async function pickVstFile(): Promise<string | null> {
+  const p = await openDialog({ multiple: false, title: "Plugin VST3", filters: [{ name: "VST3", extensions: ["vst3"] }] });
+  return typeof p === "string" ? p : null;
+}
+
 /** NDI nativo (NDI Runtime, sin FFmpeg especial): fuentes y servidor de imagen. */
 export function ndiNative(): Promise<{ available: boolean; error: string | null; sources: string[]; server: string }> {
   return invoke("ndi_native");

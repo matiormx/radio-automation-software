@@ -5,6 +5,7 @@
 
 pub mod core;
 pub mod dsp;
+pub mod vst;
 pub mod graph;
 pub mod io;
 pub mod live;
@@ -51,6 +52,8 @@ pub struct Engine {
     app_feeds: Mutex<std::collections::HashMap<String, (u32, rtrb::Producer<f32>)>>,
     /// Lector del retorno a los oyentes (mix-minus)
     ret_cons: Mutex<rtrb::Consumer<f32>>,
+    /// Ya se han usado plugins VST (para descargarlos si se quitan todos)
+    vst_used: AtomicBool,
 }
 
 impl Drop for Engine {
@@ -146,6 +149,9 @@ fn lock_ctl(ctl: &Arc<Mutex<Ctl>>) -> std::sync::MutexGuard<'_, Ctl> {
 
 impl Engine {
     fn start(app: AppHandle) -> Engine {
+        if let Ok(dir) = app.path().app_data_dir() {
+            vst::set_state_dir(dir.join("vst"));
+        }
         let shared = io::new_shared();
         let (ret_prod, ret_cons) = rtrb::RingBuffer::<f32>::new(ENGINE_RATE as usize * 2);
         lock(&shared).ret_tap = Some(ret_prod);
@@ -161,7 +167,7 @@ impl Engine {
                 .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons) }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons), vst_used: AtomicBool::new(false) }
     }
 
     fn apply(&self, op: Op) {
@@ -169,6 +175,20 @@ impl Engine {
         let Ctl { player, loader } = &mut *ctl;
         match op {
             Op::Mixer { config } => {
+                // Los plugins VST se cargan antes, fuera del candado del audio.
+                let slots: Vec<vst::PluginCfg> = config
+                    .mixer_channels
+                    .iter()
+                    .flat_map(|c| c.plugins.iter())
+                    .chain(config.mixer_buses.iter().flat_map(|b| b.plugins.iter()))
+                    .filter(|p| !p.id.is_empty())
+                    .cloned()
+                    .collect();
+                if !slots.is_empty() || self.vst_used.swap(!slots.is_empty(), Ordering::SeqCst) {
+                    for e in vst::ensure(slots) {
+                        self.io.errors.lock().unwrap_or_else(|x| x.into_inner()).push(format!("VST: {e}"));
+                    }
+                }
                 let old = {
                     let mut g = lock(&self.shared);
                     let vol = g.core.volume();
@@ -456,6 +476,18 @@ pub fn engine_return_pcm(state: State<'_, EngineState>) -> tauri::ipc::Response 
         }
     }
     tauri::ipc::Response::new(out)
+}
+
+/// Plugins VST3 instalados en el equipo (rutas estandar).
+#[tauri::command]
+pub async fn vst_scan() -> Vec<vst::Found> {
+    tauri::async_runtime::spawn_blocking(vst::scan).await.unwrap_or_default()
+}
+
+/// Abre la ventana del plugin de una ranura.
+#[tauri::command]
+pub async fn vst_editor(slot: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || vst::open_editor(&slot)).await.map_err(|e| e.to_string())?
 }
 
 /// Preescucha y llamadas del WebView hacia el motor nativo.

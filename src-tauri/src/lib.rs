@@ -114,6 +114,8 @@ pub fn run() {
             engine::engine_devices,
             engine::engine_inputs,
             engine::engine_feed,
+            engine::vst_scan,
+            engine::vst_editor,
             engine::engine_return_pcm,
             rbapi::api_publish,
             notify::notify_fire,

@@ -286,6 +286,8 @@ pub struct MixerChannel {
     pub muted: bool,
     pub leveler: LevelerSettings,
     pub compressor: CompressorSettings,
+    /// Plugins VST3 (motor nativo), en orden
+    pub plugins: Vec<PluginSlot>,
     pub insert: InsertSettings,
     pub pan: f32,
     pub solo: bool,
@@ -308,6 +310,7 @@ impl Default for MixerChannel {
             muted: false,
             leveler: LevelerSettings::default(),
             compressor: CompressorSettings::default(),
+            plugins: Vec::new(),
             insert: InsertSettings::default(),
             pan: 0.0,
             solo: false,
@@ -347,6 +350,16 @@ impl Default for InsertSettings {
 }
 
 /// Nivelador automatico de ganancia de un canal o bus.
+/// Un plugin VST3 en un canal o bus.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PluginSlot {
+    pub id: String,
+    pub path: String,
+    pub name: String,
+    pub enabled: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CompressorSettings {
@@ -395,6 +408,8 @@ pub struct MixerBus {
     pub muted: bool,
     pub leveler: LevelerSettings,
     pub compressor: CompressorSettings,
+    /// Plugins VST3 (motor nativo), en orden
+    pub plugins: Vec<PluginSlot>,
     pub insert: InsertSettings,
     pub pan: f32,
     pub sends: Vec<MixerSend>,
@@ -411,6 +426,7 @@ impl Default for MixerBus {
             muted: false,
             leveler: LevelerSettings::default(),
             compressor: CompressorSettings::default(),
+            plugins: Vec::new(),
             insert: InsertSettings::default(),
             pan: 0.0,
             sends: Vec::new(),

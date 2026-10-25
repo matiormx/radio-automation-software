@@ -4372,3 +4372,19 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 
 .mx-btn.mx-mono { font-size: 9px; letter-spacing: -.02em; }
 .mx-btn.mx-mono:not(.mx-on) { color: var(--text-faint); }
+
+/* Plugins VST3 */
+.vst-slots { min-width: 0; }
+.mx-pop:has(.vst-slots) { width: 300px; }
+.vst-row { display: flex; align-items: center; gap: 4px; margin: 3px 0; }
+.vst-row.vst-off .vst-name { opacity: .5; text-decoration: line-through; }
+.vst-name { flex: 1 1 auto; text-align: left; padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--line); background: #11151b; color: var(--text); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vst-name:hover { border-color: var(--accent, #4f8cff); }
+.vst-mini { flex: 0 0 auto; min-width: 24px; height: 22px; padding: 0 4px; font-size: 10px; font-weight: 700; border-radius: 4px; border: 1px solid var(--line); background: #11151b; color: var(--text-dim); cursor: pointer; }
+.vst-mini.vst-on { color: #7fe0a0; border-color: #2e6b45; }
+.vst-add { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.vst-pick input { width: 100%; margin: 6px 0 4px; }
+.vst-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.vst-item { text-align: left; padding: 5px 8px; font-size: 12px; border: 0; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
+.vst-item span { color: var(--text-faint); font-size: 11px; }
+.vst-item:hover { background: rgba(79,140,255,.16); }

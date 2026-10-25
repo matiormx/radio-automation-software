@@ -304,6 +304,15 @@ export interface MixerOutput {
 }
 
 /** Nivelador automatico de ganancia de un canal o bus (ver leveler.ts). */
+/** Plugin VST3 en un canal o bus (motor nativo). */
+export interface PluginSlot {
+  id: string;
+  /** Ruta del .vst3 */
+  path: string;
+  name: string;
+  enabled: boolean;
+}
+
 export interface CompressorSettings {
   enabled: boolean;
   thresholdDb: number;
@@ -382,6 +391,7 @@ export interface MixerChannel {
   muted: boolean;
   leveler?: LevelerSettings;
   compressor?: CompressorSettings;
+  plugins?: PluginSlot[];
   insert?: InsertSettings;
   /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;
@@ -400,6 +410,7 @@ export interface MixerBus {
   muted: boolean;
   leveler?: LevelerSettings;
   compressor?: CompressorSettings;
+  plugins?: PluginSlot[];
   insert?: InsertSettings;
   pan?: number;
   sends?: MixerSend[];
