@@ -240,11 +240,15 @@ pub fn stream_start(
     } else {
         &ffmpeg
     };
-    let gfxcapture = cfg!(windows)
-        && settings.video.outputs.iter().any(|output| {
-            output.enabled && output.kind == "rtmp" && output.fallback_video_input_id == "program"
-        })
-        && has_filter(&ffmpeg, "gfxcapture");
+    let needs_program = settings.video.outputs.iter().any(|output| {
+        output.enabled
+            && (output.kind == "rtmp" || output.kind == "screen")
+            && (output.fallback_video_input_id == "program"
+                || output.video_input_id.trim().is_empty()
+                || output.video_input_id.trim() == "program")
+    });
+    let gfxcapture = cfg!(windows) && needs_program && has_filter(&ffmpeg, "gfxcapture");
+    let ddagrab = cfg!(windows) && needs_program && !gfxcapture && has_filter(&ffmpeg, "ddagrab");
 
     for stream in settings.streaming.icecast.iter().filter(|s| s.enabled) {
         requested += 1;
@@ -315,7 +319,7 @@ pub fn stream_start(
                 None
             };
             let args = if use_program && kind == "rtmp" {
-                program_video_input_args(output.fps, gfxcapture).and_then(|video_args| {
+                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab).and_then(|video_args| {
                     rtmp_args_for_video(
                         video_args,
                         &output.source,
@@ -329,7 +333,7 @@ pub fn stream_start(
                     )
                 })
             } else if use_program && kind == "screen" {
-                program_video_input_args(output.fps, gfxcapture)
+                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab)
                     .and_then(|video_args| video_output_args_for_source(output, video_args))
             } else {
                 match kind.as_str() {
@@ -409,7 +413,7 @@ pub fn stream_start(
                                 video_ffmpeg
                             };
                             let backup_args = if backup == "program" {
-                                program_video_input_args(output.fps, gfxcapture).and_then(|video_args| {
+                                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab).and_then(|video_args| {
                                     if kind == "rtmp" {
                                         rtmp_args_for_video(
                                             video_args,
@@ -1363,7 +1367,12 @@ fn has_filter(ffmpeg: &Path, name: &str) -> bool {
 
 /// Entrada de video con la ventana de programa de MiRadio.
 #[cfg(target_os = "windows")]
-fn program_video_input_args(fps: u32, gfxcapture: bool) -> Result<Vec<String>, String> {
+fn program_video_input_args(
+    fps: u32,
+    monitor: u32,
+    gfxcapture: bool,
+    ddagrab: bool,
+) -> Result<Vec<String>, String> {
     if gfxcapture {
         Ok(vec![
             arg("-f"),
@@ -1372,6 +1381,17 @@ fn program_video_input_args(fps: u32, gfxcapture: bool) -> Result<Vec<String>, S
             format!(
                 "gfxcapture=window_title='(?i)^MiRadio Programa$':max_framerate={}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={}",
                 fps.clamp(1, 120),
+                fps.clamp(1, 120)
+            ),
+        ])
+    } else if ddagrab {
+        Ok(vec![
+            arg("-f"),
+            arg("lavfi"),
+            arg("-i"),
+            format!(
+                "ddagrab=output_idx={}:framerate={},hwdownload,format=bgra,format=yuv420p",
+                monitor,
                 fps.clamp(1, 120)
             ),
         ])
@@ -1390,7 +1410,7 @@ fn program_video_input_args(fps: u32, gfxcapture: bool) -> Result<Vec<String>, S
 }
 
 #[cfg(target_os = "linux")]
-fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+fn program_video_input_args(fps: u32, _monitor: u32, _gfxcapture: bool, _ddagrab: bool) -> Result<Vec<String>, String> {
     Ok(vec![
         arg("-f"),
         arg("x11grab"),
@@ -1402,7 +1422,7 @@ fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, 
 }
 
 #[cfg(target_os = "macos")]
-fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+fn program_video_input_args(fps: u32, _monitor: u32, _gfxcapture: bool, _ddagrab: bool) -> Result<Vec<String>, String> {
     Ok(vec![
         arg("-f"),
         arg("avfoundation"),
@@ -1414,7 +1434,7 @@ fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, 
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-fn program_video_input_args(_fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+fn program_video_input_args(_fps: u32, _monitor: u32, _gfxcapture: bool, _ddagrab: bool) -> Result<Vec<String>, String> {
     Err("La pantalla de programa no está soportada en este sistema".to_string())
 }
 
