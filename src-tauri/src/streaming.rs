@@ -272,60 +272,6 @@ pub fn stream_start(
         }
     }
 
-    if settings.streaming.rtmp.enabled {
-        requested += 1;
-        let id = "rtmp".to_string();
-        let name = "RTMP".to_string();
-        let rtmp_video = if settings.streaming.rtmp.video_input_id.trim().is_empty() {
-            preferred_input
-        } else {
-            Some(settings.streaming.rtmp.video_input_id.trim())
-        };
-        let rtmp_audio = if settings.streaming.rtmp.audio_source == "device" {
-            Some(settings.streaming.rtmp.audio_source_id.trim()).filter(|id| !id.is_empty())
-        } else {
-            None
-        };
-        match rtmp_args(
-            &settings.video,
-            &settings.streaming.rtmp.url,
-            settings.streaming.rtmp.width,
-            settings.streaming.rtmp.height,
-            settings.streaming.rtmp.fps,
-            settings.streaming.rtmp.bitrate_kbps,
-            settings.streaming.rtmp.keyframe_secs,
-            ndi_device,
-            rtmp_video,
-            rtmp_audio,
-        ) {
-            Ok(args) => {
-                let wants_audio = rtmp_audio.is_none();
-                if let Err(error) = spawn_process(
-                    &mut inner,
-                    &shared,
-                    video_ffmpeg,
-                    args,
-                    id.clone(),
-                    name.clone(),
-                    "rtmp",
-                    wants_audio,
-                ) {
-                    errors.push(error.clone());
-                    inner
-                        .failed_outputs
-                        .push(failed_output(&id, &name, "rtmp", error));
-                }
-            }
-            Err(error) => {
-                let message = format!("RTMP: {error}");
-                errors.push(message.clone());
-                inner
-                    .failed_outputs
-                    .push(failed_output(&id, &name, "rtmp", message));
-            }
-        }
-    }
-
     if settings.video.enabled {
         for output in settings.video.outputs.iter().filter(|o| o.enabled) {
             requested += 1;

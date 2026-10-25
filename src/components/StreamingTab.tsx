@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   IcecastCodec,
   IcecastStream,
-  RtmpOutput,
   Settings,
   StreamStatus,
   StreamingSettings,
@@ -48,19 +47,6 @@ function newStream(codec: IcecastCodec, settings: Settings): IcecastStream {
 
 type EmissionTone = "live" | "error" | "pending" | "idle";
 
-function safeRtmp(url: string): string {
-  const trimmed = url.trim();
-  if (!trimmed) return "Sin destino";
-  const scheme = trimmed.indexOf("://");
-  const prefix = scheme >= 0 ? trimmed.slice(0, scheme + 3) : "";
-  const rest = scheme >= 0 ? trimmed.slice(scheme + 3) : trimmed;
-  const boundary = rest.search(/[/?#]/);
-  const authority = boundary < 0 ? rest : rest.slice(0, boundary);
-  const at = authority.lastIndexOf("@");
-  const safeAuthority = at >= 0 ? `***@${authority.slice(at + 1)}` : authority;
-  return boundary < 0 ? `${prefix}${safeAuthority}` : `${prefix}${safeAuthority}/***`;
-}
-
 function icecastConfigError(s: IcecastStream): string | null {
   if (!s.host.trim()) return "Falta el servidor.";
   if (!s.port) return "El puerto no es válido.";
@@ -94,21 +80,6 @@ function videoRoutingError(
     return "Elige el dispositivo de audio de la capturadora.";
   }
   return null;
-}
-
-function rtmpConfigError(settings: Settings, url: string): string | null {
-  if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
-  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
-    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
-  }
-  const routing = videoRoutingError(
-    settings,
-    settings.streaming.rtmp.videoInputId,
-    settings.streaming.rtmp.audioSource,
-    settings.streaming.rtmp.audioSourceId,
-  );
-  if (routing) return routing;
-  return rtmpUrlError(url);
 }
 
 const VIDEO_OUTPUT_KIND: Record<VideoOutputKind, string> = {
@@ -331,9 +302,6 @@ export function StreamingTab({
     setEditing(created.id);
   };
 
-  const updateRtmp = (patch: Partial<RtmpOutput>) =>
-    set({ rtmp: { ...st.rtmp, ...patch } });
-
   // Salidas de vídeo: igual que Icecast, solo una abierta y el resto en una línea.
   const [editingVideo, setEditingVideo] = useState<string | null>(null);
   const setVideo = (patch: Partial<Settings["video"]>) =>
@@ -364,13 +332,6 @@ export function StreamingTab({
       enabled: s.enabled,
       configError: s.enabled ? icecastConfigError(s) : null,
     })),
-    {
-      key: "rtmp",
-      name: "Vídeo RTMP",
-      detail: safeRtmp(st.rtmp.url),
-      enabled: st.rtmp.enabled,
-      configError: st.rtmp.enabled ? rtmpConfigError(settings, st.rtmp.url) : null,
-    },
     ...settings.video.outputs.map((output) => ({
       key: `video:${output.id}`,
       name: output.name.trim() || VIDEO_OUTPUT_KIND[output.kind],
@@ -426,11 +387,11 @@ export function StreamingTab({
         <div>
           <h4>Streaming</h4>
           <p className="hint">
-            Emisión de audio a Icecast en FLAC o AAC y salida de vídeo por RTMP
-            a un servidor externo (por ejemplo Restream). El motor usa FFmpeg y se inicia con el botón
-            EMITIR de la cabecera. La captura toma lo que envíes a la salida
-            Streaming de la mesa (canales o buses); si nada va a ella, toma el
-            mismo bus que el VU de salida. PCM 48 kHz estéreo.
+            Emisión de audio a Icecast en FLAC o AAC y salidas de vídeo (pantalla, SDI, NDI o RTMP).
+            El motor usa FFmpeg y se inicia con el botón EMITIR de la cabecera. Cada salida elige su
+            fuente de vídeo y de audio. La captura de audio toma lo que envíes a la salida Streaming
+            de la mesa (canales o buses); si nada va a ella, toma el mismo bus que el VU de salida.
+            PCM 48 kHz estéreo.
           </p>
         </div>
       </div>
@@ -786,120 +747,12 @@ export function StreamingTab({
       </fieldset>
 
       <fieldset className="fieldset">
-        <legend>Vídeo por RTMP</legend>
-        <label className="check-field">
-          <input
-            type="checkbox"
-            checked={st.rtmp.enabled}
-            onChange={(e) => updateRtmp({ enabled: e.target.checked })}
-          />
-          {dotFor("rtmp")}
-          Emitir vídeo por RTMP
-        </label>
-        <label className="field">
-          <span className="field-label">Servidor RTMP</span>
-          <input
-            value={st.rtmp.url}
-            placeholder="rtmp://live.restream.io/live/TU_CLAVE"
-            onChange={(e) => updateRtmp({ url: e.target.value })}
-          />
-        </label>
-        <VideoRoutingFields
-          inputs={settings.video.inputs}
-          audioDevices={audioDevices}
-          videoInputId={st.rtmp.videoInputId}
-          audioSource={st.rtmp.audioSource}
-          audioSourceId={st.rtmp.audioSourceId}
-          onChange={(patch) => updateRtmp(patch)}
-          onRefreshAudio={refreshCapture}
-        />
-        <div className="rtmp-grid">
-          <label className="field">
-            <span className="field-label">Ancho</span>
-            <input
-              type="number"
-              min={320}
-              max={7680}
-              value={st.rtmp.width}
-              onChange={(e) =>
-                updateRtmp({ width: Math.max(0, Number(e.target.value) || 0) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Alto</span>
-            <input
-              type="number"
-              min={240}
-              max={4320}
-              value={st.rtmp.height}
-              onChange={(e) =>
-                updateRtmp({ height: Math.max(0, Number(e.target.value) || 0) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">FPS</span>
-            <input
-              type="number"
-              min={1}
-              max={120}
-              value={st.rtmp.fps}
-              onChange={(e) =>
-                updateRtmp({ fps: Math.max(1, Number(e.target.value) || 25) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Bitrate</span>
-            <span className="field-unit">
-              <input
-                type="number"
-                min={0}
-                max={100000}
-                value={st.rtmp.bitrateKbps}
-                onChange={(e) =>
-                  updateRtmp({
-                    bitrateKbps: Math.max(0, Number(e.target.value) || 0),
-                  })
-                }
-              />
-              kbps
-            </span>
-          </label>
-          <label className="field">
-            <span className="field-label">Keyframe</span>
-            <span className="field-unit">
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={st.rtmp.keyframeSecs}
-                onChange={(e) =>
-                  updateRtmp({
-                    keyframeSecs: Math.max(1, Number(e.target.value) || 2),
-                  })
-                }
-              />
-              s
-            </span>
-          </label>
-        </div>
-        <p className="hint">
-          La emisión RTMP empuja el programa de vídeo al servidor indicado. Para
-          Restream usa <code>rtmp://live.restream.io/live/TU_CLAVE</code> o la
-          URL <code>rtmps://</code> que muestra su panel; RTMPS necesita un
-          FFmpeg con TLS (el build NDI lo incluye). TU_CLAVE es la clave de
-          emisión de tu panel de Restream. Usa la entrada que se muestra en la
-          pantalla externa (Ajustes &gt; Vídeo) o la primera entrada activa.
-        </p>
-      </fieldset>
-
-      <fieldset className="fieldset">
         <legend>Salidas de vídeo</legend>
         <p className="hint">
-          Emiten lo que se ve en la pantalla externa: la capturadora elegida en
-          Ajustes &gt; Vídeo o el programa. Guarda cada salida como en Icecast.
+          Cada salida elige su entrada de vídeo y su audio: la salida Encoders de la mesa (lo que
+          está sonando) o el audio de una capturadora. Si no eliges vídeo se usa la pantalla
+          externa. Guarda cada salida como en Icecast. Si añades o cambias salidas con la emisión
+          en marcha, detén la emisión y vuelve a pulsar EMITIR para aplicarlas.
         </p>
         {settings.video.outputs.length === 0 && (
           <p className="hint">Añade una pantalla, una tarjeta SDI, NDI o una salida RTMP.</p>

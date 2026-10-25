@@ -316,6 +316,44 @@ function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuse
   };
 }
 
+/** Pasa el antiguo RTMP unico a una salida de video de la lista nueva. */
+function migrateLegacyRtmp(settings: Settings): Settings {
+  const legacy = settings.streaming.rtmp;
+  if (!legacy?.enabled) return settings;
+  const url = legacy.url.trim();
+  const streaming = {
+    ...settings.streaming,
+    rtmp: { ...legacy, enabled: false },
+  };
+  if (!url) return { ...settings, streaming };
+  if (
+    settings.video.outputs.some(
+      (output) => output.kind === "rtmp" && output.source.trim() === url,
+    )
+  ) {
+    return { ...settings, streaming };
+  }
+  const output: Settings["video"]["outputs"][number] = {
+    id: `legacy-rtmp-${Date.now().toString(36)}`,
+    name: "RTMP",
+    kind: "rtmp",
+    source: url,
+    videoInputId: legacy.videoInputId ?? "",
+    audioSource: legacy.audioSource ?? "mixer",
+    audioSourceId: legacy.audioSourceId ?? "",
+    enabled: true,
+    width: legacy.width,
+    height: legacy.height,
+    fps: legacy.fps,
+    bitrateKbps: legacy.bitrateKbps,
+  };
+  return {
+    ...settings,
+    streaming,
+    video: { ...settings.video, outputs: [...settings.video.outputs, output] },
+  };
+}
+
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -383,9 +421,8 @@ export default function App() {
   const hasStreamOutputs = useMemo(
     () =>
       settings.streaming.icecast.some((stream) => stream.enabled) ||
-      settings.streaming.rtmp.enabled ||
       (settings.video.enabled && settings.video.outputs.some((output) => output.enabled)),
-    [settings.streaming.icecast, settings.streaming.rtmp.enabled, settings.video.enabled, settings.video.outputs],
+    [settings.streaming.icecast, settings.video.enabled, settings.video.outputs],
   );
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
@@ -1002,11 +1039,13 @@ export default function App() {
           listHistory().catch(() => [] as HistoryEntry[]),
           loadSession().catch(() => null),
         ]);
+        const loaded = migrateLegacyRtmp(s);
         setTracks(t);
         setBlocks(bs);
         setPlaylists(ps);
         setActiveId(ps[0]?.id ?? "");
-        setSettings(s);
+        setSettings(loaded);
+        if (loaded !== s) void saveSettings(loaded).catch(() => undefined);
         setHistory(hist);
         sessionRef.current = session;
         if (session?.playlistId && ps.some((pl) => pl.id === session.playlistId)) {
