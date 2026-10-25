@@ -338,7 +338,7 @@ function migrateLegacyRtmp(settings: Settings): Settings {
     name: "RTMP",
     kind: "rtmp",
     source: url,
-    videoInputId: legacy.videoInputId ?? "",
+    videoInputId: legacy.videoInputId || "program",
     fallbackVideoInputId: "",
     audioSource: legacy.audioSource ?? "mixer",
     audioSourceId: legacy.audioSourceId ?? "",

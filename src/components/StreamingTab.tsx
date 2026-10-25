@@ -96,7 +96,7 @@ function newVideoOutput(): VideoOutput {
     name: "Salida",
     kind: "screen",
     source: "0",
-    videoInputId: "",
+    videoInputId: "program",
     fallbackVideoInputId: "",
     audioSource: "mixer",
     audioSourceId: "",
@@ -132,12 +132,19 @@ function videoOutputSummary(output: VideoOutput): string {
 
 function videoOutputConfigError(settings: Settings, output: VideoOutput): string | null {
   if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
-  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
-    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
+  const usesProgram = !output.videoInputId || output.videoInputId === "program";
+  if (usesProgram && !settings.videoScreen?.enabled) {
+    return "Activa la ventana de vídeo en Ajustes > Vídeo para emitir el programa.";
+  }
+  if (!usesProgram) {
+    const input = settings.video.inputs.find((item) => item.id === output.videoInputId);
+    if (!input || !input.enabled || !input.source.trim()) {
+      return "La entrada de vídeo elegida no está activa.";
+    }
   }
   const routing = videoRoutingError(
     settings,
-    output.videoInputId,
+    usesProgram ? undefined : output.videoInputId,
     output.audioSource,
     output.audioSourceId,
   );
@@ -211,10 +218,10 @@ function VideoRoutingFields({
         <label className="field">
           <span className="field-label">Fuente de vídeo</span>
           <select
-            value={videoInputId ?? ""}
+            value={videoInputId || "program"}
             onChange={(e) => onChange({ videoInputId: e.target.value })}
           >
-            <option value="">Pantalla externa / programa (lo que está sonando)</option>
+            <option value="program">Programa de MiRadio (lo que está sonando)</option>
             {inputs.map((input) => (
               <option key={input.id} value={input.id}>
                 {input.name.trim() || input.source} · {input.kind}
