@@ -1861,6 +1861,45 @@ export default function App() {
     }
   }, [streamBusy, failStreaming, showToast]);
 
+  /** Arranca o detiene solo el grupo de audio o el de video. */
+  const setStreamGroup = useCallback(
+    async (group: "audio" | "video", on: boolean) => {
+      if (streamBusy) return;
+      const mixer = mixerRef.current;
+      if (!mixer) {
+        showToast("La mesa de sonido todavía no está lista");
+        return;
+      }
+      setStreamBusy(true);
+      try {
+        if (on) {
+          const status = await startStreaming(settingsRef.current, group);
+          setStreamStatus(status);
+          if (!status.running) throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
+          if (status.needsAudio && !(playerRef.current instanceof NativePlayer) && !streamEncoderRef.current) {
+            const encoder = new StreamEncoder(mixer, failStreaming);
+            await encoder.start();
+            streamEncoderRef.current = encoder;
+          }
+          showToast(status.lastError ?? (group === "audio" ? "Emisión de audio iniciada" : "Emisión de vídeo iniciada"));
+        } else {
+          const status = await stopStreaming(group);
+          setStreamStatus(status);
+          if (!status.needsAudio && streamEncoderRef.current) {
+            await streamEncoderRef.current.stop();
+            streamEncoderRef.current = null;
+          }
+          showToast(group === "audio" ? "Emisión de audio detenida" : "Emisión de vídeo detenida");
+        }
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error));
+      } finally {
+        setStreamBusy(false);
+      }
+    },
+    [streamBusy, failStreaming, showToast],
+  );
+
   // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
   const autoStreamDone = useRef(false);
   const toggleStreamingRef = useRef(toggleStreaming);
@@ -2784,6 +2823,7 @@ export default function App() {
   bridgeRef.current = {
     getState: () => ({ settings, studio, callMuted, streaming: !!streamStatus?.running, streamStatus, streamBusy }),
     restartStreaming: () => void restartStreaming(),
+    streamGroup: (group: "audio" | "video", on: boolean) => void setStreamGroup(group, on),
     updateSettings: (s: Settings) => updateSettings(s),
     chooseMusicFolder: () => chooseMusicFolder(),
     chooseLogo: () => chooseLogo(),
@@ -3041,23 +3081,6 @@ export default function App() {
                 if (!e.target.checked) setManualAuto(null);
                 updateSettings({ ...settings, eventsEnabled: e.target.checked });
               }}
-            />
-          </label>
-          <label
-            className={`top-switch ${settings.liveMode ? "switch-on" : ""}`}
-            title={
-              settings.liveMode
-                ? "Desactivar el modo LIVE (volver a los metadatos de la canción)"
-                : "Modo LIVE: la barra auxiliar muestra el programa y sus metadatos"
-            }
-          >
-            <span className="top-switch-label">LIVE</span>
-            <span className="switch-track"><span className="switch-knob" /></span>
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={settings.liveMode}
-              onChange={(e) => updateSettings({ ...settings, liveMode: e.target.checked })}
             />
           </label>
           <button
@@ -3364,6 +3387,7 @@ export default function App() {
           streamStatus={streamStatus}
           streamBusy={streamBusy}
           onRestartStream={() => void restartStreaming()}
+          onToggleStreamGroup={(group, on) => void setStreamGroup(group, on)}
         />
       )}
 

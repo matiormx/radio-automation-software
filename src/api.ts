@@ -313,12 +313,14 @@ export function getStreamStatus(): Promise<StreamStatus> {
   return invoke<StreamStatus>("stream_status");
 }
 
-export function startStreaming(settings: Settings): Promise<StreamStatus> {
-  return invoke<StreamStatus>("stream_start", { settings });
+export type StreamGroup = "audio" | "video" | "all";
+
+export function startStreaming(settings: Settings, group: StreamGroup = "all"): Promise<StreamStatus> {
+  return invoke<StreamStatus>("stream_start", { settings, group });
 }
 
-export function stopStreaming(): Promise<StreamStatus> {
-  return invoke<StreamStatus>("stream_stop");
+export function stopStreaming(group: StreamGroup = "all"): Promise<StreamStatus> {
+  return invoke<StreamStatus>("stream_stop", { group });
 }
 
 export function pushStreamPcm(data: number[]): Promise<void> {

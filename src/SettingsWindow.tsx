@@ -145,6 +145,7 @@ export function SettingsWindow() {
         streamStatus={shared.streamStatus ?? null}
         streamBusy={!!shared.streamBusy}
         onRestartStream={() => void call("restartStreaming")}
+        onToggleStreamGroup={(group, on) => void call("streamGroup", group, on)}
       />
       {toast && (
         <div className="toast" role="status">

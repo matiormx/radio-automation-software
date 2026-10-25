@@ -18,6 +18,7 @@ interface Props {
   streamStatus?: StreamStatus | null;
   streamBusy?: boolean;
   onRestartStream?: () => void;
+  onToggleStreamGroup?: (group: "audio" | "video", on: boolean) => void;
 }
 
 function uid(): string {
@@ -297,6 +298,7 @@ export function StreamingTab({
   streamStatus = null,
   streamBusy = false,
   onRestartStream,
+  onToggleStreamGroup,
 }: Props) {
   const st = settings.streaming;
   const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
@@ -404,6 +406,10 @@ export function StreamingTab({
       : streamBusy
         ? "CONECTANDO"
         : "DETENIDA";
+  const audioRunning = streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
+  const videoRunning = streamStatus?.outputs.some((output) => output.running && output.kind !== "icecast") ?? false;
+  const audioReady = st.icecast.some((stream) => stream.enabled);
+  const videoReady = settings.video.enabled && settings.video.outputs.some((output) => output.enabled);
 
   return (
     <>
@@ -418,6 +424,25 @@ export function StreamingTab({
             PCM 48 kHz estéreo.
           </p>
         </div>
+      </div>
+
+      <div className="stream-actions">
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={streamBusy || (!audioRunning && !audioReady)}
+          onClick={() => onToggleStreamGroup?.("audio", !audioRunning)}
+        >
+          {audioRunning ? "Detener audio" : "Emitir audio"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={streamBusy || (!videoRunning && !videoReady)}
+          onClick={() => onToggleStreamGroup?.("video", !videoRunning)}
+        >
+          {videoRunning ? "Detener vídeo" : "Emitir vídeo"}
+        </button>
       </div>
 
       <div className="stream-status-panel" aria-label="Estado de las emisiones">

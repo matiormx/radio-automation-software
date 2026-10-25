@@ -183,7 +183,11 @@ pub fn stream_start(
     app: AppHandle,
     state: State<StreamingState>,
     settings: Settings,
+    group: Option<String>,
 ) -> Result<StreamStatus, String> {
+    let group = group.as_deref().unwrap_or("all");
+    let want_audio = group != "video";
+    let want_video = group != "audio";
     let ffmpeg = find_ffmpeg(&app)
         .or_else(|| {
             find_ndi_ffmpeg(&app, &settings.video.ndi_ffmpeg_path)
@@ -199,7 +203,7 @@ pub fn stream_start(
         .inner
         .lock()
         .map_err(|_| "El motor de emisión no responde".to_string())?;
-    stop_all(&mut inner);
+    stop_group(&mut inner, group);
     inner.ffmpeg = Some(ffmpeg.clone());
     inner.last_error = None;
 
@@ -250,6 +254,7 @@ pub fn stream_start(
     let gfxcapture = cfg!(windows) && needs_program && has_filter(&ffmpeg, "gfxcapture");
     let ddagrab = cfg!(windows) && needs_program && !gfxcapture && has_filter(&ffmpeg, "ddagrab");
 
+    if want_audio {
     for stream in settings.streaming.icecast.iter().filter(|s| s.enabled) {
         requested += 1;
         let id = format!("icecast:{}", stream.id);
@@ -294,8 +299,9 @@ pub fn stream_start(
             }
         }
     }
+    }
 
-    if settings.video.enabled {
+    if want_video && settings.video.enabled {
         for output in settings.video.outputs.iter().filter(|o| o.enabled) {
             requested += 1;
             let id = format!("video:{}", output.id);
@@ -490,10 +496,11 @@ pub fn stream_start(
     }
 
     if requested == 0 {
-        return Err(
-            "No hay salidas activas. Activa una emisión Icecast, RTMP o un canal de vídeo."
-                .to_string(),
-        );
+        return Err(match group {
+            "audio" => "No hay salidas de audio activas. Activa una emisión Icecast.".to_string(),
+            "video" => "No hay salidas de vídeo activas. Activa una salida en Streaming.".to_string(),
+            _ => "No hay salidas activas. Activa una emisión Icecast, RTMP o un canal de vídeo.".to_string(),
+        });
     }
     if !errors.is_empty() {
         inner.last_error = Some(errors.join(" · "));
@@ -504,12 +511,12 @@ pub fn stream_start(
 }
 
 #[tauri::command]
-pub fn stream_stop(state: State<StreamingState>) -> StreamStatus {
+pub fn stream_stop(state: State<StreamingState>, group: Option<String>) -> StreamStatus {
     let mut inner = match state.inner.lock() {
         Ok(inner) => inner,
         Err(_) => return empty_status(None, Some("El motor de emisión no responde".to_string())),
     };
-    stop_all(&mut inner);
+    stop_group(&mut inner, group.as_deref().unwrap_or("all"));
     inner.last_error = None;
     status_from(&mut inner)
 }
@@ -795,6 +802,32 @@ fn stop_all(inner: &mut EngineInner) {
         let _ = process.child.wait();
     }
     inner.failed_outputs.clear();
+}
+
+fn in_group(kind: &str, group: &str) -> bool {
+    match group {
+        "audio" => kind == "icecast",
+        "video" => kind != "icecast",
+        _ => true,
+    }
+}
+
+fn stop_group(inner: &mut EngineInner, group: &str) {
+    let mut keep = Vec::new();
+    for mut process in inner.processes.drain(..) {
+        if !in_group(&process.kind, group) {
+            keep.push(process);
+            continue;
+        }
+        process.tx.take();
+        if let Some(stdin) = process.child.stdin.take() {
+            drop(stdin);
+        }
+        let _ = process.child.kill();
+        let _ = process.child.wait();
+    }
+    inner.processes = keep;
+    inner.failed_outputs.retain(|output| !in_group(&output.kind, group));
 }
 
 pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {

@@ -59,6 +59,7 @@ interface SettingsPanelProps {
   streamStatus?: StreamStatus | null;
   streamBusy?: boolean;
   onRestartStream?: () => void;
+  onToggleStreamGroup?: (group: "audio" | "video", on: boolean) => void;
   /** En su propia ventana: sin fondo modal ni cabecera de dialogo */
   windowed?: boolean;
 }
@@ -216,6 +217,7 @@ export function SettingsPanel({
   streamStatus = null,
   streamBusy = false,
   onRestartStream,
+  onToggleStreamGroup,
   windowed = false,
 }: SettingsPanelProps) {
   const s = settings;
@@ -421,6 +423,7 @@ export function SettingsPanel({
                 streamStatus={streamStatus}
                 streamBusy={streamBusy}
                 onRestartStream={onRestartStream}
+                onToggleStreamGroup={onToggleStreamGroup}
               />
             )}
             {tab === "backup" && (

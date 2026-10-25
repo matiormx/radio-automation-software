@@ -3474,6 +3474,8 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .stream-line-codec { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-2, rgba(255,255,255,.08)); color: var(--text-faint); }
 .stream-line-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
 
+.stream-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+
 .stream-status-panel {
   display: flex;
   flex-direction: column;
