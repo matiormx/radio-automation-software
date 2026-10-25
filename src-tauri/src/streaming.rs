@@ -34,6 +34,7 @@ struct StreamProcess {
     tx: Option<SyncSender<Vec<u8>>>,
     failed: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
+    log: Arc<Mutex<Vec<String>>>,
     warned_full: bool,
 }
 
@@ -90,6 +91,9 @@ pub struct StreamOutputStatus {
     /// "live", "stopped" o "error".
     pub state: String,
     pub error: Option<String>,
+    /// Ultimas lineas de FFmpeg, para diagnosticar conexiones y fuentes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log: Option<String>,
 }
 
 fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutputStatus {
@@ -100,6 +104,7 @@ fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutpu
         running: false,
         state: "error".to_string(),
         error: Some(error),
+        log: None,
     }
 }
 
@@ -467,6 +472,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 .lock()
                 .ok()
                 .and_then(|slot| Option::clone(&*slot));
+            let log = process.log.lock().ok().map(|lines| lines.join(" | "));
             let state = if process.alive {
                 "live"
             } else if error.is_some() {
@@ -481,6 +487,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 running: process.alive,
                 state: state.to_string(),
                 error,
+                log,
             }
         })
         .collect();
@@ -526,18 +533,35 @@ fn spawn_process(
         .map_err(|error| format!("{name}: no se pudo iniciar FFmpeg ({error})"))?;
 
     let error_slot = Arc::new(Mutex::new(None));
+    let log_slot = Arc::new(Mutex::new(Vec::new()));
+    {
+        let shown = sanitize_error(&args.join(" "));
+        if let Ok(mut lines) = log_slot.lock() {
+            lines.push(format!("$ ffmpeg {shown}"));
+        }
+    }
     if let Some(stderr) = child.stderr.take() {
         let shared = shared.clone();
         let slot = error_slot.clone();
+        let log = log_slot.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 let Ok(line) = line else { break };
                 let line = line.trim();
-                if line.is_empty() || !is_error_line(line) {
+                if line.is_empty() {
                     continue;
                 }
                 let clean = sanitize_error(line);
+                if let Ok(mut lines) = log.lock() {
+                    lines.push(clean.clone());
+                    if lines.len() > 16 {
+                        lines.remove(0);
+                    }
+                }
+                if !is_error_line(line) {
+                    continue;
+                }
                 if let Ok(mut slot) = slot.lock() {
                     *slot = Some(clean.clone());
                 }
@@ -582,6 +606,7 @@ fn spawn_process(
         tx,
         failed,
         error: error_slot,
+        log: log_slot,
         warned_full: false,
     });
     Ok(())
@@ -1144,6 +1169,10 @@ fn capture_input_args(source: &str) -> Result<Vec<String>, String> {
     };
     let raw = raw.trim().trim_matches('"');
     Ok(vec![
+        arg("-thread_queue_size"),
+        arg("512"),
+        arg("-rtbufsize"),
+        arg("256M"),
         arg("-f"),
         arg("dshow"),
         arg("-i"),

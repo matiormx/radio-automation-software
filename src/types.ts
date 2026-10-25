@@ -523,6 +523,8 @@ export interface StreamOutputStatus {
   running: boolean;
   state: "live" | "stopped" | "error";
   error: string | null;
+  /** Últimas líneas de FFmpeg para diagnosticar la salida */
+  log?: string | null;
 }
 
 export interface StreamStatus {

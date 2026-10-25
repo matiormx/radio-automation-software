@@ -349,6 +349,7 @@ export function StreamingTab({
       streamBusy,
       emission.configError,
     ),
+    log: streamStatus?.outputs.find((output) => output.id === emission.key)?.log ?? null,
   }));
   const statusByKey = new Map(rows.map((row) => [row.key, row.status]));
   const dotFor = (key: string) => {
@@ -419,6 +420,12 @@ export function StreamingTab({
               <p className="stream-status-error" title={row.status.error}>
                 {row.status.error}
               </p>
+            )}
+            {row.log && (
+              <details className="stream-status-log">
+                <summary>Registro de FFmpeg</summary>
+                <pre>{row.log}</pre>
+              </details>
             )}
           </div>
         ))}
