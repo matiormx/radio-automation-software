@@ -104,6 +104,8 @@ interface MusicBrowserProps {
   /** Peticion de edicion de metadatos desde otra zona de la app */
   pendingEdit: { id: string; n: number } | null;
   onPendingEditDone: () => void;
+  /** Asigna una cancion a un bloque (arrastrando desde la lista de emision). */
+  onAssignTrackBlock?: (trackId: string, blockId: string) => void;
   /** Bloque sobre el que se estan soltando archivos */
   dropBlockId?: string;
   showToast: (msg: string) => void;
@@ -347,6 +349,7 @@ function MusicBrowserBase({
   onEditCuts,
   pendingEdit,
   onPendingEditDone,
+  onAssignTrackBlock,
   dropBlockId = "",
   showToast,
 }: MusicBrowserProps) {
@@ -1226,14 +1229,25 @@ function MusicBrowserBase({
                       setDragOverBlock("");
                     }}
                     onDragOver={(e) => {
-                      if (!draggingBlock) return;
+                      const track =
+                        e.dataTransfer.types.includes("text/miradio-track") ||
+                        e.dataTransfer.types.includes("text/miradio-playlist-track");
+                      if (!draggingBlock && !track) return;
                       e.preventDefault();
                       setDragOverBlock(key);
                     }}
                     onDrop={(e) => {
+                      e.preventDefault();
+                      const playlistTrack = e.dataTransfer.getData("text/miradio-playlist-track");
+                      const libraryTrack = e.dataTransfer.getData("text/miradio-track");
+                      if (playlistTrack || libraryTrack) {
+                        onAssignTrackBlock?.(playlistTrack || libraryTrack, b.id);
+                        setDraggingBlock("");
+                        setDragOverBlock("");
+                        return;
+                      }
                       const from = draggingBlock || e.dataTransfer.getData("text/plain");
                       if (!from) return;
-                      e.preventDefault();
                       moveBlockItem(from, key);
                       setDraggingBlock("");
                       setDragOverBlock("");

@@ -280,7 +280,9 @@ export function PlaylistZone({
               draggable
               onDragStart={(e) => {
                 setDragIndex(i);
+                e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/miradio-index", String(i));
+                e.dataTransfer.setData("text/miradio-playlist-track", r.id);
               }}
               onDragEnd={() => {
                 setDragIndex(null);

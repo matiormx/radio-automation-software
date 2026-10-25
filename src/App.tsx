@@ -1295,6 +1295,26 @@ export default function App() {
     (track: Track) => void removeTrack(track),
     [removeTrack],
   );
+  const assignTrackBlock = useCallback(
+    async (trackId: string, blockId: string) => {
+      const track = tracksRef.current.find((item) => item.id === trackId);
+      if (!track) return;
+      if (track.blocks.includes(blockId)) return;
+      try {
+        await setTrackBlocks(trackId, [...track.blocks, blockId]);
+        setTracks((prev) =>
+          prev.map((item) =>
+            item.id === trackId ? { ...item, blocks: [...item.blocks, blockId] } : item,
+          ),
+        );
+        const name = blocksRef.current.find((block) => block.id === blockId)?.name ?? "bloque";
+        showToast(`«${track.title}» añadida a ${name}`);
+      } catch (error) {
+        showToast(`No se pudo asignar al bloque: ${String(error)}`);
+      }
+    },
+    [showToast],
+  );
   const handleEditCuts = useCallback((track: Track) => setCutsTrackId(track.id), []);
   const handlePendingEditDone = useCallback(() => setPendingEdit(null), []);
 
@@ -3185,6 +3205,7 @@ export default function App() {
                 onEditCuts={handleEditCuts}
                 pendingEdit={pendingEdit}
                 onPendingEditDone={handlePendingEditDone}
+                onAssignTrackBlock={assignTrackBlock}
                 dropBlockId={dropBlockId}
                 showToast={showToast}
               />
