@@ -2,7 +2,15 @@ import { ApiTab } from "./ApiTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { BackupTab } from "./BackupTab";
 import { useMemo, useState } from "react";
-import type { Block, Campaign, CampaignKind, Settings, StationEvent, Track } from "../types";
+import type {
+  Block,
+  Campaign,
+  CampaignKind,
+  Settings,
+  StationEvent,
+  StreamStatus,
+  Track,
+} from "../types";
 import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
@@ -47,6 +55,9 @@ interface SettingsPanelProps {
   onCallMute: (muted: boolean) => void;
   /** La emisión está en marcha; las salidas de vídeo se compactan. */
   streaming?: boolean;
+  /** Estado real de cada salida para los testigos de Streaming. */
+  streamStatus?: StreamStatus | null;
+  streamBusy?: boolean;
   /** En su propia ventana: sin fondo modal ni cabecera de dialogo */
   windowed?: boolean;
 }
@@ -195,6 +206,8 @@ export function SettingsPanel({
   callMuted,
   onCallMute,
   streaming = false,
+  streamStatus = null,
+  streamBusy = false,
   windowed = false,
 }: SettingsPanelProps) {
   const s = settings;
@@ -392,7 +405,14 @@ export function SettingsPanel({
             {tab === "programs" && (
               <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
             )}
-            {tab === "streaming" && <StreamingTab settings={s} onChange={onChange} />}
+            {tab === "streaming" && (
+              <StreamingTab
+                settings={s}
+                onChange={onChange}
+                streamStatus={streamStatus}
+                streamBusy={streamBusy}
+              />
+            )}
             {tab === "backup" && (
               <>
                 <UpdateSection showToast={showToast} />

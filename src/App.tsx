@@ -1644,9 +1644,12 @@ export default function App() {
       return;
     }
     setStreamBusy(true);
+    let failedStatus: StreamStatus | null = null;
     try {
       const status = await startStreaming(settings);
       if (!status.running) {
+        failedStatus = status;
+        setStreamStatus(status);
         throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
       }
       setStreamStatus(status);
@@ -1660,9 +1663,15 @@ export default function App() {
     } catch (error) {
       await streamEncoderRef.current?.stop();
       streamEncoderRef.current = null;
-      await stopStreaming()
-        .then(setStreamStatus)
-        .catch(() => setStreamStatus(null));
+      if (failedStatus) {
+        // No había procesos vivos: conservamos el estado con el error de cada
+        // salida para que el panel de Ajustes muestre qué falló.
+        setStreamStatus(failedStatus);
+      } else {
+        await stopStreaming()
+          .then(setStreamStatus)
+          .catch(() => setStreamStatus(null));
+      }
       showToast(error instanceof Error ? error.message : String(error));
     } finally {
       setStreamBusy(false);
@@ -2556,7 +2565,7 @@ export default function App() {
   // ---- ventanas de herramientas (Ajustes...) ----
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});
   bridgeRef.current = {
-    getState: () => ({ settings, studio, callMuted, streaming: !!streamStatus?.running }),
+    getState: () => ({ settings, studio, callMuted, streaming: !!streamStatus?.running, streamStatus, streamBusy }),
     updateSettings: (s: Settings) => updateSettings(s),
     chooseMusicFolder: () => chooseMusicFolder(),
     chooseLogo: () => chooseLogo(),
@@ -2605,8 +2614,8 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    publishState({ settings, studio, callMuted, streaming: !!streamStatus?.running });
-  }, [settings, studio, callMuted, streamStatus?.running]);
+    publishState({ settings, studio, callMuted, streaming: !!streamStatus?.running, streamStatus, streamBusy });
+  }, [settings, studio, callMuted, streamStatus, streamBusy]);
   // ---- chat de NGRADIO: acoplado aqui o en su ventana ----
   const chatCfg = settings.chat ?? DEFAULT_SETTINGS.chat;
   useEffect(() => {
@@ -3106,6 +3115,8 @@ export default function App() {
           callMuted={callMuted}
           onCallMute={muteCaller}
           streaming={!!streamStatus?.running}
+          streamStatus={streamStatus}
+          streamBusy={streamBusy}
         />
       )}
 

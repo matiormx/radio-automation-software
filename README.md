@@ -240,10 +240,14 @@ El binario no se guarda en el repositorio. Para generarlo:
 
 3. El script clona la última versión de
    [lplassman/FFMPEG-NDI](https://github.com/lplassman/FFMPEG-NDI), descarga
-   FFmpeg `n5.1`, aplica los parches, compila con `libx264` y deja
-   `ffmpeg-ndi.exe` y `Processing.NDI.Lib.x64.dll` en `src-tauri\bin\`.
+   FFmpeg `n5.1`, aplica los parches, compila con `libx264` y OpenSSL
+   (necesario para RTMPS) y deja `ffmpeg-ndi.exe` y
+   `Processing.NDI.Lib.x64.dll` en `src-tauri\bin\`.
 4. `npm run tauri build` incluye esa carpeta en el instalador; MiRadio lo
    detecta como `bin\ffmpeg-ndi.exe`.
+
+En Linux/macOS instala OpenSSL (`libssl-dev` en Debian/Ubuntu) para RTMPS. Si
+falta, el script avisa y compila sin TLS.
 
 Si el SDK de NDI está en otra ruta, indícala con
 `-NdiSdkDir "C:\...\NDI 6 SDK"`. Si MSYS2 ya tiene las dependencias, añade
@@ -253,6 +257,12 @@ las cabeceras MIT publicadas por DistroAV.
 El FFmpeg con NDI se compila con `--enable-nonfree`, así que no es
 redistribuible sin revisar las licencias de FFmpeg y NDI. Está pensado para
 builds locales o privados.
+
+RTMPS necesita un FFmpeg con TLS. El build NDI incluye OpenSSL; si usas otro
+`ffmpeg.exe`, comprueba que su configuración tenga `--enable-openssl` o
+`--enable-gnutls`. Restream ofrece RTMP en
+`rtmp://live.restream.io/live/TU_CLAVE` y una URL `rtmps://` equivalente en su
+panel.
 
 Para que las releases de GitHub Actions incluyan NDI, crea la variable de
 repositorio `BUILD_NDI=true` en **Settings > Secrets and variables > Actions >

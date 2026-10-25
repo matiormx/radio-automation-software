@@ -5,7 +5,7 @@ import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { WindowControls } from "./components/WindowControls";
 import { callMainTimeout, onMainState, readStateSnapshot } from "./bridge";
 import { listBlocks, listTracks } from "./api";
-import type { Block, Settings, StationEvent, Track } from "./types";
+import type { Block, Settings, StationEvent, StreamStatus, Track } from "./types";
 import type { StudioSnapshot } from "./studioCalls";
 
 /** Estado que la ventana principal comparte con las demas. */
@@ -14,6 +14,8 @@ export interface SharedState {
   studio: StudioSnapshot;
   callMuted: boolean;
   streaming?: boolean;
+  streamStatus?: StreamStatus | null;
+  streamBusy?: boolean;
 }
 
 /**
@@ -148,6 +150,8 @@ export function SettingsWindow() {
         callMuted={shared.callMuted}
         onCallMute={(muted) => void call("muteCaller", muted)}
         streaming={!!shared.streaming}
+        streamStatus={shared.streamStatus ?? null}
+        streamBusy={!!shared.streamBusy}
       />
       {toast && (
         <div className="toast" role="status">

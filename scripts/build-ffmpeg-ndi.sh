@@ -14,6 +14,7 @@ FFMPEG_REPO="${FFMPEG_REPO:-https://github.com/FFmpeg/FFmpeg.git}"
 FFMPEG_REF="${FFMPEG_REF:-n5.1}"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)}"
 WITH_X264="${WITH_X264:-1}"
+WITH_TLS="${WITH_TLS:-1}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -108,12 +109,27 @@ CONFIG_ARGS=(
   --extra-ldflags="-L$NDI_LIB"
 )
 
+STATIC_PKGS=0
 if [ "$WITH_X264" = "1" ]; then
   if ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists x264; then
     echo "No se encontró x264 (pkg-config). Instala libx264-dev o ejecuta con WITH_X264=0." >&2
     exit 1
   fi
-  CONFIG_ARGS+=(--enable-libx264 --pkg-config-flags=--static)
+  CONFIG_ARGS+=(--enable-libx264)
+  STATIC_PKGS=1
+fi
+
+if [ "$WITH_TLS" = "1" ]; then
+  if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists openssl; then
+    CONFIG_ARGS+=(--enable-openssl)
+    STATIC_PKGS=1
+  else
+    echo "Aviso: OpenSSL no encontrado; se compila sin RTMPS. Instala libssl-dev o usa WITH_TLS=0." >&2
+  fi
+fi
+
+if [ "$STATIC_PKGS" = "1" ]; then
+  CONFIG_ARGS+=(--pkg-config-flags=--static)
 fi
 
 echo "==> Configurando FFmpeg"

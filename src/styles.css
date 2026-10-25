@@ -3289,6 +3289,81 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .stream-line-codec { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-2, rgba(255,255,255,.08)); color: var(--text-faint); }
 .stream-line-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
 
+.stream-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+.stream-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.stream-status-summary.live { color: var(--live); }
+.stream-status-summary.error { color: var(--danger); }
+.stream-status-summary.pending { color: var(--warn); }
+.stream-status-item { display: flex; flex-direction: column; gap: 2px; }
+.stream-status-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.stream-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.stream-status-dot.live { background: var(--live); box-shadow: 0 0 6px var(--live); }
+.stream-status-dot.error { background: var(--danger); }
+.stream-status-dot.pending { background: var(--warn); animation: live-pulse 1.8s ease-in-out infinite; }
+.stream-status-name {
+  flex: 0 1 170px;
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.stream-status-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.stream-status-label {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.stream-status-label.live { color: var(--live); }
+.stream-status-label.error { color: var(--danger); }
+.stream-status-label.pending { color: var(--warn); }
+.stream-status-error {
+  margin: 0 0 0 16px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #f87171;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-status-dot.pending { animation: none; }
+}
+
 .mixer-insert { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .mixer-insert-hint { margin: 0; font-size: 10px; line-height: 1.35; color: var(--text-faint); }
 

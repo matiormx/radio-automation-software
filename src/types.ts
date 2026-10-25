@@ -467,6 +467,8 @@ export interface StreamOutputStatus {
   name: string;
   kind: string;
   running: boolean;
+  state: "live" | "stopped" | "error";
+  error: string | null;
 }
 
 export interface StreamStatus {

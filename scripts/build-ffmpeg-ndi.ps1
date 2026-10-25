@@ -176,8 +176,8 @@ function New-NdiImportLib([string]$DllPath, [string]$LibDir) {
 
 function Install-MsysDependencies {
     if ($SkipDeps) { return }
-    Write-Host "==> Instalando dependencias de MSYS2 (gcc, make, nasm, x264...)"
-    & $Bash -lc "pacman -S --noconfirm --needed git make mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-yasm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-x264 mingw-w64-x86_64-zlib mingw-w64-x86_64-tools"
+    Write-Host "==> Instalando dependencias de MSYS2 (gcc, make, nasm, x264, OpenSSL...)"
+    & $Bash -lc "pacman -S --noconfirm --needed git make mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-yasm mingw-w64-x86_64-pkg-config mingw-w64-x86_64-x264 mingw-w64-x86_64-openssl mingw-w64-x86_64-zlib mingw-w64-x86_64-tools"
     if ($LASTEXITCODE -ne 0) {
         throw "No se pudieron instalar las dependencias de MSYS2. Abre MSYS2 como administrador o usa -SkipDeps."
     }
@@ -218,6 +218,7 @@ $env:NDI_INCLUDE = To-MsysPath $ndiInclude
 $env:NDI_LIB = To-MsysPath $ndiLib
 $env:JOBS = [string][Environment]::ProcessorCount
 $env:WITH_X264 = "1"
+$env:WITH_TLS = "1"
 
 $rootMsys = To-MsysPath $Root
 $scriptMsys = To-MsysPath (Join-Path $Root "scripts\build-ffmpeg-ndi.sh")

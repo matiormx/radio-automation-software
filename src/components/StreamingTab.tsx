@@ -4,6 +4,7 @@ import type {
   IcecastStream,
   RtmpOutput,
   Settings,
+  StreamStatus,
   StreamingSettings,
 } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
@@ -11,6 +12,8 @@ import { IconEdit, IconPlus, IconTrash } from "../icons";
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
+  streamStatus?: StreamStatus | null;
+  streamBusy?: boolean;
 }
 
 function uid(): string {
@@ -39,7 +42,78 @@ function newStream(codec: IcecastCodec, settings: Settings): IcecastStream {
   };
 }
 
-export function StreamingTab({ settings, onChange }: Props) {
+type EmissionTone = "live" | "error" | "pending" | "idle";
+
+function safeRtmp(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "Sin destino";
+  const scheme = trimmed.indexOf("://");
+  const prefix = scheme >= 0 ? trimmed.slice(0, scheme + 3) : "";
+  const rest = scheme >= 0 ? trimmed.slice(scheme + 3) : trimmed;
+  const boundary = rest.search(/[/?#]/);
+  const authority = boundary < 0 ? rest : rest.slice(0, boundary);
+  const at = authority.lastIndexOf("@");
+  const safeAuthority = at >= 0 ? `***@${authority.slice(at + 1)}` : authority;
+  return boundary < 0 ? `${prefix}${safeAuthority}` : `${prefix}${safeAuthority}/***`;
+}
+
+function icecastConfigError(s: IcecastStream): string | null {
+  if (!s.host.trim()) return "Falta el servidor.";
+  if (!s.port) return "El puerto no es válido.";
+  const mount = s.mount.trim();
+  if (!mount || mount === "/") return "Falta el montaje.";
+  return null;
+}
+
+function rtmpConfigError(settings: Settings, url: string): string | null {
+  if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
+  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
+    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
+  }
+  const target = url.trim().toLowerCase();
+  if (!target) return "Falta la URL RTMP.";
+  if (!target.startsWith("rtmp://") && !target.startsWith("rtmps://")) {
+    return "La URL debe empezar por rtmp:// o rtmps://.";
+  }
+  return null;
+}
+
+function emissionState(
+  status: StreamStatus | null | undefined,
+  id: string,
+  enabled: boolean,
+  busy: boolean,
+  configError: string | null,
+) {
+  if (!enabled) return { tone: "idle" as EmissionTone, label: "Inactiva", error: null };
+  const out = status?.outputs.find((o) => o.id === id);
+  if (out?.running) {
+    return { tone: "live" as EmissionTone, label: "En vivo", error: out.error ?? null };
+  }
+  if (out?.state === "error") {
+    return {
+      tone: "error" as EmissionTone,
+      label: "Error",
+      error: out.error ?? status?.lastError ?? null,
+    };
+  }
+  if (configError) {
+    return { tone: "error" as EmissionTone, label: "Configuración", error: configError };
+  }
+  if (busy) return { tone: "pending" as EmissionTone, label: "Conectando", error: null };
+  if (out) return { tone: "idle" as EmissionTone, label: "Detenida", error: out.error ?? null };
+  if (status?.running) {
+    return { tone: "idle" as EmissionTone, label: "No iniciada", error: null };
+  }
+  return { tone: "idle" as EmissionTone, label: "Sin iniciar", error: null };
+}
+
+export function StreamingTab({
+  settings,
+  onChange,
+  streamStatus = null,
+  streamBusy = false,
+}: Props) {
   const st = settings.streaming;
   // Solo se edita un encoder a la vez; el resto se ve como lista de una línea.
   const [editing, setEditing] = useState<string | null>(null);
@@ -60,6 +134,63 @@ export function StreamingTab({ settings, onChange }: Props) {
   const updateRtmp = (patch: Partial<RtmpOutput>) =>
     set({ rtmp: { ...st.rtmp, ...patch } });
 
+  const emissions = [
+    ...st.icecast.map((s) => ({
+      key: `icecast:${s.id}`,
+      name: s.name.trim() || "Icecast",
+      detail: `${s.codec === "flac" ? "FLAC" : `AAC ${s.bitrateKbps} kbps`} · ${
+        s.host
+      }:${s.port}${s.mount}${s.tls ? " · TLS" : ""}`,
+      enabled: s.enabled,
+      configError: s.enabled ? icecastConfigError(s) : null,
+    })),
+    {
+      key: "rtmp",
+      name: "Vídeo RTMP",
+      detail: safeRtmp(st.rtmp.url),
+      enabled: st.rtmp.enabled,
+      configError: st.rtmp.enabled ? rtmpConfigError(settings, st.rtmp.url) : null,
+    },
+    ...settings.video.outputs
+      .filter((output) => output.kind === "rtmp")
+      .map((output) => ({
+        key: `video:${output.id}`,
+        name: output.name.trim() || "Salida RTMP",
+        detail: safeRtmp(output.source),
+        enabled: output.enabled,
+        configError: output.enabled ? rtmpConfigError(settings, output.source) : null,
+      })),
+  ];
+  const rows = emissions.map((emission) => ({
+    ...emission,
+    status: emissionState(
+      streamStatus,
+      emission.key,
+      emission.enabled,
+      streamBusy,
+      emission.configError,
+    ),
+  }));
+  const anyError = rows.some((row) => row.status.tone === "error");
+  const hasRowError = rows.some((row) => row.status.error);
+  const globalError = hasRowError ? null : streamStatus?.lastError ?? null;
+  const headerTone: EmissionTone = anyError
+    ? "error"
+    : streamStatus?.running
+      ? "live"
+      : streamBusy
+        ? "pending"
+        : "idle";
+  const headerLabel = anyError
+    ? streamStatus?.running
+      ? "EN VIVO CON ERRORES"
+      : "CON ERRORES"
+    : streamStatus?.running
+      ? "EN VIVO"
+      : streamBusy
+        ? "CONECTANDO"
+        : "DETENIDA";
+
   return (
     <>
       <div className="camp-head">
@@ -73,6 +204,39 @@ export function StreamingTab({ settings, onChange }: Props) {
             mismo bus que el VU de salida. PCM 48 kHz estéreo.
           </p>
         </div>
+      </div>
+
+      <div className="stream-status-panel" aria-label="Estado de las emisiones">
+        <div className="stream-status-head">
+          <span>Estado de las emisiones</span>
+          <span className={`stream-status-summary ${headerTone}`}>{headerLabel}</span>
+        </div>
+        {rows.map((row) => (
+          <div className="stream-status-item" key={row.key}>
+            <div className="stream-status-row">
+              <span className={`stream-status-dot ${row.status.tone}`} aria-hidden="true" />
+              <strong className="stream-status-name" title={row.name}>
+                {row.name}
+              </strong>
+              <span className="stream-status-detail" title={row.detail}>
+                {row.detail}
+              </span>
+              <span className={`stream-status-label ${row.status.tone}`}>
+                {row.status.label}
+              </span>
+            </div>
+            {row.status.error && (
+              <p className="stream-status-error" title={row.status.error}>
+                {row.status.error}
+              </p>
+            )}
+          </div>
+        ))}
+        {globalError && (
+          <p className="stream-status-error" title={globalError}>
+            {globalError}
+          </p>
+        )}
       </div>
 
       <p className="hint">
@@ -483,9 +647,11 @@ export function StreamingTab({ settings, onChange }: Props) {
         </div>
         <p className="hint">
           La emisión RTMP empuja el programa de vídeo al servidor indicado. Para
-          Restream usa <code>rtmp://live.restream.io/live/TU_CLAVE</code>, donde
-          TU_CLAVE es la clave de emisión de tu panel de Restream. Usa la
-          primera entrada de vídeo activa.
+          Restream usa <code>rtmp://live.restream.io/live/TU_CLAVE</code> o la
+          URL <code>rtmps://</code> que muestra su panel; RTMPS necesita un
+          FFmpeg con TLS (el build NDI lo incluye). TU_CLAVE es la clave de
+          emisión de tu panel de Restream. Usa la primera entrada de vídeo
+          activa.
         </p>
       </fieldset>
     </>

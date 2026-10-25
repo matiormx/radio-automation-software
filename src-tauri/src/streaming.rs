@@ -18,6 +18,7 @@ const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
 struct EngineInner {
     ffmpeg: Option<PathBuf>,
     processes: Vec<StreamProcess>,
+    failed_outputs: Vec<StreamOutputStatus>,
     last_error: Option<String>,
 }
 
@@ -32,6 +33,7 @@ struct StreamProcess {
     /// de audio nunca se queda esperando).
     tx: Option<SyncSender<Vec<u8>>>,
     failed: Arc<AtomicBool>,
+    error: Arc<Mutex<Option<String>>>,
     warned_full: bool,
 }
 
@@ -85,6 +87,20 @@ pub struct StreamOutputStatus {
     pub name: String,
     pub kind: String,
     pub running: bool,
+    /// "live", "stopped" o "error".
+    pub state: String,
+    pub error: Option<String>,
+}
+
+fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutputStatus {
+    StreamOutputStatus {
+        id: id.to_string(),
+        name: name.to_string(),
+        kind: kind.to_string(),
+        running: false,
+        state: "error".to_string(),
+        error: Some(error),
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -217,6 +233,8 @@ pub fn stream_start(
         } else {
             stream.name.clone()
         };
+        let output_id = id.clone();
+        let output_name = name.clone();
         match icecast_args(stream) {
             Ok(args) => {
                 if let Err(error) = spawn_process(
@@ -229,15 +247,32 @@ pub fn stream_start(
                     "icecast",
                     true,
                 ) {
-                    errors.push(error);
+                    errors.push(error.clone());
+                    inner.failed_outputs.push(failed_output(
+                        &output_id,
+                        &output_name,
+                        "icecast",
+                        error,
+                    ));
                 }
             }
-            Err(error) => errors.push(format!("{name}: {error}")),
+            Err(error) => {
+                let message = format!("{name}: {error}");
+                errors.push(message.clone());
+                inner.failed_outputs.push(failed_output(
+                    &output_id,
+                    &output_name,
+                    "icecast",
+                    message,
+                ));
+            }
         }
     }
 
     if settings.streaming.rtmp.enabled {
         requested += 1;
+        let id = "rtmp".to_string();
+        let name = "RTMP".to_string();
         match rtmp_args(
             &settings.video,
             &settings.streaming.rtmp.url,
@@ -254,27 +289,38 @@ pub fn stream_start(
                     &shared,
                     video_ffmpeg,
                     args,
-                    "rtmp".to_string(),
-                    "RTMP".to_string(),
+                    id.clone(),
+                    name.clone(),
                     "rtmp",
                     true,
                 ) {
-                    errors.push(error);
+                    errors.push(error.clone());
+                    inner
+                        .failed_outputs
+                        .push(failed_output(&id, &name, "rtmp", error));
                 }
             }
-            Err(error) => errors.push(format!("RTMP: {error}")),
+            Err(error) => {
+                let message = format!("RTMP: {error}");
+                errors.push(message.clone());
+                inner
+                    .failed_outputs
+                    .push(failed_output(&id, &name, "rtmp", message));
+            }
         }
     }
 
     if settings.video.enabled {
         for output in settings.video.outputs.iter().filter(|o| o.enabled) {
             requested += 1;
+            let id = format!("video:{}", output.id);
             let name = if output.name.trim().is_empty() {
                 output.kind.clone()
             } else {
                 output.name.clone()
             };
-            let args = match output.kind.as_str() {
+            let kind = output.kind.clone();
+            let args = match kind.as_str() {
                 "screen" | "decklink" => {
                     video_output_args(output, &settings.video, ndi_device)
                 }
@@ -318,8 +364,8 @@ pub fn stream_start(
             };
             match args {
                 Ok(args) => {
-                    let wants_audio = output.kind == "rtmp" || output.kind == "ndi";
-                    let process_ffmpeg = if output.kind == "ndi" {
+                    let wants_audio = kind == "rtmp" || kind == "ndi";
+                    let process_ffmpeg = if kind == "ndi" {
                         ndi_ffmpeg.unwrap_or(&ffmpeg)
                     } else {
                         video_ffmpeg
@@ -329,15 +375,24 @@ pub fn stream_start(
                         &shared,
                         process_ffmpeg,
                         args,
-                        format!("video:{}", output.id),
-                        name,
-                        &output.kind,
+                        id.clone(),
+                        name.clone(),
+                        &kind,
                         wants_audio,
                     ) {
-                        errors.push(error);
+                        errors.push(error.clone());
+                        inner
+                            .failed_outputs
+                            .push(failed_output(&id, &name, &kind, error));
                     }
                 }
-                Err(error) => errors.push(format!("{name}: {error}")),
+                Err(error) => {
+                    let message = format!("{name}: {error}");
+                    errors.push(message.clone());
+                    inner
+                        .failed_outputs
+                        .push(failed_output(&id, &name, &kind, message));
+                }
             }
         }
     }
@@ -348,17 +403,11 @@ pub fn stream_start(
                 .to_string(),
         );
     }
-    if inner.processes.is_empty() {
-        return Err(if errors.is_empty() {
-            "No se pudo iniciar ninguna salida de emisión".to_string()
-        } else {
-            errors.join(" · ")
-        });
-    }
     if !errors.is_empty() {
         inner.last_error = Some(errors.join(" · "));
     }
-
+    // Aunque no arranque ninguna salida, devolvemos el estado con los errores
+    // por salida para que Ajustes pueda mostrar qué emisión falló.
     Ok(status_from(&mut inner))
 }
 
@@ -406,31 +455,60 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
         match process.child.try_wait() {
             Ok(Some(status)) => {
                 process.alive = false;
-                if !status.success() && last_error.is_none() {
-                    last_error = Some(format!(
+                if !status.success() {
+                    let message = format!(
                         "{} se detuvo inesperadamente ({status})",
                         process.name
-                    ));
+                    );
+                    if let Ok(mut slot) = process.error.lock() {
+                        if slot.is_none() {
+                            *slot = Some(message.clone());
+                        }
+                    }
+                    if last_error.is_none() {
+                        last_error = Some(message);
+                    }
                 }
             }
             Ok(None) => {}
             Err(error) => {
                 process.alive = false;
-                last_error = Some(format!("{}: {error}", process.name));
+                let message = format!("{}: {error}", process.name);
+                if let Ok(mut slot) = process.error.lock() {
+                    *slot = Some(message.clone());
+                }
+                last_error = Some(message);
             }
         }
     }
     inner.last_error = last_error.clone();
-    let outputs: Vec<StreamOutputStatus> = inner
+    let mut outputs: Vec<StreamOutputStatus> = inner
         .processes
         .iter()
-        .map(|process| StreamOutputStatus {
-            id: process.id.clone(),
-            name: process.name.clone(),
-            kind: process.kind.clone(),
-            running: process.alive,
+        .map(|process| {
+            let error = process
+                .error
+                .lock()
+                .ok()
+                .and_then(|slot| Option::clone(&*slot));
+            let state = if process.alive {
+                "live"
+            } else if error.is_some() {
+                "error"
+            } else {
+                "stopped"
+            };
+            StreamOutputStatus {
+                id: process.id.clone(),
+                name: process.name.clone(),
+                kind: process.kind.clone(),
+                running: process.alive,
+                state: state.to_string(),
+                error,
+            }
         })
         .collect();
+    outputs.extend(inner.failed_outputs.iter().cloned());
     StreamStatus {
         running: outputs.iter().any(|output| output.running),
         needs_audio: inner
@@ -471,8 +549,10 @@ fn spawn_process(
         .spawn()
         .map_err(|error| format!("{name}: no se pudo iniciar FFmpeg ({error})"))?;
 
+    let error_slot = Arc::new(Mutex::new(None));
     if let Some(stderr) = child.stderr.take() {
         let shared = shared.clone();
+        let slot = error_slot.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
@@ -481,8 +561,12 @@ fn spawn_process(
                 if line.is_empty() || !is_error_line(line) {
                     continue;
                 }
+                let clean = sanitize_error(line);
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(clean.clone());
+                }
                 if let Ok(mut inner) = shared.lock() {
-                    inner.last_error = Some(sanitize_error(line));
+                    inner.last_error = Some(clean);
                 }
             }
         });
@@ -521,6 +605,7 @@ fn spawn_process(
         child,
         tx,
         failed,
+        error: error_slot,
         warned_full: false,
     });
     Ok(())
@@ -535,6 +620,7 @@ fn stop_all(inner: &mut EngineInner) {
         let _ = process.child.kill();
         let _ = process.child.wait();
     }
+    inner.failed_outputs.clear();
 }
 
 pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
