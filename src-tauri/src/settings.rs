@@ -412,6 +412,19 @@ impl Default for MixerBus {
     }
 }
 
+/// Una franja de programacion con sus propios dias y horas.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ScheduleBlock {
+    pub id: String,
+    pub days: Vec<u8>,
+    pub times: Vec<String>,
+    pub hourly: bool,
+    pub minute: u8,
+    pub start: String,
+    pub end: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Campaign {
@@ -423,6 +436,10 @@ pub struct Campaign {
     pub times: Vec<String>,
     pub hourly: bool,
     pub minute: u8,
+    /// Varias franjas; si esta vacio, se usan days/times/hourly/minute.
+    pub schedules: Vec<ScheduleBlock>,
+    /// Metadatos que se usan al emitir cada spot.
+    pub meta: StreamMeta,
     /// Inicio de la campana (fecha y hora local, YYYY-MM-DDTHH:MM).
     pub start_at: String,
     /// Fin de la campana; vacio = permanente.
@@ -443,6 +460,8 @@ impl Default for Campaign {
             times: Vec::new(),
             hourly: false,
             minute: 0,
+            schedules: Vec::new(),
+            meta: StreamMeta::default(),
             start_at: String::new(),
             end_at: String::new(),
             track_ids: Vec::new(),
@@ -466,6 +485,8 @@ pub struct StationEvent {
     /// Horas adicionales para eventos sin fin (auto/insert); vacio = usar `start`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub times: Vec<String>,
+    /// Varias franjas; si esta vacio, se usan days/start/times/end.
+    pub schedules: Vec<ScheduleBlock>,
     /// "block" o "library"
     pub source_kind: String,
     /// id de bloque o "a"/"b"
@@ -529,6 +550,7 @@ impl Default for StationEvent {
             days: vec![1, 2, 3, 4, 5, 6, 7],
             start: "06:00".to_string(),
             times: Vec::new(),
+            schedules: Vec::new(),
             source_kind: "library".to_string(),
             source_id: "a".to_string(),
             track_id: String::new(),

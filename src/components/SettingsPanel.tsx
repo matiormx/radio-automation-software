@@ -11,7 +11,7 @@ import type {
   StreamStatus,
   Track,
 } from "../types";
-import { DEFAULT_SETTINGS, effectiveDuration } from "../types";
+import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
 import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
@@ -24,6 +24,8 @@ import { StudioCallsTab } from "./StudioCallsTab";
 import type { StudioSnapshot } from "../studioCalls";
 import { UpdateSection } from "./UpdateSection";
 import { ProgramsTab } from "./ProgramsTab";
+import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
+import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   NOW_PLAYING_PLACEHOLDERS,
@@ -79,16 +81,23 @@ function fmtDur(secs: number): string {
 }
 
 function scheduleText(c: Campaign): string {
-  if (c.hourly) return `Cada hora a las :${String(c.minute).padStart(2, "0")}`;
-  if (c.times.length === 0) return "Sin horas";
-  return c.times.join(" · ");
+  return campaignSchedules(c)
+    .map((block) => {
+      if (block.hourly) return `Cada hora a las :${String(block.minute ?? 0).padStart(2, "0")}`;
+      return block.times.length === 0 ? "Sin horas" : block.times.join(" · ");
+    })
+    .join(" | ");
 }
 
 function daysText(c: Campaign): string {
-  if (c.days.length === 7) return "Todos los días";
-  return DAYS.filter((d) => c.days.includes(d.value))
-    .map((d) => d.label)
-    .join(" ");
+  return campaignSchedules(c)
+    .map((block) => {
+      if (block.days.length === 7) return "Todos los días";
+      return DAYS.filter((d) => block.days.includes(d.value))
+        .map((d) => d.label)
+        .join(" ");
+    })
+    .join(" | ");
 }
 
 function pad2(n: number): string {
@@ -385,6 +394,7 @@ export function SettingsPanel({
               <CampaignsTab
                 settings={s}
                 tracks={tracks}
+                blocks={blocks}
                 onChange={onChange}
                 onImportAudio={onImportAudio}
               />
@@ -907,11 +917,13 @@ function AutoDjTab({
 function CampaignsTab({
   settings: s,
   tracks,
+  blocks,
   onChange,
   onImportAudio,
 }: {
   settings: Settings;
   tracks: Track[];
+  blocks: Block[];
   onChange: (s: Settings) => void;
   onImportAudio: () => Promise<Track[]>;
 }) {
@@ -934,6 +946,8 @@ function CampaignsTab({
       times: [],
       hourly: false,
       minute: 0,
+      schedules: [newScheduleBlock("campaign")],
+      meta: { ...EMPTY_STREAM_META },
       startAt: todayStartInput(),
       endAt: "",
       trackIds: [],
@@ -945,7 +959,18 @@ function CampaignsTab({
   const edit = (c: Campaign) => {
     setError("");
     setSearch("");
-    setDraft({ ...c, days: [...c.days], times: [...c.times], trackIds: [...c.trackIds] });
+    setDraft({
+      ...c,
+      days: [...c.days],
+      times: [...c.times],
+      schedules: campaignSchedules(c).map((block) => ({
+        ...block,
+        days: [...block.days],
+        times: [...block.times],
+      })),
+      meta: { ...EMPTY_STREAM_META, ...(c.meta ?? {}) },
+      trackIds: [...c.trackIds],
+    });
   };
 
   const save = () => {
@@ -955,12 +980,17 @@ function CampaignsTab({
       setError("Ponle un nombre a la campaña.");
       return;
     }
-    if (!draft.hourly && draft.times.length === 0) {
-      setError("Añade al menos una hora o activa «cada hora».");
+    const schedules = campaignSchedules(draft).map((block) => ({
+      ...block,
+      days: [...block.days].sort(),
+      times: [...block.times],
+    }));
+    if (schedules.some((block) => block.days.length === 0)) {
+      setError("Cada franja debe tener al menos un día.");
       return;
     }
-    if (draft.days.length === 0) {
-      setError("Selecciona al menos un día.");
+    if (schedules.some((block) => !block.hourly && block.times.length === 0)) {
+      setError("Añade al menos una hora a cada franja o activa «cada hora».");
       return;
     }
     const start = campaignDate(draft.startAt);
@@ -981,7 +1011,17 @@ function CampaignsTab({
       setError("Añade al menos un anuncio o jingle.");
       return;
     }
-    const clean: Campaign = { ...draft, name };
+    const first = schedules[0];
+    const clean: Campaign = {
+      ...draft,
+      name,
+      schedules,
+      days: first.days,
+      times: first.times,
+      hourly: !!first.hourly,
+      minute: first.minute ?? 0,
+      meta: { ...EMPTY_STREAM_META, ...(draft.meta ?? {}) },
+    };
     const exists = s.campaigns.some((c) => c.id === clean.id);
     const campaigns = exists
       ? s.campaigns.map((c) => (c.id === clean.id ? clean : c))
@@ -1013,6 +1053,7 @@ function CampaignsTab({
         search={search}
         setSearch={setSearch}
         byId={byId}
+        blocks={blocks}
         onSave={save}
         onCancel={() => {
           setDraft(null);
@@ -1119,6 +1160,7 @@ function CampaignEditor({
   search,
   setSearch,
   byId,
+  blocks,
   onSave,
   onCancel,
   importing,
@@ -1130,37 +1172,29 @@ function CampaignEditor({
   search: string;
   setSearch: (v: string) => void;
   byId: Map<string, Track>;
+  blocks: Block[];
   onSave: () => void;
   onCancel: () => void;
   importing: boolean;
   onImport: () => Promise<void>;
 }) {
   const q = search.trim().toLowerCase();
+  const [spotBlock, setSpotBlock] = useState("");
   const options = useMemo(
     () =>
       Array.from(byId.values())
         .filter((t) => !draft.trackIds.includes(t.id))
+        .filter((t) => !spotBlock || t.blocks.includes(spotBlock))
         .filter(
           (t) =>
             !q ||
             [t.title, t.artist, t.album].join(" ").toLowerCase().includes(q),
         )
         .slice(0, 80),
-    [byId, draft.trackIds, q],
+    [byId, draft.trackIds, q, spotBlock],
   );
 
   const set = (patch: Partial<Campaign>) => setDraft({ ...draft, ...patch });
-  const [slotMinute, setSlotMinute] = useState(0);
-  const minuteSafe = Math.max(0, Math.min(59, Math.floor(slotMinute) || 0));
-
-  const toggleHour = (hour: number) => {
-    const value = `${pad2(hour)}:${pad2(minuteSafe)}`;
-    set({
-      times: draft.times.includes(value)
-        ? draft.times.filter((x) => x !== value)
-        : [...draft.times, value].sort(),
-    });
-  };
 
   const moveSpot = (index: number, dir: -1 | 1) => {
     const to = index + dir;
@@ -1216,25 +1250,11 @@ function CampaignEditor({
 
       <fieldset className="fieldset">
         <legend>Programación</legend>
-        <div className="camp-days">
-          {DAYS.map((d) => (
-            <button
-              key={d.value}
-              type="button"
-              className={`camp-day ${draft.days.includes(d.value) ? "camp-day-on" : ""}`}
-              title={d.long}
-              onClick={() =>
-                set({
-                  days: draft.days.includes(d.value)
-                    ? draft.days.filter((x) => x !== d.value)
-                    : [...draft.days, d.value].sort(),
-                })
-              }
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
+        <ScheduleEditor
+          blocks={campaignSchedules(draft)}
+          onChange={(schedules) => set({ schedules })}
+          mode="campaign"
+        />
 
         <div className="camp-dates">
           <label className="field">
@@ -1267,86 +1287,17 @@ function CampaignEditor({
           Sin fecha de fin (continuidad permanente)
         </label>
 
-        <label className="check-field">
-          <input
-            type="checkbox"
-            checked={draft.hourly}
-            onChange={(e) => set({ hourly: e.target.checked })}
-          />
-          Emitir cada hora al minuto
-          <input
-            className="camp-minute"
-            type="number"
-            min={0}
-            max={59}
-            value={draft.minute}
-            disabled={!draft.hourly}
-            onChange={(e) =>
-              set({ minute: Math.max(0, Math.min(59, Number(e.target.value) || 0)) })
-            }
-          />
-        </label>
-
-        {!draft.hourly && (
-          <div className="camp-hour-picker">
-            <div className="camp-hour-head">
-              <span className="field-label">Seleccionar horas</span>
-              <label className="camp-slot-minute">
-                <span>Minuto</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={slotMinute}
-                  onChange={(e) =>
-                    setSlotMinute(Math.max(0, Math.min(59, Number(e.target.value) || 0)))
-                  }
-                />
-              </label>
-            </div>
-            <div className="camp-hours">
-              {Array.from({ length: 24 }, (_, hour) => hour).map((hour) => {
-                const value = `${pad2(hour)}:${pad2(minuteSafe)}`;
-                const on = draft.times.includes(value);
-                return (
-                  <button
-                    key={hour}
-                    type="button"
-                    className={`camp-hour ${on ? "camp-hour-on" : ""}`}
-                    title={on ? `Quitar ${value}` : `Añadir ${value}`}
-                    onClick={() => toggleHour(hour)}
-                  >
-                    {pad2(hour)}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="camp-times">
-              {draft.times.length === 0 && <span className="hint">Sin horas todavía.</span>}
-              {draft.times.map((t) => (
-                <span key={t} className="camp-time-chip">
-                  {t}
-                  <button
-                    type="button"
-                    onClick={() => set({ times: draft.times.filter((x) => x !== t) })}
-                    title="Quitar hora"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <p className="hint">
-              Haz clic en una hora para añadirla con el minuto elegido. Vuelve a pulsarla para
-              quitarla.
-            </p>
-          </div>
-        )}
         <p className="hint">
           La campaña solo emite entre las fechas indicadas. Si la app está cerrada a esa hora no se
           emite; al abrirla solo se recupera la emisión si han pasado menos de 15 minutos.
         </p>
       </fieldset>
+
+      <MetaFields
+        meta={{ ...EMPTY_STREAM_META, ...(draft.meta ?? {}) }}
+        onChange={(meta) => set({ meta })}
+        legend="Metadatos al emitirse"
+      />
 
       <fieldset className="fieldset">
         <legend>Spots de la campaña</legend>
@@ -1396,6 +1347,19 @@ function CampaignEditor({
         </div>
 
         <div className="camp-add-head">
+          <select
+            value={spotBlock}
+            onChange={(e) => setSpotBlock(e.target.value)}
+            title="Filtrar los spots por bloque musical"
+            aria-label="Bloque musical"
+          >
+            <option value="">Toda la biblioteca</option>
+            {blocks.map((block) => (
+              <option key={block.id} value={block.id}>
+                {block.name}
+              </option>
+            ))}
+          </select>
           <input
             className="nsearch"
             type="search"

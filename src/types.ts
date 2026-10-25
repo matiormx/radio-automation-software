@@ -163,6 +163,8 @@ export interface Playlist {
   id: string;
   name: string;
   trackIds: string[];
+  /** Metadatos por posicion (anuncios/eventos); null = los de la cancion */
+  meta?: (StreamMeta | null)[];
 }
 
 export interface PlaylistRow {
@@ -176,19 +178,39 @@ export interface PlaylistRow {
   cover: string;
   /** Bloques musicales a los que pertenece */
   blocks: string[];
+  /** Metadatos propios de esta emision (anuncio, evento…), si los hay */
+  meta?: StreamMeta | null;
 }
 
 export type CampaignKind = "ads" | "jingle";
+
+/** Franja de programacion con sus propios dias y horas. */
+export interface ScheduleBlock {
+  id: string;
+  days: number[];
+  times: string[];
+  /** Campañas: emitir cada hora al minuto indicado */
+  hourly?: boolean;
+  minute?: number;
+  /** Eventos de internet: hora de inicio y fin */
+  start?: string;
+  end?: string;
+}
 
 export interface Campaign {
   id: string;
   name: string;
   kind: CampaignKind;
   enabled: boolean;
+  /** Programacion clasica (equivale a la primera franja) */
   days: number[];
   times: string[];
   hourly: boolean;
   minute: number;
+  /** Varias franjas; si falta, se usa days/times/hourly/minute */
+  schedules?: ScheduleBlock[];
+  /** Metadatos que se usan al emitir cada spot de la campaña */
+  meta?: StreamMeta;
   /** Inicio de la campaña (fecha y hora local); "" = sin límite */
   startAt: string;
   /** Fin de la campaña (fecha y hora local); "" = permanente */
@@ -224,6 +246,8 @@ export interface StationEvent {
   start: string;
   /** Horas adicionales para eventos sin fin (auto/insert); vacío = usar start */
   times?: string[];
+  /** Varias franjas con sus propios días y horas; si falta, se usa days/start/times */
+  schedules?: ScheduleBlock[];
   sourceKind: StationEventSource;
   /** id de bloque o "a"/"b" */
   sourceId: string;
@@ -771,4 +795,33 @@ export interface VULevel {
 export interface VUStereoLevel extends VULevel {
   left: VULevel;
   right: VULevel;
+}
+
+/** Franjas de una campaña (o la programación clásica si no tiene). */
+export function campaignSchedules(campaign: Campaign): ScheduleBlock[] {
+  if ((campaign.schedules?.length ?? 0) > 0) return campaign.schedules!;
+  return [
+    {
+      id: `${campaign.id}-legacy`,
+      days: campaign.days,
+      times: campaign.times,
+      hourly: campaign.hourly,
+      minute: campaign.minute,
+    },
+  ];
+}
+
+/** Franjas de un evento (o la programación clásica si no tiene). */
+export function eventSchedules(event: StationEvent): ScheduleBlock[] {
+  if ((event.schedules?.length ?? 0) > 0) return event.schedules!;
+  const times = (event.times ?? []).filter(Boolean);
+  return [
+    {
+      id: `${event.id}-legacy`,
+      days: event.days,
+      times: times.length > 0 ? times : [event.start],
+      start: event.start,
+      end: event.end ?? "",
+    },
+  ];
 }

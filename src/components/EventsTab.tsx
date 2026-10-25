@@ -9,9 +9,10 @@ import type {
   StationEventTimeout,
   Track,
 } from "../types";
-import { effectiveDuration } from "../types";
+import { effectiveDuration, eventSchedules } from "../types";
+import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
+import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
 import { IconPlus, IconTrash } from "../icons";
-import { TimeWizard } from "./TimeWizard";
 import { pickImageFile, trackUrl } from "../api";
 
 const DAYS: { value: number; label: string; long: string }[] = [
@@ -79,15 +80,21 @@ function timesText(event: StationEvent, max = 8): string {
 
 /** Horas configuradas de un evento sin fin (auto/insert). */
 function eventTimes(event: StationEvent): string[] {
-  const times = (event.times ?? []).filter((value) => parseHM(value) !== null);
+  const schedules = eventSchedules(event);
+  const all = schedules.flatMap((block) => (block.times?.length ? block.times : [block.start ?? event.start]));
+  const times = all.filter((value) => parseHM(value) !== null);
   return times.length > 0 ? times : [event.start];
 }
 
 function daysText(event: StationEvent): string {
-  if (event.days.length === 7) return "Todos los días";
-  return DAYS.filter((d) => event.days.includes(d.value))
-    .map((d) => d.label)
-    .join(" ");
+  return eventSchedules(event)
+    .map((block) => {
+      if (block.days.length === 7) return "Todos los días";
+      return DAYS.filter((d) => block.days.includes(d.value))
+        .map((d) => d.label)
+        .join(" ");
+    })
+    .join(" | ");
 }
 
 function sourceLabel(event: StationEvent, blocks: Block[]): string {
@@ -106,8 +113,11 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
     ];
   }
   if (event.kind === "stream") {
+    const ranges = eventSchedules(event)
+      .map((block) => `${block.start ?? event.start}–${block.end ?? event.end ?? "?"}`)
+      .join(" | ");
     return [
-      `De ${event.start} a ${event.end ?? "?"}`,
+      `De ${ranges}`,
       daysText(event),
       event.meta?.title
         ? `Internet: ${event.meta.title}${event.meta.artist ? ` · ${event.meta.artist}` : ""}`
@@ -117,6 +127,7 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
   }
   const track = byId.get(event.trackId);
   const random = isRandom(event);
+  const custom = event.meta?.title?.trim() || event.meta?.artist?.trim() || "";
   return [
     `A las ${timesText(event)}`,
     daysText(event),
@@ -125,6 +136,7 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
       : track
         ? `Biblioteca: ${track.title} · ${track.artist}`
         : "Pista no disponible",
+    ...(custom ? [`Al aire: ${custom}`] : []),
     event.maxWaitSecs > 0
       ? `Máx. ${event.maxWaitSecs} s · ${event.onTimeout === "force" ? "forzar" : "cancelar"}`
       : event.onTimeout === "force"
@@ -141,6 +153,7 @@ function newEvent(): StationEvent {
     kind: "auto",
     days: [1, 2, 3, 4, 5, 6, 7],
     start: "06:00",
+    schedules: [newScheduleBlock("event")],
     sourceKind: "library",
     sourceId: "a",
     trackId: "",
@@ -194,6 +207,12 @@ export function EventsTab({
           : event.times?.length
             ? [...event.times]
             : [event.start],
+      schedules: eventSchedules(event).map((block) => ({
+        ...block,
+        days: [...block.days],
+        times: [...block.times],
+      })),
+      meta: { ...EMPTY_STREAM_META, ...(event.meta ?? {}) },
     });
   };
 
@@ -204,26 +223,34 @@ export function EventsTab({
       setError("Ponle un nombre al evento.");
       return;
     }
-    if (draft.days.length === 0) {
-      setError("Selecciona al menos un día.");
+    const schedules = eventSchedules(draft).map((block) => ({
+      ...block,
+      days: [...block.days].sort(),
+      times: [...block.times],
+    }));
+    if (schedules.some((block) => block.days.length === 0)) {
+      setError("Cada franja debe tener al menos un día.");
       return;
     }
 
     let times: string[] = [];
     if (draft.kind === "stream") {
-      const start = parseHM(draft.start);
-      if (start === null) {
-        setError("La hora de inicio no es válida.");
-        return;
-      }
-      const end = parseHM(draft.end ?? "");
-      if (end === null) {
-        setError("La hora de fin no es válida.");
-        return;
-      }
-      if (end === start) {
-        setError("La hora de fin debe ser distinta de la de inicio.");
-        return;
+      for (const block of schedules) {
+        const start = parseHM(block.start ?? draft.start);
+        const end = parseHM(block.end ?? draft.end ?? "");
+        if (start === null) {
+          setError("La hora de inicio no es válida.");
+          return;
+        }
+        if (end === null) {
+          setError("La hora de fin no es válida.");
+          return;
+        }
+        if (end === start) {
+          setError("La hora de fin debe ser distinta de la de inicio.");
+          return;
+        }
+        block.times = [];
       }
       const url = (draft.streamUrl ?? "").trim();
       if (!/^(https?|rtmp|rtsp|srt):\/\//i.test(url) && !/^([a-z]:\\|\/|\\\\)/i.test(url)) {
@@ -235,20 +262,27 @@ export function EventsTab({
         return;
       }
     } else {
-      const raw = (draft.times?.length ? draft.times : [draft.start]).map((value) =>
-        value.trim(),
-      );
-      if (raw.some((value) => parseHM(value) === null)) {
-        setError("Alguna de las horas no es válida.");
-        return;
+      for (const block of schedules) {
+        const raw = (block.times?.length ? block.times : [block.start ?? draft.start]).map((value) =>
+          value.trim(),
+        );
+        if (raw.some((value) => parseHM(value) === null)) {
+          setError("Alguna de las horas no es válida.");
+          return;
+        }
+        const normalized = Array.from(new Set(raw)).sort(
+          (a, b) => (parseHM(a) ?? 0) - (parseHM(b) ?? 0),
+        );
+        if (normalized.length === 0) {
+          setError("Añade al menos un horario a cada franja.");
+          return;
+        }
+        block.times = normalized;
+        block.start = normalized[0];
       }
-      times = Array.from(new Set(raw)).sort(
+      times = Array.from(new Set(schedules.flatMap((block) => block.times))).sort(
         (a, b) => (parseHM(a) ?? 0) - (parseHM(b) ?? 0),
       );
-      if (times.length === 0) {
-        setError("Añade al menos un horario.");
-        return;
-      }
       if (draft.kind === "auto") {
         if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
           setError("Elige un bloque musical para la franja.");
@@ -283,11 +317,17 @@ export function EventsTab({
       }
     }
 
+    const first = schedules[0];
     const clean: StationEvent = {
       ...draft,
       name,
+      schedules,
+      days: first.days,
       times: draft.kind === "stream" ? [] : times,
-      start: draft.kind === "stream" ? draft.start : times[0],
+      start:
+        draft.kind === "stream" ? first.start ?? draft.start : times[0] ?? draft.start,
+      end: draft.kind === "stream" ? first.end ?? draft.end ?? "" : draft.end,
+      meta: { ...EMPTY_STREAM_META, ...(draft.meta ?? {}) },
     };
     const current = settings.events.find((event) => event.id === clean.id);
     if (current) {
@@ -493,8 +533,7 @@ function EventEditor({
 }) {
   const q = search.trim().toLowerCase();
   const selected = byId.get(draft.trackId);
-  const times = draft.times?.length ? draft.times : [draft.start];
-  const [wizard, setWizard] = useState(false);
+  const [trackBlock, setTrackBlock] = useState("");
   const random = isRandom(draft);
   const allTracks = useMemo(() => Array.from(byId.values()), [byId]);
   const pool = useMemo(() => (random ? randomPool(draft, allTracks).length : 0), [random, draft, allTracks]);
@@ -502,12 +541,13 @@ function EventEditor({
     () =>
       Array.from(byId.values())
         .filter((track) => track.id !== draft.trackId)
+        .filter((track) => !trackBlock || track.blocks.includes(trackBlock))
         .filter(
           (track) =>
             !q || [track.title, track.artist, track.album].join(" ").toLowerCase().includes(q),
         )
         .slice(0, 80),
-    [byId, draft.trackId, q],
+    [byId, draft.trackId, q, trackBlock],
   );
 
   const set = (patch: Partial<StationEvent>) => setDraft({ ...draft, ...patch });
@@ -529,7 +569,8 @@ function EventEditor({
   };
 
   const setSource = (value: "track" | "random" | "url") => {
-    const first = (draft.times?.[0] ?? draft.start) || "06:00";
+    const block = eventSchedules(draft)[0];
+    const first = block?.start || block?.times?.[0] || draft.start || "06:00";
     if (value === "random") {
       set({
         kind: "insert",
@@ -542,26 +583,27 @@ function EventEditor({
       return;
     }
     if (value === "url") {
+      const schedules = eventSchedules(draft).map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              start: item.start || first,
+              end: item.end || draft.end || addHour(first),
+              times: [],
+            }
+          : { ...item, times: [] },
+      );
       set({
         kind: "stream",
         start: first,
         times: [],
         end: draft.end || addHour(first),
+        schedules,
         fadeSecs: draft.fadeSecs ?? 3,
       });
       return;
     }
     set({ kind: "insert", trackMode: "fixed", times: draft.times?.length ? draft.times : [draft.start] });
-  };
-
-  const setTimes = (next: string[]) => {
-    const values = next.length > 0 ? next : [""];
-    set({ times: values, start: values[0] ?? "" });
-  };
-  /** Al soltar un campo de hora (o al anadir) los horarios se ordenan solos. */
-  const commitTimes = (list: string[] = times) => {
-    const sorted = normalizeTimes(list);
-    if (sorted.join("|") !== list.join("|") || list !== times) setTimes(sorted);
   };
 
   const setSourceKind = (sourceKind: StationEventSource) => {
@@ -574,17 +616,6 @@ function EventEditor({
 
   return (
     <div className="camp-editor">
-      {wizard && (
-        <TimeWizard
-          existing={times.filter((t) => parseHM(t) !== null)}
-          onClose={() => setWizard(false)}
-          onApply={(added, mode) => {
-            const base = mode === "add" ? times.filter((t) => parseHM(t) !== null) : [];
-            setTimes(normalizeTimes([...base, ...added]));
-            setWizard(false);
-          }}
-        />
-      )}
       <div className="camp-editor-head">
         <button type="button" className="ghost-btn" onClick={onCancel}>
           ← Volver
@@ -641,109 +672,27 @@ function EventEditor({
 
       <fieldset className="fieldset">
         <legend>Programación</legend>
-        <div className="camp-days">
-          {DAYS.map((d) => (
-            <button
-              key={d.value}
-              type="button"
-              className={`camp-day ${draft.days.includes(d.value) ? "camp-day-on" : ""}`}
-              title={d.long}
-              onClick={() =>
-                set({
-                  days: draft.days.includes(d.value)
-                    ? draft.days.filter((x) => x !== d.value)
-                    : [...draft.days, d.value].sort(),
-                })
-              }
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
-
-        {draft.kind === "stream" ? (
-          <div className="field-row">
-            <label className="field">
-              <span className="field-label">Empieza</span>
+        <ScheduleEditor
+          blocks={eventSchedules(draft)}
+          onChange={(schedules) => set({ schedules })}
+          mode={draft.kind === "stream" ? "stream" : "event"}
+        />
+        {draft.kind === "stream" && (
+          <label className="field">
+            <span className="field-label">Fundido de entrada y salida</span>
+            <span className="field-unit">
               <input
-                type="time"
-                value={draft.start}
-                onChange={(e) => set({ start: e.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span className="field-label">Termina</span>
-              <input type="time" value={draft.end ?? ""} onChange={(e) => set({ end: e.target.value })} />
-            </label>
-            <label className="field">
-              <span className="field-label">Fundido</span>
-              <span className="field-unit">
-                <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={draft.fadeSecs ?? 3}
-                  onChange={(e) => set({ fadeSecs: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
-                />
-                s
-              </span>
-            </label>
-          </div>
-        ) : (
-          <div className="event-times">
-            <div className="event-times-head">
-              <span className="field-label">
-                {draft.kind === "insert" ? "Horas exactas" : "Horarios de inicio"}
-              </span>
-              <span className="event-times-count">
-                {times.length} {times.length === 1 ? "horario" : "horarios"}
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setWizard(true)}
-                title="Marca horas y minutos y se crean todas las combinaciones"
-              >
-                Asistente de horas
-              </button>
-            </div>
-            <div className="event-time-list">
-              {times.map((value, index) => (
-                <span className="event-time-chip" key={index}>
-                  <input
-                    type="time"
-                    value={value}
-                    aria-label={`Horario ${index + 1}`}
-                    onChange={(e) => {
-                      const next = [...times];
-                      next[index] = e.target.value;
-                      setTimes(next);
-                    }}
-                    onBlur={() => commitTimes()}
-                  />
-                  <button
-                    type="button"
-                    className="event-time-x"
-                    title="Quitar horario"
-                    aria-label={`Quitar horario ${value}`}
-                    disabled={times.length <= 1}
-                    onClick={() => setTimes(times.filter((_, i) => i !== index))}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() =>
-                  commitTimes([...normalizeTimes(times), addHour(normalizeTimes(times).slice(-1)[0] ?? draft.start)])
+                type="number"
+                min={0}
+                max={30}
+                value={draft.fadeSecs ?? 3}
+                onChange={(e) =>
+                  set({ fadeSecs: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })
                 }
-              >
-                <IconPlus size={13} /> Añadir
-              </button>
-            </div>
-          </div>
+              />
+              s
+            </span>
+          </label>
         )}
 
         {draft.kind === "stream" ? (
@@ -884,6 +833,19 @@ function EventEditor({
               </div>
             )}
             <div className="camp-add-head">
+              <select
+                value={trackBlock}
+                onChange={(e) => setTrackBlock(e.target.value)}
+                title="Filtrar las pistas por bloque musical"
+                aria-label="Bloque musical"
+              >
+                <option value="">Toda la biblioteca</option>
+                {blocks.map((block) => (
+                  <option key={block.id} value={block.id}>
+                    {block.name}
+                  </option>
+                ))}
+              </select>
               <input
                 className="nsearch"
                 type="search"
@@ -922,6 +884,14 @@ function EventEditor({
             )}
           </div>
         </fieldset>
+      )}
+
+      {draft.kind === "insert" && (
+        <MetaFields
+          meta={{ ...EMPTY_STREAM_META, ...(draft.meta ?? {}) }}
+          onChange={(meta) => set({ meta })}
+          legend="Metadatos al emitirse"
+        />
       )}
 
       {draft.kind === "stream" && (

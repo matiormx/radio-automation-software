@@ -55,7 +55,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, effectiveDuration, type IntroOverlay } from "./types";
+import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -108,26 +108,22 @@ function parseHM(value: string): number | null {
   return h * 60 + m;
 }
 
-/** Horas configuradas de un evento sin fin (auto/insert). */
-function eventTimes(event: StationEvent): string[] {
-  const times = (event.times ?? []).filter((value) => parseHM(value) !== null);
-  return times.length > 0 ? times : [event.start];
-}
-
 /** Inicio más reciente de una franja, o null si el evento no aplica. */
 function eventStartAt(event: StationEvent, now: Date): Date | null {
   let best: Date | null = null;
-  for (const value of eventTimes(event)) {
-    const start = parseHM(value);
-    if (start === null) continue;
-    for (let offset = 0; offset <= 7; offset++) {
-      const day = new Date(now);
-      day.setDate(day.getDate() - offset);
-      day.setHours(Math.floor(start / 60), start % 60, 0, 0);
-      if (day.getTime() > now.getTime()) continue;
-      if (!event.days.includes(dayIso(day))) continue;
-      if (!best || day.getTime() > best.getTime()) best = day;
-      break;
+  for (const block of eventSchedules(event)) {
+    for (const value of block.times.length > 0 ? block.times : [block.start ?? event.start]) {
+      const start = parseHM(value);
+      if (start === null) continue;
+      for (let offset = 0; offset <= 7; offset++) {
+        const day = new Date(now);
+        day.setDate(day.getDate() - offset);
+        day.setHours(Math.floor(start / 60), start % 60, 0, 0);
+        if (day.getTime() > now.getTime()) continue;
+        if (!block.days.includes(dayIso(day))) continue;
+        if (!best || day.getTime() > best.getTime()) best = day;
+        break;
+      }
     }
   }
   return best;
@@ -141,14 +137,16 @@ function nextAutoStartAfter(events: StationEvent[], after: Date): number {
     day.setDate(day.getDate() + offset);
     for (const event of events) {
       if (!event.enabled || event.kind !== "auto") continue;
-      if (!event.days.includes(dayIso(day))) continue;
-      for (const value of eventTimes(event)) {
-        const start = parseHM(value);
-        if (start === null) continue;
-        const at = new Date(day);
-        at.setHours(Math.floor(start / 60), start % 60, 0, 0);
-        if (at.getTime() <= after.getTime()) continue;
-        if (at.getTime() < best) best = at.getTime();
+      for (const block of eventSchedules(event)) {
+        if (!block.days.includes(dayIso(day))) continue;
+        for (const value of block.times.length > 0 ? block.times : [block.start ?? event.start]) {
+          const start = parseHM(value);
+          if (start === null) continue;
+          const at = new Date(day);
+          at.setHours(Math.floor(start / 60), start % 60, 0, 0);
+          if (at.getTime() <= after.getTime()) continue;
+          if (at.getTime() < best) best = at.getTime();
+        }
       }
     }
   }
@@ -176,18 +174,22 @@ interface LiveRun {
 
 /** Franja [inicio, fin) de un evento de emision que contiene `now` (o null). */
 function streamWindow(event: StationEvent, now: Date): { start: number; end: number; key: string } | null {
-  const s = parseHM(event.start);
-  const e = parseHM(event.end ?? "");
-  if (s === null || e === null || s === e) return null;
-  for (const back of [0, 1]) {
-    const start = new Date(now);
-    start.setDate(start.getDate() - back);
-    start.setHours(Math.floor(s / 60), s % 60, 0, 0);
-    const end = new Date(start);
-    end.setHours(Math.floor(e / 60), e % 60, 0, 0);
-    if (e < s) end.setDate(end.getDate() + 1);
-    if (now >= start && now < end && event.days.includes(dayIso(start))) {
-      return { start: start.getTime(), end: end.getTime(), key: `${dayKey(start)} ${event.start}` };
+  for (const block of eventSchedules(event)) {
+    const from = block.start ?? event.start;
+    const to = block.end ?? event.end ?? "";
+    const s = parseHM(from);
+    const e = parseHM(to);
+    if (s === null || e === null || s === e) continue;
+    for (const back of [0, 1]) {
+      const start = new Date(now);
+      start.setDate(start.getDate() - back);
+      start.setHours(Math.floor(s / 60), s % 60, 0, 0);
+      const end = new Date(start);
+      end.setHours(Math.floor(e / 60), e % 60, 0, 0);
+      if (e < s) end.setDate(end.getDate() + 1);
+      if (now >= start && now < end && block.days.includes(dayIso(start))) {
+        return { start: start.getTime(), end: end.getTime(), key: `${dayKey(start)} ${from}` };
+      }
     }
   }
   return null;
@@ -235,26 +237,67 @@ function extOk(path: string): boolean {
   return AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext);
 }
 
+/** Metadatos no vacios de una emision programada. */
+function hasMeta(meta?: StreamMeta | null): meta is StreamMeta {
+  return (
+    !!meta &&
+    [meta.title, meta.artist, meta.album, meta.year, meta.genre, meta.comment, meta.cover].some(
+      (value) => !!value?.trim(),
+    )
+  );
+}
+
+/**
+ * Mantiene alineados los metadatos de una lista al insertar, mover o quitar
+ * pistas. Los metadatos nuevos se aplican con `overrides`.
+ */
+function alignPlaylistMeta(
+  oldIds: string[],
+  oldMeta: (StreamMeta | null | undefined)[] | undefined,
+  newIds: string[],
+  overrides?: (id: string, index: number) => StreamMeta | null,
+): (StreamMeta | null)[] {
+  const meta = oldMeta ?? [];
+  const used = new Set<number>();
+  return newIds.map((id, index) => {
+    const override = overrides?.(id, index);
+    if (override) return override;
+    if (oldIds[index] === id && !used.has(index)) {
+      used.add(index);
+      return meta[index] ?? null;
+    }
+    const found = oldIds.findIndex((oldId, oldIndex) => !used.has(oldIndex) && oldId === id);
+    if (found >= 0) {
+      used.add(found);
+      return meta[found] ?? null;
+    }
+    return null;
+  });
+}
+
 /** Filas de una lista con los datos de la biblioteca (pistas que existen). */
 function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   if (!pl) return [];
   const byId = new Map(tracks.map((t) => [t.id, t]));
-  return pl.trackIds.flatMap((id) => {
+  return pl.trackIds.flatMap((id, index) => {
     const t = byId.get(id);
-    return t
-      ? [
-          {
-            id: t.id,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            durationSecs: effectiveDuration(t),
-            cover: t.cover,
-            blocks: t.blocks,
-            video: isVideoFile(t.file),
-          },
-        ]
-      : [];
+    if (!t) return [];
+    const meta = pl.meta?.[index] ?? null;
+    const value = (override: string | undefined, base: string) =>
+      override?.trim() ? override : base;
+    return [
+      {
+        id: t.id,
+        title: value(meta?.title, t.title),
+        artist: value(meta?.artist, t.artist),
+        album: value(meta?.album, t.album),
+        durationSecs: effectiveDuration(t),
+        cover: value(meta?.cover, t.cover),
+        blocks: t.blocks,
+        video: isVideoFile(t.file),
+        meta,
+      },
+    ];
   });
 }
 
@@ -580,7 +623,19 @@ export default function App() {
     if (playingRow < 0) return null;
     const row = rows[playingRow];
     if (!row) return null;
-    return tracks.find((track) => track.id === row.id) ?? null;
+    const track = tracks.find((item) => item.id === row.id);
+    if (!track) return null;
+    const meta = row.meta;
+    if (!hasMeta(meta)) return track;
+    return {
+      ...track,
+      title: meta.title?.trim() || track.title,
+      artist: meta.artist?.trim() || track.artist,
+      album: meta.album?.trim() || track.album,
+      year: meta.year?.trim() || track.year,
+      genre: meta.genre?.trim() || track.genre,
+      cover: meta.cover?.trim() || track.cover,
+    };
   }, [playingRow, rows, tracks, liveTrack]);
 
   /** Datos de la cancion que suena. */
@@ -1238,9 +1293,17 @@ export default function App() {
 
   // Editar la lista activa
   const mutateList = useCallback(
-    async (fn: (ids: string[]) => string[]) => {
+    async (
+      fn: (ids: string[]) => string[],
+      overrides?: (id: string, index: number) => StreamMeta | null,
+    ) => {
       if (!active) return;
-      const updated: Playlist = { ...active, trackIds: fn(active.trackIds) };
+      const ids = fn(active.trackIds);
+      const updated: Playlist = {
+        ...active,
+        trackIds: ids,
+        meta: alignPlaylistMeta(active.trackIds, active.meta, ids, overrides),
+      };
       setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       try {
         await savePlaylist(updated);
@@ -1263,10 +1326,19 @@ export default function App() {
   viewIdRef.current = view?.id ?? "";
 
   const mutateById = useCallback(
-    async (listId: string, fn: (ids: string[]) => string[]) => {
+    async (
+      listId: string,
+      fn: (ids: string[]) => string[],
+      overrides?: (id: string, index: number) => StreamMeta | null,
+    ) => {
       const pl = playlistsRef.current.find((p) => p.id === listId);
       if (!pl) return;
-      const updated: Playlist = { ...pl, trackIds: fn(pl.trackIds) };
+      const ids = fn(pl.trackIds);
+      const updated: Playlist = {
+        ...pl,
+        trackIds: ids,
+        meta: alignPlaylistMeta(pl.trackIds, pl.meta, ids, overrides),
+      };
       setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       // Si la siguiente elegida esta en esta lista, su posicion puede cambiar.
       const pick = nextPickRef.current;
@@ -1484,6 +1556,7 @@ export default function App() {
       id: `pl-${Date.now()}`,
       name: `Lista ${playlists.length + 1}`,
       trackIds: [],
+      meta: [],
     };
     try {
       await savePlaylist(pl);
@@ -1837,8 +1910,9 @@ export default function App() {
         // Manual: hasta su hora de fin si cae dentro de la franja; si no, lo que dura la franja.
         const now = new Date();
         const w = streamWindow(event, now);
-        const s = parseHM(event.start) ?? 0;
-        const e = parseHM(event.end ?? "") ?? s;
+        const block = eventSchedules(event)[0];
+        const s = parseHM(block.start ?? event.start) ?? 0;
+        const e = parseHM(block.end ?? event.end ?? "") ?? s;
         const len = ((e - s + 1440) % 1440 || 60) * 60_000;
         startLiveEvent(event, w ? w.end : Date.now() + len, w ? w.key : `${dayKey(now)} manual`);
         return;
@@ -1887,12 +1961,17 @@ export default function App() {
         return;
       }
 
-      void mutateListRef.current((ids) => {
-        const copy = ids.filter((id) => id !== trackId);
-        const at = Math.max(0, Math.min(copy.length, playing >= 0 ? playing + 1 : 0));
-        copy.splice(at, 0, trackId);
-        return copy;
-      });
+      let insertedAt = -1;
+      void mutateListRef.current(
+        (ids) => {
+          const copy = ids.filter((id) => id !== trackId);
+          const at = Math.max(0, Math.min(copy.length, playing >= 0 ? playing + 1 : 0));
+          copy.splice(at, 0, trackId);
+          insertedAt = at;
+          return copy;
+        },
+        (_id, index) => (index === insertedAt && hasMeta(event.meta) ? event.meta! : null),
+      );
 
       const item: PendingInsert = {
         eventId: event.id,
@@ -2053,31 +2132,35 @@ export default function App() {
         const endsAt = campaignTime(c.endAt);
         if (startsAt != null && nowMs < startsAt) continue;
         if (endsAt != null && nowMs > endsAt) continue;
-        const occurrences = c.hourly ? [`${pad2(now.getHours())}:${pad2(c.minute)}`] : c.times;
         let dueAt: { when: number; key: string } | null = null;
-        for (const t of occurrences) {
-          const [hs, ms] = t.split(":");
-          const h = Number(hs);
-          const m = Number(ms);
-          if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
-            continue;
-          }
-          const scheduled = new Date(now);
-          scheduled.setHours(h, m, 0, 0);
-          let delta = nowMs - scheduled.getTime();
-          if (delta < 0) {
-            scheduled.setTime(scheduled.getTime() - dayMs);
-            delta = nowMs - scheduled.getTime();
-          }
-          if (delta > CAMPAIGN_GRACE_MS) continue;
-          if (startsAt != null && scheduled.getTime() < startsAt) continue;
-          if (endsAt != null && scheduled.getTime() > endsAt) continue;
-          if (!c.days.includes(dayIso(scheduled))) continue;
-          const key = `${dayKey(scheduled)} ${pad2(h)}:${pad2(m)}`;
-          if (c.lastFired === key) continue;
-          if (campaignFiring.current.has(`${c.id}|${key}`)) continue;
-          if (!dueAt || scheduled.getTime() > dueAt.when) {
-            dueAt = { when: scheduled.getTime(), key };
+        for (const block of campaignSchedules(c)) {
+          const occurrences = block.hourly
+            ? [`${pad2(now.getHours())}:${pad2(block.minute ?? 0)}`]
+            : block.times;
+          for (const t of occurrences) {
+            const [hs, ms] = t.split(":");
+            const h = Number(hs);
+            const m = Number(ms);
+            if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+              continue;
+            }
+            const scheduled = new Date(now);
+            scheduled.setHours(h, m, 0, 0);
+            let delta = nowMs - scheduled.getTime();
+            if (delta < 0) {
+              scheduled.setTime(scheduled.getTime() - dayMs);
+              delta = nowMs - scheduled.getTime();
+            }
+            if (delta > CAMPAIGN_GRACE_MS) continue;
+            if (startsAt != null && scheduled.getTime() < startsAt) continue;
+            if (endsAt != null && scheduled.getTime() > endsAt) continue;
+            if (!block.days.includes(dayIso(scheduled))) continue;
+            const key = `${dayKey(scheduled)} ${pad2(h)}:${pad2(m)}`;
+            if (c.lastFired === key) continue;
+            if (campaignFiring.current.has(`${c.id}|${key}`)) continue;
+            if (!dueAt || scheduled.getTime() > dueAt.when) {
+              dueAt = { when: scheduled.getTime(), key };
+            }
           }
         }
         if (!dueAt) continue;
@@ -2100,11 +2183,19 @@ export default function App() {
 
       if (due.length === 0) return;
       const base = playing >= 0 ? playing + 1 : rowsNow.length;
-      void mutateListRef.current((ids) => {
-        const copy = [...ids];
-        due.forEach((d, i) => copy.splice(Math.min(copy.length, base + i), 0, d.spotId));
-        return copy;
-      });
+      const metaByIndex = new Map<number, StreamMeta>();
+      void mutateListRef.current(
+        (ids) => {
+          const copy = [...ids];
+          due.forEach((d, i) => {
+            const at = Math.min(copy.length, base + i);
+            copy.splice(at, 0, d.spotId);
+            if (hasMeta(d.campaign.meta)) metaByIndex.set(at, d.campaign.meta!);
+          });
+          return copy;
+        },
+        (_id, index) => metaByIndex.get(index) ?? null,
+      );
       setSettings((prev) => {
         let campaigns = prev.campaigns;
         for (const d of due) {
@@ -2156,22 +2247,28 @@ export default function App() {
           if (randomPool(event, tracksRef.current).length === 0) continue;
         } else if (!event.trackId || !byId.has(event.trackId)) continue;
         let latest: { at: number; key: string; slot: string } | null = null;
-        for (const value of eventTimes(event)) {
-          const minute = parseHM(value);
-          if (minute === null) continue;
-          const scheduled = new Date(now);
-          scheduled.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
-          let delta = now.getTime() - scheduled.getTime();
-          if (delta < 0) {
-            scheduled.setTime(scheduled.getTime() - DAY_MS);
-            delta = now.getTime() - scheduled.getTime();
-          }
-          if (delta > EVENT_GRACE_MS) continue;
-          if (scheduled.getTime() < liveOffAt.current) continue;
-          if (!event.days.includes(dayIso(scheduled))) continue;
-          const key = `${dayKey(scheduled)} ${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`;
-          if (!latest || scheduled.getTime() > latest.at) {
-            latest = { at: scheduled.getTime(), key, slot: `${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}` };
+        for (const block of eventSchedules(event)) {
+          for (const value of block.times.length > 0 ? block.times : [block.start ?? event.start]) {
+            const minute = parseHM(value);
+            if (minute === null) continue;
+            const scheduled = new Date(now);
+            scheduled.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
+            let delta = now.getTime() - scheduled.getTime();
+            if (delta < 0) {
+              scheduled.setTime(scheduled.getTime() - DAY_MS);
+              delta = now.getTime() - scheduled.getTime();
+            }
+            if (delta > EVENT_GRACE_MS) continue;
+            if (scheduled.getTime() < liveOffAt.current) continue;
+            if (!block.days.includes(dayIso(scheduled))) continue;
+            const key = `${dayKey(scheduled)} ${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`;
+            if (!latest || scheduled.getTime() > latest.at) {
+              latest = {
+                at: scheduled.getTime(),
+                key,
+                slot: `${pad2(Math.floor(minute / 60))}:${pad2(minute % 60)}`,
+              };
+            }
           }
         }
         if (!latest) continue;
@@ -2221,16 +2318,21 @@ export default function App() {
       const inserted: PendingInsert[] = [];
       if (queue.length > 0) {
         let base = playing >= 0 ? playing + 1 : 0;
-        void mutateListRef.current((ids) => {
-          let copy = [...ids];
-          for (const item of queue) {
-            copy = copy.filter((id) => id !== item.trackId);
-            const at = Math.max(0, Math.min(copy.length, base));
-            copy.splice(at, 0, item.trackId);
-            base = at + 1;
-          }
-          return copy;
-        });
+        const metaByIndex = new Map<number, StreamMeta>();
+        void mutateListRef.current(
+          (ids) => {
+            let copy = [...ids];
+            for (const item of queue) {
+              copy = copy.filter((id) => id !== item.trackId);
+              const at = Math.max(0, Math.min(copy.length, base));
+              copy.splice(at, 0, item.trackId);
+              if (hasMeta(item.event.meta)) metaByIndex.set(at, item.event.meta!);
+              base = at + 1;
+            }
+            return copy;
+          },
+          (_id, index) => metaByIndex.get(index) ?? null,
+        );
         const nowMs = Date.now();
         for (const item of queue) {
           inserted.push({
@@ -2713,16 +2815,16 @@ export default function App() {
     const idx = playingRowRef.current;
     const row = idx >= 0 ? rowsRef.current[idx] : undefined;
     const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
-    if (!t) return null;
+    if (!row || !t) return null;
     return {
       trackId: t.id,
       file: t.file,
       isVideo: isVideoFile(t.file),
       pos: Math.max(0, t.trimStart || 0) + exactPosRef.current.cur,
       playing: !pausedNowRef.current,
-      title: t.title,
-      artist: t.artist,
-      cover: t.cover,
+      title: row.title || t.title,
+      artist: row.artist || t.artist,
+      cover: row.cover || t.cover,
       audioMode: vs.audioMode,
       logo: s.logoPath ?? "",
       stationName: s.radioName ?? "",

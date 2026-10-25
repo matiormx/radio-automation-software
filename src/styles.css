@@ -2792,6 +2792,19 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 }
 .field select:focus { border-color: var(--accent); }
 
+.schedule-blocks { display: flex; flex-direction: column; gap: 10px; }
+.schedule-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff04;
+}
+.schedule-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.schedule-block-head strong { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-dim); }
+
 .camp-days { display: flex; gap: 5px; }
 .camp-day {
   width: 30px;

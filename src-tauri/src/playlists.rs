@@ -15,6 +15,9 @@ pub struct Playlist {
     pub id: String,
     pub name: String,
     pub track_ids: Vec<String>,
+    /// Metadatos por posicion (anuncios/eventos); None = los de la cancion.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub meta: Vec<Option<crate::settings::StreamMeta>>,
 }
 
 fn playlists_dir(data_dir: &PathBuf) -> PathBuf {
@@ -57,6 +60,7 @@ pub fn list_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, Strin
             id: Uuid::new_v4().simple().to_string(),
             name: DEFAULT_PLAYLIST_NAME.to_string(),
             track_ids: Vec::new(),
+            meta: Vec::new(),
         };
         store(&state.data_dir, &first)?;
         result.push(first);
