@@ -9,7 +9,7 @@ import {
   nextColor,
   type Device,
   CompressorControls,
-} from "./components/MixerPanel";
+} from "./components/MixerControls";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
@@ -60,10 +60,20 @@ function fmtDb(db: number): string {
   return `${r > 0 ? "+" : ""}${r.toFixed(1)}`;
 }
 
+type MonoMode = "off" | "sum" | "left" | "right";
+const MONO_NEXT: Record<MonoMode, MonoMode> = { off: "sum", sum: "left", left: "right", right: "off" };
+const MONO_LABEL: Record<MonoMode, string> = { off: "ST", sum: "L+R", left: "L", right: "R" };
+const MONO_TIPS: Record<MonoMode, string> = {
+  off: "Estéreo",
+  sum: "Mono: suma L+R por los dos lados",
+  left: "Mono: solo el lado izquierdo por los dos lados",
+  right: "Mono: solo el lado derecho por los dos lados",
+};
+
 function fmtPan(pan: number): string {
   const v = Math.round(pan * 100);
-  if (v === 0) return "C";
-  return v < 0 ? `<${-v}` : `${v}>`;
+  if (v === 0) return "centro";
+  return v < 0 ? `${-v}% izquierda` : `${v}% derecha`;
 }
 
 const SCALE_MARKS = [12, 6, 0, -5, -10, -20, -30, -40, -60];
@@ -209,7 +219,7 @@ function PanKnob({ pan, onCommit }: { pan: number; onCommit: (pan: number) => vo
         aria-valuemin={-100}
         aria-valuemax={100}
         aria-valuenow={Math.round(value * 100)}
-        title="Arrastra arriba/abajo · doble clic: centro"
+        title={`Panorama ${fmtPan(value)} · arrastra arriba/abajo · doble clic: centro`}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           setDrag({ y: e.clientY, start: pan, v: pan });
@@ -242,7 +252,6 @@ function PanKnob({ pan, onCommit }: { pan: number; onCommit: (pan: number) => vo
           />
         </svg>
       </div>
-      <span className="mx-pan-val">{fmtPan(value)}</span>
     </div>
   );
 }
@@ -834,7 +843,8 @@ function ChannelStrip({
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
-  const monoOn = (ch.monoMode ?? "off") !== "off";
+  const monoMode: MonoMode = ch.monoMode === "sum" || ch.monoMode === "left" || ch.monoMode === "right" ? ch.monoMode : "off";
+  const monoOn = monoMode !== "off";
   const agcMode: MixerAgc = ch.agc === "slow" || ch.agc === "fast" ? ch.agc : "off";
   const inChannels = inputs.find((d) => d.id === ch.input.deviceId)?.channels ?? 2;
   const inputLabel =
@@ -1149,26 +1159,15 @@ function ChannelStrip({
       <PanKnob pan={ch.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />
 
       <div className="mx-buttons">
-        {(
-          [
-            ["sum", "L+R", "Suma L+R: mezcla los dos lados y sale igual por ambos"],
-            ["left", "L", "Solo izquierda (L-L): usa el lado izquierdo en los dos lados"],
-            ["right", "R", "Solo derecha (R-R): usa el lado derecho en los dos lados"],
-          ] as const
-        ).map(([mode, label, tip]) => (
-          <button
-            key={mode}
-            type="button"
-            className={`mx-btn mx-mono ${ch.monoMode === mode ? "mx-on" : ""}`}
-            aria-pressed={ch.monoMode === mode}
-            title={tip}
-            onClick={() => onPatch({ monoMode: ch.monoMode === mode ? "off" : mode })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="mx-buttons">
+        <button
+          type="button"
+          className={`mx-btn mx-mono ${monoMode !== "off" ? "mx-on" : ""}`}
+          aria-label="Modo de entrada"
+          title={`${MONO_TIPS[monoMode]} · clic: cambiar (estéreo → L+R → L → R)`}
+          onClick={() => onPatch({ monoMode: MONO_NEXT[monoMode] })}
+        >
+          {MONO_LABEL[monoMode]}
+        </button>
         <button
           type="button"
           className={`mx-btn mx-solo ${ch.solo ? "mx-on" : ""}`}

@@ -433,7 +433,7 @@ export class SoundMixer {
       pre.connect(gain);
       // Mono: L+R se mezclan (downmix a 1 canal) y vuelven a salir por los dos lados.
       let head: GainNode = pre;
-      const mm = ch.monoMode ?? "off";
+      const mm = monoOf(ch);
       if (mm !== "off") {
         pre.channelCount = 2;
         pre.channelCountMode = "explicit";
@@ -503,7 +503,7 @@ export class SoundMixer {
         // Entrada «Ninguna»: el canal no recibe nada.
         if (id !== NONE_DEVICE) {
           inputDevices.add(id);
-          this.connectInput(id, entry, ch.input.channel ?? 0, (ch.monoMode ?? "off") !== "off");
+          this.connectInput(id, entry, ch.input.channel ?? 0, monoOf(ch) !== "off");
         }
       }
 
@@ -981,7 +981,7 @@ export class SoundMixer {
     for (const ch of this.config.mixerChannels) {
       if (ch.input.kind !== "device" || normDevice(ch.input.deviceId) !== deviceId) continue;
       const c = ch.input.channel ?? 0;
-      n = Math.max(n, (ch.monoMode ?? "off") !== "off" ? c : c * 2);
+      n = Math.max(n, monoOf(ch) !== "off" ? c : c * 2);
     }
     return n;
   }
@@ -1076,7 +1076,7 @@ export class SoundMixer {
           if (ch.input.kind !== "device") continue;
           if (normDevice(ch.input.deviceId) !== deviceId) continue;
           const gain = this.channelGains.get(ch.id);
-          if (gain) this.attachInput(node, gain, ch.input.channel ?? 0, (ch.monoMode ?? "off") !== "off");
+          if (gain) this.attachInput(node, gain, ch.input.channel ?? 0, monoOf(ch) !== "off");
         }
         for (const ret of this.insertReturns.values()) {
           if (ret.deviceId !== deviceId) continue;
@@ -1107,6 +1107,12 @@ export class SoundMixer {
       if (ret.deviceId === deviceId) return true;
     return false;
   }
+}
+
+/** Modo mono del canal; cualquier valor desconocido (o vacío) es estéreo. */
+function monoOf(ch: { monoMode?: string }): "off" | "sum" | "left" | "right" {
+  const m = ch.monoMode;
+  return m === "sum" || m === "left" || m === "right" ? m : "off";
 }
 
 function levelOf(an: AnalyserNode, data: Float32Array<ArrayBuffer>): { level: number; db: number } {

@@ -3806,8 +3806,9 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .mx-pan-val { font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .mx-buttons { display: flex; justify-content: center; gap: 4px; }
 .mx-btn {
-  width: 30px;
-  height: 20px;
+  width: 26px;
+  height: 18px;
+  padding: 0;
   border: 1px solid #2f3643;
   border-radius: 3px;
   background: #11151b;
@@ -4368,3 +4369,6 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 }
 .block-add-menu button { text-align: left; padding: 6px 8px; font-size: 12px; border: 0; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
 .block-add-menu button:hover { background: rgba(79,140,255,.16); }
+
+.mx-btn.mx-mono { font-size: 9px; letter-spacing: -.02em; }
+.mx-btn.mx-mono:not(.mx-on) { color: var(--text-faint); }
