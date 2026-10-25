@@ -99,7 +99,6 @@ function newVideoOutput(): VideoOutput {
     source: "0",
     videoInputId: "program",
     fallbackVideoInputId: "",
-    mirror: false,
     audioSource: "mixer",
     audioSourceId: "",
     enabled: true,
@@ -985,16 +984,6 @@ export function StreamingTab({
                         </span>
                       </label>
                     )}
-                    <label className="check-field">
-                      <input
-                        type="checkbox"
-                        checked={!!output.mirror}
-                        onChange={(e) =>
-                          updateVideoOutput(output.id, { mirror: e.target.checked })
-                        }
-                      />
-                      Espejo horizontal (para monitorizar cámaras)
-                    </label>
                     <div className="io-format">
                       <label className="field">
                         <span className="field-label">Ancho</span>

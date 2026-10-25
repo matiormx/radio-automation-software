@@ -207,6 +207,14 @@ export function VideoTab({ settings, onChange }: Props) {
             </select>
           </label>
         </div>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={!!vs.mirror}
+            onChange={(e) => setVs({ mirror: e.target.checked })}
+          />
+          Espejo horizontal (solo en este monitor)
+        </label>
         {captureInputs.length === 0 && (
           <p className="hint">
             Añade y activa una entrada de tipo «Captura de vídeo» para poder mostrarla en la pantalla externa.

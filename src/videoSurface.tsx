@@ -18,6 +18,8 @@ export interface VideoState {
   stationName: string;
   /** Capturadora que se muestra en la ventana externa */
   capture?: { source: string; deviceId?: string } | null;
+  /** Espejo horizontal solo en la ventana de los locutores */
+  mirror?: boolean;
 }
 
 interface Props {
@@ -147,7 +149,15 @@ export function VideoSurface({ source, output }: Props) {
     if (!output) return null;
     return (
       <div className="vs-root vs-output">
-        <video ref={captureRef} className="vs-video" muted playsInline autoPlay disablePictureInPicture />
+        <video
+          ref={captureRef}
+          className="vs-video"
+          style={{ transform: shown.mirror ? "scaleX(-1)" : undefined }}
+          muted
+          playsInline
+          autoPlay
+          disablePictureInPicture
+        />
       </div>
     );
   }

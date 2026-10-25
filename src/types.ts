@@ -442,8 +442,6 @@ export interface VideoOutput {
   videoInputId?: string;
   /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de programa */
   fallbackVideoInputId?: string;
-  /** Imagen girada horizontalmente (para monitorizar cámaras) */
-  mirror?: boolean;
   /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;
   /** Dispositivo de audio de captura cuando audioSource = "device" */
@@ -474,6 +472,8 @@ export interface VideoScreenSettings {
   source?: "program" | "capture";
   /** Entrada de captura que se ve en la pantalla y se emite por las salidas */
   captureInputId?: string;
+  /** Espejo horizontal solo en la ventana de los locutores */
+  mirror?: boolean;
 }
 
 export type IcecastCodec = "flac" | "aac";
@@ -734,7 +734,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: [],
   intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
   vuSource: "master",
-  videoScreen: { enabled: false, monitor: 1, audioMode: "cover", source: "program", captureInputId: "" },
+  videoScreen: { enabled: false, monitor: 1, audioMode: "cover", source: "program", captureInputId: "", mirror: false },
   leftPanelWidth: 0,
   chat: { enabled: false, name: "", floating: false, collapsed: false },
   audioEngine: "web",
