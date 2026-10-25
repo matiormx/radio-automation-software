@@ -1023,7 +1023,7 @@ function MusicBrowserBase({
   );
 
   return (
-    <section className="panel browser-panel" aria-label="Música">
+    <section className="panel browser-panel" aria-label="Música" data-file-drop="library">
       <div className="panel-head">
         <h2>Música</h2>
         <span className="panel-count">

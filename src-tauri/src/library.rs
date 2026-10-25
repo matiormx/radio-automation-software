@@ -1617,6 +1617,8 @@ pub struct ImportResult {
     pub added: usize,
     /// Archivos que ya estaban (no se copian otra vez)
     pub existing: usize,
+    /// Canciones de cada archivo, en el orden recibido (para meterlas en una lista)
+    pub ids: Vec<String>,
 }
 
 /// ¿Ya esta este archivo en el catalogo? Mismo enlace, o mismo nombre de
@@ -1644,6 +1646,8 @@ pub fn import_files_dedup(
     library: Option<String>,
     block_id: Option<String>,
 ) -> Result<ImportResult, String> {
+    // Por cada archivo: la cancion que ya existia o el indice en `fresh`.
+    let mut order: Vec<Result<String, usize>> = Vec::new();
     let (fresh, existing_ids): (Vec<String>, Vec<String>) = {
         let _guard = lock_library();
         let tracks = read_library_internal(&state.data_dir);
@@ -1651,13 +1655,25 @@ pub fn import_files_dedup(
         let mut ids = Vec::new();
         for p in paths {
             match find_existing(&tracks, Path::new(&p)) {
-                Some(t) => ids.push(t.id.clone()),
-                None => fresh.push(p),
+                Some(t) => {
+                    ids.push(t.id.clone());
+                    order.push(Ok(t.id.clone()));
+                }
+                None => {
+                    order.push(Err(fresh.len()));
+                    fresh.push(p);
+                }
             }
         }
         (fresh, ids)
     };
-    let added = if fresh.is_empty() { Vec::new() } else { import_files(state.clone(), fresh, library)? };
+    let added = if fresh.is_empty() { Vec::new() } else { import_files(state.clone(), fresh.clone(), library)? };
+    // Las nuevas se reconocen por el nombre del archivo original.
+    let new_id = |i: usize| -> Option<String> {
+        let name = Path::new(&fresh[i]).file_name()?.to_string_lossy().to_string();
+        added.iter().find(|t| t.original_name == name).map(|t| t.id.clone())
+    };
+    let ids: Vec<String> = order.iter().filter_map(|o| match o { Ok(id) => Some(id.clone()), Err(i) => new_id(*i) }).collect();
     if let Some(block) = block_id.filter(|b| !b.trim().is_empty()) {
         let _guard = lock_library();
         let mut tracks = read_library_internal(&state.data_dir);
@@ -1669,7 +1685,7 @@ pub fn import_files_dedup(
         }
         write_library(&state.data_dir, &tracks)?;
     }
-    Ok(ImportResult { added: added.len(), existing: existing_ids.len() })
+    Ok(ImportResult { added: added.len(), existing: existing_ids.len(), ids })
 }
 
 /// Pasa canciones de un bloque a otro (o las copia): añade `add_block` y,

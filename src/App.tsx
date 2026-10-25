@@ -376,7 +376,7 @@ export default function App() {
   const [normalizerMounted, setNormalizerMounted] = useState(false);
   const [normStatus, setNormStatus] = useState<NormalizerStatus | null>(null);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
-  const [dropHover, setDropHover] = useState(false);
+  const [, setDropHover] = useState(false);
   const [dropBlockId, setDropBlockId] = useState("");
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
@@ -1298,8 +1298,9 @@ export default function App() {
   }, [playingRow]);
 
   // Arrastrar archivos desde el escritorio
+  const mutateViewRef = useRef<((fn: (ids: string[]) => string[]) => Promise<void>) | null>(null);
   const doImport = useCallback(
-    async (paths: string[], library: "a" | "b" = "a", blockId?: string | null) => {
+    async (paths: string[], library: "a" | "b" = "a", blockId?: string | null, playlistAt?: number) => {
       const targetBlock =
         blockId && blocksRef.current.some((block) => block.id === blockId) ? blockId : null;
       let ok = paths.filter(extOk);
@@ -1334,7 +1335,22 @@ export default function App() {
         const blockName = targetBlock
           ? blocksRef.current.find((block) => block.id === targetBlock)?.name ?? ""
           : "";
-        const where = blockName ? ` en «${blockName}»` : library === "b" ? " a la biblioteca B" : "";
+        // Soltadas sobre la lista de emision: entran en ese punto (sin repetir).
+        if (playlistAt !== undefined && res.ids.length > 0) {
+          await mutateViewRef.current?.((cur) => {
+            const fresh = res.ids.filter((id, i) => !cur.includes(id) && res.ids.indexOf(id) === i);
+            const copy = [...cur];
+            copy.splice(Math.max(0, Math.min(copy.length, playlistAt)), 0, ...fresh);
+            return copy;
+          });
+        }
+        const where = blockName
+          ? ` en «${blockName}»`
+          : playlistAt !== undefined
+            ? " y añadidas a la lista"
+            : library === "b"
+              ? " a la biblioteca B"
+              : "";
         const parts: string[] = [];
         if (res.added) parts.push(res.added === 1 ? "1 canción nueva" : `${res.added} canciones nuevas`);
         if (res.existing) parts.push(res.existing === 1 ? "1 que ya estaba" : `${res.existing} que ya estaban`);
@@ -1348,12 +1364,43 @@ export default function App() {
     [showToast],
   );
 
-  // Bloque de la lista de música bajo el puntero al arrastrar archivos.
-  const blockAtDrop = useCallback((position?: { x: number; y: number }): string => {
-    if (!position) return "";
+  // Destino de los archivos que se arrastran desde el Explorador: solo se
+  // ilumina la zona donde caeran (un bloque, la biblioteca o la lista).
+  type FileTarget =
+    | { kind: "block"; id: string; el: HTMLElement }
+    | { kind: "library"; el: HTMLElement }
+    | { kind: "playlist"; at: number; el: HTMLElement; after: boolean }
+    | null;
+  const fileOverRef = useRef<HTMLElement | null>(null);
+  const fileTargetAt = useCallback((position?: { x: number; y: number }): FileTarget => {
+    if (!position) return null;
     const dpr = window.devicePixelRatio || 1;
-    const element = document.elementFromPoint(position.x / dpr, position.y / dpr);
-    return element?.closest<HTMLElement>("[data-block-drop]")?.dataset.blockDrop ?? "";
+    const x = position.x / dpr;
+    const y = position.y / dpr;
+    const hit = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!hit) return null;
+    const block = hit.closest<HTMLElement>("[data-block-drop]");
+    if (block?.dataset.blockDrop) return { kind: "block", id: block.dataset.blockDrop, el: block };
+    const row = hit.closest<HTMLElement>("[data-drop-zone='playlist-row']");
+    if (row) {
+      const r = row.getBoundingClientRect();
+      const after = y > r.top + r.height / 2;
+      return { kind: "playlist", at: Number(row.dataset.index ?? 0) + (after ? 1 : 0), el: row, after };
+    }
+    const end = hit.closest<HTMLElement>("[data-drop-zone='playlist-end']");
+    if (end) return { kind: "playlist", at: Number.MAX_SAFE_INTEGER, el: end, after: false };
+    const lib = hit.closest<HTMLElement>("[data-file-drop='library']");
+    if (lib) return { kind: "library", el: lib };
+    return null;
+  }, []);
+  const markFileTarget = useCallback((t: FileTarget) => {
+    const prev = fileOverRef.current;
+    if (prev && prev !== t?.el) prev.classList.remove("file-over", "dnd-over", "dnd-over-after");
+    fileOverRef.current = t?.el ?? null;
+    if (t) {
+      t.el.classList.add("file-over", "dnd-over");
+      t.el.classList.toggle("dnd-over-after", t.kind === "playlist" && t.after);
+    }
   }, []);
 
   useEffect(() => {
@@ -1362,27 +1409,33 @@ export default function App() {
     void onWindowFileDrop({
       onDrop: (paths, position) => {
         if (!alive) return;
-        const blockId = blockAtDrop(position);
+        const t = fileTargetAt(position);
+        markFileTarget(null);
         setDropHover(false);
         setDropBlockId("");
         if (normalizerRef.current) {
           const dpr = window.devicePixelRatio || 1;
           const cssX = position ? position.x / dpr : window.innerWidth / 2;
-          void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b", blockId || null);
-        } else if (blockId) {
-          void doImport(paths, "a", blockId);
+          void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b", t?.kind === "block" ? t.id : null);
+        } else if (!t) {
+          showToast("Suelta los archivos sobre la biblioteca, un bloque o la lista de emisión");
+        } else if (t.kind === "block") {
+          void doImport(paths, "a", t.id);
+        } else if (t.kind === "playlist") {
+          void doImport(paths, "a", null, t.at);
         } else {
           void doImport(paths);
         }
       },
       onEnter: (position) => {
         setDropHover(true);
-        setDropBlockId(blockAtDrop(position));
+        markFileTarget(fileTargetAt(position));
       },
-      onOver: (position) => setDropBlockId(blockAtDrop(position)),
+      onOver: (position) => markFileTarget(fileTargetAt(position)),
       onLeave: () => {
         setDropHover(false);
         setDropBlockId("");
+        markFileTarget(null);
       },
     }).then((u) => {
       unlisten = u;
@@ -1568,6 +1621,7 @@ export default function App() {
     (fn: (ids: string[]) => string[]) => mutateById(viewIdRef.current, fn),
     [mutateById],
   );
+  mutateViewRef.current = mutateView;
 
   /** Emitir desde una fila de la lista en pantalla (si es otra, pasa a ser la activa). */
   const playViewRow = useCallback((i: number) => {
@@ -3647,14 +3701,6 @@ export default function App() {
         );
       })()}
 
-      {dropHover && !dropBlockId && (
-        <div className="drop-overlay" aria-hidden="true">
-        <div className="drop-overlay-box">
-          <strong>Suelta los archivos</strong>
-          <span>Se copian a la carpeta de música de MiRadio; los originales no se tocan</span>
-        </div>
-        </div>
-      )}
 
       {toast && (
         <div className="toast" role="status">

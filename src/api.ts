@@ -69,7 +69,7 @@ export function importFilesDedup(
   paths: string[],
   library: "a" | "b" = "a",
   blockId: string | null = null,
-): Promise<{ added: number; existing: number }> {
+): Promise<{ added: number; existing: number; ids: string[] }> {
   return invoke("import_files_dedup", { paths, library, blockId });
 }
 
