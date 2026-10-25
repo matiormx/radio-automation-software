@@ -306,7 +306,19 @@ pub fn stream_start(
                 Some(output.video_input_id.trim())
             };
             let output_audio = if output.audio_source == "device" {
-                Some(output.audio_source_id.trim()).filter(|id| !id.is_empty())
+                let id = output.audio_source_id.trim();
+                // Si se eligio por error un dispositivo de video como audio,
+                // se usa la salida de la mesa para no romper la emision.
+                let looks_like_video = settings
+                    .video
+                    .inputs
+                    .iter()
+                    .any(|input| input.source.trim() == id);
+                if id.is_empty() || looks_like_video {
+                    None
+                } else {
+                    Some(id)
+                }
             } else {
                 None
             };

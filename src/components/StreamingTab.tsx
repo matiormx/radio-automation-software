@@ -267,6 +267,15 @@ function VideoRoutingFields({
           actualizar la lista.
         </p>
       )}
+      {source === "device" &&
+        !!audioSourceId &&
+        audioDevices.length > 0 &&
+        !audioDevices.some((device) => device.id === audioSourceId) && (
+          <p className="form-error">
+            Ese dispositivo no aparece como entrada de audio. Elige uno de la lista o usa «Salida
+            Encoders».
+          </p>
+        )}
       <p className="hint">
         El audio se usa en las salidas RTMP y NDI. La opción de la mesa envía la misma señal que
         los encoders de audio.
