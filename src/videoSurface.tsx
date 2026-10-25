@@ -16,6 +16,8 @@ export interface VideoState {
   audioMode: "cover" | "logo" | "black";
   logo: string;
   stationName: string;
+  /** Pista de lo que suena cuando trackId es el de la capturadora */
+  programTrackId?: string;
   /** Capturadora que se muestra en la ventana externa */
   capture?: { source: string; deviceId?: string; ndi?: string } | null;
   /** Espejo horizontal solo en la ventana de los locutores */

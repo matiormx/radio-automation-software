@@ -84,7 +84,15 @@ import { VideoSwitcher } from "./components/VideoSwitcher";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { NativeAppFeed } from "./nativeFeed";
 import { NativePlayer } from "./nativeEngine";
-import { closeVideoOut, openToolWindow, openVideoOut, publishState, serveMain } from "./bridge";
+import {
+  closeNowPlayingOut,
+  closeVideoOut,
+  openNowPlayingOut,
+  openToolWindow,
+  openVideoOut,
+  publishState,
+  serveMain,
+} from "./bridge";
 import type { VideoState } from "./videoSurface";
 import { apiApply, apiPublish, backupLastImportLog, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
@@ -3126,6 +3134,7 @@ export default function App() {
         return {
           ...base,
           trackId: `capture:${input.id}`,
+          programTrackId: program?.trackId ?? "",
           mirror: vs.mirror ?? false,
           captureFallback: vs.captureFallback === "none" ? "none" : "program",
           capture:
@@ -3153,6 +3162,31 @@ export default function App() {
     }, 200);
     return () => window.clearInterval(t);
   }, [videoScreen.enabled, videoScreen.monitor, videoSource, showToast]);
+
+  // Ventana «Lo que suena» (fuera de pantalla) para las salidas que la emiten.
+  const npSize = useMemo(() => {
+    const outs = (settings.video?.enabled ? settings.video.outputs : []).filter(
+      (o) => o.enabled && (o.videoInputId === "nowplaying" || o.fallbackVideoInputId === "nowplaying"),
+    );
+    if (outs.length === 0) return null;
+    const big = outs.reduce((a, o) => (o.width * o.height > a.width * a.height ? o : a));
+    return `${big.width}x${big.height}`;
+  }, [settings.video]);
+  useEffect(() => {
+    if (!npSize) {
+      void closeNowPlayingOut();
+      return;
+    }
+    const [w, h] = npSize.split("x").map(Number);
+    void openNowPlayingOut(w || 1280, h || 720);
+    // Si la pantalla de emisión está abierta, su intervalo ya envía el estado.
+    if (videoScreen.enabled) return;
+    const t = window.setInterval(() => {
+      const st = videoSource();
+      if (st) void emitEvent("video://state", st);
+    }, 200);
+    return () => window.clearInterval(t);
+  }, [npSize, videoScreen.enabled, videoSource]);
 
   // Resultado de una importacion de copia de seguridad aplicada al arrancar.
   useEffect(() => {

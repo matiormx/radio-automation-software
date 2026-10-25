@@ -83,6 +83,7 @@ const FORMAT_PROGRESSIVE: i32 = 1;
 const COLOR_BGRX_BGRA: i32 = 0;
 const BANDWIDTH_HIGHEST: i32 = 100;
 const FRAME_VIDEO: i32 = 1;
+const FRAME_AUDIO: i32 = 2;
 const FRAME_ERROR: i32 = 4;
 
 type FnInit = unsafe extern "C" fn() -> bool;
@@ -91,7 +92,8 @@ type FnFindWait = unsafe extern "C" fn(*mut c_void, u32) -> bool;
 type FnFindSources = unsafe extern "C" fn(*mut c_void, *mut u32) -> *const SourceT;
 type FnRecvCreate = unsafe extern "C" fn(*const RecvCreateV3) -> *mut c_void;
 type FnRecvDestroy = unsafe extern "C" fn(*mut c_void);
-type FnRecvCapture = unsafe extern "C" fn(*mut c_void, *mut VideoFrameV2, *mut c_void, *mut c_void, u32) -> i32;
+type FnRecvCapture = unsafe extern "C" fn(*mut c_void, *mut VideoFrameV2, *mut AudioFrameV2, *mut c_void, u32) -> i32;
+type FnRecvFreeAudio = unsafe extern "C" fn(*mut c_void, *const AudioFrameV2);
 type FnRecvFreeVideo = unsafe extern "C" fn(*mut c_void, *const VideoFrameV2);
 type FnSendCreate = unsafe extern "C" fn(*const SendCreate) -> *mut c_void;
 type FnSendDestroy = unsafe extern "C" fn(*mut c_void);
@@ -106,6 +108,7 @@ struct Api {
     recv_destroy: FnRecvDestroy,
     recv_capture: FnRecvCapture,
     recv_free_video: FnRecvFreeVideo,
+    recv_free_audio: FnRecvFreeAudio,
     send_create: FnSendCreate,
     send_destroy: FnSendDestroy,
     send_video: FnSendVideo,
@@ -188,6 +191,7 @@ fn load() -> Result<Api, String> {
             let recv_destroy: FnRecvDestroy = sym!(b"NDIlib_recv_destroy\0", FnRecvDestroy);
             let recv_capture: FnRecvCapture = sym!(b"NDIlib_recv_capture_v2\0", FnRecvCapture);
             let recv_free_video: FnRecvFreeVideo = sym!(b"NDIlib_recv_free_video_v2\0", FnRecvFreeVideo);
+            let recv_free_audio: FnRecvFreeAudio = sym!(b"NDIlib_recv_free_audio_v2\0", FnRecvFreeAudio);
             let send_create: FnSendCreate = sym!(b"NDIlib_send_create\0", FnSendCreate);
             let send_destroy: FnSendDestroy = sym!(b"NDIlib_send_destroy\0", FnSendDestroy);
             let send_video: FnSendVideo = sym!(b"NDIlib_send_send_video_v2\0", FnSendVideo);
@@ -204,6 +208,7 @@ fn load() -> Result<Api, String> {
                 recv_destroy,
                 recv_capture,
                 recv_free_video,
+                recv_free_audio,
                 send_create,
                 send_destroy,
                 send_video,
@@ -356,6 +361,66 @@ struct Receiver {
     cv: Condvar,
     /// Ultima vez que alguien pidio imagen (si nadie mira, se cierra)
     used: Mutex<Instant>,
+    /// Quien escucha el audio (PCM s16le estereo a 48 kHz)
+    audio: Mutex<Vec<std::sync::mpsc::SyncSender<Arc<Vec<u8>>>>>,
+}
+
+impl Receiver {
+    fn new() -> Receiver {
+        Receiver {
+            latest: Mutex::new(Latest::default()),
+            cv: Condvar::new(),
+            used: Mutex::new(Instant::now()),
+            audio: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Reparte un bloque de audio a quien lo escucha.
+    fn push_audio(&self, pcm: Vec<u8>) {
+        let mut subs = self.audio.lock().unwrap_or_else(|e| e.into_inner());
+        if subs.is_empty() {
+            return;
+        }
+        let pcm = Arc::new(pcm);
+        subs.retain(|tx| !matches!(tx.try_send(pcm.clone()), Err(std::sync::mpsc::TrySendError::Disconnected(_))));
+        *self.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+    }
+}
+
+/// Audio de NDI (float plano, cualquier frecuencia) a s16le estereo 48 kHz.
+fn audio_to_s16(frame: &AudioFrameV2, phase: &mut f64) -> Vec<u8> {
+    let n = frame.no_samples.max(0) as usize;
+    let chans = frame.no_channels.max(0) as usize;
+    if frame.data.is_null() || n == 0 || chans == 0 {
+        return Vec::new();
+    }
+    let stride = (frame.channel_stride_in_bytes.max(0) as usize) / 4;
+    let stride = if stride == 0 { n } else { stride };
+    // SAFETY: NDI entrega `chans` canales de `stride` muestras cada uno.
+    let left = unsafe { std::slice::from_raw_parts(frame.data, n) };
+    let right = if chans > 1 { unsafe { std::slice::from_raw_parts(frame.data.add(stride), n) } } else { left };
+    let rate = if frame.sample_rate > 0 { frame.sample_rate as f64 } else { 48_000.0 };
+    let step = rate / 48_000.0;
+    let s16 = |v: f32| ((v.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes();
+    let mut out = Vec::with_capacity(((n as f64 / step) as usize + 2) * 4);
+    if (step - 1.0).abs() < 1e-9 {
+        for i in 0..n {
+            out.extend_from_slice(&s16(left[i]));
+            out.extend_from_slice(&s16(right[i]));
+        }
+        return out;
+    }
+    // Otra frecuencia: interpolacion lineal (la fase sigue entre bloques).
+    let mut pos = *phase;
+    while pos < (n - 1) as f64 {
+        let i = pos as usize;
+        let t = (pos - i as f64) as f32;
+        out.extend_from_slice(&s16(left[i] + (left[i + 1] - left[i]) * t));
+        out.extend_from_slice(&s16(right[i] + (right[i + 1] - right[i]) * t));
+        pos += step;
+    }
+    *phase = pos - (n - 1) as f64;
+    out
 }
 
 fn receivers() -> &'static Mutex<HashMap<String, Arc<Receiver>>> {
@@ -370,7 +435,7 @@ fn receiver(source: &str) -> Arc<Receiver> {
         *r.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
         return r.clone();
     }
-    let r = Arc::new(Receiver { latest: Mutex::new(Latest::default()), cv: Condvar::new(), used: Mutex::new(Instant::now()) });
+    let r = Arc::new(Receiver::new());
     map.insert(source.to_string(), r.clone());
     let name = source.to_string();
     let rr = r.clone();
@@ -414,13 +479,23 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
     let min_gap = Duration::from_millis(33); // como mucho ~30 imagenes/s al WebView
     let mut last_sent = Instant::now() - min_gap;
     let mut scratch: Vec<u8> = Vec::new();
+    let mut phase = 0.0f64;
     loop {
         // Nadie la mira desde hace 15 s: se cierra.
         if r.used.lock().map(|u| u.elapsed() > Duration::from_secs(15)).unwrap_or(true) {
             break;
         }
         let mut frame: VideoFrameV2 = unsafe { std::mem::zeroed() };
-        let kind = unsafe { (api.recv_capture)(recv, &mut frame, std::ptr::null_mut(), std::ptr::null_mut(), 500) };
+        let mut audio: AudioFrameV2 = unsafe { std::mem::zeroed() };
+        let kind = unsafe { (api.recv_capture)(recv, &mut frame, &mut audio, std::ptr::null_mut(), 500) };
+        if kind == FRAME_AUDIO {
+            let pcm = audio_to_s16(&audio, &mut phase);
+            unsafe { (api.recv_free_audio)(recv, &audio) };
+            if !pcm.is_empty() {
+                r.push_audio(pcm);
+            }
+            continue;
+        }
         if kind == FRAME_ERROR {
             set_error(&r, "La fuente NDI se ha perdido".into());
             thread::sleep(Duration::from_millis(500));
@@ -566,6 +641,10 @@ fn serve(req: tiny_http::Request) {
         let _ = req.respond(resp);
         return;
     }
+    if url.starts_with("/audio") {
+        serve_audio(req, r);
+        return;
+    }
     // /ndi?src=… : MJPEG continuo. Se escribe directamente en el socket y se
     // vacia tras cada imagen (con la respuesta normal de tiny_http la imagen se
     // quedaria esperando en un bufer).
@@ -590,6 +669,68 @@ fn serve(req: tiny_http::Request) {
             return;
         }
     }
+}
+
+/// /audio?src=… : PCM s16le estereo 48 kHz sin fin (para FFmpeg). Si la
+/// fuente no manda audio se rellena con silencio para no cortar la emision.
+fn serve_audio(req: tiny_http::Request, r: Arc<Receiver>) {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Arc<Vec<u8>>>(64);
+    r.audio.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+    let mut w = req.into_writer();
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\
+                Cache-Control: no-cache, no-store\r\nConnection: close\r\n\r\n";
+    if w.write_all(head.as_bytes()).and_then(|_| w.flush()).is_err() {
+        return;
+    }
+    let gap = Duration::from_millis(100);
+    let silence = vec![0u8; 48_000 / 10 * 4];
+    loop {
+        *r.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        let ok = match rx.recv_timeout(gap) {
+            Ok(pcm) => w.write_all(&pcm),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => w.write_all(&silence),
+            Err(_) => return,
+        };
+        if ok.and_then(|_| w.flush()).is_err() {
+            return;
+        }
+    }
+}
+
+/// Argumentos de FFmpeg para recibir una fuente NDI con el NDI Runtime (sin
+/// FFmpeg especial): la imagen como MJPEG y, si se pide, el audio como PCM.
+pub fn ffmpeg_video_input(source: &str) -> Result<Vec<String>, String> {
+    runtime()?;
+    let base = server_url()?;
+    let src: String = form_urlencoded::byte_serialize(source.as_bytes()).collect();
+    Ok(vec![
+        "-thread_queue_size".into(),
+        "512".into(),
+        "-use_wallclock_as_timestamps".into(),
+        "1".into(),
+        "-f".into(),
+        "mpjpeg".into(),
+        "-i".into(),
+        format!("{base}/ndi?src={src}"),
+    ])
+}
+
+pub fn ffmpeg_audio_input(source: &str) -> Result<Vec<String>, String> {
+    runtime()?;
+    let base = server_url()?;
+    let src: String = form_urlencoded::byte_serialize(source.as_bytes()).collect();
+    Ok(vec![
+        "-thread_queue_size".into(),
+        "1024".into(),
+        "-f".into(),
+        "s16le".into(),
+        "-ar".into(),
+        "48000".into(),
+        "-ac".into(),
+        "2".into(),
+        "-i".into(),
+        format!("{base}/audio?src={src}"),
+    ])
 }
 
 // ------------------------------------------------------------ comandos
@@ -628,7 +769,7 @@ mod tests {
     /// El servidor entrega el estado y el MJPEG de un receptor (sin NDI real).
     #[test]
     fn mjpeg_server_serves_frames() {
-        let r = Arc::new(Receiver { latest: Mutex::new(Latest::default()), cv: Condvar::new(), used: Mutex::new(Instant::now()) });
+        let r = Arc::new(Receiver::new());
         let mut jpeg = Vec::new();
         jpeg_encoder::Encoder::new(&mut jpeg, 80).encode(&[0u8; 16 * 8 * 4], 16, 8, jpeg_encoder::ColorType::Bgra).unwrap();
         {
@@ -660,5 +801,41 @@ mod tests {
         assert!(st.contains("\"width\":16"), "{st}");
         let mj = get("/ndi?src=Prueba%20(Cam)", 300);
         assert!(mj.contains("multipart/x-mixed-replace") && mj.contains("--frame") && mj.contains("image/jpeg"), "{mj}");
+    }
+
+    /// FFmpeg lee la imagen (mpjpeg) y el audio (s16le) del servidor local.
+    #[test]
+    fn ffmpeg_reads_video_and_audio() {
+        if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let r = Arc::new(Receiver::new());
+        let mut jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpeg, 80).encode(&[90u8; 64 * 32 * 4], 64, 32, jpeg_encoder::ColorType::Bgra).unwrap();
+        receivers().lock().unwrap().insert("Ff Test".into(), r.clone());
+        let rr = r.clone();
+        std::thread::spawn(move || {
+            for i in 0..200u64 {
+                {
+                    let mut l = rr.latest.lock().unwrap();
+                    l.jpeg = Arc::new(jpeg.clone());
+                    l.seq = i + 1;
+                    l.at = Some(Instant::now());
+                    rr.cv.notify_all();
+                }
+                rr.push_audio(vec![1u8; 1920 * 4]);
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        });
+        let base = server_url().unwrap();
+        let out = std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-use_wallclock_as_timestamps", "1", "-f", "mpjpeg", "-i"])
+            .arg(format!("{base}/ndi?src=Ff+Test"))
+            .args(["-f", "s16le", "-ar", "48000", "-ac", "2", "-i"])
+            .arg(format!("{base}/audio?src=Ff+Test"))
+            .args(["-map", "0:v", "-map", "1:a", "-t", "2", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 }

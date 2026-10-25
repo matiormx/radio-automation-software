@@ -10,9 +10,9 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type ToolKind = "settings" | "mixer" | "library" | "chat";
 
-export function toolKind(): ToolKind | "videoout" | null {
+export function toolKind(): ToolKind | "videoout" | "videonp" | null {
   const w = new URLSearchParams(window.location.search).get("w");
-  return w === "settings" || w === "mixer" || w === "library" || w === "chat" || w === "videoout" ? w : null;
+  return w === "settings" || w === "mixer" || w === "library" || w === "chat" || w === "videoout" || w === "videonp" ? w : null;
 }
 
 // ------------------------------------------------------------ video de emision
@@ -85,6 +85,55 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
 export async function closeVideoOut(): Promise<void> {
   try {
     const win = await WebviewWindow.getByLabel("videoout");
+    await win?.destroy();
+  } catch {
+    /* ya cerrada */
+  }
+}
+
+/**
+ * Ventana «MiRadio Lo que suena»: solo lo que suena (vídeo o portada, nunca
+ * cámaras ni NDI). Va fuera de la pantalla, sin barra de tareas; FFmpeg la
+ * captura para las salidas que emiten «Lo que está sonando».
+ */
+export async function openNowPlayingOut(width: number, height: number): Promise<boolean> {
+  try {
+    const w = Math.max(320, Math.round(width));
+    const h = Math.max(180, Math.round(height));
+    let win = await WebviewWindow.getByLabel("videonp");
+    if (!win) {
+      win = new WebviewWindow("videonp", {
+        url: "index.html?w=videonp",
+        title: "MiRadio Lo que suena",
+        x: -20000,
+        y: 0,
+        width: w,
+        height: h,
+        decorations: false,
+        shadow: false,
+        focus: false,
+        resizable: false,
+        skipTaskbar: true,
+        dragDropEnabled: false,
+        // Fuera de la vista: que no deje de pintar.
+        backgroundThrottling: "disabled" as never,
+      });
+      const created = await new Promise<boolean>((resolve) => {
+        void win!.once("tauri://created", () => resolve(true));
+        void win!.once("tauri://error", () => resolve(false));
+      });
+      return created;
+    }
+    await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function closeNowPlayingOut(): Promise<void> {
+  try {
+    const win = await WebviewWindow.getByLabel("videonp");
     await win?.destroy();
   } catch {
     /* ya cerrada */

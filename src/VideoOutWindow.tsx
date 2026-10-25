@@ -7,7 +7,7 @@ import { VideoSurface, type VideoState } from "./videoSurface";
  * Ventana de video de la emision: pantalla completa en el monitor elegido.
  * Recibe de la ventana principal lo que suena y su posicion.
  */
-export function VideoOutWindow() {
+export function VideoOutWindow({ programOnly = false }: { programOnly?: boolean }) {
   const state = useRef<{ s: VideoState; at: number } | null>(null);
 
   useEffect(() => {
@@ -34,8 +34,12 @@ export function VideoOutWindow() {
     const cur = state.current;
     if (!cur) return null;
     const pos = cur.s.playing ? cur.s.pos + (performance.now() - cur.at) / 1000 : cur.s.pos;
+    if (programOnly && cur.s.capture) {
+      // Solo lo que suena: sin capturadora ni NDI aunque la botonera los tenga.
+      return { ...cur.s, trackId: cur.s.programTrackId || "none", capture: undefined, pos };
+    }
     return { ...cur.s, pos };
-  }, []);
+  }, [programOnly]);
 
   return (
     <div

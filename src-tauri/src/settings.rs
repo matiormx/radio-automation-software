@@ -628,9 +628,11 @@ pub struct VideoOutput {
     pub source: String,
     /// Entrada de video a emitir; "" = la de la pantalla externa.
     pub video_input_id: String,
-    /// Respaldo si falla: "" = ninguno, "program" = pantalla de programa.
+    /// Respaldo si falla: "" = ninguno, "program" = pantalla de emision,
+    /// "nowplaying" = lo que suena.
     pub fallback_video_input_id: String,
-    /// "mixer" = salida Encoders; "device" = audio de una capturadora.
+    /// "mixer" = salida Encoders; "input" = el de la propia entrada (NDI o
+    /// capturadora); "device" = otro dispositivo de audio.
     pub audio_source: String,
     /// Dispositivo de audio de captura.
     pub audio_source_id: String,

@@ -440,8 +440,8 @@ export interface VideoCaptureDevice {
   deviceId?: string;
 }
 
-/** Audio que acompaña a una salida de vídeo. */
-export type VideoAudioSource = "mixer" | "device";
+/** Audio que acompaña a una salida de vídeo: la mesa, el de la propia entrada (NDI/capturadora) o un dispositivo. */
+export type VideoAudioSource = "mixer" | "input" | "device";
 
 export interface VideoOutput {
   id: string;
@@ -449,9 +449,9 @@ export interface VideoOutput {
   kind: VideoOutputKind;
   /** Monitor, dispositivo DeckLink, nombre NDI o URL RTMP */
   source: string;
-  /** Entrada de vídeo a emitir; "" = la de la pantalla externa */
+  /** Entrada de vídeo a emitir: "program" = pantalla de emisión, "nowplaying" = lo que suena, o el id de una entrada */
   videoInputId?: string;
-  /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de programa */
+  /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de emisión, "nowplaying" = lo que suena */
   fallbackVideoInputId?: string;
   /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;

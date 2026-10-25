@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  VideoAudioSource,
   IcecastCodec,
   IcecastStream,
   Settings,
@@ -133,8 +134,9 @@ function videoOutputSummary(output: VideoOutput): string {
 
 function videoOutputConfigError(settings: Settings, output: VideoOutput): string | null {
   if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
-  const usesProgram = !output.videoInputId || output.videoInputId === "program";
-  if (usesProgram && !settings.videoScreen?.enabled) {
+  const usesProgram =
+    !output.videoInputId || output.videoInputId === "program" || output.videoInputId === "nowplaying";
+  if (usesProgram && output.videoInputId !== "nowplaying" && !settings.videoScreen?.enabled) {
     return "Activa la ventana de vídeo en Ajustes > Vídeo para emitir el programa.";
   }
   if (!usesProgram) {
@@ -203,16 +205,20 @@ function VideoRoutingFields({
   inputs: Settings["video"]["inputs"];
   audioDevices: VideoCaptureDevice[];
   videoInputId?: string;
-  audioSource?: "mixer" | "device";
+  audioSource?: VideoAudioSource;
   audioSourceId?: string;
   onChange: (patch: {
     videoInputId?: string;
-    audioSource?: "mixer" | "device";
+    audioSource?: VideoAudioSource;
     audioSourceId?: string;
   }) => void;
   onRefreshAudio: () => void;
 }) {
-  const source = audioSource === "device" ? "device" : "mixer";
+  const chosen = inputs.find((i) => i.id === videoInputId);
+  // El audio de la propia entrada: NDI trae el suyo; una capturadora, el de su dispositivo.
+  const inputAudio = chosen && (chosen.kind === "ndi" || chosen.kind === "capture");
+  const source: VideoAudioSource =
+    audioSource === "device" ? "device" : audioSource === "input" && inputAudio ? "input" : "mixer";
   return (
     <>
       <div className="field-row">
@@ -222,7 +228,8 @@ function VideoRoutingFields({
             value={videoInputId || "program"}
             onChange={(e) => onChange({ videoInputId: e.target.value })}
           >
-            <option value="program">Pantalla de emisión de MiRadio (capturadora con respaldo, o lo que suena)</option>
+            <option value="nowplaying">Lo que está sonando (vídeo o portada, sin cámaras)</option>
+            <option value="program">Pantalla de emisión (lo que elijas en la botonera VÍDEO)</option>
             {inputs.map((input) => (
               <option key={input.id} value={input.id}>
                 {input.name.trim() || input.source} · {input.kind}
@@ -236,12 +243,17 @@ function VideoRoutingFields({
             value={source}
             onChange={(e) =>
               onChange({
-                audioSource: e.target.value === "device" ? "device" : "mixer",
+                audioSource: e.target.value as VideoAudioSource,
               })
             }
           >
             <option value="mixer">Salida Encoders (lo que está sonando)</option>
-            <option value="device">Audio de la capturadora</option>
+            {inputAudio && (
+              <option value="input">
+                Audio de la fuente {chosen.kind === "ndi" ? "NDI" : "de vídeo"} ({chosen.name.trim() || chosen.source})
+              </option>
+            )}
+            <option value="device">Otro dispositivo de audio</option>
           </select>
         </label>
       </div>
@@ -971,7 +983,8 @@ export function StreamingTab({
                           }
                         >
                           <option value="">Sin respaldo</option>
-                          <option value="program">Pantalla de programa de MiRadio</option>
+                          <option value="nowplaying">Lo que está sonando (vídeo o portada)</option>
+                          <option value="program">Pantalla de emisión (botonera VÍDEO)</option>
                           {settings.video.inputs.map((input) => (
                             <option key={input.id} value={input.id}>
                               {input.name.trim() || input.source} · {input.kind}

@@ -248,7 +248,9 @@ pub fn stream_start(
     };
     let selected_input_is_ndi = pick_video_input(&settings.video, preferred_input)
         .map(|input| input.kind == "ndi")
-        .unwrap_or(false);
+        .unwrap_or(false)
+        // Con el NDI Runtime basta el FFmpeg normal.
+        && crate::ndi::runtime().is_err();
     let video_ffmpeg = if selected_input_is_ndi {
         ndi_ffmpeg.unwrap_or(&ffmpeg)
     } else {
@@ -258,6 +260,8 @@ pub fn stream_start(
         output.enabled
             && (output.kind == "rtmp" || output.kind == "screen")
             && (output.fallback_video_input_id == "program"
+                || output.fallback_video_input_id == "nowplaying"
+                || output.video_input_id.trim() == "nowplaying"
                 || output.video_input_id.trim().is_empty()
                 || output.video_input_id.trim() == "program")
     });
@@ -323,23 +327,35 @@ pub fn stream_start(
             let kind = output.kind.clone();
             let video_choice = output.video_input_id.trim();
             // "" y "program" emiten la ventana de programa (lo que suena).
-            let use_program = video_choice.is_empty() || video_choice == "program";
+            // "nowplaying": la ventana que siempre enseña lo que suena (sin camaras).
+            let use_np = video_choice == "nowplaying";
+            let use_program = video_choice.is_empty() || video_choice == "program" || use_np;
             let output_video = if use_program {
                 None
             } else {
                 Some(video_choice)
             };
+            // "input" = el audio de la propia entrada de video (NDI o capturadora).
+            let input_audio: Option<String> = if output.audio_source == "input" && !use_program {
+                settings.video.inputs.iter().find(|i| i.id == video_choice).and_then(|i| match i.kind.as_str() {
+                    "ndi" => Some(format!("ndi:{}", i.source.trim())),
+                    "capture" => Some(i.source.trim().to_string()),
+                    _ => None,
+                })
+            } else {
+                None
+            };
             let output_audio = if output.audio_source == "device" {
                 Some(output.audio_source_id.trim()).filter(|id| !id.is_empty())
             } else {
-                None
+                input_audio.as_deref()
             };
             // Salida NDI con el NDI Runtime (sin FFmpeg con NDI): FFmpeg solo
             // captura la imagen y MiRadio la envia por NDI con el audio de la mesa.
             if kind == "ndi" && crate::ndi::runtime().is_ok() {
                 let (w, h, fps) = (output.width.max(16) & !1, output.height.max(16) & !1, output.fps.clamp(1, 60));
                 let video_args = if use_program {
-                    program_video_input_args(fps, settings.video_screen.monitor, gfxcapture, ddagrab)
+                    program_args(fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np)
                 } else {
                     match settings.video.inputs.iter().find(|i| i.id == video_choice) {
                         Some(input) if input.kind == "ndi" => Err(
@@ -387,7 +403,7 @@ pub fn stream_start(
                 continue;
             }
             let args = if use_program && kind == "rtmp" {
-                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab).and_then(|video_args| {
+                program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np).and_then(|video_args| {
                     rtmp_args_for_video(
                         video_args,
                         &output.source,
@@ -401,7 +417,7 @@ pub fn stream_start(
                     )
                 })
             } else if use_program && kind == "screen" {
-                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab)
+                program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np)
                     .and_then(|video_args| video_output_args_for_source(output, video_args))
             } else {
                 match kind.as_str() {
@@ -465,7 +481,9 @@ pub fn stream_start(
                         if backup.is_empty() {
                             None
                         } else {
+                            let backup_np = backup == "nowplaying";
                             let backup_is_ndi = backup != "program"
+                                && !backup_np
                                 && settings
                                     .video
                                     .inputs
@@ -473,15 +491,15 @@ pub fn stream_start(
                                     .find(|input| input.id == backup)
                                     .map(|input| input.kind == "ndi")
                                     .unwrap_or(false);
-                            let backup_ffmpeg = if backup == "program" {
+                            let backup_ffmpeg = if backup == "program" || backup_np {
                                 ffmpeg.as_path()
                             } else if backup_is_ndi {
                                 ndi_ffmpeg.unwrap_or(video_ffmpeg)
                             } else {
                                 video_ffmpeg
                             };
-                            let backup_args = if backup == "program" {
-                                program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab).and_then(|video_args| {
+                            let backup_args = if backup == "program" || backup_np {
+                                program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, backup_np).and_then(|video_args| {
                                     if kind == "rtmp" {
                                         rtmp_args_for_video(
                                             video_args,
@@ -1317,7 +1335,7 @@ fn rtmp_args_for_video(
         args.extend([arg("-map"), arg("1:v:0")]);
         args.extend([arg("-map"), arg("1:a:0?")]);
     } else if let Some(audio) = audio_device {
-        args.extend(audio_input_args(audio)?);
+        args.extend(audio_args(audio)?);
         args.extend([arg("-map"), arg("1:v:0")]);
         args.extend([arg("-map"), arg("2:a:0")]);
     } else {
@@ -1376,7 +1394,7 @@ fn ndi_args(
     let mut args = base_input_args();
     args.extend(video_input_args(input, ndi_device)?);
     if let Some(audio) = audio_device {
-        args.extend(audio_input_args(audio)?);
+        args.extend(audio_args(audio)?);
         args.extend([arg("-map"), arg("1:v:0")]);
         args.extend([arg("-map"), arg("2:a:0")]);
     } else {
@@ -1483,6 +1501,10 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
         "capture" => capture_input_args(source),
         "rtmp" => Ok(vec![arg("-i"), source.to_string()]),
         "ndi" => {
+            // Con el NDI Runtime no hace falta un FFmpeg especial.
+            if let Ok(args) = crate::ndi::ffmpeg_video_input(source) {
+                return Ok(args);
+            }
             let device = ndi_device.ok_or_else(|| {
                 "NDI no disponible: indica un FFmpeg con soporte NDI en Ajustes > Vídeo > NDI"
                     .to_string()
@@ -1509,6 +1531,38 @@ fn has_filter(ffmpeg: &Path, name: &str) -> bool {
 }
 
 /// Entrada de video con la ventana de programa de MiRadio.
+/// Imagen de una ventana de MiRadio: la pantalla de emision («MiRadio
+/// Programa», sigue la botonera) o la de lo que suena («MiRadio Lo que suena»).
+fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_playing: bool) -> Result<Vec<String>, String> {
+    if !now_playing {
+        return program_video_input_args(fps, monitor, gfxcapture, ddagrab);
+    }
+    let fps = fps.clamp(1, 120);
+    if cfg!(windows) && gfxcapture {
+        return Ok(vec![
+            arg("-f"),
+            arg("lavfi"),
+            arg("-i"),
+            format!(
+                "gfxcapture=window_title='(?i)^MiRadio Lo que suena$':max_framerate={fps}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={fps}"
+            ),
+        ]);
+    }
+    if cfg!(windows) {
+        return Ok(vec![
+            arg("-f"),
+            arg("gdigrab"),
+            arg("-framerate"),
+            fps.to_string(),
+            arg("-draw_mouse"),
+            arg("0"),
+            arg("-i"),
+            arg("title=MiRadio Lo que suena"),
+        ]);
+    }
+    program_video_input_args(fps, monitor, gfxcapture, ddagrab)
+}
+
 #[cfg(target_os = "windows")]
 fn program_video_input_args(
     fps: u32,
@@ -1602,6 +1656,15 @@ fn audio_input_args(source: &str) -> Result<Vec<String>, String> {
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn audio_input_args(_source: &str) -> Result<Vec<String>, String> {
     Err("El audio de captura no está soportado en este sistema".to_string())
+}
+
+/// Audio aparte de una salida: un dispositivo de captura o, con «ndi:», el
+/// audio de una fuente NDI (recibido con el NDI Runtime).
+fn audio_args(source: &str) -> Result<Vec<String>, String> {
+    match source.strip_prefix("ndi:") {
+        Some(ndi) => crate::ndi::ffmpeg_audio_input(ndi),
+        None => audio_input_args(source),
+    }
 }
 
 fn same_capture_name(audio: &str, video: &str) -> bool {
