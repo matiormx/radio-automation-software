@@ -478,6 +478,9 @@ function MusicBrowserBase({
     setBlockLayout(next);
   };
 
+  // Bloque cuya lista se esta viendo: soltar canciones en ella las suma al bloque.
+  const listBlockId = mode === "blocks" && selection && selection !== NONE ? selection : "";
+
   // Soltar sobre la lista de bloques (con el puntero; ver dnd.ts).
   const dropRef = useRef({ moveBlockItem, onAssignTrackBlock });
   dropRef.current = { moveBlockItem, onAssignTrackBlock };
@@ -490,6 +493,13 @@ function MusicBrowserBase({
         else if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "");
       },
     });
+    const offList = registerDropZone("block-list", {
+      accepts: (p) => p.kind === "track" || p.kind === "row",
+      drop: (p, el) => {
+        const blockId = el.dataset.blockId ?? "";
+        if ((p.kind === "track" || p.kind === "row") && blockId) dropRef.current.onAssignTrackBlock?.(p.trackId, blockId);
+      },
+    });
     const offSep = registerDropZone("block-sep", {
       accepts: (p, el) => p.kind === "blockItem" && p.key !== el.dataset.key,
       drop: (p, el) => {
@@ -498,6 +508,7 @@ function MusicBrowserBase({
     });
     return () => {
       offBlock();
+      offList();
       offSep();
     };
   }, []);
@@ -1443,7 +1454,12 @@ function MusicBrowserBase({
           }}
         />
 
-        <div className="browser-main">
+        <div
+          className={`browser-main ${listBlockId && dropBlockId === listBlockId ? "browser-main-drop" : ""}`}
+          {...(listBlockId
+            ? { "data-drop-zone": "block-list", "data-block-id": listBlockId, "data-block-drop": listBlockId }
+            : {})}
+        >
           <div className="browser-crumbs">
             <span className="crumb">{selectionLabel}</span>
             <span className="crumb-count">{filtered.length} canciones</span>
