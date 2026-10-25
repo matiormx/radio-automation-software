@@ -58,6 +58,7 @@ interface SettingsPanelProps {
   /** Estado real de cada salida para los testigos de Streaming. */
   streamStatus?: StreamStatus | null;
   streamBusy?: boolean;
+  onRestartStream?: () => void;
   /** En su propia ventana: sin fondo modal ni cabecera de dialogo */
   windowed?: boolean;
 }
@@ -214,6 +215,7 @@ export function SettingsPanel({
   onCallMute,
   streamStatus = null,
   streamBusy = false,
+  onRestartStream,
   windowed = false,
 }: SettingsPanelProps) {
   const s = settings;
@@ -418,6 +420,7 @@ export function SettingsPanel({
                 onChange={onChange}
                 streamStatus={streamStatus}
                 streamBusy={streamBusy}
+                onRestartStream={onRestartStream}
               />
             )}
             {tab === "backup" && (

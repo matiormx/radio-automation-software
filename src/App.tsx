@@ -1824,6 +1824,44 @@ export default function App() {
     }
   }, [streamBusy, streamStatus?.running, hasStreamOutputs, settings, failStreaming, showToast]);
 
+  /** Detiene y vuelve a arrancar para aplicar salidas o ajustes nuevos. */
+  const restartStreaming = useCallback(async () => {
+    if (streamBusy) return;
+    const mixer = mixerRef.current;
+    if (!mixer) {
+      showToast("La mesa de sonido todavía no está lista");
+      return;
+    }
+    setStreamBusy(true);
+    let failedStatus: StreamStatus | null = null;
+    try {
+      await streamEncoderRef.current?.stop();
+      streamEncoderRef.current = null;
+      await stopStreaming().catch(() => undefined);
+      const status = await startStreaming(settingsRef.current);
+      if (!status.running) {
+        failedStatus = status;
+        setStreamStatus(status);
+        throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
+      }
+      setStreamStatus(status);
+      if (status.needsAudio && !(playerRef.current instanceof NativePlayer)) {
+        const encoder = new StreamEncoder(mixer, failStreaming);
+        await encoder.start();
+        streamEncoderRef.current = encoder;
+      }
+      showToast(status.lastError ?? "Emisión reiniciada con los cambios");
+    } catch (error) {
+      await streamEncoderRef.current?.stop();
+      streamEncoderRef.current = null;
+      if (failedStatus) setStreamStatus(failedStatus);
+      else await stopStreaming().then(setStreamStatus).catch(() => setStreamStatus(null));
+      showToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStreamBusy(false);
+    }
+  }, [streamBusy, failStreaming, showToast]);
+
   // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
   const autoStreamDone = useRef(false);
   const toggleStreamingRef = useRef(toggleStreaming);
@@ -2741,6 +2779,7 @@ export default function App() {
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});
   bridgeRef.current = {
     getState: () => ({ settings, studio, callMuted, streaming: !!streamStatus?.running, streamStatus, streamBusy }),
+    restartStreaming: () => void restartStreaming(),
     updateSettings: (s: Settings) => updateSettings(s),
     chooseMusicFolder: () => chooseMusicFolder(),
     chooseLogo: () => chooseLogo(),
@@ -3316,6 +3355,7 @@ export default function App() {
           onCallMute={muteCaller}
           streamStatus={streamStatus}
           streamBusy={streamBusy}
+          onRestartStream={() => void restartStreaming()}
         />
       )}
 

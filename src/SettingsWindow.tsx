@@ -151,6 +151,7 @@ export function SettingsWindow() {
         onCallMute={(muted) => void call("muteCaller", muted)}
         streamStatus={shared.streamStatus ?? null}
         streamBusy={!!shared.streamBusy}
+        onRestartStream={() => void call("restartStreaming")}
       />
       {toast && (
         <div className="toast" role="status">

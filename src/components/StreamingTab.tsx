@@ -17,6 +17,7 @@ interface Props {
   onChange: (s: Settings) => void;
   streamStatus?: StreamStatus | null;
   streamBusy?: boolean;
+  onRestartStream?: () => void;
 }
 
 function uid(): string {
@@ -172,7 +173,11 @@ function emissionState(
   if (busy) return { tone: "pending" as EmissionTone, label: "Conectando", error: null };
   if (out) return { tone: "idle" as EmissionTone, label: "Detenida", error: out.error ?? null };
   if (status?.running) {
-    return { tone: "idle" as EmissionTone, label: "No iniciada", error: null };
+    return {
+      tone: "pending" as EmissionTone,
+      label: "Reiniciar emisión",
+      error: "Salida añadida o cambiada después de empezar: pulsa «Aplicar cambios» para emitirla.",
+    };
   }
   return { tone: "idle" as EmissionTone, label: "Sin iniciar", error: null };
 }
@@ -274,6 +279,7 @@ export function StreamingTab({
   onChange,
   streamStatus = null,
   streamBusy = false,
+  onRestartStream,
 }: Props) {
   const st = settings.streaming;
   const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
@@ -400,7 +406,20 @@ export function StreamingTab({
       <div className="stream-status-panel" aria-label="Estado de las emisiones">
         <div className="stream-status-head">
           <span>Estado de las emisiones</span>
-          <span className={`stream-status-summary ${headerTone}`}>{headerLabel}</span>
+          <span className="stream-status-head-actions">
+            {streamStatus?.running && onRestartStream && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={streamBusy}
+                onClick={onRestartStream}
+                title="Detener y volver a emitir para aplicar las salidas y ajustes nuevos"
+              >
+                {streamBusy ? "Aplicando…" : "Aplicar cambios"}
+              </button>
+            )}
+            <span className={`stream-status-summary ${headerTone}`}>{headerLabel}</span>
+          </span>
         </div>
         {rows.map((row) => (
           <div className="stream-status-item" key={row.key}>
