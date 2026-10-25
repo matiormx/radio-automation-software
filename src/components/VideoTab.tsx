@@ -21,6 +21,7 @@ interface Props {
 
 const INPUT_KIND: Record<VideoInputKind, string> = {
   file: "Archivo",
+  capture: "Captura de vídeo",
   rtmp: "RTMP",
   ndi: "NDI",
 };
@@ -55,6 +56,7 @@ function newOutput(): VideoOutput {
 }
 
 function inputPlaceholder(kind: VideoInputKind): string {
+  if (kind === "capture") return "Cámara web o capturadora HDMI";
   if (kind === "rtmp") return "rtmp://servidor/live/clave";
   if (kind === "ndi") return "NOMBRE DE LA FUENTE NDI";
   return "Ruta del archivo de vídeo";
@@ -225,7 +227,7 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
       <fieldset className="fieldset">
         <legend>Canales de entrada</legend>
         {v.inputs.length === 0 && (
-          <p className="hint">Añade un archivo, una fuente RTMP o una fuente NDI.</p>
+          <p className="hint">Añade un archivo, una captura de vídeo, una fuente RTMP o una fuente NDI.</p>
         )}
         {v.inputs.map((ch) => (
           <div className="io-card" key={ch.id}>
@@ -299,14 +301,24 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
                 </button>
               </div>
             ) : (
-              <label className="field">
-                <span className="field-label">Fuente</span>
-                <input
-                  value={ch.source}
-                  placeholder={inputPlaceholder(ch.kind)}
-                  onChange={(e) => updateInput(ch.id, { source: e.target.value })}
-                />
-              </label>
+              <>
+                <label className="field">
+                  <span className="field-label">Fuente</span>
+                  <input
+                    value={ch.source}
+                    placeholder={inputPlaceholder(ch.kind)}
+                    onChange={(e) => updateInput(ch.id, { source: e.target.value })}
+                  />
+                </label>
+                {ch.kind === "capture" && (
+                  <p className="hint">
+                    En Windows escribe el nombre exacto del dispositivo que
+                    muestra{" "}
+                    <code>ffmpeg -list_devices true -f dshow -i dummy</code>.
+                    En Linux puedes usar <code>/dev/video0</code>.
+                  </p>
+                )}
+              </>
             )}
           </div>
         ))}

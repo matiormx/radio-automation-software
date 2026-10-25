@@ -79,9 +79,10 @@ biblioteca y reglas de rotación).
   del equipo o la predeterminada. El **VU vertical** entre la biblioteca y
   la lista muestra el nivel de la salida general o del bus elegido en
   Sonido.
-- **Vídeo y streaming**: canales de entrada (archivo, RTMP o NDI con
-  descubrimiento de fuentes) y de salida (pantalla/HDMI, tarjeta SDI, NDI o
-  RTMP), con formato y FPS por salida (y bitrate en RTMP). El motor FFmpeg
+- **Vídeo y streaming**: canales de entrada (archivo, captura de vídeo,
+  RTMP o NDI con descubrimiento de fuentes) y de salida (pantalla/HDMI,
+  tarjeta SDI, NDI o RTMP), con formato y FPS por salida (y bitrate en RTMP).
+  El motor FFmpeg
   emite audio por Icecast en FLAC o AAC y vídeo por RTMP o NDI; se inicia y
   detiene con el botón **EMITIR** de la cabecera.
 - **Arranque y silencio**: en Ajustes > General se puede reproducir la
@@ -187,10 +188,16 @@ campaña sigue activa hasta que se desactive o se le ponga una fecha.
 ## Vídeo y streaming
 
 En **Ajustes > Vídeo** se definen los canales de entrada y salida. Las
-entradas pueden ser archivos de vídeo, URLs RTMP o fuentes NDI descubiertas
-en la red; las salidas, una pantalla/HDMI, una tarjeta SDI, una fuente NDI o
-una URL RTMP. Cada salida guarda su resolución y FPS (y bitrate en RTMP). La
+entradas pueden ser archivos de vídeo, cámaras/capturadoras, URLs RTMP o
+fuentes NDI descubiertas en la red; las salidas, una pantalla/HDMI, una
+tarjeta SDI, una fuente NDI o una URL RTMP. Cada salida guarda su resolución y
+FPS (y bitrate en RTMP). La
 mezcla inicial hace cortes entre la fuente activa.
+
+La captura de vídeo usa DirectShow en Windows, V4L2 en Linux y AVFoundation en
+macOS. En Windows, el nombre debe coincidir con el que lista
+`ffmpeg -list_devices true -f dshow -i dummy`; en Linux se puede usar
+`/dev/video0`.
 
 En **Ajustes > Streaming** se configuran una o varias emisiones de audio por
 Icecast (FLAC sin pérdida o AAC con bitrate) con servidor, puerto, montaje,

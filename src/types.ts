@@ -381,14 +381,14 @@ export interface MixerBus {
   sends?: MixerSend[];
 }
 
-export type VideoInputKind = "file" | "rtmp" | "ndi";
+export type VideoInputKind = "file" | "rtmp" | "ndi" | "capture";
 export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtmp";
 
 export interface VideoInput {
   id: string;
   name: string;
   kind: VideoInputKind;
-  /** Ruta de archivo, URL RTMP o nombre de la fuente NDI */
+  /** Ruta de archivo, URL RTMP, nombre NDI o dispositivo de captura */
   source: string;
   enabled: boolean;
 }

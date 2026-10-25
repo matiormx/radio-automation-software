@@ -543,7 +543,7 @@ impl Default for StationEvent {
 pub struct VideoInput {
     pub id: String,
     pub name: String,
-    /// "file", "rtmp" o "ndi"
+    /// "file", "rtmp", "ndi" o "capture"
     pub kind: String,
     pub source: String,
     pub enabled: bool,

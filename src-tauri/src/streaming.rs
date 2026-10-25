@@ -1086,6 +1086,7 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
             arg("-i"),
             source.to_string(),
         ]),
+        "capture" => capture_input_args(source),
         "rtmp" => Ok(vec![arg("-i"), source.to_string()]),
         "ndi" => {
             let device = ndi_device.ok_or_else(|| {
@@ -1101,6 +1102,52 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
         }
         other => Err(format!("tipo de entrada de vídeo desconocido: {other}")),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_input_args(source: &str) -> Result<Vec<String>, String> {
+    let raw = source.trim();
+    let raw = if raw.to_ascii_lowercase().starts_with("video=") {
+        &raw[6..]
+    } else {
+        raw
+    };
+    let raw = raw.trim().trim_matches('"');
+    Ok(vec![
+        arg("-f"),
+        arg("dshow"),
+        arg("-i"),
+        format!("video={raw}"),
+    ])
+}
+
+#[cfg(target_os = "linux")]
+fn capture_input_args(source: &str) -> Result<Vec<String>, String> {
+    let source = source.trim().trim_matches('"');
+    let device = if source.starts_with('/') {
+        source.to_string()
+    } else if source.chars().all(|c| c.is_ascii_digit()) {
+        format!("/dev/video{source}")
+    } else {
+        source.to_string()
+    };
+    Ok(vec![arg("-f"), arg("v4l2"), arg("-i"), device])
+}
+
+#[cfg(target_os = "macos")]
+fn capture_input_args(source: &str) -> Result<Vec<String>, String> {
+    let source = source.trim().trim_matches('"');
+    let device = if source.contains(':') {
+        source.to_string()
+    } else {
+        format!("{source}:none")
+    };
+    Ok(vec![arg("-f"), arg("avfoundation"), arg("-i"), device])
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn capture_input_args(_source: &str) -> Result<Vec<String>, String> {
+    Err("la captura de vídeo no está soportada en este sistema".to_string())
 }
 
 fn base_input_args() -> Vec<String> {
