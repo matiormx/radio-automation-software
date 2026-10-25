@@ -474,6 +474,8 @@ export interface VideoScreenSettings {
   captureInputId?: string;
   /** Espejo horizontal solo en la ventana de los locutores */
   mirror?: boolean;
+  /** Si la capturadora no tiene señal: "program" (lo que suena, por defecto) o "none" (negro) */
+  captureFallback?: "program" | "none";
 }
 
 export type IcecastCodec = "flac" | "aac";

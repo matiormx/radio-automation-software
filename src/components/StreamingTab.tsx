@@ -222,7 +222,7 @@ function VideoRoutingFields({
             value={videoInputId || "program"}
             onChange={(e) => onChange({ videoInputId: e.target.value })}
           >
-            <option value="program">Programa de MiRadio (lo que está sonando)</option>
+            <option value="program">Pantalla de emisión de MiRadio (capturadora con respaldo, o lo que suena)</option>
             {inputs.map((input) => (
               <option key={input.id} value={input.id}>
                 {input.name.trim() || input.source} · {input.kind}
@@ -510,7 +510,7 @@ export function StreamingTab({
           checked={!!st.autoStart}
           onChange={(e) => set({ autoStart: e.target.checked })}
         />
-        <span>Emitir al iniciar MiRadio (pulsa EMITIR solo, unos segundos después de abrir)</span>
+        <span>Emitir el audio al iniciar MiRadio (el vídeo nunca arranca solo)</span>
       </label>
 
       <fieldset className="fieldset">
@@ -979,8 +979,9 @@ export function StreamingTab({
                           ))}
                         </select>
                         <span className="hint">
-                          Si la entrada principal se desconecta, se emite automáticamente el
-                          respaldo. La pantalla de programa debe estar abierta en Ajustes &gt; Vídeo.
+                          Solo actúa si FFmpeg pierde la entrada (desconexión). Para que una capturadora
+                          sin señal pase sola a lo que suena, emite «Pantalla de emisión» y elige la
+                          capturadora y su respaldo en Ajustes &gt; Vídeo (la ventana debe estar abierta).
                         </span>
                       </label>
                     )}

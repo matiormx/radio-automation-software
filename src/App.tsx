@@ -1932,65 +1932,6 @@ export default function App() {
     [showToast],
   );
 
-  const toggleStreaming = useCallback(async () => {
-    if (streamBusy) return;
-    if (streamStatus?.running) {
-      setStreamBusy(true);
-      try {
-        await streamEncoderRef.current?.stop();
-        streamEncoderRef.current = null;
-        setStreamStatus(await stopStreaming());
-        showToast("Emisión detenida");
-      } catch (error) {
-        showToast(`No se pudo detener la emisión: ${String(error)}`);
-      } finally {
-        setStreamBusy(false);
-      }
-      return;
-    }
-    if (!hasStreamOutputs) {
-      showToast("Configura una salida Icecast, RTMP o de vídeo antes de emitir");
-      return;
-    }
-    const mixer = mixerRef.current;
-    if (!mixer) {
-      showToast("La mesa de sonido todavía no está lista");
-      return;
-    }
-    setStreamBusy(true);
-    let failedStatus: StreamStatus | null = null;
-    try {
-      const status = await startStreaming(settings);
-      if (!status.running) {
-        failedStatus = status;
-        setStreamStatus(status);
-        throw new Error(status.lastError ?? "No se pudo iniciar la emisión");
-      }
-      setStreamStatus(status);
-      // Con el motor nativo el audio llega a los encoders desde Rust.
-      if (status.needsAudio && !(playerRef.current instanceof NativePlayer)) {
-        const encoder = new StreamEncoder(mixer, failStreaming);
-        await encoder.start();
-        streamEncoderRef.current = encoder;
-      }
-      showToast(status.lastError ?? "Emisión iniciada");
-    } catch (error) {
-      await streamEncoderRef.current?.stop();
-      streamEncoderRef.current = null;
-      if (failedStatus) {
-        // No había procesos vivos: conservamos el estado con el error de cada
-        // salida para que el panel de Ajustes muestre qué falló.
-        setStreamStatus(failedStatus);
-      } else {
-        await stopStreaming()
-          .then(setStreamStatus)
-          .catch(() => setStreamStatus(null));
-      }
-      showToast(error instanceof Error ? error.message : String(error));
-    } finally {
-      setStreamBusy(false);
-    }
-  }, [streamBusy, streamStatus?.running, hasStreamOutputs, settings, failStreaming, showToast]);
 
   /** Detiene y vuelve a arrancar para aplicar salidas o ajustes nuevos. */
   const restartStreaming = useCallback(async () => {
@@ -2003,10 +1944,15 @@ export default function App() {
     setStreamBusy(true);
     let failedStatus: StreamStatus | null = null;
     try {
+      // Solo se rearranca lo que estaba en marcha (el vídeo no se enciende solo).
+      const outs = streamStatusRef.current?.outputs ?? [];
+      const audioOn = outs.some((o) => o.running && o.kind === "icecast");
+      const videoOn = outs.some((o) => o.running && o.kind !== "icecast");
+      const group = audioOn && videoOn ? "all" : videoOn ? "video" : "audio";
       await streamEncoderRef.current?.stop();
       streamEncoderRef.current = null;
       await stopStreaming().catch(() => undefined);
-      const status = await startStreaming(settingsRef.current);
+      const status = await startStreaming(settingsRef.current, group);
       if (!status.running) {
         failedStatus = status;
         setStreamStatus(status);
@@ -2071,15 +2017,16 @@ export default function App() {
 
   // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
   const autoStreamDone = useRef(false);
-  const toggleStreamingRef = useRef(toggleStreaming);
-  toggleStreamingRef.current = toggleStreaming;
+  const setStreamGroupRef = useRef(setStreamGroup);
+  setStreamGroupRef.current = setStreamGroup;
   useEffect(() => {
     if (autoStreamDone.current || !mixer || !settings.streaming?.autoStart || !hasStreamOutputs) return;
     autoStreamDone.current = true;
     // Sin limpiar el temporizador: si cambian los ajustes en esos segundos,
     // la emision tiene que arrancar igual (y solo una vez).
     window.setTimeout(() => {
-      if (!streamStatusRef.current?.running) void toggleStreamingRef.current();
+      // Solo el audio: el vídeo nunca arranca solo (se lanza con EMITIR VÍDEO).
+      if (!streamStatusRef.current?.running) void setStreamGroupRef.current("audio", true);
     }, 3000);
   }, [mixer, settings.streaming?.autoStart, hasStreamOutputs]);
 
@@ -3125,6 +3072,7 @@ export default function App() {
           ...base,
           trackId: `capture:${input.id}`,
           mirror: vs.mirror ?? false,
+          captureFallback: vs.captureFallback === "none" ? "none" : "program",
           capture: { source: input.source, deviceId: input.deviceId },
         };
       }

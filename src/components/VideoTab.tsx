@@ -215,6 +215,23 @@ export function VideoTab({ settings, onChange }: Props) {
           />
           Espejo horizontal (solo en este monitor)
         </label>
+        {vs.source === "capture" && (
+          <label className="field">
+            <span className="field-label">Respaldo si la capturadora no tiene señal</span>
+            <select
+              value={vs.captureFallback === "none" ? "none" : "program"}
+              onChange={(e) => setVs({ captureFallback: e.target.value === "none" ? "none" : "program" })}
+            >
+              <option value="program">Lo que está sonando (vídeo o portada)</option>
+              <option value="none">Negro</option>
+            </select>
+            <small className="hint">
+              Si la capturadora se desconecta, deja de mandar imagen o da negro más de 3 s, se pasa solo a lo que suena y
+              vuelve en cuanto llega imagen. Las salidas de Streaming que emiten «la pantalla de emisión» llevan este mismo
+              respaldo.
+            </small>
+          </label>
+        )}
         {captureInputs.length === 0 && (
           <p className="hint">
             Añade y activa una entrada de tipo «Captura de vídeo» para poder mostrarla en la pantalla externa.

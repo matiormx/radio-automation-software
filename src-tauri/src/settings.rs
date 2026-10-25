@@ -36,6 +36,8 @@ pub struct VideoScreenSettings {
     pub capture_input_id: String,
     /// Espejo horizontal solo en la ventana de los locutores
     pub mirror: bool,
+    /// Si la capturadora no tiene senal: "program" (lo que suena) o "none" (negro)
+    pub capture_fallback: String,
 }
 
 impl Default for VideoScreenSettings {
@@ -47,6 +49,7 @@ impl Default for VideoScreenSettings {
             source: "program".into(),
             capture_input_id: String::new(),
             mirror: false,
+            capture_fallback: "program".into(),
         }
     }
 }
