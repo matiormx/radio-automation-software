@@ -425,6 +425,13 @@ export default function App() {
       (settings.video.enabled && settings.video.outputs.some((output) => output.enabled)),
     [settings.streaming.icecast, settings.video.enabled, settings.video.outputs],
   );
+  const audioStreamRunning =
+    streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
+  const videoStreamRunning =
+    streamStatus?.outputs.some((output) => output.running && output.kind !== "icecast") ?? false;
+  const audioStreamReady = settings.streaming.icecast.some((stream) => stream.enabled);
+  const videoStreamReady =
+    settings.video.enabled && settings.video.outputs.some((output) => output.enabled);
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
   const [native, setNative] = useState<NativePlayer | null>(null);
@@ -3085,22 +3092,37 @@ export default function App() {
           </label>
           <button
             type="button"
-            className={`top-live ${streamStatus?.running ? "live" : ""} ${
-              streamBusy ? "busy" : ""
-            }`}
-            onClick={() => void toggleStreaming()}
-            disabled={streamBusy || (!streamStatus?.running && !hasStreamOutputs)}
-            aria-pressed={streamStatus?.running ?? false}
+            className={`top-live ${audioStreamRunning ? "live" : ""} ${streamBusy ? "busy" : ""}`}
+            onClick={() => void setStreamGroup("audio", !audioStreamRunning)}
+            disabled={streamBusy || (!audioStreamRunning && !audioStreamReady)}
+            aria-pressed={audioStreamRunning}
             title={
-              streamStatus?.running
-                ? "Detener la emisión"
-                : hasStreamOutputs
-                  ? streamStatus?.lastError ?? "Iniciar la emisión"
-                  : "Configura una salida en Ajustes > Streaming"
+              audioStreamRunning
+                ? "Detener la emisión de audio"
+                : audioStreamReady
+                  ? "Iniciar la emisión de audio"
+                  : "Configura una salida Icecast en Streaming"
             }
           >
             <span className="top-live-dot" />
-            <span>{streamBusy ? "CONECTANDO" : streamStatus?.running ? "EN VIVO" : "EMITIR"}</span>
+            <span>{audioStreamRunning ? "AUDIO · EN VIVO" : "EMITIR AUDIO"}</span>
+          </button>
+          <button
+            type="button"
+            className={`top-live ${videoStreamRunning ? "live" : ""} ${streamBusy ? "busy" : ""}`}
+            onClick={() => void setStreamGroup("video", !videoStreamRunning)}
+            disabled={streamBusy || (!videoStreamRunning && !videoStreamReady)}
+            aria-pressed={videoStreamRunning}
+            title={
+              videoStreamRunning
+                ? "Detener la emisión de vídeo"
+                : videoStreamReady
+                  ? "Iniciar la emisión de vídeo"
+                  : "Configura una salida de vídeo en Streaming"
+            }
+          >
+            <span className="top-live-dot" />
+            <span>{videoStreamRunning ? "VÍDEO · EN VIVO" : "EMITIR VÍDEO"}</span>
           </button>
           <Clock />
           <button
