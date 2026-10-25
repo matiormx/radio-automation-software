@@ -574,6 +574,17 @@ function MixerBoard({
 }) {
   const channels = s.mixerChannels ?? [];
   const buses = s.mixerBuses ?? [];
+  // Todas las tiras con la cabecera igual de alta: los faders quedan alineados
+  // aunque una tira tenga mas envios, plugins o ranuras que otra.
+  const stripsRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const root = stripsRef.current;
+    if (!root) return;
+    const tops = Array.from(root.querySelectorAll<HTMLElement>(".mx-top"));
+    for (const t of tops) t.style.minHeight = "";
+    const max = Math.max(0, ...tops.map((t) => t.offsetHeight));
+    for (const t of tops) t.style.minHeight = `${max}px`;
+  });
   // Motor nativo: las entradas guardadas con el id del WebView se pasan al
   // nombre de la tarjeta en el sistema (mismo nombre que ve Windows).
   useEffect(() => {
@@ -718,7 +729,7 @@ function MixerBoard({
           </span>
         </div>
       </div>
-      <div className="mx-strips">
+      <div className="mx-strips" ref={stripsRef}>
         {channels.length === 0 && buses.length === 0 && (
           <div className="mx-empty">
             Sin canales. La música sale por la salida predeterminada. Crea un canal para empezar.
@@ -754,9 +765,11 @@ function MixerBoard({
         ))}
         <div className="mx-sep" />
         <section className="mx-strip mx-master" aria-label="Master">
+          <div className="mx-top">
           <div className="mx-section mx-grow-top">
             <span className="mx-label">MASTER · SALIDAS</span>
             <span className="mx-hint">Volumen de las salidas de tarjeta. No afecta al streaming.</span>
+          </div>
           </div>
           <div className="mx-fader-row">
             <Fader
@@ -897,6 +910,7 @@ function ChannelStrip({
 
   return (
     <section className="mx-strip" aria-label={ch.name}>
+      <div className="mx-top">
       <div className="mx-section">
         <span className="mx-label">ENTRADA</span>
         <button type="button" className="mx-slot" title={inputLabel} onClick={() => setPop(pop === "in" ? "" : "in")}>
@@ -1212,6 +1226,7 @@ function ChannelStrip({
         </button>
       </div>
 
+      </div>
       <div className="mx-fader-row">
         <Fader
           db={ch.gainDb}
@@ -1257,6 +1272,7 @@ function BusStrip({
   const key = `bus:${bus.id}`;
   return (
     <section className="mx-strip mx-bus" aria-label={bus.name}>
+      <div className="mx-top">
       <div className="mx-section">
         <span className="mx-label">ENTRADA{isMonitor ? " · VU" : ""}</span>
         <span className="mx-slot mx-slot-bus" title={`Lo que envían los canales al bus «${bus.name}»`}>
@@ -1339,6 +1355,7 @@ function BusStrip({
         >
           M
         </button>
+      </div>
       </div>
       <div className="mx-fader-row">
         <Fader
