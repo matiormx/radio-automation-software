@@ -314,7 +314,7 @@ pub fn stream_start(
             } else {
                 None
             };
-            let args = if kind == "rtmp" && use_program {
+            let args = if use_program && kind == "rtmp" {
                 program_video_input_args(output.fps, gfxcapture).and_then(|video_args| {
                     rtmp_args_for_video(
                         video_args,
@@ -328,6 +328,9 @@ pub fn stream_start(
                         false,
                     )
                 })
+            } else if use_program && kind == "screen" {
+                program_video_input_args(output.fps, gfxcapture)
+                    .and_then(|video_args| video_output_args_for_source(output, video_args))
             } else {
                 match kind.as_str() {
                 "screen" | "decklink" => {
@@ -385,7 +388,7 @@ pub fn stream_start(
                         video_ffmpeg
                     };
                     // Respaldo automatico cuando la entrada principal se pierde.
-                    let fallback = if kind == "rtmp" {
+                    let fallback = if kind == "rtmp" || kind == "screen" {
                         let backup = output.fallback_video_input_id.trim();
                         if backup.is_empty() {
                             None
@@ -407,19 +410,23 @@ pub fn stream_start(
                             };
                             let backup_args = if backup == "program" {
                                 program_video_input_args(output.fps, gfxcapture).and_then(|video_args| {
-                                    rtmp_args_for_video(
-                                        video_args,
-                                        &output.source,
-                                        output.width,
-                                        output.height,
-                                        output.fps,
-                                        output.bitrate_kbps,
-                                        2,
-                                        output_audio,
-                                        false,
-                                    )
+                                    if kind == "rtmp" {
+                                        rtmp_args_for_video(
+                                            video_args,
+                                            &output.source,
+                                            output.width,
+                                            output.height,
+                                            output.fps,
+                                            output.bitrate_kbps,
+                                            2,
+                                            output_audio,
+                                            false,
+                                        )
+                                    } else {
+                                        video_output_args_for_source(output, video_args)
+                                    }
                                 })
-                            } else {
+                            } else if kind == "rtmp" {
                                 rtmp_args(
                                     &settings.video,
                                     &output.source,
@@ -432,12 +439,14 @@ pub fn stream_start(
                                     Some(backup),
                                     output_audio,
                                 )
+                            } else {
+                                video_output_args(output, &settings.video, ndi_device, Some(backup))
                             };
                             match backup_args {
                                 Ok(args) => Some(FallbackProcess {
                                     ffmpeg: backup_ffmpeg.to_path_buf(),
                                     args,
-                                    wants_audio: output_audio.is_none(),
+                                    wants_audio: kind == "rtmp" && output_audio.is_none(),
                                 }),
                                 Err(error) => {
                                     errors.push(format!("{name} (respaldo): {error}"));
@@ -1253,7 +1262,13 @@ fn video_output_args(
         return Err("activa el motor de vídeo".to_string());
     }
     let input = pick_video_input(video, preferred_input)?;
-    let mut args = video_input_args(input, ndi_device)?;
+    video_output_args_for_source(output, video_input_args(input, ndi_device)?)
+}
+
+fn video_output_args_for_source(
+    output: &VideoOutput,
+    mut args: Vec<String>,
+) -> Result<Vec<String>, String> {
     let width = even_size(output.width, 16);
     let height = even_size(output.height, 16);
     let fps = output.fps.clamp(1, 120);

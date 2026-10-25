@@ -936,7 +936,7 @@ export function StreamingTab({
                       onChange={(patch) => updateVideoOutput(output.id, patch)}
                       onRefreshAudio={refreshCapture}
                     />
-                    {output.kind === "rtmp" && (
+                    {(output.kind === "rtmp" || output.kind === "screen") && (
                       <label className="field">
                         <span className="field-label">Vídeo de respaldo si falla el principal</span>
                         <select
