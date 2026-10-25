@@ -82,11 +82,12 @@ import { ChatPanel } from "./components/ChatPanel";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { NativeAppFeed } from "./nativeFeed";
 import { NativePlayer } from "./nativeEngine";
-import { closeVideoOut, openToolWindow, openVideoOut, prewarmToolWindow, publishState, serveMain } from "./bridge";
+import { closeVideoOut, openToolWindow, openVideoOut, publishState, serveMain } from "./bridge";
 import type { VideoState } from "./videoSurface";
 import { apiApply, apiPublish, backupLastImportLog, notifyFire } from "./api";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
+import { Clock } from "./components/Clock";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
@@ -377,7 +378,6 @@ export default function App() {
   const [dropBlockId, setDropBlockId] = useState("");
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
-  const [clock, setClock] = useState("");
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [pendingInserts, setPendingInserts] = useState<PendingInsert[]>([]);
   // ---- emision de internet de un evento ----
@@ -463,15 +463,9 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(""), 3200);
   }, []);
 
-  // Reloj
+  // Los eventos cambian por minutos; no hace falta re-renderizar cada segundo.
   useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setClock(now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-      setNowTick(now.getTime());
-    };
-    tick();
-    const t = window.setInterval(tick, 1000);
+    const t = window.setInterval(() => setNowTick(Date.now()), 10_000);
     return () => window.clearInterval(t);
   }, []);
 
@@ -1115,6 +1109,7 @@ export default function App() {
 
   // Guardar la sesion para poder continuar donde se quedo al reabrir.
   useEffect(() => {
+    let last = "";
     const save = () => {
       const index = playingRowRef.current;
       const row = index >= 0 ? rowsRef.current[index] : null;
@@ -1125,10 +1120,13 @@ export default function App() {
         playing: index >= 0 && !pausedStateRef.current,
         updatedAt: Date.now(),
       };
+      const key = `${session.playlistId}|${session.trackId}|${Math.round(session.positionSecs)}|${session.playing}`;
+      if (key === last) return;
+      last = key;
       void saveSession(session).catch(() => undefined);
     };
-    // Cada 2 s: al reabrir, como mucho se pierden 2 s de posicion.
-    const timer = window.setInterval(save, 2000);
+    // En pausa no cambia nada: no se reescribe el archivo sin necesidad.
+    const timer = window.setInterval(save, 3000);
     return () => {
       window.clearInterval(timer);
       save();
@@ -2611,6 +2609,7 @@ export default function App() {
   const pausedNowRef = useRef(paused);
   pausedNowRef.current = paused;
   const publishApiState = useCallback(() => {
+    if (!settingsRef.current.api?.enabled) return;
     const idx = playingRowRef.current;
     const list = rowsRef.current;
     const byId = new Map(tracksRef.current.map((t) => [t.id, t]));
@@ -2759,7 +2758,11 @@ export default function App() {
 
   // Estado de la emision (API y notificaciones): servidor conectado / caido.
   const streamWasRef = useRef<boolean | null>(null);
+  const needsServerStatus =
+    !!settings.api?.enabled ||
+    !!settings.notifications?.some((n) => n.enabled && n.events.includes("server"));
   useEffect(() => {
+    if (!needsServerStatus) return;
     const t = window.setInterval(() => {
       void getStreamStatus()
         .then((st) => {
@@ -2772,9 +2775,9 @@ export default function App() {
           }
         })
         .catch(() => undefined);
-    }, 3000);
+    }, 5000);
     return () => window.clearInterval(t);
-  }, []);
+  }, [needsServerStatus]);
 
   // ---- ventanas de herramientas (Ajustes...) ----
   const bridgeRef = useRef<Record<string, (...args: never[]) => unknown>>({});
@@ -2943,11 +2946,6 @@ export default function App() {
       })
       .catch(() => undefined);
   }, [showToast]);
-  // Ajustes se carga oculta poco despues de arrancar: abrirla es instantaneo.
-  useEffect(() => {
-    const t = window.setTimeout(() => void prewarmToolWindow("settings"), 4000);
-    return () => window.clearTimeout(t);
-  }, []);
   // Medidores de la mesa web para la ventana Mixer (el motor nativo manda los suyos).
   const [metersOn, setMetersOn] = useState(false);
   useEffect(() => {
@@ -3081,7 +3079,7 @@ export default function App() {
             <span className="top-live-dot" />
             <span>{streamBusy ? "CONECTANDO" : streamStatus?.running ? "EN VIVO" : "EMITIR"}</span>
           </button>
-          <span className="clock" role="timer">{clock}</span>
+          <Clock />
           <button
             type="button"
             className={`btn btn-sm top-action ${normStatus ? "top-action-busy" : ""}`}

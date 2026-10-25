@@ -61,13 +61,6 @@ export function SettingsWindow() {
       }),
     );
     offs.push(listen("library://changed", () => void refreshLibrary()));
-    // Cerrar solo oculta: asi vuelve a abrirse al instante.
-    offs.push(
-      getCurrentWindow().onCloseRequested(async (event) => {
-        event.preventDefault();
-        await getCurrentWindow().hide();
-      }),
-    );
     // Pide el estado real; si la principal esta ocupada, reintenta en vez de esperar.
     let alive = true;
     let got = false;
@@ -128,7 +121,7 @@ export function SettingsWindow() {
         blocks={blocks}
         hidden={false}
         onChange={onChange}
-        onClose={() => void getCurrentWindow().hide()}
+        onClose={() => void getCurrentWindow().close()}
         onPickMusicFolder={async () => {
           await call("chooseMusicFolder");
         }}

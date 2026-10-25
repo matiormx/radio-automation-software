@@ -1774,6 +1774,8 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 }
 
 .nav-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 23px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1997,6 +1999,8 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 }
 
 .brow {
+  content-visibility: auto;
+  contain-intrinsic-size: 42px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 92px 70px 44px;
   gap: 6px;

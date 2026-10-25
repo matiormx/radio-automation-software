@@ -373,7 +373,12 @@ export function MusicBrowser({
   const [separatorValue, setSeparatorValue] = useState("");
   const [draggingBlock, setDraggingBlock] = useState("");
   const [dragOverBlock, setDragOverBlock] = useState("");
+  const [visibleCount, setVisibleCount] = useState(250);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setVisibleCount(250);
+  }, [mode, selection, query, sort.key, sort.dir, tracks.length]);
 
   const blockNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -1501,8 +1506,21 @@ export function MusicBrowser({
                 : "No hay canciones con este filtro."}
             </div>
           ) : (
-            <div className="browser-rows" role="list" onClick={() => setSelectedId("")}>
-              {filtered.map((t) => rowFor(t))}
+            <div
+              className="browser-rows"
+              role="list"
+              onClick={() => setSelectedId("")}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                if (el.scrollTop + el.clientHeight < el.scrollHeight - 240) return;
+                if (visibleCount >= filtered.length) return;
+                setVisibleCount((count) => Math.min(filtered.length, count + 250));
+              }}
+            >
+              {filtered.slice(0, visibleCount).map((t) => rowFor(t))}
+              {visibleCount < filtered.length && (
+                <div className="empty-note">Desplázate para cargar más canciones…</div>
+              )}
             </div>
           )}
         </div>
