@@ -77,7 +77,19 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
             section = "audio";
             continue;
         }
-        if section.is_empty() || !line.contains(&format!("({section})")) {
+        if line.contains("Alternative name") {
+            continue;
+        }
+        // Segun la version de FFmpeg el tipo va en un encabezado, al final de
+        // la linea (… (video)) o en ambos sitios.
+        let kind = if line.contains("(video)") {
+            "video"
+        } else if line.contains("(audio)") {
+            "audio"
+        } else {
+            section
+        };
+        if kind.is_empty() {
             continue;
         }
         let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) else {
@@ -89,15 +101,27 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         let name = line[start + 1..end].trim();
         if name.is_empty()
             || name.starts_with("@device")
-            || list.iter().any(|device| device.name == name && device.kind == section)
+            || list.iter().any(|device| device.name == name && device.kind == kind)
         {
             continue;
         }
         list.push(CaptureDevice {
             id: name.to_string(),
             name: name.to_string(),
-            kind: section.to_string(),
+            kind: kind.to_string(),
         });
+    }
+    if list.is_empty() {
+        let mut tail: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        tail = tail.split_off(tail.len().saturating_sub(8));
+        return Err(format!(
+            "FFmpeg no devolvió dispositivos. Revisa la salida de «ffmpeg -list_devices true -f dshow -i dummy»: {}",
+            tail.join(" | ")
+        ));
     }
     Ok(list)
 }
