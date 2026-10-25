@@ -1,5 +1,5 @@
 import { DeezerSearch } from "./DeezerSearch";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
 import type { AiSettings, Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
@@ -328,7 +328,7 @@ function FolderTree({
   );
 }
 
-export function MusicBrowser({
+function MusicBrowserBase({
   tracks,
   blocks,
   history,
@@ -1948,3 +1948,5 @@ export function MusicBrowser({
     </section>
   );
 }
+
+export const MusicBrowser = memo(MusicBrowserBase);

@@ -1291,6 +1291,14 @@ export default function App() {
     [showToast],
   );
 
+  const handleDeleteTrack = useCallback(
+    (track: Track) => void removeTrack(track),
+    [removeTrack],
+  );
+  const handleEditCuts = useCallback((track: Track) => setCutsTrackId(track.id), []);
+  const handlePendingEditDone = useCallback(() => setPendingEdit(null), []);
+
+
   // ---- bloques musicales ----
   const handleCreateBlock = useCallback(
     async (name: string) => {
@@ -3170,13 +3178,13 @@ export default function App() {
                 onRenameBlock={handleRenameBlock}
                 onDeleteBlock={handleDeleteBlock}
                 onScan={scanMusicFolder}
-                onPickFiles={() => void pickFiles()}
+                onPickFiles={pickFiles}
                 onAdd={addTrack}
-                onDelete={(t) => void removeTrack(t)}
+                onDelete={handleDeleteTrack}
                 onTrackSaved={refreshTracksAndBlocks}
-                onEditCuts={(t) => setCutsTrackId(t.id)}
+                onEditCuts={handleEditCuts}
                 pendingEdit={pendingEdit}
-                onPendingEditDone={() => setPendingEdit(null)}
+                onPendingEditDone={handlePendingEditDone}
                 dropBlockId={dropBlockId}
                 showToast={showToast}
               />

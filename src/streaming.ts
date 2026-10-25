@@ -2,7 +2,7 @@ import { pushStreamPcm } from "./api";
 import type { SoundMixer } from "./mixer";
 
 const CHANNELS = 2;
-const MAX_QUEUE = 4;
+const MAX_QUEUE = 32;
 
 const workletModules = new WeakMap<BaseAudioContext, Promise<void>>();
 
