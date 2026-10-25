@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 use crate::settings::{IcecastStream, Settings, VideoInput, VideoOutput, VideoSettings};
@@ -243,7 +244,7 @@ pub fn stream_start(
         && settings.video.outputs.iter().any(|output| {
             output.enabled && output.kind == "rtmp" && output.fallback_video_input_id == "program"
         })
-        && has_filter(video_ffmpeg, "gfxcapture");
+        && has_filter(&ffmpeg, "gfxcapture");
 
     for stream in settings.streaming.icecast.iter().filter(|s| s.enabled) {
         requested += 1;
@@ -390,7 +391,9 @@ pub fn stream_start(
                                     .find(|input| input.id == backup)
                                     .map(|input| input.kind == "ndi")
                                     .unwrap_or(false);
-                            let backup_ffmpeg = if backup_is_ndi {
+                            let backup_ffmpeg = if backup == "program" {
+                                ffmpeg.as_path()
+                            } else if backup_is_ndi {
                                 ndi_ffmpeg.unwrap_or(video_ffmpeg)
                             } else {
                                 video_ffmpeg
