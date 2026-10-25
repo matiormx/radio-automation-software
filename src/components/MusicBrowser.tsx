@@ -65,6 +65,7 @@ export function qualityBadge(t: Track): ReactNode {
 import { AiMetadataModal } from "./AiMetadataModal";
 import {
   IconPlus,
+  IconX,
   IconSearch,
   IconTrash,
   IconImport,
@@ -368,6 +369,9 @@ function MusicBrowserBase({
   const [imp, setImp] = useState<ImportState | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [newBlock, setNewBlock] = useState("");
+  // Alta de listas y grupos: un boton discreto con menu y un campo al elegir.
+  const [addMenu, setAddMenu] = useState(false);
+  const [adding, setAdding] = useState<"" | "block" | "sep">("");
   const [renamingId, setRenamingId] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -635,7 +639,6 @@ function MusicBrowserBase({
     return m;
   }, [tracks]);
 
-  const noBlockCount = useMemo(() => tracks.filter((t) => t.blocks.length === 0).length, [tracks]);
 
   const noTagCount = useMemo(() => tracks.filter((t) => t.tags.length === 0).length, [tracks]);
 
@@ -1364,45 +1367,52 @@ function MusicBrowserBase({
                 );
               })}
               <div className="block-end-drop" data-drop-zone="block-end" aria-hidden="true" />
-              <button
-                type="button"
-                className={`nav-item ${selection === NONE ? "nav-item-on" : ""}`}
-                onClick={() => setSelection(NONE)}
-              >
-                <span className="nav-name">Sin bloque</span>
-                <span className="nav-count">{noBlockCount}</span>
-              </button>
-              <div className="block-new">
-                <input
-                  placeholder="Nuevo bloque…"
-                  value={newBlock}
-                  onChange={(e) => setNewBlock(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void tryCreateBlock();
-                  }}
-                />
-                <button type="button" className="btn btn-sm" onClick={() => void tryCreateBlock()}>
-                  <IconPlus size={13} />
-                </button>
-              </div>
-              <div className="block-new">
-                <input
-                  placeholder="Título del separador…"
-                  value={newSeparator}
-                  onChange={(e) => setNewSeparator(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") addSeparator();
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  title="Añadir separador"
-                  onClick={addSeparator}
-                >
-                  <IconPlus size={13} />
-                </button>
-              </div>
+              {adding ? (
+                <div className="block-new">
+                  <input
+                    autoFocus
+                    placeholder={adding === "block" ? "Nombre de la lista…" : "Nombre del grupo…"}
+                    value={adding === "block" ? newBlock : newSeparator}
+                    onChange={(e) => (adding === "block" ? setNewBlock(e.target.value) : setNewSeparator(e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (adding === "block") void tryCreateBlock().then(() => setAdding(""));
+                        else {
+                          addSeparator();
+                          setAdding("");
+                        }
+                      }
+                      if (e.key === "Escape") setAdding("");
+                    }}
+                  />
+                  <button type="button" className="btn btn-sm" title="Cancelar (Esc)" onClick={() => setAdding("")}>
+                    <IconX size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div className="block-add-wrap">
+                  <button
+                    type="button"
+                    className="block-add"
+                    title="Nueva lista o nuevo grupo"
+                    aria-haspopup="menu"
+                    aria-expanded={addMenu}
+                    onClick={() => setAddMenu((v) => !v)}
+                  >
+                    <IconPlus size={11} /> Nuevo
+                  </button>
+                  {addMenu && (
+                    <div className="block-add-menu" role="menu" onMouseLeave={() => setAddMenu(false)}>
+                      <button type="button" role="menuitem" onClick={() => { setAddMenu(false); setAdding("block"); }}>
+                        Nueva lista
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => { setAddMenu(false); setAdding("sep"); }}>
+                        Nuevo grupo
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 

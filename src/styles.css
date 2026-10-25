@@ -4353,3 +4353,18 @@ body[data-dnd="group"] .block-sep.dnd-over.dnd-over-after { background: none; ou
 body[data-dnd="blockItem"] .nav-item-block.dnd-over-after,
 body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 0 var(--accent, #4f8cff); }
 .block-end-drop.dnd-over { box-shadow: inset 0 2px 0 var(--accent, #4f8cff); }
+
+/* Alta de listas y grupos (un solo botón discreto con menú) */
+.block-add-wrap { position: relative; margin: 6px 4px 0; }
+.block-add {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px;
+  border: 1px dashed transparent; border-radius: 5px; background: none; color: var(--text-faint); cursor: pointer;
+}
+.block-add:hover, .block-add[aria-expanded="true"] { color: var(--text); border-color: var(--line); }
+.block-add-menu {
+  position: absolute; left: 0; top: 100%; z-index: 20; margin-top: 2px; min-width: 140px;
+  display: flex; flex-direction: column; padding: 4px; border-radius: 6px;
+  background: var(--bg-2, #161b22); border: 1px solid var(--line); box-shadow: 0 8px 20px rgba(0,0,0,.4);
+}
+.block-add-menu button { text-align: left; padding: 6px 8px; font-size: 12px; border: 0; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
+.block-add-menu button:hover { background: rgba(79,140,255,.16); }
