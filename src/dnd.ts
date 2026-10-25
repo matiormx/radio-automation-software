@@ -91,6 +91,8 @@ export function beginDrag(e: React.PointerEvent, payload: DragPayload | (() => D
       started = true;
       active = true;
       document.body.classList.add("dnd-active");
+      // Tipo de arrastre para los estilos: un separador arrastra su grupo entero.
+      document.body.dataset.dnd = data.kind === "blockItem" && !data.blockId ? "group" : data.kind;
       ghost = document.createElement("div");
       ghost.className = "dnd-ghost";
       ghost.textContent = data.label;
@@ -154,7 +156,10 @@ export function beginDrag(e: React.PointerEvent, payload: DragPayload | (() => D
     clearOver();
     ghost?.remove();
     ghost = null;
-    if (started) document.body.classList.remove("dnd-active");
+    if (started) {
+      document.body.classList.remove("dnd-active");
+      delete document.body.dataset.dnd;
+    }
     active = false;
   }
 

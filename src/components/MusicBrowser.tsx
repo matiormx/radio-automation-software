@@ -399,8 +399,11 @@ function MusicBrowserBase({
     }
   }, [blockLayout]);
 
-  // Mantiene el orden guardado y descarta bloques que ya no existen.
+  // Mantiene el orden guardado y descarta bloques que ya no existen. Al abrir
+  // la app los bloques aun no han llegado (lista vacia): entonces no se toca
+  // nada, o se perderia el orden guardado.
   useEffect(() => {
+    if (blocks.length === 0) return;
     setBlockLayout((prev) => {
       const valid = new Set(blocks.map((block) => block.id));
       const seen = new Set<string>();
@@ -467,15 +470,52 @@ function MusicBrowserBase({
     setBlockLayout(blockItems.filter((item) => !(item.kind === "separator" && item.id === id)));
   };
 
-  const moveBlockItem = (fromKey: string, toKey: string) => {
+  // Los separadores son contenedores: al mover uno se lleva sus bloques
+  // (hasta el separador siguiente) y solo cae en el borde de otro grupo.
+  const moveBlockItem = (fromKey: string, toKey: string, after = false) => {
     if (!fromKey || !toKey || fromKey === toKey) return;
-    const from = blockItems.findIndex((item) => layoutItemKey(item) === fromKey);
-    const to = blockItems.findIndex((item) => layoutItemKey(item) === toKey);
-    if (from < 0 || to < 0) return;
-    const next = [...blockItems];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setBlockLayout(next);
+    const items = blockItems;
+    const from = items.findIndex((item) => layoutItemKey(item) === fromKey);
+    if (from < 0) return;
+    if (toKey === "__end__") {
+      // Al final de la lista (con su grupo si es un separador).
+      let end = from + 1;
+      if (items[from].kind === "separator") while (end < items.length && items[end].kind !== "separator") end += 1;
+      setBlockLayout([...items.slice(0, from), ...items.slice(end), ...items.slice(from, end)]);
+      return;
+    }
+    const to = items.findIndex((item) => layoutItemKey(item) === toKey);
+    if (to < 0) return;
+    const isSep = (i: number) => items[i]?.kind === "separator";
+    // Grupo de un indice: desde su separador (o el principio) hasta el siguiente.
+    const groupOf = (i: number) => {
+      let start = i;
+      while (start > 0 && !isSep(start)) start -= 1;
+      if (!isSep(start)) start = 0;
+      let end = isSep(i) ? i + 1 : i;
+      while (end < items.length && !isSep(end)) end += 1;
+      return { start, end };
+    };
+    let moved: typeof items;
+    let insertAt: number;
+    if (isSep(from)) {
+      const g = groupOf(from);
+      const tg = groupOf(to);
+      if (to >= g.start && to < g.end) return; // dentro de si mismo
+      moved = items.slice(g.start, g.end);
+      insertAt = after ? tg.end : tg.start;
+      const rest = [...items.slice(0, g.start), ...items.slice(g.end)];
+      if (insertAt > g.start) insertAt -= g.end - g.start;
+      rest.splice(insertAt, 0, ...moved);
+      setBlockLayout(rest);
+      return;
+    }
+    moved = [items[from]];
+    insertAt = after ? to + 1 : to;
+    const rest = items.filter((_, i) => i !== from);
+    if (insertAt > from) insertAt -= 1;
+    rest.splice(insertAt, 0, ...moved);
+    setBlockLayout(rest);
   };
 
   // Bloque cuya lista se esta viendo: soltar canciones en ella las suma al bloque.
@@ -486,11 +526,12 @@ function MusicBrowserBase({
   dropRef.current = { moveBlockItem, onAssignTrackBlock };
   useEffect(() => {
     const offBlock = registerDropZone("block", {
-      accepts: (p, el) => p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && p.key !== el.dataset.key),
-      drop: (p, el) => {
+      accepts: (p, el) =>
+        p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && !!p.blockId && p.key !== el.dataset.key),
+      drop: (p, el, pos) => {
         const blockId = el.dataset.blockId ?? "";
         if (p.kind === "track" || p.kind === "row") dropRef.current.onAssignTrackBlock?.(p.trackId, blockId);
-        else if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "");
+        else if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "", pos.after);
       },
     });
     const offList = registerDropZone("block-list", {
@@ -502,14 +543,22 @@ function MusicBrowserBase({
     });
     const offSep = registerDropZone("block-sep", {
       accepts: (p, el) => p.kind === "blockItem" && p.key !== el.dataset.key,
-      drop: (p, el) => {
-        if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "");
+      drop: (p, el, pos) => {
+        // Un grupo cae siempre delante del separador sobre el que se suelta.
+        if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "", p.blockId ? pos.after : false);
+      },
+    });
+    const offEnd = registerDropZone("block-end", {
+      accepts: (p) => p.kind === "blockItem",
+      drop: (p) => {
+        if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, "__end__");
       },
     });
     return () => {
       offBlock();
       offList();
       offSep();
+      offEnd();
     };
   }, []);
 
@@ -1314,6 +1363,7 @@ function MusicBrowserBase({
                   </div>
                 );
               })}
+              <div className="block-end-drop" data-drop-zone="block-end" aria-hidden="true" />
               <button
                 type="button"
                 className={`nav-item ${selection === NONE ? "nav-item-on" : ""}`}

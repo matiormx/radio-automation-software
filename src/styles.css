@@ -4343,3 +4343,13 @@ body.dnd-active, body.dnd-active * { cursor: grabbing !important; user-select: n
 .browser-main.dnd-over, .browser-main-drop { outline: 2px dashed var(--accent, #4f8cff); outline-offset: -3px; background: rgba(79,140,255,.06); }
 .browser-panel.file-over { outline: 2px dashed var(--accent, #4f8cff); outline-offset: -3px; }
 .nav-item-block.file-over, .browser-main.file-over { background: rgba(79,140,255,.18); outline: 2px dashed var(--accent, #4f8cff); outline-offset: -2px; }
+
+/* Ordenar bloques y grupos: una línea marca dónde caen */
+.block-end-drop { height: 10px; }
+body[data-dnd="blockItem"] .nav-item-block.dnd-over,
+body[data-dnd="blockItem"] .block-sep.dnd-over,
+body[data-dnd="group"] .block-sep.dnd-over,
+body[data-dnd="group"] .block-sep.dnd-over.dnd-over-after { background: none; outline: none; box-shadow: inset 0 2px 0 var(--accent, #4f8cff); }
+body[data-dnd="blockItem"] .nav-item-block.dnd-over-after,
+body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 0 var(--accent, #4f8cff); }
+.block-end-drop.dnd-over { box-shadow: inset 0 2px 0 var(--accent, #4f8cff); }
