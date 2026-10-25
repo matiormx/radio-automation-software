@@ -55,6 +55,31 @@ struct VideoFrameV2 {
     timestamp: i64,
 }
 
+#[repr(C)]
+struct SendCreate {
+    name: *const c_char,
+    groups: *const c_char,
+    clock_video: bool,
+    clock_audio: bool,
+}
+
+#[repr(C)]
+struct AudioFrameV2 {
+    sample_rate: i32,
+    no_channels: i32,
+    no_samples: i32,
+    timecode: i64,
+    data: *mut f32,
+    channel_stride_in_bytes: i32,
+    metadata: *const c_char,
+    timestamp: i64,
+}
+
+/// NDIlib_send_timecode_synthesize: que NDI ponga la marca de tiempo.
+const TIMECODE_SYNTH: i64 = i64::MAX;
+const FOURCC_BGRA: u32 = (b'B' as u32) | ((b'G' as u32) << 8) | ((b'R' as u32) << 16) | ((b'A' as u32) << 24);
+const FORMAT_PROGRESSIVE: i32 = 1;
+
 const COLOR_BGRX_BGRA: i32 = 0;
 const BANDWIDTH_HIGHEST: i32 = 100;
 const FRAME_VIDEO: i32 = 1;
@@ -68,6 +93,10 @@ type FnRecvCreate = unsafe extern "C" fn(*const RecvCreateV3) -> *mut c_void;
 type FnRecvDestroy = unsafe extern "C" fn(*mut c_void);
 type FnRecvCapture = unsafe extern "C" fn(*mut c_void, *mut VideoFrameV2, *mut c_void, *mut c_void, u32) -> i32;
 type FnRecvFreeVideo = unsafe extern "C" fn(*mut c_void, *const VideoFrameV2);
+type FnSendCreate = unsafe extern "C" fn(*const SendCreate) -> *mut c_void;
+type FnSendDestroy = unsafe extern "C" fn(*mut c_void);
+type FnSendVideo = unsafe extern "C" fn(*mut c_void, *const VideoFrameV2);
+type FnSendAudio = unsafe extern "C" fn(*mut c_void, *const AudioFrameV2);
 
 struct Api {
     _lib: Library,
@@ -77,6 +106,10 @@ struct Api {
     recv_destroy: FnRecvDestroy,
     recv_capture: FnRecvCapture,
     recv_free_video: FnRecvFreeVideo,
+    send_create: FnSendCreate,
+    send_destroy: FnSendDestroy,
+    send_video: FnSendVideo,
+    send_audio: FnSendAudio,
     /// Buscador de fuentes (uno para toda la app)
     finder: Mutex<usize>,
     find_create: FnFindCreate,
@@ -155,6 +188,10 @@ fn load() -> Result<Api, String> {
             let recv_destroy: FnRecvDestroy = sym!(b"NDIlib_recv_destroy\0", FnRecvDestroy);
             let recv_capture: FnRecvCapture = sym!(b"NDIlib_recv_capture_v2\0", FnRecvCapture);
             let recv_free_video: FnRecvFreeVideo = sym!(b"NDIlib_recv_free_video_v2\0", FnRecvFreeVideo);
+            let send_create: FnSendCreate = sym!(b"NDIlib_send_create\0", FnSendCreate);
+            let send_destroy: FnSendDestroy = sym!(b"NDIlib_send_destroy\0", FnSendDestroy);
+            let send_video: FnSendVideo = sym!(b"NDIlib_send_send_video_v2\0", FnSendVideo);
+            let send_audio: FnSendAudio = sym!(b"NDIlib_send_send_audio_v2\0", FnSendAudio);
             if !init() {
                 last = "NDI no se pudo iniciar (¿procesador sin soporte?)".into();
                 continue;
@@ -167,6 +204,10 @@ fn load() -> Result<Api, String> {
                 recv_destroy,
                 recv_capture,
                 recv_free_video,
+                send_create,
+                send_destroy,
+                send_video,
+                send_audio,
                 finder: Mutex::new(0),
                 find_create,
             });
@@ -216,6 +257,86 @@ pub fn sources(wait_ms: u32) -> Result<Vec<String>, String> {
     }
     list.sort();
     Ok(list)
+}
+
+// ------------------------------------------------------------ envio
+
+/// Salida NDI: lo que se le da aparece en la red como una fuente NDI.
+pub struct Sender {
+    api: &'static Api,
+    handle: usize,
+}
+
+unsafe impl Send for Sender {}
+unsafe impl Sync for Sender {}
+
+impl Sender {
+    pub fn new(name: &str) -> Result<Sender, String> {
+        let api = api()?;
+        let cname = CString::new(name).map_err(|_| "nombre NDI no válido".to_string())?;
+        let cfg = SendCreate { name: cname.as_ptr(), groups: std::ptr::null(), clock_video: false, clock_audio: false };
+        let h = unsafe { (api.send_create)(&cfg) };
+        if h.is_null() {
+            return Err(format!("NDI no pudo crear la salida «{name}»"));
+        }
+        Ok(Sender { api, handle: h as usize })
+    }
+
+    /// Una imagen BGRA compacta (ancho*4 bytes por linea).
+    pub fn video_bgra(&self, data: &mut [u8], width: i32, height: i32, fps: i32) {
+        let frame = VideoFrameV2 {
+            xres: width,
+            yres: height,
+            fourcc: FOURCC_BGRA,
+            frame_rate_n: fps.max(1) * 1000,
+            frame_rate_d: 1000,
+            aspect: width as f32 / height.max(1) as f32,
+            frame_format: FORMAT_PROGRESSIVE,
+            timecode: TIMECODE_SYNTH,
+            data: data.as_mut_ptr(),
+            line_stride: width * 4,
+            metadata: std::ptr::null(),
+            timestamp: 0,
+        };
+        unsafe { (self.api.send_video)(self.handle as *mut c_void, &frame) };
+    }
+
+    /// PCM s16le estereo 48 kHz (lo de los encoders) a float planar de NDI.
+    pub fn audio_s16_stereo(&self, pcm: &[u8], planar: &mut Vec<f32>) {
+        let n = pcm.len() / 4;
+        if n == 0 {
+            return;
+        }
+        planar.resize(n * 2, 0.0);
+        for i in 0..n {
+            let l = i16::from_le_bytes([pcm[i * 4], pcm[i * 4 + 1]]) as f32 / 32768.0;
+            let r = i16::from_le_bytes([pcm[i * 4 + 2], pcm[i * 4 + 3]]) as f32 / 32768.0;
+            planar[i] = l;
+            planar[n + i] = r;
+        }
+        let frame = AudioFrameV2 {
+            sample_rate: 48_000,
+            no_channels: 2,
+            no_samples: n as i32,
+            timecode: TIMECODE_SYNTH,
+            data: planar.as_mut_ptr(),
+            channel_stride_in_bytes: (n * 4) as i32,
+            metadata: std::ptr::null(),
+            timestamp: 0,
+        };
+        unsafe { (self.api.send_audio)(self.handle as *mut c_void, &frame) };
+    }
+}
+
+impl Drop for Sender {
+    fn drop(&mut self) {
+        unsafe { (self.api.send_destroy)(self.handle as *mut c_void) };
+    }
+}
+
+/// ¿Esta el NDI Runtime? (sin error = si)
+pub fn runtime() -> Result<(), String> {
+    api().map(|_| ())
 }
 
 // ------------------------------------------------------------ recepcion

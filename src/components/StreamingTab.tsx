@@ -1050,8 +1050,9 @@ export function StreamingTab({
                     </div>
                     {output.kind === "ndi" && (
                       <p className="hint">
-                        El audio de esta salida NDI es la mezcla que va a la salida
-                        «Streaming» de la mesa.
+                        Sale por NDI con el NDI Runtime (sin FFmpeg especial): la imagen de la fuente
+                        de vídeo elegida (mejor «Pantalla de emisión») y el audio de la salida
+                        «Streaming» de la mesa. Aparece en la red con el nombre indicado arriba.
                       </p>
                     )}
                   </>

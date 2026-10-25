@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,6 +21,16 @@ struct EngineInner {
     processes: Vec<StreamProcess>,
     failed_outputs: Vec<StreamOutputStatus>,
     last_error: Option<String>,
+}
+
+/// Salida NDI nativa: FFmpeg (el normal) solo captura la imagen y la da en
+/// BGRA por su salida; MiRadio la manda por NDI junto al audio de la mesa.
+#[derive(Clone)]
+struct NdiOut {
+    name: String,
+    width: u32,
+    height: u32,
+    fps: u32,
 }
 
 struct FallbackProcess {
@@ -324,6 +334,58 @@ pub fn stream_start(
             } else {
                 None
             };
+            // Salida NDI con el NDI Runtime (sin FFmpeg con NDI): FFmpeg solo
+            // captura la imagen y MiRadio la envia por NDI con el audio de la mesa.
+            if kind == "ndi" && crate::ndi::runtime().is_ok() {
+                let (w, h, fps) = (output.width.max(16) & !1, output.height.max(16) & !1, output.fps.clamp(1, 60));
+                let video_args = if use_program {
+                    program_video_input_args(fps, settings.video_screen.monitor, gfxcapture, ddagrab)
+                } else {
+                    match settings.video.inputs.iter().find(|i| i.id == video_choice) {
+                        Some(input) if input.kind == "ndi" => Err(
+                            "una fuente NDI no se reenvía por NDI: elige la pantalla de emisión".to_string(),
+                        ),
+                        Some(input) => video_input_args(input, None),
+                        None => Err("la entrada de vídeo elegida no existe".to_string()),
+                    }
+                };
+                let ndi_name = {
+                    let src = output.source.trim();
+                    if !src.is_empty() { src.to_string() } else if !output.name.trim().is_empty() { output.name.trim().to_string() } else { "MiRadio".to_string() }
+                };
+                let result = video_args.and_then(|video_args| {
+                    let mut args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-nostdin"].iter().map(|x| x.to_string()).collect();
+                    args.extend(video_args);
+                    args.extend([
+                        arg("-an"),
+                        arg("-vf"),
+                        format!("scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=bgra"),
+                        arg("-f"),
+                        arg("rawvideo"),
+                        arg("-pix_fmt"),
+                        arg("bgra"),
+                        arg("pipe:1"),
+                    ]);
+                    spawn_process_ex(
+                        &mut inner,
+                        &shared,
+                        &ffmpeg,
+                        args,
+                        id.clone(),
+                        name.clone(),
+                        &kind,
+                        false,
+                        None,
+                        Some(NdiOut { name: ndi_name, width: w, height: h, fps }),
+                    )
+                });
+                if let Err(error) = result {
+                    let message = format!("{name}: {error}");
+                    errors.push(message.clone());
+                    inner.failed_outputs.push(failed_output(&id, &name, &kind, message));
+                }
+                continue;
+            }
             let args = if use_program && kind == "rtmp" {
                 program_video_input_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab).and_then(|video_args| {
                     rtmp_args_for_video(
@@ -633,11 +695,32 @@ fn spawn_process(
     wants_audio: bool,
     fallback: Option<FallbackProcess>,
 ) -> Result<(), String> {
+    spawn_process_ex(inner, shared, ffmpeg, args, id, name, kind, wants_audio, fallback, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_process_ex(
+    inner: &mut EngineInner,
+    shared: &Arc<Mutex<EngineInner>>,
+    ffmpeg: &Path,
+    args: Vec<String>,
+    id: String,
+    name: String,
+    kind: &str,
+    wants_audio: bool,
+    fallback: Option<FallbackProcess>,
+    ndi_out: Option<NdiOut>,
+) -> Result<(), String> {
+    // Con NDI nativo se crea antes la salida: si falta el Runtime, no se arranca nada.
+    let ndi_sender = match &ndi_out {
+        Some(o) => Some(Arc::new(crate::ndi::Sender::new(&o.name).map_err(|e| format!("{name}: {e}"))?)),
+        None => None,
+    };
     let mut command = Command::new(ffmpeg);
     command
         .args(&args)
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(if ndi_out.is_some() { Stdio::piped() } else { Stdio::null() })
         .stderr(Stdio::piped());
     configure_no_window(&mut command);
     // El encoder va con prioridad superior a la normal: si el equipo anda
@@ -693,7 +776,36 @@ fn spawn_process(
 
     let failed = Arc::new(AtomicBool::new(false));
     let mut tx = None;
-    if wants_audio {
+    if let (Some(o), Some(sender)) = (ndi_out.as_ref(), ndi_sender.as_ref()) {
+        // Imagen: fotogramas BGRA de tamaño fijo por la salida de FFmpeg.
+        if let Some(mut stdout) = child.stdout.take() {
+            let (sender, o, failed) = (sender.clone(), o.clone(), failed.clone());
+            std::thread::Builder::new()
+                .name("miradio-ndi-send-video".into())
+                .spawn(move || {
+                    let size = (o.width * o.height * 4) as usize;
+                    let mut frame = vec![0u8; size];
+                    while stdout.read_exact(&mut frame).is_ok() {
+                        sender.video_bgra(&mut frame, o.width as i32, o.height as i32, o.fps as i32);
+                    }
+                    failed.store(true, Ordering::SeqCst);
+                })
+                .ok();
+        }
+        // Sonido: el mismo PCM que reciben los encoders, directo a NDI.
+        let (stx, srx) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
+        let sender = sender.clone();
+        std::thread::Builder::new()
+            .name("miradio-ndi-send-audio".into())
+            .spawn(move || {
+                let mut planar = Vec::new();
+                while let Ok(chunk) = srx.recv() {
+                    sender.audio_s16_stereo(&chunk, &mut planar);
+                }
+            })
+            .ok();
+        tx = Some(stx);
+    } else if wants_audio {
         if let Some(mut stdin) = child.stdin.take() {
             let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
             let (shared, failed, label) = (shared.clone(), failed.clone(), name.clone());
@@ -723,7 +835,7 @@ fn spawn_process(
         id,
         name,
         kind: kind.to_string(),
-        wants_audio,
+        wants_audio: wants_audio || ndi_out.is_some(),
         alive: true,
         child,
         tx,

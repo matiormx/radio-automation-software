@@ -417,8 +417,8 @@ export function VideoTab({ settings, onChange }: Props) {
         <p className="hint">
           Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), MiRadio recibe NDI por sí mismo: las
           fuentes se ven en la pantalla de emisión y en la botonera VÍDEO, y salen por las salidas que emiten la
-          pantalla de emisión. El FFmpeg con NDI solo hace falta para salidas NDI o para emitir una fuente NDI
-          directamente.
+          pantalla de emisión. Las salidas NDI (Streaming) también usan el Runtime. El FFmpeg con NDI ya solo
+          haría falta para emitir una fuente NDI directamente a RTMP sin pasar por la pantalla de emisión.
         </p>
         <div className="ndi-source-row">
           <label className="field">
