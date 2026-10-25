@@ -442,6 +442,8 @@ export interface VideoOutput {
   videoInputId?: string;
   /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de programa */
   fallbackVideoInputId?: string;
+  /** Imagen girada horizontalmente (para monitorizar cámaras) */
+  mirror?: boolean;
   /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;
   /** Dispositivo de audio de captura cuando audioSource = "device" */

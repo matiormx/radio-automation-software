@@ -608,6 +608,8 @@ pub struct VideoOutput {
     pub video_input_id: String,
     /// Respaldo si falla: "" = ninguno, "program" = pantalla de programa.
     pub fallback_video_input_id: String,
+    /// Imagen girada horizontalmente (monitorizacion).
+    pub mirror: bool,
     /// "mixer" = salida Encoders; "device" = audio de una capturadora.
     pub audio_source: String,
     /// Dispositivo de audio de captura.
@@ -628,6 +630,7 @@ impl Default for VideoOutput {
             source: "0".to_string(),
             video_input_id: String::new(),
             fallback_video_input_id: String::new(),
+            mirror: false,
             audio_source: "mixer".to_string(),
             audio_source_id: String::new(),
             enabled: true,

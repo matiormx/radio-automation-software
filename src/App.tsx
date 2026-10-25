@@ -341,6 +341,7 @@ function migrateLegacyRtmp(settings: Settings): Settings {
     source: url,
     videoInputId: legacy.videoInputId || "program",
     fallbackVideoInputId: "",
+    mirror: false,
     audioSource: legacy.audioSource ?? "mixer",
     audioSourceId: legacy.audioSourceId ?? "",
     enabled: true,

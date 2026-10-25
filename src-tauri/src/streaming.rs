@@ -336,6 +336,7 @@ pub fn stream_start(
                         2,
                         output_audio,
                         false,
+                        output.mirror,
                     )
                 })
             } else if use_program && kind == "screen" {
@@ -357,6 +358,7 @@ pub fn stream_start(
                     ndi_device,
                     output_video,
                     output_audio,
+                    output.mirror,
                 ),
                 "ndi" => match ndi.as_ref() {
                     Some((_, device)) => {
@@ -379,6 +381,7 @@ pub fn stream_start(
                             ndi_device,
                             output_video,
                             output_audio,
+                            output.mirror,
                         )
                     }
                     None => Err(
@@ -431,6 +434,7 @@ pub fn stream_start(
                                             2,
                                             output_audio,
                                             false,
+                                            output.mirror,
                                         )
                                     } else {
                                         video_output_args_for_source(output, video_args)
@@ -448,6 +452,7 @@ pub fn stream_start(
                                     ndi_device,
                                     Some(backup),
                                     output_audio,
+                                    output.mirror,
                                 )
                             } else {
                                 video_output_args(output, &settings.video, ndi_device, Some(backup))
@@ -1149,6 +1154,7 @@ fn rtmp_args(
     ndi_device: Option<&str>,
     preferred_input: Option<&str>,
     audio_device: Option<&str>,
+    mirror: bool,
 ) -> Result<Vec<String>, String> {
     if !video.enabled {
         return Err("activa el motor de vídeo para emitir por RTMP".to_string());
@@ -1174,6 +1180,7 @@ fn rtmp_args(
         keyframe_secs,
         if audio_in_video { None } else { audio_device },
         audio_in_video,
+        mirror,
     )
 }
 
@@ -1190,6 +1197,7 @@ fn rtmp_args_for_video(
     keyframe_secs: u32,
     audio_device: Option<&str>,
     audio_in_video: bool,
+    mirror: bool,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -1211,6 +1219,9 @@ fn rtmp_args_for_video(
     } else {
         args.extend([arg("-map"), arg("1:v:0")]);
         args.extend([arg("-map"), arg("0:a:0?")]);
+    }
+    if mirror {
+        args.extend([arg("-vf"), arg("hflip")]);
     }
 
     let width = even_size(width, 16);
@@ -1253,6 +1264,7 @@ fn ndi_args(
     ndi_device: Option<&str>,
     preferred_input: Option<&str>,
     audio_device: Option<&str>,
+    mirror: bool,
 ) -> Result<Vec<String>, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -1271,6 +1283,9 @@ fn ndi_args(
     } else {
         args.extend([arg("-map"), arg("1:v:0")]);
         args.extend([arg("-map"), arg("0:a:0?")]);
+    }
+    if mirror {
+        args.extend([arg("-vf"), arg("hflip")]);
     }
 
     let width = even_size(width, 16);
@@ -1309,6 +1324,9 @@ fn video_output_args_for_source(
     let width = even_size(output.width, 16);
     let height = even_size(output.height, 16);
     let fps = output.fps.clamp(1, 120);
+    if output.mirror {
+        args.extend([arg("-vf"), arg("hflip")]);
+    }
     match output.kind.as_str() {
         "screen" => {
             args.extend([arg("-an"), arg("-pix_fmt"), arg("yuv420p")]);
