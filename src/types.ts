@@ -419,14 +419,18 @@ export interface VideoInput {
   enabled: boolean;
 }
 
-/** Capturadora detectada en el equipo. */
+/** Capturadora o dispositivo de audio de captura detectado en el equipo. */
 export interface VideoCaptureDevice {
   /** Valor que se pasa a FFmpeg */
   id: string;
   name: string;
+  kind?: "video" | "audio";
   /** deviceId de WebView para mostrar la captura en pantalla */
   deviceId?: string;
 }
+
+/** Audio que acompaña a una salida de vídeo. */
+export type VideoAudioSource = "mixer" | "device";
 
 export interface VideoOutput {
   id: string;
@@ -434,6 +438,12 @@ export interface VideoOutput {
   kind: VideoOutputKind;
   /** Monitor, dispositivo DeckLink, nombre NDI o URL RTMP */
   source: string;
+  /** Entrada de vídeo a emitir; "" = la de la pantalla externa */
+  videoInputId?: string;
+  /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
+  audioSource?: VideoAudioSource;
+  /** Dispositivo de audio de captura cuando audioSource = "device" */
+  audioSourceId?: string;
   enabled: boolean;
   width: number;
   height: number;
@@ -492,6 +502,11 @@ export interface RtmpOutput {
   fps: number;
   bitrateKbps: number;
   keyframeSecs: number;
+  /** Entrada de vídeo a emitir; "" = la de la pantalla externa */
+  videoInputId?: string;
+  /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
+  audioSource?: VideoAudioSource;
+  audioSourceId?: string;
 }
 
 export interface StreamingSettings {
@@ -767,6 +782,9 @@ export const DEFAULT_SETTINGS: Settings = {
       fps: 25,
       bitrateKbps: 6000,
       keyframeSecs: 2,
+      videoInputId: "",
+      audioSource: "mixer",
+      audioSourceId: "",
     },
   },
   studioCalls: { enabled: false, serverUrl: "", token: "" },

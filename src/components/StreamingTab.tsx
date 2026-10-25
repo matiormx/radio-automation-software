@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   IcecastCodec,
   IcecastStream,
@@ -6,10 +6,12 @@ import type {
   Settings,
   StreamStatus,
   StreamingSettings,
+  VideoCaptureDevice,
   VideoOutput,
   VideoOutputKind,
 } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
+import { listVideoCaptureDevices } from "../api";
 
 interface Props {
   settings: Settings;
@@ -67,17 +69,46 @@ function icecastConfigError(s: IcecastStream): string | null {
   return null;
 }
 
-function rtmpConfigError(settings: Settings, url: string): string | null {
-  if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
-  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
-    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
-  }
+function rtmpUrlError(url: string): string | null {
   const target = url.trim().toLowerCase();
   if (!target) return "Falta la URL RTMP.";
   if (!target.startsWith("rtmp://") && !target.startsWith("rtmps://")) {
     return "La URL debe empezar por rtmp:// o rtmps://.";
   }
   return null;
+}
+
+function videoRoutingError(
+  settings: Settings,
+  videoInputId: string | undefined,
+  audioSource: string | undefined,
+  audioSourceId: string | undefined,
+): string | null {
+  if (videoInputId) {
+    const input = settings.video.inputs.find((item) => item.id === videoInputId);
+    if (!input || !input.enabled || !input.source.trim()) {
+      return "La entrada de vídeo elegida no está activa.";
+    }
+  }
+  if (audioSource === "device" && !(audioSourceId ?? "").trim()) {
+    return "Elige el dispositivo de audio de la capturadora.";
+  }
+  return null;
+}
+
+function rtmpConfigError(settings: Settings, url: string): string | null {
+  if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
+  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
+    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
+  }
+  const routing = videoRoutingError(
+    settings,
+    settings.streaming.rtmp.videoInputId,
+    settings.streaming.rtmp.audioSource,
+    settings.streaming.rtmp.audioSourceId,
+  );
+  if (routing) return routing;
+  return rtmpUrlError(url);
 }
 
 const VIDEO_OUTPUT_KIND: Record<VideoOutputKind, string> = {
@@ -93,6 +124,9 @@ function newVideoOutput(): VideoOutput {
     name: "Salida",
     kind: "screen",
     source: "0",
+    videoInputId: "",
+    audioSource: "mixer",
+    audioSourceId: "",
     enabled: true,
     width: 1920,
     height: 1080,
@@ -128,7 +162,14 @@ function videoOutputConfigError(settings: Settings, output: VideoOutput): string
   if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
     return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
   }
-  if (output.kind === "rtmp") return rtmpConfigError(settings, output.source);
+  const routing = videoRoutingError(
+    settings,
+    output.videoInputId,
+    output.audioSource,
+    output.audioSourceId,
+  );
+  if (routing) return routing;
+  if (output.kind === "rtmp") return rtmpUrlError(output.source);
   if ((output.kind === "screen" || output.kind === "decklink") && !output.source.trim()) {
     return "Indica el dispositivo de salida.";
   }
@@ -165,6 +206,98 @@ function emissionState(
   return { tone: "idle" as EmissionTone, label: "Sin iniciar", error: null };
 }
 
+function VideoRoutingFields({
+  inputs,
+  audioDevices,
+  videoInputId,
+  audioSource,
+  audioSourceId,
+  onChange,
+  onRefreshAudio,
+}: {
+  inputs: Settings["video"]["inputs"];
+  audioDevices: VideoCaptureDevice[];
+  videoInputId?: string;
+  audioSource?: "mixer" | "device";
+  audioSourceId?: string;
+  onChange: (patch: {
+    videoInputId?: string;
+    audioSource?: "mixer" | "device";
+    audioSourceId?: string;
+  }) => void;
+  onRefreshAudio: () => void;
+}) {
+  const source = audioSource === "device" ? "device" : "mixer";
+  return (
+    <>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Fuente de vídeo</span>
+          <select
+            value={videoInputId ?? ""}
+            onChange={(e) => onChange({ videoInputId: e.target.value })}
+          >
+            <option value="">Pantalla externa / programa (lo que está sonando)</option>
+            {inputs.map((input) => (
+              <option key={input.id} value={input.id}>
+                {input.name.trim() || input.source} · {input.kind}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Fuente de audio</span>
+          <select
+            value={source}
+            onChange={(e) =>
+              onChange({
+                audioSource: e.target.value === "device" ? "device" : "mixer",
+              })
+            }
+          >
+            <option value="mixer">Salida Encoders (lo que está sonando)</option>
+            <option value="device">Audio de la capturadora</option>
+          </select>
+        </label>
+      </div>
+      {source === "device" && (
+        <div className="ndi-source-row">
+          <label className="field">
+            <span className="field-label">Dispositivo de audio</span>
+            <select
+              value={audioSourceId ?? ""}
+              onChange={(e) => onChange({ audioSourceId: e.target.value })}
+            >
+              <option value="">Elegir dispositivo…</option>
+              {audioDevices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name}
+                </option>
+              ))}
+              {audioSourceId && !audioDevices.some((device) => device.id === audioSourceId) && (
+                <option value={audioSourceId}>{audioSourceId} (manual)</option>
+              )}
+            </select>
+          </label>
+          <button type="button" className="btn btn-sm" onClick={onRefreshAudio}>
+            Buscar
+          </button>
+        </div>
+      )}
+      {source === "device" && audioDevices.length === 0 && (
+        <p className="hint">
+          No se han detectado entradas de audio. Pulsa «Buscar» en Ajustes &gt; Vídeo para
+          actualizar la lista.
+        </p>
+      )}
+      <p className="hint">
+        El audio se usa en las salidas RTMP y NDI. La opción de la mesa envía la misma señal que
+        los encoders de audio.
+      </p>
+    </>
+  );
+}
+
 export function StreamingTab({
   settings,
   onChange,
@@ -172,6 +305,16 @@ export function StreamingTab({
   streamBusy = false,
 }: Props) {
   const st = settings.streaming;
+  const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
+  const refreshCapture = useCallback(() => {
+    void listVideoCaptureDevices()
+      .then(setCaptureDevices)
+      .catch(() => setCaptureDevices([]));
+  }, []);
+  useEffect(() => {
+    refreshCapture();
+  }, [refreshCapture]);
+  const audioDevices = captureDevices.filter((device) => device.kind === "audio");
   // Solo se edita un encoder a la vez; el resto se ve como lista de una línea.
   const [editing, setEditing] = useState<string | null>(null);
   const set = (patch: Partial<StreamingSettings>) =>
@@ -661,6 +804,15 @@ export function StreamingTab({
             onChange={(e) => updateRtmp({ url: e.target.value })}
           />
         </label>
+        <VideoRoutingFields
+          inputs={settings.video.inputs}
+          audioDevices={audioDevices}
+          videoInputId={st.rtmp.videoInputId}
+          audioSource={st.rtmp.audioSource}
+          audioSourceId={st.rtmp.audioSourceId}
+          onChange={(patch) => updateRtmp(patch)}
+          onRefreshAudio={refreshCapture}
+        />
         <div className="rtmp-grid">
           <label className="field">
             <span className="field-label">Ancho</span>
@@ -879,6 +1031,15 @@ export function StreamingTab({
                         }
                       />
                     </label>
+                    <VideoRoutingFields
+                      inputs={settings.video.inputs}
+                      audioDevices={audioDevices}
+                      videoInputId={output.videoInputId}
+                      audioSource={output.audioSource}
+                      audioSourceId={output.audioSourceId}
+                      onChange={(patch) => updateVideoOutput(output.id, patch)}
+                      onRefreshAudio={refreshCapture}
+                    />
                     <div className="io-format">
                       <label className="field">
                         <span className="field-label">Ancho</span>

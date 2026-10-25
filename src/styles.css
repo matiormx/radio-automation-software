@@ -3039,6 +3039,28 @@ body.is-reordering { cursor: grabbing; user-select: none; }
   font-size: 12px;
   color: var(--text-dim);
 }
+.capture-found {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+.capture-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.capture-chip:hover { border-color: var(--accent); color: var(--text); }
+.capture-chip-on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 
 .stream-grid {
   display: grid;

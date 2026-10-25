@@ -604,6 +604,12 @@ pub struct VideoOutput {
     /// "screen", "decklink", "ndi" o "rtmp"
     pub kind: String,
     pub source: String,
+    /// Entrada de video a emitir; "" = la de la pantalla externa.
+    pub video_input_id: String,
+    /// "mixer" = salida Encoders; "device" = audio de una capturadora.
+    pub audio_source: String,
+    /// Dispositivo de audio de captura.
+    pub audio_source_id: String,
     pub enabled: bool,
     pub width: u32,
     pub height: u32,
@@ -618,6 +624,9 @@ impl Default for VideoOutput {
             name: String::new(),
             kind: "screen".to_string(),
             source: "0".to_string(),
+            video_input_id: String::new(),
+            audio_source: "mixer".to_string(),
+            audio_source_id: String::new(),
             enabled: true,
             width: 1920,
             height: 1080,
@@ -705,6 +714,11 @@ pub struct RtmpOutput {
     pub fps: u32,
     pub bitrate_kbps: u32,
     pub keyframe_secs: u32,
+    /// Entrada de video a emitir; "" = la de la pantalla externa.
+    pub video_input_id: String,
+    /// "mixer" = salida Encoders; "device" = audio de una capturadora.
+    pub audio_source: String,
+    pub audio_source_id: String,
 }
 
 impl Default for RtmpOutput {
@@ -717,6 +731,9 @@ impl Default for RtmpOutput {
             fps: 25,
             bitrate_kbps: 6000,
             keyframe_secs: 2,
+            video_input_id: String::new(),
+            audio_source: "mixer".to_string(),
+            audio_source_id: String::new(),
         }
     }
 }

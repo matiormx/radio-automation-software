@@ -41,9 +41,11 @@ pub struct CaptureDevice {
     /// Valor que se pasa a FFmpeg como fuente
     pub id: String,
     pub name: String,
+    /// "video" o "audio"
+    pub kind: String,
 }
 
-/// Capturadoras disponibles en el equipo (dshow, v4l2 o avfoundation).
+/// Capturadoras y dispositivos de audio disponibles en el equipo.
 #[tauri::command]
 pub async fn video_capture_devices(app: AppHandle) -> Result<Vec<CaptureDevice>, String> {
     let ffmpeg = crate::streaming::find_ffmpeg(&app)
@@ -65,16 +67,17 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         .map_err(|e| format!("No se pudo ejecutar FFmpeg: {e}"))?;
     let text = String::from_utf8_lossy(&out.stderr);
     let mut list: Vec<CaptureDevice> = Vec::new();
-    let mut in_video = false;
+    let mut section = "";
     for line in text.lines() {
         if line.contains("DirectShow video devices") {
-            in_video = true;
+            section = "video";
             continue;
         }
         if line.contains("DirectShow audio devices") {
-            break;
+            section = "audio";
+            continue;
         }
-        if !in_video || !line.contains("(video)") {
+        if section.is_empty() || !line.contains(&format!("({section})")) {
             continue;
         }
         let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) else {
@@ -86,11 +89,15 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         let name = line[start + 1..end].trim();
         if name.is_empty()
             || name.starts_with("@device")
-            || list.iter().any(|device| device.name == name)
+            || list.iter().any(|device| device.name == name && device.kind == section)
         {
             continue;
         }
-        list.push(CaptureDevice { id: name.to_string(), name: name.to_string() });
+        list.push(CaptureDevice {
+            id: name.to_string(),
+            name: name.to_string(),
+            kind: section.to_string(),
+        });
     }
     Ok(list)
 }
@@ -110,7 +117,28 @@ fn list_capture_devices(_ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         let name = label
             .map(|label| format!("{label} ({id})"))
             .unwrap_or_else(|| id.clone());
-        list.push(CaptureDevice { id, name });
+        list.push(CaptureDevice { id, name, kind: "video".to_string() });
+    }
+    // Tarjetas de sonido ALSA: se usan como audio de una capturadora.
+    if let Ok(text) = fs::read_to_string("/proc/asound/cards") {
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            let mut head = trimmed.split_whitespace();
+            let Some(index) = head.next() else { continue };
+            if !index.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            let name = line
+                .split_once("]:")
+                .map(|(_, rest)| rest.trim().to_string())
+                .filter(|rest| !rest.is_empty())
+                .unwrap_or_else(|| format!("Tarjeta de sonido {index}"));
+            list.push(CaptureDevice {
+                id: format!("hw:{index}"),
+                name: format!("{name} (hw:{index})"),
+                kind: "audio".to_string(),
+            });
+        }
     }
     Ok(list)
 }
@@ -127,16 +155,17 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         .map_err(|e| format!("No se pudo ejecutar FFmpeg: {e}"))?;
     let text = String::from_utf8_lossy(&out.stderr);
     let mut list = Vec::new();
-    let mut in_video = false;
+    let mut section = "";
     for line in text.lines() {
         if line.contains("AVFoundation video devices") {
-            in_video = true;
+            section = "video";
             continue;
         }
         if line.contains("AVFoundation audio devices") {
-            break;
+            section = "audio";
+            continue;
         }
-        if !in_video {
+        if section.is_empty() {
             continue;
         }
         let Some(start) = line.rfind("] [") else { continue };
@@ -147,7 +176,11 @@ fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
         if index.is_empty() || label.is_empty() {
             continue;
         }
-        list.push(CaptureDevice { id: index.to_string(), name: format!("{index}: {label}") });
+        list.push(CaptureDevice {
+            id: index.to_string(),
+            name: format!("{index}: {label}"),
+            kind: section.to_string(),
+        });
     }
     Ok(list)
 }

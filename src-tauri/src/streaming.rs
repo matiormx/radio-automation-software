@@ -276,6 +276,16 @@ pub fn stream_start(
         requested += 1;
         let id = "rtmp".to_string();
         let name = "RTMP".to_string();
+        let rtmp_video = if settings.streaming.rtmp.video_input_id.trim().is_empty() {
+            preferred_input
+        } else {
+            Some(settings.streaming.rtmp.video_input_id.trim())
+        };
+        let rtmp_audio = if settings.streaming.rtmp.audio_source == "device" {
+            Some(settings.streaming.rtmp.audio_source_id.trim()).filter(|id| !id.is_empty())
+        } else {
+            None
+        };
         match rtmp_args(
             &settings.video,
             &settings.streaming.rtmp.url,
@@ -285,9 +295,11 @@ pub fn stream_start(
             settings.streaming.rtmp.bitrate_kbps,
             settings.streaming.rtmp.keyframe_secs,
             ndi_device,
-            preferred_input,
+            rtmp_video,
+            rtmp_audio,
         ) {
             Ok(args) => {
+                let wants_audio = rtmp_audio.is_none();
                 if let Err(error) = spawn_process(
                     &mut inner,
                     &shared,
@@ -296,7 +308,7 @@ pub fn stream_start(
                     id.clone(),
                     name.clone(),
                     "rtmp",
-                    true,
+                    wants_audio,
                 ) {
                     errors.push(error.clone());
                     inner
@@ -324,9 +336,19 @@ pub fn stream_start(
                 output.name.clone()
             };
             let kind = output.kind.clone();
+            let output_video = if output.video_input_id.trim().is_empty() {
+                preferred_input
+            } else {
+                Some(output.video_input_id.trim())
+            };
+            let output_audio = if output.audio_source == "device" {
+                Some(output.audio_source_id.trim()).filter(|id| !id.is_empty())
+            } else {
+                None
+            };
             let args = match kind.as_str() {
                 "screen" | "decklink" => {
-                    video_output_args(output, &settings.video, ndi_device, preferred_input)
+                    video_output_args(output, &settings.video, ndi_device, output_video)
                 }
                 "rtmp" => rtmp_args(
                     &settings.video,
@@ -337,7 +359,8 @@ pub fn stream_start(
                     output.bitrate_kbps,
                     2,
                     ndi_device,
-                    preferred_input,
+                    output_video,
+                    output_audio,
                 ),
                 "ndi" => match ndi.as_ref() {
                     Some((_, device)) => {
@@ -358,7 +381,8 @@ pub fn stream_start(
                             output.fps,
                             device,
                             ndi_device,
-                            preferred_input,
+                            output_video,
+                            output_audio,
                         )
                     }
                     None => Err(
@@ -370,7 +394,7 @@ pub fn stream_start(
             };
             match args {
                 Ok(args) => {
-                    let wants_audio = kind == "rtmp" || kind == "ndi";
+                    let wants_audio = (kind == "rtmp" || kind == "ndi") && output_audio.is_none();
                     let process_ffmpeg = if kind == "ndi" {
                         ndi_ffmpeg.unwrap_or(&ffmpeg)
                     } else {
@@ -947,6 +971,7 @@ fn rtmp_args(
     keyframe_secs: u32,
     ndi_device: Option<&str>,
     preferred_input: Option<&str>,
+    audio_device: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -962,8 +987,14 @@ fn rtmp_args(
     let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
     args.extend(video_input_args(input, ndi_device)?);
-    args.extend([arg("-map"), arg("1:v:0")]);
-    args.extend([arg("-map"), arg("0:a:0?")]);
+    if let Some(audio) = audio_device {
+        args.extend(audio_input_args(audio)?);
+        args.extend([arg("-map"), arg("1:v:0")]);
+        args.extend([arg("-map"), arg("2:a:0")]);
+    } else {
+        args.extend([arg("-map"), arg("1:v:0")]);
+        args.extend([arg("-map"), arg("0:a:0?")]);
+    }
 
     let width = even_size(width, 16);
     let height = even_size(height, 16);
@@ -1004,6 +1035,7 @@ fn ndi_args(
     device: &str,
     ndi_device: Option<&str>,
     preferred_input: Option<&str>,
+    audio_device: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -1015,8 +1047,14 @@ fn ndi_args(
     let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
     args.extend(video_input_args(input, ndi_device)?);
-    args.extend([arg("-map"), arg("1:v:0")]);
-    args.extend([arg("-map"), arg("0:a:0?")]);
+    if let Some(audio) = audio_device {
+        args.extend(audio_input_args(audio)?);
+        args.extend([arg("-map"), arg("1:v:0")]);
+        args.extend([arg("-map"), arg("2:a:0")]);
+    } else {
+        args.extend([arg("-map"), arg("1:v:0")]);
+        args.extend([arg("-map"), arg("0:a:0?")]);
+    }
 
     let width = even_size(width, 16);
     let height = even_size(height, 16);
@@ -1125,6 +1163,29 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
         }
         other => Err(format!("tipo de entrada de vídeo desconocido: {other}")),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn audio_input_args(source: &str) -> Result<Vec<String>, String> {
+    let raw = source.trim().trim_matches('"');
+    Ok(vec![arg("-f"), arg("dshow"), arg("-i"), format!("audio={raw}")])
+}
+
+#[cfg(target_os = "linux")]
+fn audio_input_args(source: &str) -> Result<Vec<String>, String> {
+    let raw = source.trim().trim_matches('"');
+    Ok(vec![arg("-f"), arg("alsa"), arg("-i"), raw.to_string()])
+}
+
+#[cfg(target_os = "macos")]
+fn audio_input_args(source: &str) -> Result<Vec<String>, String> {
+    let raw = source.trim().trim_matches('"');
+    Ok(vec![arg("-f"), arg("avfoundation"), arg("-i"), format!(":{raw}")])
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn audio_input_args(_source: &str) -> Result<Vec<String>, String> {
+    Err("El audio de captura no está soportado en este sistema".to_string())
 }
 
 #[cfg(target_os = "windows")]
