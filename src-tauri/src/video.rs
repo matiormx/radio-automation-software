@@ -37,6 +37,128 @@ pub fn needs_conversion(path: &Path) -> bool {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CaptureDevice {
+    /// Valor que se pasa a FFmpeg como fuente
+    pub id: String,
+    pub name: String,
+}
+
+/// Capturadoras disponibles en el equipo (dshow, v4l2 o avfoundation).
+#[tauri::command]
+pub async fn video_capture_devices(app: AppHandle) -> Result<Vec<CaptureDevice>, String> {
+    let ffmpeg = crate::streaming::find_ffmpeg(&app)
+        .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }));
+    tauri::async_runtime::spawn_blocking(move || list_capture_devices(&ffmpeg))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[cfg(target_os = "windows")]
+fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    crate::streaming::configure_no_window(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("No se pudo ejecutar FFmpeg: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    let mut list: Vec<CaptureDevice> = Vec::new();
+    let mut in_video = false;
+    for line in text.lines() {
+        if line.contains("DirectShow video devices") {
+            in_video = true;
+            continue;
+        }
+        if line.contains("DirectShow audio devices") {
+            break;
+        }
+        if !in_video || !line.contains("(video)") {
+            continue;
+        }
+        let (Some(start), Some(end)) = (line.find('"'), line.rfind('"')) else {
+            continue;
+        };
+        if end <= start {
+            continue;
+        }
+        let name = line[start + 1..end].trim();
+        if name.is_empty()
+            || name.starts_with("@device")
+            || list.iter().any(|device| device.name == name)
+        {
+            continue;
+        }
+        list.push(CaptureDevice { id: name.to_string(), name: name.to_string() });
+    }
+    Ok(list)
+}
+
+#[cfg(target_os = "linux")]
+fn list_capture_devices(_ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
+    let mut list = Vec::new();
+    for index in 0..32 {
+        let id = format!("/dev/video{index}");
+        if !Path::new(&id).exists() {
+            continue;
+        }
+        let label = fs::read_to_string(format!("/sys/class/video4linux/video{index}/name"))
+            .ok()
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+        let name = label
+            .map(|label| format!("{label} ({id})"))
+            .unwrap_or_else(|| id.clone());
+        list.push(CaptureDevice { id, name });
+    }
+    Ok(list)
+}
+
+#[cfg(target_os = "macos")]
+fn list_capture_devices(ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-list_devices", "true", "-f", "avfoundation", "-i", ""])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    crate::streaming::configure_no_window(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("No se pudo ejecutar FFmpeg: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    let mut list = Vec::new();
+    let mut in_video = false;
+    for line in text.lines() {
+        if line.contains("AVFoundation video devices") {
+            in_video = true;
+            continue;
+        }
+        if line.contains("AVFoundation audio devices") {
+            break;
+        }
+        if !in_video {
+            continue;
+        }
+        let Some(start) = line.rfind("] [") else { continue };
+        let rest = &line[start + 3..];
+        let Some(end) = rest.find(']') else { continue };
+        let index = rest[..end].trim();
+        let label = rest[end + 1..].trim();
+        if index.is_empty() || label.is_empty() {
+            continue;
+        }
+        list.push(CaptureDevice { id: index.to_string(), name: format!("{index}: {label}") });
+    }
+    Ok(list)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn list_capture_devices(_ffmpeg: &Path) -> Result<Vec<CaptureDevice>, String> {
+    Err("La captura de vídeo no está soportada en este sistema".to_string())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Converted {
     pub source: String,
     /// MP4 listo para importar (en la carpeta temporal)

@@ -16,6 +16,8 @@ export interface VideoState {
   audioMode: "cover" | "logo" | "black";
   logo: string;
   stationName: string;
+  /** Capturadora que se muestra en la ventana externa */
+  capture?: { source: string; deviceId?: string } | null;
 }
 
 interface Props {
@@ -31,6 +33,7 @@ interface Props {
  */
 export function VideoSurface({ source, output }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const captureRef = useRef<HTMLVideoElement | null>(null);
   const [shown, setShown] = useState<VideoState | null>(null);
   const shownKey = useRef("");
   const lastSeek = useRef(0);
@@ -41,7 +44,9 @@ export function VideoSurface({ source, output }: Props) {
     const tick = () => {
       if (!alive) return;
       const s = source();
-      const key = s ? `${s.trackId}|${s.file}|${s.isVideo}|${s.audioMode}|${s.title}|${s.cover}|${s.logo}` : "";
+      const key = s
+        ? `${s.trackId}|${s.file}|${s.isVideo}|${s.audioMode}|${s.title}|${s.cover}|${s.logo}|${s.capture?.source ?? ""}|${s.capture?.deviceId ?? ""}`
+        : "";
       if (key !== shownKey.current) {
         shownKey.current = key;
         setShown(s);
@@ -70,7 +75,76 @@ export function VideoSurface({ source, output }: Props) {
     };
   }, [source]);
 
+  // Capturadora en la ventana externa (se abre con permiso del WebView).
+  const capture = shown?.capture ?? null;
+  const captureSource = capture?.source ?? "";
+  const captureDevice = capture?.deviceId ?? "";
+  useEffect(() => {
+    if (!capture || !output) return;
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    setFailed("");
+    const open = async () => {
+      const constraints: MediaStreamConstraints = {
+        audio: false,
+        video: captureDevice
+          ? { deviceId: { exact: captureDevice } }
+          : captureSource
+            ? { deviceId: { exact: captureSource } }
+            : true,
+      };
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const match = devices.find(
+            (device) =>
+              device.kind === "videoinput" &&
+              (device.deviceId === captureSource ||
+                device.label === captureSource ||
+                device.label.startsWith(captureSource)),
+          );
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: match ? { deviceId: { exact: match.deviceId } } : true,
+          });
+        } catch {
+          if (!cancelled) setFailed(captureSource);
+          return;
+        }
+      }
+      if (!stream) return;
+      if (cancelled) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      if (captureRef.current) {
+        captureRef.current.srcObject = stream;
+        void captureRef.current.play().catch(() => undefined);
+      }
+    };
+    void open();
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+      if (captureRef.current) captureRef.current.srcObject = null;
+    };
+  }, [capture, captureSource, captureDevice, output]);
+
   if (!shown) return output ? <div className="vs-root vs-black" /> : null;
+
+  if (shown.capture) {
+    if (!output) return null;
+    return (
+      <div className="vs-root vs-output">
+        <video ref={captureRef} className="vs-video" muted playsInline autoPlay disablePictureInPicture />
+        {failed === shown.capture.source && (
+          <div className="vs-error">No se puede mostrar la capturadora (revisa el permiso de cámara)</div>
+        )}
+      </div>
+    );
+  }
 
   if (shown.isVideo) {
     return (

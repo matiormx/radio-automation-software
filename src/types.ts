@@ -390,7 +390,18 @@ export interface VideoInput {
   kind: VideoInputKind;
   /** Ruta de archivo, URL RTMP, nombre NDI o dispositivo de captura */
   source: string;
+  /** Identificador del navegador para la vista previa de una capturadora */
+  deviceId?: string;
   enabled: boolean;
+}
+
+/** Capturadora detectada en el equipo. */
+export interface VideoCaptureDevice {
+  /** Valor que se pasa a FFmpeg */
+  id: string;
+  name: string;
+  /** deviceId de WebView para mostrar la captura en pantalla */
+  deviceId?: string;
 }
 
 export interface VideoOutput {
@@ -421,6 +432,10 @@ export interface VideoScreenSettings {
   monitor: number;
   /** Con canciones de audio: portada y titulo, logo o negro */
   audioMode: "cover" | "logo" | "black";
+  /** "program" = lo que suena; "capture" = la capturadora elegida */
+  source?: "program" | "capture";
+  /** Entrada de captura que se ve en la pantalla y se emite por las salidas */
+  captureInputId?: string;
 }
 
 export type IcecastCodec = "flac" | "aac";
@@ -674,7 +689,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: [],
   intros: { enabled: false, blockId: "", align: "end", gapSongs: 3, gainDb: 0 },
   vuSource: "master",
-  videoScreen: { enabled: false, monitor: 1, audioMode: "cover" },
+  videoScreen: { enabled: false, monitor: 1, audioMode: "cover", source: "program", captureInputId: "" },
   leftPanelWidth: 0,
   chat: { enabled: false, name: "", floating: false, collapsed: false },
   audioEngine: "web",

@@ -1,22 +1,19 @@
 import type {
   NdiProbe,
   Settings,
+  VideoCaptureDevice,
   VideoInput,
   VideoInputKind,
-  VideoOutput,
-  VideoOutputKind,
 } from "../types";
-import { IconEdit, IconPlus, IconTrash } from "../icons";
+import { IconPlus, IconTrash } from "../icons";
 import { useCallback, useEffect, useState } from "react";
 import { listMonitors, type MonitorInfo } from "../bridge";
-import { pickFfmpegFile, probeNdi } from "../api";
+import { listVideoCaptureDevices, pickFfmpegFile, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
 
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
-  /** La emisión está en marcha: las salidas se muestran compactas. */
-  streaming?: boolean;
 }
 
 const INPUT_KIND: Record<VideoInputKind, string> = {
@@ -24,13 +21,6 @@ const INPUT_KIND: Record<VideoInputKind, string> = {
   capture: "Captura de vídeo",
   rtmp: "RTMP",
   ndi: "NDI",
-};
-
-const OUTPUT_KIND: Record<VideoOutputKind, string> = {
-  screen: "Pantalla / HDMI",
-  decklink: "Tarjeta SDI",
-  ndi: "NDI",
-  rtmp: "RTMP",
 };
 
 function uid(): string {
@@ -41,20 +31,6 @@ function newInput(): VideoInput {
   return { id: uid(), name: "Entrada", kind: "file", source: "", enabled: true };
 }
 
-function newOutput(): VideoOutput {
-  return {
-    id: uid(),
-    name: "Salida",
-    kind: "screen",
-    source: "0",
-    enabled: true,
-    width: 1920,
-    height: 1080,
-    fps: 25,
-    bitrateKbps: 6000,
-  };
-}
-
 function inputPlaceholder(kind: VideoInputKind): string {
   if (kind === "capture") return "Cámara web o capturadora HDMI";
   if (kind === "rtmp") return "rtmp://servidor/live/clave";
@@ -62,29 +38,7 @@ function inputPlaceholder(kind: VideoInputKind): string {
   return "Ruta del archivo de vídeo";
 }
 
-function outputPlaceholder(kind: VideoOutputKind): string {
-  if (kind === "screen") return "0 = monitor principal";
-  if (kind === "decklink") return "0, 1…";
-  if (kind === "ndi") return "MiRadio Programa";
-  return "rtmp://live.restream.io/live/clave";
-}
-
-function outputSummary(output: VideoOutput): string {
-  const format = `${output.width}×${output.height} · ${output.fps} fps`;
-  if (output.kind === "rtmp") {
-    const destination = output.source.trim() || "Sin destino";
-    return `${destination} · ${format}${output.bitrateKbps ? ` · ${output.bitrateKbps} kbps` : ""}`;
-  }
-  if (output.kind === "ndi") {
-    return `${output.source.trim() || output.name || "MiRadio"} · ${format}`;
-  }
-  if (output.kind === "screen") {
-    return `Pantalla ${output.source.trim() || "0"} · ${format}`;
-  }
-  return `Dispositivo ${output.source.trim() || "0"} · ${format}`;
-}
-
-export function VideoTab({ settings, onChange, streaming = false }: Props) {
+export function VideoTab({ settings, onChange }: Props) {
   const v = settings.video;
   const set = (patch: Partial<Settings["video"]>) =>
     onChange({ ...settings, video: { ...v, ...patch } });
@@ -92,35 +46,58 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
   const updateInput = (id: string, patch: Partial<VideoInput>) =>
     set({ inputs: v.inputs.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
 
-  const updateOutput = (id: string, patch: Partial<VideoOutput>) =>
-    set({ outputs: v.outputs.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
-
-  // Solo se edita una salida a la vez; el resto se ve como lista compacta.
-  const [editingOutput, setEditingOutput] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (streaming) setEditingOutput(null);
-  }, [streaming]);
-
-  const addOutput = () => {
-    const created = newOutput();
-    set({ outputs: [...v.outputs, created] });
-    setEditingOutput(created.id);
-  };
-
-  const removeOutput = (id: string) => {
-    set({ outputs: v.outputs.filter((x) => x.id !== id) });
-    setEditingOutput((current) => (current === id ? null : current));
-  };
-
   const vs = settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
   const setVs = (patch: Partial<typeof vs>) => onChange({ ...settings, videoScreen: { ...vs, ...patch } });
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [ndi, setNdi] = useState<NdiProbe | null>(null);
   const [ndiBusy, setNdiBusy] = useState(false);
 
+  const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+
   useEffect(() => {
     void listMonitors().then(setMonitors);
+  }, []);
+
+  const refreshCapture = useCallback(async (grant = false) => {
+    setCaptureBusy(true);
+    setCaptureError("");
+    try {
+      if (grant && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch {
+          /* sin permiso de camara: se usa la lista de FFmpeg */
+        }
+      }
+      const list = await listVideoCaptureDevices();
+      const media = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
+      const cameras = media.filter((device) => device.kind === "videoinput" && !!device.deviceId);
+      setCaptureDevices(
+        list.map((device) => {
+          const match = cameras.find(
+            (camera) =>
+              !!camera.label &&
+              (camera.label === device.name ||
+                camera.label === device.id ||
+                device.name.startsWith(camera.label) ||
+                camera.label.startsWith(device.name)),
+          );
+          return { ...device, deviceId: match?.deviceId };
+        }),
+      );
+    } catch (error) {
+      setCaptureDevices([]);
+      setCaptureError(String(error));
+    } finally {
+      setCaptureBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (v.inputs.some((input) => input.kind === "capture")) void refreshCapture();
   }, []);
 
   const refreshNdi = useCallback(
@@ -161,6 +138,13 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
   };
 
   const ndiSources = ndi?.sources ?? [];
+  const captureInputs = v.inputs.filter(
+    (input) => input.kind === "capture" && input.enabled && input.source.trim() !== "",
+  );
+  const screenValue =
+    vs.source === "capture" && captureInputs.some((input) => input.id === vs.captureInputId)
+      ? `capture:${vs.captureInputId}`
+      : "program";
 
   return (
     <>
@@ -193,6 +177,24 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
             </select>
           </label>
           <label className="field">
+            <span className="field-label">Qué se muestra</span>
+            <select
+              value={screenValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "program") setVs({ source: "program", captureInputId: "" });
+                else setVs({ source: "capture", captureInputId: value.slice("capture:".length) });
+              }}
+            >
+              <option value="program">Programa (música, vídeos y portadas)</option>
+              {captureInputs.map((input) => (
+                <option key={input.id} value={`capture:${input.id}`}>
+                  Capturadora · {input.name.trim() || input.source}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
             <span className="field-label">Mientras suena audio</span>
             <select value={vs.audioMode} onChange={(e) => setVs({ audioMode: e.target.value as typeof vs.audioMode })}>
               <option value="cover">Portada, título y artista</option>
@@ -201,17 +203,22 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
             </select>
           </label>
         </div>
+        {captureInputs.length === 0 && (
+          <p className="hint">
+            Añade y activa una entrada de tipo «Captura de vídeo» para poder mostrarla en la pantalla externa.
+          </p>
+        )}
         <p className="hint">
           En otro monitor se abre a pantalla completa. Doble clic o tecla F: pantalla completa; Esc: salir de pantalla
-          completa.
+          completa. La capturadora elegida aquí es la misma que emiten las salidas de vídeo de Streaming.
         </p>
       </fieldset>
       <div className="camp-head">
         <div>
-          <h4>Vídeo y mezcla</h4>
+          <h4>Entradas de vídeo y mezcla</h4>
           <p className="hint">
-            Canales de entrada y de salida. La mezcla inicial hace cortes entre fuentes; la salida
-            puede ir a una pantalla, una tarjeta SDI o por red.
+            Canales de entrada. La capturadora elegida para la pantalla externa también se emite por
+            las salidas de vídeo de Streaming (pantalla, SDI, NDI o RTMP).
           </p>
         </div>
         <label className="check-field">
@@ -242,8 +249,9 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
                 value={ch.kind}
                 onChange={(e) => {
                   const kind = e.target.value as VideoInputKind;
-                  updateInput(ch.id, { kind, source: "" });
+                  updateInput(ch.id, { kind, source: "", deviceId: "" });
                   if (kind === "ndi") void refreshNdi();
+                  if (kind === "capture") void refreshCapture();
                 }}
               >
                 {(Object.keys(INPUT_KIND) as VideoInputKind[]).map((k) => (
@@ -300,25 +308,72 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
                   {ndiBusy ? "Buscando…" : "Buscar"}
                 </button>
               </div>
-            ) : (
+            ) : ch.kind === "capture" ? (
               <>
-                <label className="field">
-                  <span className="field-label">Fuente</span>
-                  <input
-                    value={ch.source}
-                    placeholder={inputPlaceholder(ch.kind)}
-                    onChange={(e) => updateInput(ch.id, { source: e.target.value })}
-                  />
-                </label>
-                {ch.kind === "capture" && (
-                  <p className="hint">
-                    En Windows escribe el nombre exacto del dispositivo que
-                    muestra{" "}
-                    <code>ffmpeg -list_devices true -f dshow -i dummy</code>.
-                    En Linux puedes usar <code>/dev/video0</code>.
-                  </p>
-                )}
+                <div className="ndi-source-row">
+                  <label className="field">
+                    <span className="field-label">Capturadora</span>
+                    <input
+                      list={`capture-devices-${ch.id}`}
+                      value={ch.source}
+                      placeholder={
+                        captureBusy
+                          ? "Buscando capturadoras…"
+                          : captureDevices.length > 0
+                            ? "Elige o escribe un dispositivo…"
+                            : "Cámara web o capturadora HDMI"
+                      }
+                      onChange={(e) => {
+                        const source = e.target.value;
+                        const device = captureDevices.find(
+                          (item) => item.id === source || item.name === source,
+                        );
+                        updateInput(ch.id, { source, deviceId: device?.deviceId ?? "" });
+                      }}
+                    />
+                    <datalist id={`capture-devices-${ch.id}`}>
+                      {captureDevices.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.name}
+                        </option>
+                      ))}
+                    </datalist>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={captureBusy}
+                    onClick={() => void refreshCapture()}
+                  >
+                    {captureBusy ? "Buscando…" : "Buscar"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={captureBusy}
+                    title="Pide permiso de cámara para poder mostrarla en la pantalla externa"
+                    onClick={() => void refreshCapture(true)}
+                  >
+                    Detectar
+                  </button>
+                </div>
+                <p className="hint">
+                  {captureError
+                    ? `No se pudieron listar las capturadoras: ${captureError}`
+                    : captureDevices.length > 0
+                      ? `${captureDevices.length} capturadora(s) detectada(s). Pulsa «Detectar» para habilitar la vista previa en la pantalla externa.`
+                      : "Pulsa «Buscar» para listar las capturadoras. También puedes escribir el nombre exacto del dispositivo."}
+                </p>
               </>
+            ) : (
+              <label className="field">
+                <span className="field-label">Fuente</span>
+                <input
+                  value={ch.source}
+                  placeholder={inputPlaceholder(ch.kind)}
+                  onChange={(e) => updateInput(ch.id, { source: e.target.value })}
+                />
+              </label>
             )}
           </div>
         ))}
@@ -328,196 +383,6 @@ export function VideoTab({ settings, onChange, streaming = false }: Props) {
           onClick={() => set({ inputs: [...v.inputs, newInput()] })}
         >
           <IconPlus size={14} /> Añadir entrada
-        </button>
-      </fieldset>
-
-      <fieldset className="fieldset">
-        <legend>Canales de salida</legend>
-        {v.outputs.length === 0 && (
-          <p className="hint">Añade una pantalla, una tarjeta SDI o una salida de red.</p>
-        )}
-        {v.outputs.map((ch) => {
-          const isOpen = editingOutput === ch.id;
-          return (
-            <div
-              className={`io-card ${isOpen ? "io-card-open" : "io-row"}`}
-              key={ch.id}
-            >
-              {isOpen ? (
-                <div className="io-card-head">
-                  <input
-                    className="io-name"
-                    value={ch.name}
-                    placeholder="Nombre del canal"
-                    onChange={(e) => updateOutput(ch.id, { name: e.target.value })}
-                  />
-                  <select
-                    value={ch.kind}
-                    onChange={(e) => {
-                      const kind = e.target.value as VideoOutputKind;
-                      updateOutput(ch.id, {
-                        kind,
-                        source:
-                          kind === "ndi"
-                            ? ch.name && ch.name !== "Salida"
-                              ? ch.name
-                              : "MiRadio Programa"
-                            : kind === "screen"
-                              ? "0"
-                              : "",
-                      });
-                      if (kind === "ndi") void refreshNdi();
-                    }}
-                  >
-                    {(Object.keys(OUTPUT_KIND) as VideoOutputKind[]).map((k) => (
-                      <option key={k} value={k}>
-                        {OUTPUT_KIND[k]}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="check-field io-on">
-                    <input
-                      type="checkbox"
-                      checked={ch.enabled}
-                      onChange={(e) => updateOutput(ch.id, { enabled: e.target.checked })}
-                    />
-                    Activa
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => setEditingOutput(null)}
-                  >
-                    Guardar
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn io-del"
-                    title="Quitar salida"
-                    onClick={() => removeOutput(ch.id)}
-                  >
-                    <IconTrash size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div className="stream-line">
-                  <input
-                    type="checkbox"
-                    checked={ch.enabled}
-                    title={ch.enabled ? "Activa" : "Inactiva"}
-                    aria-label={`Activar ${ch.name || OUTPUT_KIND[ch.kind]}`}
-                    onChange={(e) => updateOutput(ch.id, { enabled: e.target.checked })}
-                  />
-                  <strong className="stream-line-name">{ch.name || "Sin nombre"}</strong>
-                  <span className="stream-line-codec">{OUTPUT_KIND[ch.kind]}</span>
-                  <span className="stream-line-url" title={outputSummary(ch)}>
-                    {outputSummary(ch)}
-                  </span>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    title="Editar salida"
-                    aria-label={`Editar ${ch.name || OUTPUT_KIND[ch.kind]}`}
-                    onClick={() => setEditingOutput(ch.id)}
-                  >
-                    <IconEdit size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn io-del"
-                    title="Quitar salida"
-                    onClick={() => removeOutput(ch.id)}
-                  >
-                    <IconTrash size={14} />
-                  </button>
-                </div>
-              )}
-
-              {isOpen && (
-                <>
-                  <label className="field">
-                    <span className="field-label">
-                      {ch.kind === "ndi" ? "Nombre de la fuente NDI" : "Destino"}
-                    </span>
-                    <input
-                      value={ch.source}
-                      placeholder={outputPlaceholder(ch.kind)}
-                      onChange={(e) => updateOutput(ch.id, { source: e.target.value })}
-                    />
-                  </label>
-                  <div className="io-format">
-                    <label className="field">
-                      <span className="field-label">Ancho</span>
-                      <input
-                        type="number"
-                        min={320}
-                        max={7680}
-                        value={ch.width}
-                        onChange={(e) =>
-                          updateOutput(ch.id, { width: Math.max(0, Number(e.target.value) || 0) })
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Alto</span>
-                      <input
-                        type="number"
-                        min={240}
-                        max={4320}
-                        value={ch.height}
-                        onChange={(e) =>
-                          updateOutput(ch.id, { height: Math.max(0, Number(e.target.value) || 0) })
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">FPS</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={120}
-                        value={ch.fps}
-                        onChange={(e) =>
-                          updateOutput(ch.id, { fps: Math.max(1, Number(e.target.value) || 25) })
-                        }
-                      />
-                    </label>
-                    {ch.kind !== "ndi" && (
-                      <label className="field">
-                        <span className="field-label">Bitrate</span>
-                        <span className="field-unit">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100000}
-                            value={ch.bitrateKbps}
-                            onChange={(e) =>
-                              updateOutput(ch.id, {
-                                bitrateKbps: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                          />
-                          kbps
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                  {ch.kind === "ndi" && (
-                    <p className="hint">
-                      El audio de esta salida NDI es la mezcla que va a la salida «Streaming» de la mesa.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="btn btn-sm io-add"
-          onClick={addOutput}
-        >
-          <IconPlus size={14} /> Añadir salida
         </button>
       </fieldset>
 

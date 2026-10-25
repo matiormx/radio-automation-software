@@ -30,11 +30,21 @@ pub struct VideoScreenSettings {
     pub monitor: u32,
     /// "cover" | "logo" | "black"
     pub audio_mode: String,
+    /// "program" (lo que suena) o "capture" (la capturadora elegida)
+    pub source: String,
+    /// Entrada de video que se muestra en la pantalla y se emite por las salidas
+    pub capture_input_id: String,
 }
 
 impl Default for VideoScreenSettings {
     fn default() -> Self {
-        VideoScreenSettings { enabled: false, monitor: 1, audio_mode: "cover".into() }
+        VideoScreenSettings {
+            enabled: false,
+            monitor: 1,
+            audio_mode: "cover".into(),
+            source: "program".into(),
+            capture_input_id: String::new(),
+        }
     }
 }
 
@@ -546,6 +556,8 @@ pub struct VideoInput {
     /// "file", "rtmp", "ndi" o "capture"
     pub kind: String,
     pub source: String,
+    /// Identificador del navegador para previsualizar una capturadora
+    pub device_id: String,
     pub enabled: bool,
 }
 
@@ -556,6 +568,7 @@ impl Default for VideoInput {
             name: String::new(),
             kind: "file".to_string(),
             source: String::new(),
+            device_id: String::new(),
             enabled: true,
         }
     }

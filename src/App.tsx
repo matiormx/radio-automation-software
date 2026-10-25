@@ -2633,9 +2633,35 @@ export default function App() {
 
   // ---- video: lo que suena, para la vista previa y la ventana de emision ----
   const videoSource = useCallback((): VideoState | null => {
+    const s = settingsRef.current;
+    const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+    if (vs.source === "capture") {
+      const input = s.video.inputs.find(
+        (item) =>
+          item.id === vs.captureInputId &&
+          item.kind === "capture" &&
+          item.enabled &&
+          item.source.trim() !== "",
+      );
+      if (input) {
+        return {
+          trackId: `capture:${input.id}`,
+          file: "",
+          isVideo: false,
+          pos: 0,
+          playing: true,
+          title: "",
+          artist: "",
+          cover: "",
+          audioMode: vs.audioMode,
+          logo: s.logoPath ?? "",
+          stationName: s.radioName ?? "",
+          capture: { source: input.source, deviceId: input.deviceId },
+        };
+      }
+    }
     const lr = liveRunRef.current;
     if (lr) {
-      const s = settingsRef.current;
       return {
         trackId: `live:${lr.eventId}`,
         file: "",
@@ -2654,8 +2680,6 @@ export default function App() {
     const row = idx >= 0 ? rowsRef.current[idx] : undefined;
     const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
     if (!t) return null;
-    const s = settingsRef.current;
-    const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
     return {
       trackId: t.id,
       file: t.file,
@@ -3114,7 +3138,6 @@ export default function App() {
           studio={studio}
           callMuted={callMuted}
           onCallMute={muteCaller}
-          streaming={!!streamStatus?.running}
           streamStatus={streamStatus}
           streamBusy={streamBusy}
         />

@@ -20,6 +20,7 @@ import type {
   SessionState,
   Waveform,
   AiSuggestion,
+  VideoCaptureDevice,
 } from "./types";
 
 export const VIDEO_EXTENSIONS = [
@@ -294,6 +295,11 @@ export function probeStreaming(): Promise<StreamProbe> {
 
 export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
   return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
+}
+
+/** Capturadoras de vídeo disponibles en el equipo. */
+export function listVideoCaptureDevices(): Promise<VideoCaptureDevice[]> {
+  return invoke<VideoCaptureDevice[]>("video_capture_devices");
 }
 
 export async function pickFfmpegFile(): Promise<string | null> {

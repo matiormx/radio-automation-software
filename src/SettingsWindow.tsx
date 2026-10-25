@@ -149,7 +149,6 @@ export function SettingsWindow() {
         studio={shared.studio}
         callMuted={shared.callMuted}
         onCallMute={(muted) => void call("muteCaller", muted)}
-        streaming={!!shared.streaming}
         streamStatus={shared.streamStatus ?? null}
         streamBusy={!!shared.streamBusy}
       />

@@ -212,11 +212,14 @@ pub fn stream_start(
     };
     let ndi_device = ndi.as_ref().map(|(_, device)| device.as_str());
     let ndi_ffmpeg = ndi.as_ref().map(|(path, _)| path.as_path());
-    let selected_input_is_ndi = settings
-        .video
-        .inputs
-        .iter()
-        .find(|input| input.enabled && !input.source.trim().is_empty())
+    // La entrada que se ve en la pantalla externa es la que emiten las salidas.
+    let preferred_input = if settings.video_screen.source == "capture" {
+        let id = settings.video_screen.capture_input_id.trim();
+        if id.is_empty() { None } else { Some(id) }
+    } else {
+        None
+    };
+    let selected_input_is_ndi = pick_video_input(&settings.video, preferred_input)
         .map(|input| input.kind == "ndi")
         .unwrap_or(false);
     let video_ffmpeg = if selected_input_is_ndi {
@@ -282,6 +285,7 @@ pub fn stream_start(
             settings.streaming.rtmp.bitrate_kbps,
             settings.streaming.rtmp.keyframe_secs,
             ndi_device,
+            preferred_input,
         ) {
             Ok(args) => {
                 if let Err(error) = spawn_process(
@@ -322,7 +326,7 @@ pub fn stream_start(
             let kind = output.kind.clone();
             let args = match kind.as_str() {
                 "screen" | "decklink" => {
-                    video_output_args(output, &settings.video, ndi_device)
+                    video_output_args(output, &settings.video, ndi_device, preferred_input)
                 }
                 "rtmp" => rtmp_args(
                     &settings.video,
@@ -333,6 +337,7 @@ pub fn stream_start(
                     output.bitrate_kbps,
                     2,
                     ndi_device,
+                    preferred_input,
                 ),
                 "ndi" => match ndi.as_ref() {
                     Some((_, device)) => {
@@ -353,6 +358,7 @@ pub fn stream_start(
                             output.fps,
                             device,
                             ndi_device,
+                            preferred_input,
                         )
                     }
                     None => Err(
@@ -940,6 +946,7 @@ fn rtmp_args(
     bitrate_kbps: u32,
     keyframe_secs: u32,
     ndi_device: Option<&str>,
+    preferred_input: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -952,7 +959,7 @@ fn rtmp_args(
     if !video.enabled {
         return Err("activa el motor de vídeo para emitir por RTMP".to_string());
     }
-    let input = pick_video_input(video)?;
+    let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
     args.extend(video_input_args(input, ndi_device)?);
     args.extend([arg("-map"), arg("1:v:0")]);
@@ -996,6 +1003,7 @@ fn ndi_args(
     fps: u32,
     device: &str,
     ndi_device: Option<&str>,
+    preferred_input: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -1004,7 +1012,7 @@ fn ndi_args(
     if !video.enabled {
         return Err("activa el motor de vídeo para emitir por NDI".to_string());
     }
-    let input = pick_video_input(video)?;
+    let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
     args.extend(video_input_args(input, ndi_device)?);
     args.extend([arg("-map"), arg("1:v:0")]);
@@ -1030,11 +1038,12 @@ fn video_output_args(
     output: &VideoOutput,
     video: &VideoSettings,
     ndi_device: Option<&str>,
+    preferred_input: Option<&str>,
 ) -> Result<Vec<String>, String> {
     if !video.enabled {
         return Err("activa el motor de vídeo".to_string());
     }
-    let input = pick_video_input(video)?;
+    let input = pick_video_input(video, preferred_input)?;
     let mut args = video_input_args(input, ndi_device)?;
     let width = even_size(output.width, 16);
     let height = even_size(output.height, 16);
@@ -1065,11 +1074,25 @@ fn video_output_args(
     Ok(args)
 }
 
-fn pick_video_input(video: &VideoSettings) -> Result<&VideoInput, String> {
-    video
-        .inputs
-        .iter()
-        .find(|input| input.enabled && !input.source.trim().is_empty())
+/// Entrada de vídeo que se emite: la elegida para la pantalla externa o, si
+/// no hay, la primera activa.
+fn pick_video_input<'a>(
+    video: &'a VideoSettings,
+    preferred: Option<&str>,
+) -> Result<&'a VideoInput, String> {
+    preferred
+        .and_then(|id| {
+            video
+                .inputs
+                .iter()
+                .find(|input| input.id == id && input.enabled && !input.source.trim().is_empty())
+        })
+        .or_else(|| {
+            video
+                .inputs
+                .iter()
+                .find(|input| input.enabled && !input.source.trim().is_empty())
+        })
         .ok_or_else(|| "no hay una entrada de vídeo activa".to_string())
 }
 
@@ -1437,6 +1460,7 @@ mod tests {
             name: "NDI".to_string(),
             kind: "ndi".to_string(),
             source: "CAMARA A".to_string(),
+            device_id: String::new(),
             enabled: true,
         };
         assert!(video_input_args(&input, None).is_err());

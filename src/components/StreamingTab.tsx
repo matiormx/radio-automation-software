@@ -6,6 +6,8 @@ import type {
   Settings,
   StreamStatus,
   StreamingSettings,
+  VideoOutput,
+  VideoOutputKind,
 } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
 
@@ -78,6 +80,61 @@ function rtmpConfigError(settings: Settings, url: string): string | null {
   return null;
 }
 
+const VIDEO_OUTPUT_KIND: Record<VideoOutputKind, string> = {
+  screen: "Pantalla / HDMI",
+  decklink: "Tarjeta SDI",
+  ndi: "NDI",
+  rtmp: "RTMP",
+};
+
+function newVideoOutput(): VideoOutput {
+  return {
+    id: `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    name: "Salida",
+    kind: "screen",
+    source: "0",
+    enabled: true,
+    width: 1920,
+    height: 1080,
+    fps: 25,
+    bitrateKbps: 6000,
+  };
+}
+
+function videoOutputPlaceholder(kind: VideoOutputKind): string {
+  if (kind === "screen") return "0 = monitor principal";
+  if (kind === "decklink") return "0, 1…";
+  if (kind === "ndi") return "MiRadio Programa";
+  return "rtmp://live.restream.io/live/clave";
+}
+
+function videoOutputSummary(output: VideoOutput): string {
+  const format = `${output.width}×${output.height} · ${output.fps} fps`;
+  if (output.kind === "rtmp") {
+    const destination = output.source.trim() || "Sin destino";
+    return `${destination} · ${format}${output.bitrateKbps ? ` · ${output.bitrateKbps} kbps` : ""}`;
+  }
+  if (output.kind === "ndi") {
+    return `${output.source.trim() || output.name || "MiRadio"} · ${format}`;
+  }
+  if (output.kind === "screen") {
+    return `Pantalla ${output.source.trim() || "0"} · ${format}`;
+  }
+  return `Dispositivo ${output.source.trim() || "0"} · ${format}`;
+}
+
+function videoOutputConfigError(settings: Settings, output: VideoOutput): string | null {
+  if (!settings.video.enabled) return "Activa el motor de vídeo en Ajustes > Vídeo.";
+  if (!settings.video.inputs.some((i) => i.enabled && i.source.trim())) {
+    return "Añade una entrada de vídeo activa en Ajustes > Vídeo.";
+  }
+  if (output.kind === "rtmp") return rtmpConfigError(settings, output.source);
+  if ((output.kind === "screen" || output.kind === "decklink") && !output.source.trim()) {
+    return "Indica el dispositivo de salida.";
+  }
+  return null;
+}
+
 function emissionState(
   status: StreamStatus | null | undefined,
   id: string,
@@ -134,6 +191,26 @@ export function StreamingTab({
   const updateRtmp = (patch: Partial<RtmpOutput>) =>
     set({ rtmp: { ...st.rtmp, ...patch } });
 
+  // Salidas de vídeo: igual que Icecast, solo una abierta y el resto en una línea.
+  const [editingVideo, setEditingVideo] = useState<string | null>(null);
+  const setVideo = (patch: Partial<Settings["video"]>) =>
+    onChange({ ...settings, video: { ...settings.video, ...patch } });
+  const updateVideoOutput = (id: string, patch: Partial<VideoOutput>) =>
+    setVideo({
+      outputs: settings.video.outputs.map((output) =>
+        output.id === id ? { ...output, ...patch } : output,
+      ),
+    });
+  const addVideoOutput = () => {
+    const created = newVideoOutput();
+    setVideo({ outputs: [...settings.video.outputs, created] });
+    setEditingVideo(created.id);
+  };
+  const removeVideoOutput = (id: string) => {
+    setVideo({ outputs: settings.video.outputs.filter((output) => output.id !== id) });
+    setEditingVideo((current) => (current === id ? null : current));
+  };
+
   const emissions = [
     ...st.icecast.map((s) => ({
       key: `icecast:${s.id}`,
@@ -151,15 +228,13 @@ export function StreamingTab({
       enabled: st.rtmp.enabled,
       configError: st.rtmp.enabled ? rtmpConfigError(settings, st.rtmp.url) : null,
     },
-    ...settings.video.outputs
-      .filter((output) => output.kind === "rtmp")
-      .map((output) => ({
-        key: `video:${output.id}`,
-        name: output.name.trim() || "Salida RTMP",
-        detail: safeRtmp(output.source),
-        enabled: output.enabled,
-        configError: output.enabled ? rtmpConfigError(settings, output.source) : null,
-      })),
+    ...settings.video.outputs.map((output) => ({
+      key: `video:${output.id}`,
+      name: output.name.trim() || VIDEO_OUTPUT_KIND[output.kind],
+      detail: videoOutputSummary(output),
+      enabled: output.enabled,
+      configError: output.enabled ? videoOutputConfigError(settings, output) : null,
+    })),
   ];
   const rows = emissions.map((emission) => ({
     ...emission,
@@ -171,6 +246,17 @@ export function StreamingTab({
       emission.configError,
     ),
   }));
+  const statusByKey = new Map(rows.map((row) => [row.key, row.status]));
+  const dotFor = (key: string) => {
+    const status = statusByKey.get(key);
+    return (
+      <span
+        className={`stream-status-dot ${status?.tone ?? "idle"}`}
+        title={status?.label ?? "Sin iniciar"}
+        aria-label={status?.label ?? "Sin iniciar"}
+      />
+    );
+  };
   const anyError = rows.some((row) => row.status.tone === "error");
   const hasRowError = rows.some((row) => row.status.error);
   const globalError = hasRowError ? null : streamStatus?.lastError ?? null;
@@ -338,6 +424,7 @@ export function StreamingTab({
                         updateStream(s.id, { enabled: e.target.checked })
                       }
                     />
+                    {dotFor(`icecast:${s.id}`)}
                     <strong className="stream-line-name">
                       {s.name || "Sin nombre"}
                     </strong>
@@ -563,6 +650,7 @@ export function StreamingTab({
             checked={st.rtmp.enabled}
             onChange={(e) => updateRtmp({ enabled: e.target.checked })}
           />
+          {dotFor("rtmp")}
           Emitir vídeo por RTMP
         </label>
         <label className="field">
@@ -650,9 +738,227 @@ export function StreamingTab({
           Restream usa <code>rtmp://live.restream.io/live/TU_CLAVE</code> o la
           URL <code>rtmps://</code> que muestra su panel; RTMPS necesita un
           FFmpeg con TLS (el build NDI lo incluye). TU_CLAVE es la clave de
-          emisión de tu panel de Restream. Usa la primera entrada de vídeo
-          activa.
+          emisión de tu panel de Restream. Usa la entrada que se muestra en la
+          pantalla externa (Ajustes &gt; Vídeo) o la primera entrada activa.
         </p>
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Salidas de vídeo</legend>
+        <p className="hint">
+          Emiten lo que se ve en la pantalla externa: la capturadora elegida en
+          Ajustes &gt; Vídeo o el programa. Guarda cada salida como en Icecast.
+        </p>
+        {settings.video.outputs.length === 0 && (
+          <p className="hint">Añade una pantalla, una tarjeta SDI, NDI o una salida RTMP.</p>
+        )}
+        <div className="stream-list">
+          {settings.video.outputs.map((output) => {
+            const isOpen = editingVideo === output.id;
+            const status = statusByKey.get(`video:${output.id}`);
+            return (
+              <div
+                className={`stream-card ${isOpen ? "stream-card-open" : "stream-row"}`}
+                key={output.id}
+              >
+                {isOpen ? (
+                  <div className="io-card-head">
+                    <input
+                      className="io-name"
+                      value={output.name}
+                      placeholder="Nombre de la salida"
+                      onChange={(e) =>
+                        updateVideoOutput(output.id, { name: e.target.value })
+                      }
+                    />
+                    <select
+                      value={output.kind}
+                      onChange={(e) => {
+                        const kind = e.target.value as VideoOutputKind;
+                        updateVideoOutput(output.id, {
+                          kind,
+                          source:
+                            kind === "ndi"
+                              ? output.name && output.name !== "Salida"
+                                ? output.name
+                                : "MiRadio Programa"
+                              : kind === "screen"
+                                ? "0"
+                                : "",
+                        });
+                      }}
+                    >
+                      {(Object.keys(VIDEO_OUTPUT_KIND) as VideoOutputKind[]).map((kind) => (
+                        <option key={kind} value={kind}>
+                          {VIDEO_OUTPUT_KIND[kind]}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="check-field io-on">
+                      <input
+                        type="checkbox"
+                        checked={output.enabled}
+                        onChange={(e) =>
+                          updateVideoOutput(output.id, { enabled: e.target.checked })
+                        }
+                      />
+                      Activa
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setEditingVideo(null)}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn io-del"
+                      title="Quitar salida"
+                      onClick={() => removeVideoOutput(output.id)}
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="stream-line">
+                    <input
+                      type="checkbox"
+                      checked={output.enabled}
+                      title={output.enabled ? "Activa" : "Inactiva"}
+                      aria-label={`Activar ${output.name || VIDEO_OUTPUT_KIND[output.kind]}`}
+                      onChange={(e) =>
+                        updateVideoOutput(output.id, { enabled: e.target.checked })
+                      }
+                    />
+                    <span
+                      className={`stream-status-dot ${status?.tone ?? "idle"}`}
+                      title={status?.label ?? "Sin iniciar"}
+                      aria-label={status?.label ?? "Sin iniciar"}
+                    />
+                    <strong className="stream-line-name">
+                      {output.name || "Sin nombre"}
+                    </strong>
+                    <span className="stream-line-codec">
+                      {VIDEO_OUTPUT_KIND[output.kind]}
+                    </span>
+                    <span className="stream-line-url" title={videoOutputSummary(output)}>
+                      {videoOutputSummary(output)}
+                    </span>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      title="Editar salida"
+                      aria-label={`Editar ${output.name || VIDEO_OUTPUT_KIND[output.kind]}`}
+                      onClick={() => setEditingVideo(output.id)}
+                    >
+                      <IconEdit size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn io-del"
+                      title="Quitar salida"
+                      onClick={() => removeVideoOutput(output.id)}
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </div>
+                )}
+
+                {isOpen && (
+                  <>
+                    <label className="field">
+                      <span className="field-label">
+                        {output.kind === "ndi" ? "Nombre de la fuente NDI" : "Destino"}
+                      </span>
+                      <input
+                        value={output.source}
+                        placeholder={videoOutputPlaceholder(output.kind)}
+                        onChange={(e) =>
+                          updateVideoOutput(output.id, { source: e.target.value })
+                        }
+                      />
+                    </label>
+                    <div className="io-format">
+                      <label className="field">
+                        <span className="field-label">Ancho</span>
+                        <input
+                          type="number"
+                          min={320}
+                          max={7680}
+                          value={output.width}
+                          onChange={(e) =>
+                            updateVideoOutput(output.id, {
+                              width: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">Alto</span>
+                        <input
+                          type="number"
+                          min={240}
+                          max={4320}
+                          value={output.height}
+                          onChange={(e) =>
+                            updateVideoOutput(output.id, {
+                              height: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">FPS</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={120}
+                          value={output.fps}
+                          onChange={(e) =>
+                            updateVideoOutput(output.id, {
+                              fps: Math.max(1, Number(e.target.value) || 25),
+                            })
+                          }
+                        />
+                      </label>
+                      {output.kind !== "ndi" && (
+                        <label className="field">
+                          <span className="field-label">Bitrate</span>
+                          <span className="field-unit">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100000}
+                              value={output.bitrateKbps}
+                              onChange={(e) =>
+                                updateVideoOutput(output.id, {
+                                  bitrateKbps: Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                            />
+                            kbps
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                    {output.kind === "ndi" && (
+                      <p className="hint">
+                        El audio de esta salida NDI es la mezcla que va a la salida
+                        «Streaming» de la mesa.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="stream-add">
+          <button type="button" className="btn btn-sm" onClick={addVideoOutput}>
+            <IconPlus size={14} /> Añadir salida
+          </button>
+        </div>
       </fieldset>
     </>
   );

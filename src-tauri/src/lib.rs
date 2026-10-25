@@ -115,6 +115,7 @@ pub fn run() {
             notify::notify_fire,
             video::convert_videos,
             video::audio_fallback,
+            video::video_capture_devices,
             netstream::netstream_url,
             backup::backup_export,
             backup::backup_inspect,
