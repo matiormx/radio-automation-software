@@ -80,6 +80,7 @@ import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
 import { WorkspaceLayout } from "./components/WorkspaceLayout";
 import { ChatPanel } from "./components/ChatPanel";
+import { VideoSwitcher } from "./components/VideoSwitcher";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { NativeAppFeed } from "./nativeFeed";
 import { NativePlayer } from "./nativeEngine";
@@ -3355,6 +3356,15 @@ export default function App() {
                     setSettingsMounted(true);
                     setSettingsOpen(true);
                   }}
+                />
+                <VideoSwitcher
+                  settings={settings}
+                  onChange={(patch) =>
+                    updateSettings({
+                      ...settings,
+                      videoScreen: { ...(settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen), ...patch },
+                    })
+                  }
                 />
                 <div
                   className="deck-ctx-wrap"

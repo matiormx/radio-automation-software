@@ -310,23 +310,15 @@ export function VideoTab({ settings, onChange }: Props) {
               <div className="ndi-source-row">
                 <label className="field">
                   <span className="field-label">Fuente NDI</span>
-                  <input
-                    list={`ndi-sources-${ch.id}`}
-                    value={ch.source}
-                    placeholder={
-                      ndiBusy
-                        ? "Buscando fuentes…"
-                        : ndiSources.length > 0
-                          ? "Elige o escribe una fuente…"
-                          : "Nombre de la fuente NDI"
-                    }
-                    onChange={(e) => updateInput(ch.id, { source: e.target.value })}
-                  />
-                  <datalist id={`ndi-sources-${ch.id}`}>
+                  <select value={ch.source} onChange={(e) => updateInput(ch.id, { source: e.target.value })}>
+                    <option value="">{ndiBusy ? "Buscando fuentes…" : ndiSources.length ? "Elige una fuente…" : "Sin fuentes: pulsa Buscar"}</option>
                     {ndiSources.map((source) => (
-                      <option key={source} value={source} />
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
                     ))}
-                  </datalist>
+                    {ch.source && !ndiSources.includes(ch.source) && <option value={ch.source}>{ch.source} (no encontrada ahora)</option>}
+                  </select>
                 </label>
                 <button
                   type="button"
@@ -342,31 +334,25 @@ export function VideoTab({ settings, onChange }: Props) {
                 <div className="ndi-source-row">
                   <label className="field">
                     <span className="field-label">Capturadora</span>
-                    <input
-                      list={`capture-devices-${ch.id}`}
+                    <select
                       value={ch.source}
-                      placeholder={
-                        captureBusy
-                          ? "Buscando capturadoras…"
-                          : videoCaptureDevices.length > 0
-                            ? "Elige o escribe un dispositivo…"
-                            : "Cámara web o capturadora HDMI"
-                      }
                       onChange={(e) => {
-                        const source = e.target.value;
-                        const device = videoCaptureDevices.find(
-                          (item) => item.id === source || item.name === source,
-                        );
-                        updateInput(ch.id, { source, deviceId: device?.deviceId ?? "" });
+                        const device = videoCaptureDevices.find((item) => item.id === e.target.value);
+                        updateInput(ch.id, { source: e.target.value, deviceId: device?.deviceId ?? "" });
                       }}
-                    />
-                    <datalist id={`capture-devices-${ch.id}`}>
+                    >
+                      <option value="">
+                        {captureBusy ? "Buscando capturadoras…" : videoCaptureDevices.length ? "Elige una capturadora…" : "Sin capturadoras: pulsa Buscar"}
+                      </option>
                       {videoCaptureDevices.map((device) => (
                         <option key={device.id} value={device.id}>
                           {device.name}
                         </option>
                       ))}
-                    </datalist>
+                      {ch.source && !videoCaptureDevices.some((d) => d.id === ch.source) && (
+                        <option value={ch.source}>{ch.source} (no encontrada ahora)</option>
+                      )}
+                    </select>
                   </label>
                   <button
                     type="button"
@@ -386,31 +372,12 @@ export function VideoTab({ settings, onChange }: Props) {
                     Detectar
                   </button>
                 </div>
-                {videoCaptureDevices.length > 0 && (
-                  <div className="capture-found" aria-label="Capturadoras encontradas">
-                    {videoCaptureDevices.map((device) => (
-                      <button
-                        key={device.id}
-                        type="button"
-                        className={`capture-chip ${ch.source === device.id ? "capture-chip-on" : ""}`}
-                        title={device.name}
-                        onClick={() =>
-                          updateInput(ch.id, {
-                            source: device.id,
-                            deviceId: device.deviceId ?? "",
-                          })
-                        }
-                      >
-                        {device.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
+
                 <p className="hint">
                   {captureError
                     ? `No se pudieron listar las capturadoras: ${captureError}`
                     : videoCaptureDevices.length > 0
-                      ? `Encontradas ${videoCaptureDevices.length} capturadora(s) y ${audioCaptureDevices.length} entrada(s) de audio. Pulsa una para usarla; «Detectar» habilita la vista previa en la pantalla externa.`
+                      ? `Encontradas ${videoCaptureDevices.length} capturadora(s) y ${audioCaptureDevices.length} entrada(s) de audio. «Detectar» pide permiso de cámara para verla en la pantalla de emisión. Se cambia en directo con la botonera VÍDEO de la ventana principal.`
                       : captureBusy
                         ? "Buscando dispositivos…"
                         : "No se encontraron capturadoras. Comprueba que FFmpeg esté instalado y pulsa «Buscar». También puedes escribir el nombre exacto."}

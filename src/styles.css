@@ -4328,3 +4328,15 @@ body.dnd-active, body.dnd-active * { cursor: grabbing !important; user-select: n
 .pb-preview-auto-on { background: rgba(79,140,255,.18); border-color: var(--accent, #4f8cff); color: var(--text); }
 .deck-ctx-wrap { display: contents; }
 .rows.dnd-over { box-shadow: inset 0 -2px 0 var(--accent, #4f8cff); }
+
+/* ---- botonera de vídeo en directo ---- */
+.panel.vsw, .vsw { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 6px; padding: 6px 10px; flex-wrap: wrap; }
+.vsw-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--text-faint); margin-right: 4px; }
+.vsw-btn {
+  min-width: 84px; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg-2, #161b22); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
+}
+.vsw-btn:hover { border-color: var(--accent, #4f8cff); }
+.vsw-on { background: #c92a2a; border-color: #ff5c5c; color: #fff; box-shadow: 0 0 0 1px rgba(255,92,92,.35); }
+.vsw-note { font-size: 10.5px; color: var(--text-faint); margin-left: 6px; }
