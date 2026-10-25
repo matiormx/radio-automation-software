@@ -1609,6 +1609,69 @@ pub fn set_track_blocks(
     }
 }
 
+/// Resultado de importar evitando duplicados.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    /// Canciones nuevas en el catalogo
+    pub added: usize,
+    /// Archivos que ya estaban (no se copian otra vez)
+    pub existing: usize,
+}
+
+/// ¿Ya esta este archivo en el catalogo? Mismo enlace, o mismo nombre de
+/// archivo original y mismo tamano que la copia que guarda la biblioteca.
+fn find_existing<'a>(tracks: &'a [Track], src: &Path) -> Option<&'a Track> {
+    let key = normalize_path(&src.to_string_lossy());
+    if let Some(t) = tracks.iter().find(|t| normalize_path(&t.file) == key) {
+        return Some(t);
+    }
+    let name = src.file_name()?.to_string_lossy().to_lowercase();
+    let size = fs::metadata(src).ok()?.len();
+    tracks.iter().find(|t| {
+        t.original_name.to_lowercase() == name
+            && fs::metadata(t.file.trim()).map(|m| m.len() == size).unwrap_or(false)
+    })
+}
+
+/// Importa archivos sin duplicar: los que ya estan en el catalogo no se
+/// copian otra vez. Si se indica `block_id`, todas (nuevas y existentes) se
+/// anaden a ese bloque sin quitarles los que ya tenian.
+#[tauri::command]
+pub fn import_files_dedup(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+    library: Option<String>,
+    block_id: Option<String>,
+) -> Result<ImportResult, String> {
+    let (fresh, existing_ids): (Vec<String>, Vec<String>) = {
+        let _guard = lock_library();
+        let tracks = read_library_internal(&state.data_dir);
+        let mut fresh = Vec::new();
+        let mut ids = Vec::new();
+        for p in paths {
+            match find_existing(&tracks, Path::new(&p)) {
+                Some(t) => ids.push(t.id.clone()),
+                None => fresh.push(p),
+            }
+        }
+        (fresh, ids)
+    };
+    let added = if fresh.is_empty() { Vec::new() } else { import_files(state.clone(), fresh, library)? };
+    if let Some(block) = block_id.filter(|b| !b.trim().is_empty()) {
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&state.data_dir);
+        let wanted: HashSet<&str> = added.iter().map(|t| t.id.as_str()).chain(existing_ids.iter().map(|s| s.as_str())).collect();
+        for t in tracks.iter_mut().filter(|t| wanted.contains(t.id.as_str())) {
+            if !t.blocks.contains(&block) {
+                t.blocks.push(block.clone());
+            }
+        }
+        write_library(&state.data_dir, &tracks)?;
+    }
+    Ok(ImportResult { added: added.len(), existing: existing_ids.len() })
+}
+
 /// Pasa canciones de un bloque a otro (o las copia): añade `add_block` y,
 /// si se indica, quita `remove_block`. Devuelve cuantas cambiaron.
 #[tauri::command]

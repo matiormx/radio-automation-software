@@ -16,6 +16,7 @@ import {
   isVideoFile,
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
+import { beginDrag, registerDropZone } from "../dnd";
 import { pickScanFolder, scanFolder } from "../api";
 import { listen } from "@tauri-apps/api/event";
 
@@ -377,8 +378,6 @@ function MusicBrowserBase({
   const [newSeparator, setNewSeparator] = useState("");
   const [renamingSeparator, setRenamingSeparator] = useState("");
   const [separatorValue, setSeparatorValue] = useState("");
-  const [draggingBlock, setDraggingBlock] = useState("");
-  const [dragOverBlock, setDragOverBlock] = useState("");
   const [visibleCount, setVisibleCount] = useState(250);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -478,6 +477,30 @@ function MusicBrowserBase({
     next.splice(to, 0, moved);
     setBlockLayout(next);
   };
+
+  // Soltar sobre la lista de bloques (con el puntero; ver dnd.ts).
+  const dropRef = useRef({ moveBlockItem, onAssignTrackBlock });
+  dropRef.current = { moveBlockItem, onAssignTrackBlock };
+  useEffect(() => {
+    const offBlock = registerDropZone("block", {
+      accepts: (p, el) => p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && p.key !== el.dataset.key),
+      drop: (p, el) => {
+        const blockId = el.dataset.blockId ?? "";
+        if (p.kind === "track" || p.kind === "row") dropRef.current.onAssignTrackBlock?.(p.trackId, blockId);
+        else if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "");
+      },
+    });
+    const offSep = registerDropZone("block-sep", {
+      accepts: (p, el) => p.kind === "blockItem" && p.key !== el.dataset.key,
+      drop: (p, el) => {
+        if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "");
+      },
+    });
+    return () => {
+      offBlock();
+      offSep();
+    };
+  }, []);
 
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -920,10 +943,7 @@ function MusicBrowserBase({
                   key={t.id}
                   className={`brow ${selectedId === t.id ? "brow-on" : ""} ${t.missing ? "brow-missing" : ""}`}
                   role="listitem"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/miradio-track", t.id);
-                  }}
+                  onPointerDown={(e) => beginDrag(e, { kind: "track", trackId: t.id, label: `${t.title}${t.artist ? ` — ${t.artist}` : ""}` })}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedId(t.id);
@@ -1149,35 +1169,12 @@ function MusicBrowserBase({
                   return (
                     <div
                       key={key}
-                      className={`block-sep ${dragOverBlock === key ? "block-sep-over" : ""} ${
-                        draggingBlock === key ? "block-sep-dragging" : ""
-                      }`}
-                      draggable={renamingSeparator !== item.id}
-                      onDragStart={(e) => {
-                        if ((e.target as HTMLElement).closest("input,button")) {
-                          e.preventDefault();
-                          return;
-                        }
-                        setDraggingBlock(key);
-                        e.dataTransfer.effectAllowed = "move";
-                        e.dataTransfer.setData("text/plain", key);
-                      }}
-                      onDragEnd={() => {
-                        setDraggingBlock("");
-                        setDragOverBlock("");
-                      }}
-                      onDragOver={(e) => {
-                        if (!draggingBlock) return;
-                        e.preventDefault();
-                        setDragOverBlock(key);
-                      }}
-                      onDrop={(e) => {
-                        const from = draggingBlock || e.dataTransfer.getData("text/plain");
-                        if (!from) return;
-                        e.preventDefault();
-                        moveBlockItem(from, key);
-                        setDraggingBlock("");
-                        setDragOverBlock("");
+                      className="block-sep"
+                      data-drop-zone="block-sep"
+                      data-key={key}
+                      onPointerDown={(e) => {
+                        if (renamingSeparator === item.id) return;
+                        beginDrag(e, { kind: "blockItem", key, blockId: "", label: item.title || "Separador" });
                       }}
                     >
                       <span className="block-sep-grip" aria-hidden="true">
@@ -1230,46 +1227,13 @@ function MusicBrowserBase({
                     data-block-drop={b.id}
                     className={`nav-item nav-item-block ${selection === b.id ? "nav-item-on" : ""} ${
                       dropBlockId === b.id ? "nav-item-drop" : ""
-                    } ${dragOverBlock === key ? "nav-item-drag-over" : ""} ${
-                      draggingBlock === key ? "nav-item-dragging" : ""
                     }`}
-                    draggable={renamingId !== b.id}
-                    onDragStart={(e) => {
-                      if ((e.target as HTMLElement).closest("input,button")) {
-                        e.preventDefault();
-                        return;
-                      }
-                      setDraggingBlock(key);
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", key);
-                    }}
-                    onDragEnd={() => {
-                      setDraggingBlock("");
-                      setDragOverBlock("");
-                    }}
-                    onDragOver={(e) => {
-                      const track =
-                        e.dataTransfer.types.includes("text/miradio-track") ||
-                        e.dataTransfer.types.includes("text/miradio-playlist-track");
-                      if (!draggingBlock && !track) return;
-                      e.preventDefault();
-                      setDragOverBlock(key);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const playlistTrack = e.dataTransfer.getData("text/miradio-playlist-track");
-                      const libraryTrack = e.dataTransfer.getData("text/miradio-track");
-                      if (playlistTrack || libraryTrack) {
-                        onAssignTrackBlock?.(playlistTrack || libraryTrack, b.id);
-                        setDraggingBlock("");
-                        setDragOverBlock("");
-                        return;
-                      }
-                      const from = draggingBlock || e.dataTransfer.getData("text/plain");
-                      if (!from) return;
-                      moveBlockItem(from, key);
-                      setDraggingBlock("");
-                      setDragOverBlock("");
+                    data-drop-zone="block"
+                    data-key={key}
+                    data-block-id={b.id}
+                    onPointerDown={(e) => {
+                      if (renamingId === b.id) return;
+                      beginDrag(e, { kind: "blockItem", key, blockId: b.id, label: `Bloque ${b.name}` });
                     }}
                     onClick={() => setSelection(b.id)}
                     role="button"

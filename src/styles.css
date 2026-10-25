@@ -4306,3 +4306,25 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .mx-slot-bus { cursor: default; color: var(--text); background: rgba(79,140,255,.12); }
 .badge-q-mid { background: rgba(240,150,50,.18); color: #ffb366; }
 .badge-q-ok { background: rgba(200,190,90,.16); color: #d8cf8a; }
+
+/* ---- arrastrar y soltar (dnd.ts) ---- */
+body.dnd-active, body.dnd-active * { cursor: grabbing !important; user-select: none !important; }
+.dnd-ghost {
+  position: fixed; z-index: 9999; pointer-events: none; max-width: 320px;
+  padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  background: var(--accent, #4f8cff); color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.plrow.dnd-over { box-shadow: inset 0 2px 0 var(--accent, #4f8cff); }
+.plrow.dnd-over.dnd-over-after { box-shadow: inset 0 -2px 0 var(--accent, #4f8cff); }
+.pl-end-drop { min-height: 48px; flex: 1 0 48px; }
+.pl-end-drop.dnd-over, .empty-note.dnd-over { box-shadow: inset 0 2px 0 var(--accent, #4f8cff); background: rgba(79,140,255,.08); }
+.nav-item-block.dnd-over, .block-sep.dnd-over { background: rgba(79,140,255,.22); outline: 1px dashed var(--accent, #4f8cff); }
+.pb-preview-bar { cursor: pointer; height: 5px; }
+.pb-preview-auto {
+  flex: 0 0 auto; margin-left: 6px; padding: 2px 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+  border-radius: 4px; border: 1px solid var(--line); background: transparent; color: var(--text-faint); cursor: pointer;
+}
+.pb-preview-auto-on { background: rgba(79,140,255,.18); border-color: var(--accent, #4f8cff); color: var(--text); }
+.deck-ctx-wrap { display: contents; }
+.rows.dnd-over { box-shadow: inset 0 -2px 0 var(--accent, #4f8cff); }

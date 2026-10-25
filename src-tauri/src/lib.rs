@@ -69,6 +69,7 @@ pub fn run() {
             library::backfill_covers,
             library::backfill_quality,
             library::scan_folder,
+            library::import_files_dedup,
             library::relink_track,
             library::delete_track,
             library::list_blocks,

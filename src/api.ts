@@ -64,6 +64,15 @@ export function importFiles(paths: string[], library: "a" | "b" = "a"): Promise<
   return invoke<Track[]>("import_files", { paths, library });
 }
 
+/** Importa sin duplicar; con `blockId`, todas quedan en ese bloque. */
+export function importFilesDedup(
+  paths: string[],
+  library: "a" | "b" = "a",
+  blockId: string | null = null,
+): Promise<{ added: number; existing: number }> {
+  return invoke("import_files_dedup", { paths, library, blockId });
+}
+
 export function deezerSearch(query: string): Promise<DeezerTrack[]> {
   return invoke<DeezerTrack[]>("deezer_search", { query });
 }

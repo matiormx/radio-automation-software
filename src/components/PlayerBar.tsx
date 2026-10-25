@@ -26,6 +26,11 @@ interface PlayerBarProps {
   } | null;
   onPreviewToggle: () => void;
   onPreviewStop: () => void;
+  /** Salta a una posicion (0..1) de la preescucha */
+  onPreviewSeek: (fraction: number) => void;
+  /** Escuchar sola la canción al hacer clic en la biblioteca */
+  autoPreview: boolean;
+  onAutoPreview: (on: boolean) => void;
   onOpenMixer: () => void;
 }
 
@@ -48,6 +53,9 @@ export function PlayerBar({
   preview,
   onPreviewToggle,
   onPreviewStop,
+  onPreviewSeek,
+  autoPreview,
+  onAutoPreview,
   onOpenMixer,
 }: PlayerBarProps) {
   return (
@@ -151,7 +159,18 @@ export function PlayerBar({
             <div className="pb-preview-info">
               <span className="pb-preview-title" title={preview.title}>{preview.title}</span>
               <span className="pb-preview-artist" title={preview.artist}>{preview.artist}</span>
-              <span className="pb-preview-bar">
+              <span
+                className="pb-preview-bar"
+                role="slider"
+                aria-label="Posición de la preescucha"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(((preview.pos - preview.from) / Math.max(0.05, preview.to - preview.from)) * 100)}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  onPreviewSeek(Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width))));
+                }}
+              >
                 <span
                   style={{
                     width: `${Math.max(
@@ -175,6 +194,15 @@ export function PlayerBar({
         ) : (
           <span className="pb-label pb-preview-empty" title="Haz clic en una canción de la biblioteca para escucharla">PREESCUCHA</span>
         )}
+        <button
+          type="button"
+          className={`pb-preview-auto ${autoPreview ? "pb-preview-auto-on" : ""}`}
+          aria-pressed={autoPreview}
+          onClick={() => onAutoPreview(!autoPreview)}
+          title={autoPreview ? "Autoescucha activada: al hacer clic en una canción de la biblioteca suena aquí" : "Autoescucha desactivada"}
+        >
+          AUTO
+        </button>
       </div>
 
       <button

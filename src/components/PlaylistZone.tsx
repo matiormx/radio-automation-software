@@ -3,6 +3,7 @@ import type { Block, Playlist, PlaylistRow } from "../types";
 import { trackUrl } from "../api";
 import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave, IconNext } from "../icons";
 import { TrackDetailsModal } from "./TrackDetailsModal";
+import { beginDrag, registerDropZone } from "../dnd";
 
 interface PlaylistZoneProps {
   playlists: Playlist[];
@@ -28,6 +29,8 @@ interface PlaylistZoneProps {
   onReorder: (from: number, to: number) => void;
   onRemove: (index: number) => void;
   onDropTrack: (trackId: string, at: number) => void;
+  /** Suelta un bloque entero: todas sus canciones a partir de `at` */
+  onDropBlock?: (blockId: string, at: number) => void;
   onPreview: (index: number) => void;
   onEditMeta: (index: number) => void;
   onEditCuts: (index: number) => void;
@@ -69,6 +72,7 @@ export function PlaylistZone({
   onReorder,
   onRemove,
   onDropTrack,
+  onDropBlock,
   onPreview,
   onEditMeta,
   onEditCuts,
@@ -84,9 +88,35 @@ export function PlaylistZone({
   const active = playlists.find((p) => p.id === activeId) ?? playlists[0];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(active?.name ?? "");
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const [extOver, setExtOver] = useState(false);
+  // Soltar en la lista (con el puntero; ver dnd.ts): canciones, bloques y filas.
+  const dropRef = useRef({ onDropTrack, onDropBlock, onReorder, count: rows.length });
+  dropRef.current = { onDropTrack, onDropBlock, onReorder, count: rows.length };
+  useEffect(() => {
+    const at = (el: HTMLElement, after: boolean) => {
+      if (el.dataset.dropZone === "playlist-end") return dropRef.current.count;
+      const i = Number(el.dataset.index ?? 0);
+      return after ? i + 1 : i;
+    };
+    const zone = {
+      accepts: (p: { kind: string; blockId?: string }) => p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && !!p.blockId),
+      drop: (p: import("../dnd").DragPayload, el: HTMLElement, pos: { after: boolean }) => {
+        const to = at(el, pos.after);
+        const h = dropRef.current;
+        if (p.kind === "track") h.onDropTrack(p.trackId, to);
+        else if (p.kind === "blockItem") h.onDropBlock?.(p.blockId, to);
+        else if (p.kind === "row") {
+          const t = p.index < to ? to - 1 : to;
+          if (t !== p.index) h.onReorder(p.index, t);
+        }
+      },
+    };
+    const a = registerDropZone("playlist-row", zone);
+    const b = registerDropZone("playlist-end", zone);
+    return () => {
+      a();
+      b();
+    };
+  }, []);
   const [detailsId, setDetailsId] = useState("");
   const [ctx, setCtx] = useState<{ index: number; x: number; y: number } | null>(null);
   const [blockMenu, setBlockMenu] = useState<string | null>(null);
@@ -242,25 +272,14 @@ export function PlaylistZone({
 
       {rows.length === 0 ? (
         <div
-          className={`empty-note ${extOver ? "drop-hot" : ""}`}
-          onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("text/miradio-track")) {
-              e.preventDefault();
-              setExtOver(true);
-            }
-          }}
-          onDragLeave={() => setExtOver(false)}
-          onDrop={(e) => {
-            const id = e.dataTransfer.getData("text/miradio-track");
-            setExtOver(false);
-            if (id) onDropTrack(id, 0);
-          }}
+          className="empty-note"
+          data-drop-zone="playlist-end"
         >
           Lista vacía. Arrastra canciones desde la biblioteca o activa el
           piloto automático para que se llene sola.
         </div>
       ) : (
-        <div className="rows flex-1" ref={rowsRef}>
+        <div className="rows flex-1" ref={rowsRef} data-drop-zone="playlist-end">
           {(hiddenPast > 0 || (showAllPast && playingRow > PAST_VISIBLE)) && (
             <button
               type="button"
@@ -276,44 +295,14 @@ export function PlaylistZone({
             <div
               key={`${r.id}-${i}`}
               data-row={i}
-              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${i === leavingRow ? "plrow-leaving" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} ${overIndex === i ? "plrow-over" : ""} ${extOver ? "plrow-ext" : ""}`}
-              draggable
-              onDragStart={(e) => {
-                setDragIndex(i);
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/miradio-index", String(i));
-                e.dataTransfer.setData("text/miradio-playlist-track", r.id);
-              }}
-              onDragEnd={() => {
-                setDragIndex(null);
-                setOverIndex(null);
-                setExtOver(false);
-              }}
+              className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${i === leavingRow ? "plrow-leaving" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} `}
+              data-drop-zone="playlist-row"
+              data-index={i}
+              onPointerDown={(e) => beginDrag(e, { kind: "row", index: i, trackId: r.id, label: `${r.title}${r.artist ? ` — ${r.artist}` : ""}` })}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setCtx({ index: i, x: e.clientX, y: e.clientY });
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (e.dataTransfer.types.includes("text/miradio-track")) {
-                  setExtOver(true);
-                } else {
-                  setOverIndex(i);
-                }
-              }}
-              onDragLeave={() => setExtOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                const trackId = e.dataTransfer.getData("text/miradio-track");
-                if (trackId) {
-                  onDropTrack(trackId, i);
-                } else if (dragIndex !== null && dragIndex !== i) {
-                  onReorder(dragIndex, i);
-                }
-                setDragIndex(null);
-                setOverIndex(null);
-                setExtOver(false);
               }}
             >
               <span className="col-hour">{estStart[i] ?? ""}</span>
@@ -424,6 +413,7 @@ export function PlaylistZone({
               </div>
             </div>
           ))}
+          <div className="pl-end-drop" data-drop-zone="playlist-end" aria-hidden="true" />
         </div>
       )}
 

@@ -6,6 +6,7 @@ import {
   savePlaylist,
   deletePlaylist,
   importFiles,
+  importFilesDedup,
   deleteTrack,
   scanMusicFolder,
   listBlocks,
@@ -414,6 +415,8 @@ export default function App() {
   const [cutsTrackId, setCutsTrackId] = useState("");
   const [pendingEdit, setPendingEdit] = useState<{ id: string; n: number } | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
+  // Menu de clic derecho para asignar bloques (desde el plato «al aire»).
+  const [blockMenu, setBlockMenu] = useState<{ trackId: string; x: number; y: number } | null>(null);
   const [preview, setPreview] = useState<{
     track: Track;
     playing: boolean;
@@ -482,10 +485,20 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(""), 3200);
   }, []);
 
-  // Minireproductor de preescucha: independiente de la mesa y del programa.
+  // Minireproductor de preescucha: suena por el canal «Preescucha» de la mesa
+  // (auriculares), nunca por el programa. Se rehace si cambia la mesa.
   useEffect(() => {
+    if (!mixer) return;
     const audio = new Audio();
     audio.preload = "auto";
+    audio.crossOrigin = "anonymous";
+    let node: MediaElementAudioSourceNode | null = null;
+    try {
+      node = mixer.ctx.createMediaElementSource(audio);
+      node.connect(mixer.previewInput);
+    } catch {
+      /* sin Web Audio: sonara por la salida del sistema */
+    }
     previewAudioRef.current = audio;
     const sync = () =>
       setPreview((prev) => {
@@ -505,18 +518,34 @@ export default function App() {
     audio.addEventListener("ended", onEnded);
     return () => {
       audio.pause();
-      audio.src = "";
+      audio.removeAttribute("src");
       audio.removeEventListener("timeupdate", sync);
       audio.removeEventListener("play", sync);
       audio.removeEventListener("pause", sync);
       audio.removeEventListener("ended", onEnded);
-      previewAudioRef.current = null;
+      try {
+        node?.disconnect();
+      } catch {
+        /* ya desconectado */
+      }
+      if (previewAudioRef.current === audio) previewAudioRef.current = null;
+      setPreview(null);
     };
-  }, []);
+  }, [mixer]);
 
+  const previewWarned = useRef(false);
   const startPreview = useCallback((track: Track) => {
     const audio = previewAudioRef.current;
     if (!audio) return;
+    mixerRef.current?.stopPreview();
+    void mixerRef.current?.resume();
+    const hasCue = settingsRef.current.mixerChannels.some(
+      (c) => c.input.kind === "app" && c.input.app === "preview",
+    );
+    if (!hasCue && !previewWarned.current) {
+      previewWarned.current = true;
+      showToast("La preescucha no tiene canal en la mesa: créalo (Sonido) para oírla en tus auriculares");
+    }
     const from = Math.max(0, track.trimStart || 0);
     const to = Math.max(from + 0.05, track.trimEnd ?? track.durationSecs);
     previewFromRef.current = from;
@@ -546,6 +575,32 @@ export default function App() {
       audio.pause();
     }
   }, [showToast]);
+
+  const seekPreview = useCallback((fraction: number) => {
+    const audio = previewAudioRef.current;
+    const cur = previewRef.current;
+    if (!audio || !cur) return;
+    try {
+      audio.currentTime = cur.from + fraction * (cur.to - cur.from);
+    } catch {
+      /* sin metadatos aun */
+    }
+  }, []);
+  const [autoPreview, setAutoPreviewState] = useState(() => {
+    try {
+      return localStorage.getItem("miradio.autoPreview") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const setAutoPreview = useCallback((on: boolean) => {
+    setAutoPreviewState(on);
+    try {
+      localStorage.setItem("miradio.autoPreview", on ? "1" : "0");
+    } catch {
+      /* sin almacenamiento */
+    }
+  }, []);
 
   const stopPreview = useCallback(() => {
     const audio = previewAudioRef.current;
@@ -1271,24 +1326,18 @@ export default function App() {
           }
         }
         if (ok.length === 0) return;
-        const added = await importFiles(ok, library);
-        if (targetBlock) {
-          await Promise.all(added.map((track) => setTrackBlocks(track.id, [targetBlock])));
-        }
+        // Lo que ya estaba en el catalogo no se copia otra vez; si se suelta
+        // sobre un bloque, todo queda asignado a ese bloque.
+        const res = await importFilesDedup(ok, library, targetBlock);
         setTracks(await listTracks());
         const blockName = targetBlock
           ? blocksRef.current.find((block) => block.id === targetBlock)?.name ?? ""
           : "";
-        const where = blockName
-          ? ` en «${blockName}»`
-          : library === "b"
-            ? " a la biblioteca B"
-            : "";
-        showToast(
-          added.length === 1
-            ? `1 canción importada${where}`
-            : `${added.length} canciones importadas${where}`,
-        );
+        const where = blockName ? ` en «${blockName}»` : library === "b" ? " a la biblioteca B" : "";
+        const parts: string[] = [];
+        if (res.added) parts.push(res.added === 1 ? "1 canción nueva" : `${res.added} canciones nuevas`);
+        if (res.existing) parts.push(res.existing === 1 ? "1 que ya estaba" : `${res.existing} que ya estaban`);
+        showToast(`${parts.join(" y ") || "Nada que importar"}${where}`);
       } catch (e) {
         showToast(`No se pudieron importar: ${String(e)}`);
       } finally {
@@ -1589,26 +1638,38 @@ export default function App() {
     [mutateView],
   );
 
+  /** Suelta un bloque entero en la lista: sus canciones (las que no estan ya). */
+  const dropBlockAt = useCallback(
+    (blockId: string, at: number) => {
+      const ids = tracksRef.current.filter((t) => t.blocks.includes(blockId) && !t.missing).map((t) => t.id);
+      if (ids.length === 0) {
+        showToast("Ese bloque no tiene canciones");
+        return;
+      }
+      let added = 0;
+      void mutateView((cur) => {
+        const fresh = ids.filter((id) => !cur.includes(id));
+        added = fresh.length;
+        const copy = [...cur];
+        copy.splice(Math.max(0, Math.min(copy.length, at)), 0, ...fresh);
+        return copy;
+      }).then(() => {
+        const name = blocksRef.current.find((b) => b.id === blockId)?.name ?? "bloque";
+        showToast(added ? `${added} canciones de «${name}» añadidas a la lista` : `Las canciones de «${name}» ya estaban en la lista`);
+      });
+    },
+    [mutateView, showToast],
+  );
+
   /** Preescucha de una pista de la lista por la salida de monitorizacion. */
   const previewRow = useCallback(
     (index: number) => {
       const row = viewRowsRef.current[index];
-      const mixer = mixerRef.current;
-      if (!row || !mixer) return;
+      if (!row) return;
       const track = tracksRef.current.find((t) => t.id === row.id);
-      if (!track) return;
-      void mixer
-        .playPreview(
-          track.file,
-          track.trimStart || 0,
-          track.trimEnd ?? track.durationSecs,
-          () => undefined,
-          () => undefined,
-        )
-        .catch((error) => showToast(`No se pudo escuchar: ${String(error)}`));
-      showToast(`Preescucha: ${track.title}`);
+      if (track) startPreview(track);
     },
-    [showToast],
+    [startPreview],
   );
 
   const editRowCuts = useCallback(
@@ -3279,7 +3340,7 @@ export default function App() {
                 pendingEdit={pendingEdit}
                 onPendingEditDone={handlePendingEditDone}
                 onAssignTrackBlock={assignTrackBlock}
-                onPreviewTrack={startPreview}
+                onPreviewTrack={autoPreview ? startPreview : undefined}
                 dropBlockId={dropBlockId}
                 showToast={showToast}
               />
@@ -3347,6 +3408,14 @@ export default function App() {
                     setSettingsOpen(true);
                   }}
                 />
+                <div
+                  className="deck-ctx-wrap"
+                  onContextMenu={(e) => {
+                    if (liveRun || !deckRow) return;
+                    e.preventDefault();
+                    setBlockMenu({ trackId: deckRow.id, x: e.clientX, y: e.clientY });
+                  }}
+                >
                 <DeckZone
                   title={liveRun ? liveRun.meta.title : deckRow?.title ?? ""}
                   artist={liveRun ? liveRun.meta.artist : deckRow?.artist ?? ""}
@@ -3370,6 +3439,7 @@ export default function App() {
                   }
                   videoSource={videoSource}
                 />
+                </div>
                 <PlaylistZone
                   playlists={playlists}
                   activeId={view?.id ?? ""}
@@ -3413,6 +3483,7 @@ export default function App() {
                   onReorder={reorderRow}
                   onRemove={removeRow}
                   onDropTrack={dropTrackAt}
+            onDropBlock={dropBlockAt}
                   blocks={blocks}
                   onPreview={previewRow}
                   onEditMeta={editRowMeta}
@@ -3479,6 +3550,9 @@ export default function App() {
         }
         onPreviewToggle={togglePreview}
         onPreviewStop={stopPreview}
+        onPreviewSeek={seekPreview}
+        autoPreview={autoPreview}
+        onAutoPreview={setAutoPreview}
       />
 
       {normalizerMounted && (
@@ -3585,6 +3659,35 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {blockMenu && (() => {
+        const t = tracks.find((x) => x.id === blockMenu.trackId);
+        if (!t) return null;
+        return (
+          <div
+            className="ctx-backdrop"
+            onClick={() => setBlockMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setBlockMenu(null);
+            }}
+          >
+            <div className="ctx-menu" style={{ left: blockMenu.x, top: blockMenu.y }} onClick={(e) => e.stopPropagation()} role="menu">
+              <div className="ctx-title" title={t.title}>{t.title}</div>
+              <div className="ctx-title">Asignar a bloque</div>
+              <div className="ctx-blocks">
+                {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+                {blocks.map((block) => (
+                  <button key={block.id} type="button" className="ctx-item" onClick={() => void toggleRowBlock(t.id, block.id)}>
+                    <span className="plrow-block-check">{t.blocks.includes(block.id) ? "✓" : ""}</span>
+                    {block.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {dropHover && !dropBlockId && (
         <div className="drop-overlay" aria-hidden="true">
