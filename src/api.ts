@@ -302,6 +302,16 @@ export function probeStreaming(): Promise<StreamProbe> {
   return invoke<StreamProbe>("stream_probe");
 }
 
+/** NDI nativo (NDI Runtime, sin FFmpeg especial): fuentes y servidor de imagen. */
+export function ndiNative(): Promise<{ available: boolean; error: string | null; sources: string[]; server: string }> {
+  return invoke("ndi_native");
+}
+
+/** Direccion del servidor local que sirve la imagen NDI (MJPEG). */
+export function ndiServer(): Promise<string> {
+  return invoke<string>("ndi_server");
+}
+
 export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
   return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
 }

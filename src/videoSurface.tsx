@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { trackUrl } from "./api";
+import { ndiServer, trackUrl } from "./api";
 
 /** Lo que suena, para pintar su video (o su portada) sincronizado con el audio. */
 export interface VideoState {
@@ -17,7 +17,7 @@ export interface VideoState {
   logo: string;
   stationName: string;
   /** Capturadora que se muestra en la ventana externa */
-  capture?: { source: string; deviceId?: string } | null;
+  capture?: { source: string; deviceId?: string; ndi?: string } | null;
   /** Espejo horizontal solo en la ventana de los locutores */
   mirror?: boolean;
   /** Si la capturadora no tiene señal: "program" (lo que suena) o "none" (negro) */
@@ -105,8 +105,9 @@ export function VideoSurface({ source, output }: Props) {
   const capture = shown?.capture ?? null;
   const captureSource = capture?.source ?? "";
   const captureDevice = capture?.deviceId ?? "";
+  const ndiName = capture?.ndi ?? "";
   useEffect(() => {
-    if (!capture || !output) return;
+    if (!capture || !output || ndiName) return;
     let cancelled = false;
     let stream: MediaStream | null = null;
     setFailed("");
@@ -163,7 +164,43 @@ export function VideoSurface({ source, output }: Props) {
       streamRef.current = null;
       if (captureRef.current) captureRef.current.srcObject = null;
     };
-  }, [capture, captureSource, captureDevice, output]);
+  }, [capture, captureSource, captureDevice, output, ndiName]);
+
+  // NDI nativo: la imagen llega por el servidor local (MJPEG) y su estado
+  // dice cuanto hace de la ultima imagen; sin imagen 3 s, respaldo.
+  const [ndiBase, setNdiBase] = useState("");
+  const [ndiDown, setNdiDown] = useState(false);
+  useEffect(() => {
+    if (!ndiName || !output) return;
+    let alive = true;
+    setNdiDown(false);
+    void ndiServer()
+      .then((url) => alive && setNdiBase(url))
+      .catch(() => alive && setNdiDown(true));
+    return () => {
+      alive = false;
+    };
+  }, [ndiName, output]);
+  useEffect(() => {
+    if (!ndiName || !ndiBase || !output) return;
+    let alive = true;
+    const started = performance.now();
+    const t = window.setInterval(() => {
+      void fetch(`${ndiBase}/status?src=${encodeURIComponent(ndiName)}`)
+        .then((r) => r.json() as Promise<{ ageMs: number; error: string }>)
+        .then((st) => {
+          if (!alive) return;
+          const waiting = st.ageMs < 0 && performance.now() - started < 4000;
+          setNdiDown(!waiting && (st.ageMs < 0 || st.ageMs > 3000));
+        })
+        .catch(() => alive && setNdiDown(true));
+    }, 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+      setNdiDown(false);
+    };
+  }, [ndiName, ndiBase, output]);
 
   // Sin señal: una capturadora sin imagen suele dar negro o la ultima imagen
   // congelada. Se mira la imagen dos veces por segundo; si no hay señal se
@@ -214,10 +251,29 @@ export function VideoSurface({ source, output }: Props) {
 
   if (!shown) return output ? <div className="vs-root vs-black" /> : null;
 
+  if (shown.capture?.ndi && output) {
+    const useFallback = ndiDown || !ndiBase;
+    const img = ndiBase ? (
+      <img
+        className="vs-video"
+        alt=""
+        src={`${ndiBase}/ndi?src=${encodeURIComponent(shown.capture.ndi)}`}
+        style={{
+          objectFit: "contain",
+          transform: shown.mirror ? "scaleX(-1)" : undefined,
+          ...(useFallback ? { position: "absolute", width: 2, height: 2, opacity: 0, pointerEvents: "none" } : {}),
+        }}
+      />
+    ) : null;
+    if (!useFallback) return <div className="vs-root vs-output vs-black">{img}</div>;
+    if (shown.captureFallback === "none") return <div className="vs-root vs-black">{img}</div>;
+    // Respaldo: lo que suena (la imagen NDI sigue pedida para notar cuando vuelve).
+  }
+
   // La capturadora sigue abierta (oculta) mientras suena el respaldo, para
   // detectar cuando vuelve la señal.
   const captureEl =
-    shown.capture && output && !captureDown ? (
+    shown.capture && !shown.capture.ndi && output && !captureDown ? (
       <video
         ref={attachCapture}
         className="vs-video"
@@ -231,10 +287,10 @@ export function VideoSurface({ source, output }: Props) {
         disablePictureInPicture
       />
     ) : null;
-  if (shown.capture && output && !captureDown && !noSignal) {
+  if (shown.capture && !shown.capture.ndi && output && !captureDown && !noSignal) {
     return <div className="vs-root vs-output">{captureEl}</div>;
   }
-  if (shown.capture && output && (captureDown || noSignal) && shown.captureFallback === "none") {
+  if (shown.capture && !shown.capture.ndi && output && (captureDown || noSignal) && shown.captureFallback === "none") {
     return <div className="vs-root vs-black">{captureEl}</div>;
   }
 

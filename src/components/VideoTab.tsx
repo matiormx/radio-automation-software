@@ -8,7 +8,7 @@ import type {
 import { IconPlus, IconTrash } from "../icons";
 import { useCallback, useEffect, useState } from "react";
 import { listMonitors, type MonitorInfo } from "../bridge";
-import { listVideoCaptureDevices, pickFfmpegFile, probeNdi } from "../api";
+import { listVideoCaptureDevices, pickFfmpegFile, ndiNative, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
 
 interface Props {
@@ -104,7 +104,14 @@ export function VideoTab({ settings, onChange }: Props) {
     async (path = v.ndiFfmpegPath ?? "") => {
       setNdiBusy(true);
       try {
-        setNdi(await probeNdi(path));
+        // Primero NDI nativo (NDI Runtime); si no esta, el FFmpeg con NDI.
+        const native = await ndiNative().catch(() => null);
+        if (native?.available) {
+          setNdi({ available: true, ffmpeg: "NDI Runtime (nativo)", device: null, runtime: true, sources: native.sources, error: null });
+          return;
+        }
+        const probe = await probeNdi(path);
+        setNdi(probe.available ? probe : { ...probe, error: native?.error ?? probe.error });
       } catch (error) {
         setNdi({
           available: false,
@@ -142,8 +149,9 @@ export function VideoTab({ settings, onChange }: Props) {
     (device) => !device.kind || device.kind === "video",
   );
   const audioCaptureDevices = captureDevices.filter((device) => device.kind === "audio");
+  // Lo que puede verse en la pantalla de emision: capturadoras y fuentes NDI.
   const captureInputs = v.inputs.filter(
-    (input) => input.kind === "capture" && input.enabled && input.source.trim() !== "",
+    (input) => (input.kind === "capture" || input.kind === "ndi") && input.enabled && input.source.trim() !== "",
   );
   const screenValue =
     vs.source === "capture" && captureInputs.some((input) => input.id === vs.captureInputId)
@@ -193,7 +201,7 @@ export function VideoTab({ settings, onChange }: Props) {
               <option value="program">Programa (música, vídeos y portadas)</option>
               {captureInputs.map((input) => (
                 <option key={input.id} value={`capture:${input.id}`}>
-                  Capturadora · {input.name.trim() || input.source}
+                  {input.kind === "ndi" ? "NDI" : "Capturadora"} · {input.name.trim() || input.source}
                 </option>
               ))}
             </select>
@@ -407,8 +415,10 @@ export function VideoTab({ settings, onChange }: Props) {
       <fieldset className="fieldset">
         <legend>NDI</legend>
         <p className="hint">
-          NDI necesita un FFmpeg compilado con NDI y el NDI Runtime instalado. Si el FFmpeg de la
-          app no lo incluye, indica aquí uno que sí lo tenga. Para emitir, activa el motor de vídeo.
+          Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), MiRadio recibe NDI por sí mismo: las
+          fuentes se ven en la pantalla de emisión y en la botonera VÍDEO, y salen por las salidas que emiten la
+          pantalla de emisión. El FFmpeg con NDI solo hace falta para salidas NDI o para emitir una fuente NDI
+          directamente.
         </p>
         <div className="ndi-source-row">
           <label className="field">

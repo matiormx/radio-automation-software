@@ -17,6 +17,7 @@ pub mod streaming;
 pub mod update;
 pub mod video;
 pub mod netstream;
+pub mod ndi;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -70,6 +71,8 @@ pub fn run() {
             library::backfill_quality,
             library::scan_folder,
             library::import_files_dedup,
+            ndi::ndi_native,
+            ndi::ndi_server,
             library::relink_track,
             library::delete_track,
             library::list_blocks,

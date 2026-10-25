@@ -13,7 +13,7 @@ interface Props {
 export function VideoSwitcher({ settings, onChange }: Props) {
   const vs = settings.videoScreen;
   const sources = (settings.video?.inputs ?? []).filter(
-    (input) => input.kind === "capture" && input.enabled && input.source.trim() !== "",
+    (input) => (input.kind === "capture" || input.kind === "ndi") && input.enabled && input.source.trim() !== "",
   );
   if (!vs?.enabled && sources.length === 0) return null;
   const current = vs?.source === "capture" ? `capture:${vs.captureInputId ?? ""}` : "program";
@@ -34,7 +34,7 @@ export function VideoSwitcher({ settings, onChange }: Props) {
       <span className="vsw-label">VÍDEO</span>
       {btn("program", "Programa", "Lo que está sonando (vídeos y portadas)", { source: "program", captureInputId: "" })}
       {sources.map((input) =>
-        btn(`capture:${input.id}`, input.name.trim() || input.source, `Capturadora: ${input.source}`, {
+        btn(`capture:${input.id}`, input.name.trim() || input.source, `${input.kind === "ndi" ? "NDI" : "Capturadora"}: ${input.source}`, {
           source: "capture",
           captureInputId: input.id,
         }),

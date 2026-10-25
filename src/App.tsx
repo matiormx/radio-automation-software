@@ -3104,7 +3104,7 @@ export default function App() {
       const input = s.video.inputs.find(
         (item) =>
           item.id === vs.captureInputId &&
-          item.kind === "capture" &&
+          (item.kind === "capture" || item.kind === "ndi") &&
           item.enabled &&
           item.source.trim() !== "",
       );
@@ -3128,7 +3128,10 @@ export default function App() {
           trackId: `capture:${input.id}`,
           mirror: vs.mirror ?? false,
           captureFallback: vs.captureFallback === "none" ? "none" : "program",
-          capture: { source: input.source, deviceId: input.deviceId },
+          capture:
+            input.kind === "ndi"
+              ? { source: input.source, ndi: input.source }
+              : { source: input.source, deviceId: input.deviceId },
         };
       }
     }
