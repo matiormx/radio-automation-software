@@ -97,6 +97,7 @@ function newVideoOutput(): VideoOutput {
     kind: "screen",
     source: "0",
     videoInputId: "",
+    fallbackVideoInputId: "",
     audioSource: "mixer",
     audioSourceId: "",
     enabled: true,
@@ -919,6 +920,29 @@ export function StreamingTab({
                       onChange={(patch) => updateVideoOutput(output.id, patch)}
                       onRefreshAudio={refreshCapture}
                     />
+                    {output.kind === "rtmp" && (
+                      <label className="field">
+                        <span className="field-label">Vídeo de respaldo si falla el principal</span>
+                        <select
+                          value={output.fallbackVideoInputId ?? ""}
+                          onChange={(e) =>
+                            updateVideoOutput(output.id, { fallbackVideoInputId: e.target.value })
+                          }
+                        >
+                          <option value="">Sin respaldo</option>
+                          <option value="program">Pantalla de programa de MiRadio</option>
+                          {settings.video.inputs.map((input) => (
+                            <option key={input.id} value={input.id}>
+                              {input.name.trim() || input.source} · {input.kind}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="hint">
+                          Si la entrada principal se desconecta, se emite automáticamente el
+                          respaldo. La pantalla de programa debe estar abierta en Ajustes &gt; Vídeo.
+                        </span>
+                      </label>
+                    )}
                     <div className="io-format">
                       <label className="field">
                         <span className="field-label">Ancho</span>

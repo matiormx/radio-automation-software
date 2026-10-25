@@ -339,6 +339,7 @@ function migrateLegacyRtmp(settings: Settings): Settings {
     kind: "rtmp",
     source: url,
     videoInputId: legacy.videoInputId ?? "",
+    fallbackVideoInputId: "",
     audioSource: legacy.audioSource ?? "mixer",
     audioSourceId: legacy.audioSourceId ?? "",
     enabled: true,
@@ -2849,6 +2850,42 @@ export default function App() {
   const videoSource = useCallback((): VideoState | null => {
     const s = settingsRef.current;
     const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+    let program: VideoState | null = null;
+    const lr = liveRunRef.current;
+    if (lr) {
+      program = {
+        trackId: `live:${lr.eventId}`,
+        file: "",
+        isVideo: false,
+        pos: 0,
+        playing: true,
+        title: lr.meta.title,
+        artist: lr.meta.artist,
+        cover: lr.meta.cover,
+        audioMode: vs.audioMode,
+        logo: s.logoPath ?? "",
+        stationName: s.radioName ?? "",
+      };
+    } else {
+      const idx = playingRowRef.current;
+      const row = idx >= 0 ? rowsRef.current[idx] : undefined;
+      const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
+      if (row && t) {
+        program = {
+          trackId: t.id,
+          file: t.file,
+          isVideo: isVideoFile(t.file),
+          pos: Math.max(0, t.trimStart || 0) + exactPosRef.current.cur,
+          playing: !pausedNowRef.current,
+          title: row.title || t.title,
+          artist: row.artist || t.artist,
+          cover: row.cover || t.cover,
+          audioMode: vs.audioMode,
+          logo: s.logoPath ?? "",
+          stationName: s.radioName ?? "",
+        };
+      }
+    }
     if (vs.source === "capture") {
       const input = s.video.inputs.find(
         (item) =>
@@ -2858,55 +2895,28 @@ export default function App() {
           item.source.trim() !== "",
       );
       if (input) {
+        const base: VideoState =
+          program ?? {
+            trackId: `capture:${input.id}`,
+            file: "",
+            isVideo: false,
+            pos: 0,
+            playing: false,
+            title: "",
+            artist: "",
+            cover: "",
+            audioMode: vs.audioMode,
+            logo: s.logoPath ?? "",
+            stationName: s.radioName ?? "",
+          };
         return {
+          ...base,
           trackId: `capture:${input.id}`,
-          file: "",
-          isVideo: false,
-          pos: 0,
-          playing: true,
-          title: "",
-          artist: "",
-          cover: "",
-          audioMode: vs.audioMode,
-          logo: s.logoPath ?? "",
-          stationName: s.radioName ?? "",
           capture: { source: input.source, deviceId: input.deviceId },
         };
       }
     }
-    const lr = liveRunRef.current;
-    if (lr) {
-      return {
-        trackId: `live:${lr.eventId}`,
-        file: "",
-        isVideo: false,
-        pos: 0,
-        playing: true,
-        title: lr.meta.title,
-        artist: lr.meta.artist,
-        cover: lr.meta.cover,
-        audioMode: (s.videoScreen ?? DEFAULT_SETTINGS.videoScreen).audioMode,
-        logo: s.logoPath ?? "",
-        stationName: s.radioName ?? "",
-      };
-    }
-    const idx = playingRowRef.current;
-    const row = idx >= 0 ? rowsRef.current[idx] : undefined;
-    const t = row ? tracksRef.current.find((x) => x.id === row.id) : undefined;
-    if (!row || !t) return null;
-    return {
-      trackId: t.id,
-      file: t.file,
-      isVideo: isVideoFile(t.file),
-      pos: Math.max(0, t.trimStart || 0) + exactPosRef.current.cur,
-      playing: !pausedNowRef.current,
-      title: row.title || t.title,
-      artist: row.artist || t.artist,
-      cover: row.cover || t.cover,
-      audioMode: vs.audioMode,
-      logo: s.logoPath ?? "",
-      stationName: s.radioName ?? "",
-    };
+    return program;
   }, []);
   // Ventana de video: se abre/cierra con el ajuste y recibe el estado 5 veces por segundo.
   const videoScreen = settings.videoScreen ?? DEFAULT_SETTINGS.videoScreen;

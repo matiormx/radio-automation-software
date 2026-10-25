@@ -38,6 +38,7 @@ export function VideoSurface({ source, output }: Props) {
   const shownKey = useRef("");
   const lastSeek = useRef(0);
   const [failed, setFailed] = useState("");
+  const [captureDown, setCaptureDown] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -84,6 +85,10 @@ export function VideoSurface({ source, output }: Props) {
     let cancelled = false;
     let stream: MediaStream | null = null;
     setFailed("");
+    setCaptureDown(false);
+    const onCaptureLost = () => {
+      if (!cancelled) setCaptureDown(true);
+    };
     const open = async () => {
       const constraints: MediaStreamConstraints = {
         audio: false,
@@ -110,7 +115,7 @@ export function VideoSurface({ source, output }: Props) {
             video: match ? { deviceId: { exact: match.deviceId } } : true,
           });
         } catch {
-          if (!cancelled) setFailed(captureSource);
+          if (!cancelled) setCaptureDown(true);
           return;
         }
       }
@@ -119,6 +124,8 @@ export function VideoSurface({ source, output }: Props) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
+      const track = stream.getVideoTracks()[0];
+      if (track) track.addEventListener("ended", onCaptureLost);
       if (captureRef.current) {
         captureRef.current.srcObject = stream;
         void captureRef.current.play().catch(() => undefined);
@@ -127,21 +134,20 @@ export function VideoSurface({ source, output }: Props) {
     void open();
     return () => {
       cancelled = true;
-      stream?.getTracks().forEach((track) => track.stop());
+      const track = stream?.getVideoTracks()[0];
+      if (track) track.removeEventListener("ended", onCaptureLost);
+      stream?.getTracks().forEach((item) => item.stop());
       if (captureRef.current) captureRef.current.srcObject = null;
     };
   }, [capture, captureSource, captureDevice, output]);
 
   if (!shown) return output ? <div className="vs-root vs-black" /> : null;
 
-  if (shown.capture) {
+  if (shown.capture && !captureDown) {
     if (!output) return null;
     return (
       <div className="vs-root vs-output">
         <video ref={captureRef} className="vs-video" muted playsInline autoPlay disablePictureInPicture />
-        {failed === shown.capture.source && (
-          <div className="vs-error">No se puede mostrar la capturadora (revisa el permiso de cámara)</div>
-        )}
       </div>
     );
   }

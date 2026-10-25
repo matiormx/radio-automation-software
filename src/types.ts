@@ -440,6 +440,8 @@ export interface VideoOutput {
   source: string;
   /** Entrada de vídeo a emitir; "" = la de la pantalla externa */
   videoInputId?: string;
+  /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de programa */
+  fallbackVideoInputId?: string;
   /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;
   /** Dispositivo de audio de captura cuando audioSource = "device" */

@@ -22,6 +22,12 @@ struct EngineInner {
     last_error: Option<String>,
 }
 
+struct FallbackProcess {
+    ffmpeg: PathBuf,
+    args: Vec<String>,
+    wants_audio: bool,
+}
+
 struct StreamProcess {
     id: String,
     name: String,
@@ -35,6 +41,7 @@ struct StreamProcess {
     failed: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     log: Arc<Mutex<Vec<String>>>,
+    fallback: Option<FallbackProcess>,
     warned_full: bool,
 }
 
@@ -232,6 +239,11 @@ pub fn stream_start(
     } else {
         &ffmpeg
     };
+    let gfxcapture = cfg!(windows)
+        && settings.video.outputs.iter().any(|output| {
+            output.enabled && output.kind == "rtmp" && output.fallback_video_input_id == "program"
+        })
+        && has_filter(video_ffmpeg, "gfxcapture");
 
     for stream in settings.streaming.icecast.iter().filter(|s| s.enabled) {
         requested += 1;
@@ -254,6 +266,7 @@ pub fn stream_start(
                     name,
                     "icecast",
                     true,
+                    None,
                 ) {
                     errors.push(error.clone());
                     inner.failed_outputs.push(failed_output(
@@ -351,6 +364,67 @@ pub fn stream_start(
                     } else {
                         video_ffmpeg
                     };
+                    // Respaldo automatico cuando la entrada principal se pierde.
+                    let fallback = if kind == "rtmp" {
+                        let backup = output.fallback_video_input_id.trim();
+                        if backup.is_empty() {
+                            None
+                        } else {
+                            let backup_is_ndi = backup != "program"
+                                && settings
+                                    .video
+                                    .inputs
+                                    .iter()
+                                    .find(|input| input.id == backup)
+                                    .map(|input| input.kind == "ndi")
+                                    .unwrap_or(false);
+                            let backup_ffmpeg = if backup_is_ndi {
+                                ndi_ffmpeg.unwrap_or(video_ffmpeg)
+                            } else {
+                                video_ffmpeg
+                            };
+                            let backup_args = if backup == "program" {
+                                program_video_input_args(output.fps, gfxcapture).and_then(|video_args| {
+                                    rtmp_args_for_video(
+                                        video_args,
+                                        &output.source,
+                                        output.width,
+                                        output.height,
+                                        output.fps,
+                                        output.bitrate_kbps,
+                                        2,
+                                        output_audio,
+                                    )
+                                })
+                            } else {
+                                rtmp_args(
+                                    &settings.video,
+                                    &output.source,
+                                    output.width,
+                                    output.height,
+                                    output.fps,
+                                    output.bitrate_kbps,
+                                    2,
+                                    ndi_device,
+                                    Some(backup),
+                                    output_audio,
+                                )
+                            };
+                            match backup_args {
+                                Ok(args) => Some(FallbackProcess {
+                                    ffmpeg: backup_ffmpeg.to_path_buf(),
+                                    args,
+                                    wants_audio: output_audio.is_none(),
+                                }),
+                                Err(error) => {
+                                    errors.push(format!("{name} (respaldo): {error}"));
+                                    None
+                                }
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     if let Err(error) = spawn_process(
                         &mut inner,
                         &shared,
@@ -360,6 +434,7 @@ pub fn stream_start(
                         name.clone(),
                         &kind,
                         wants_audio,
+                        fallback,
                     ) {
                         errors.push(error.clone());
                         inner
@@ -513,6 +588,7 @@ fn spawn_process(
     name: String,
     kind: &str,
     wants_audio: bool,
+    fallback: Option<FallbackProcess>,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg);
     command
@@ -596,6 +672,10 @@ fn spawn_process(
         }
     }
 
+    let watch_id = id.clone();
+    let watch_name = name.clone();
+    let watch_kind = kind.to_string();
+    let has_fallback = fallback.is_some();
     inner.processes.push(StreamProcess {
         id,
         name,
@@ -607,8 +687,65 @@ fn spawn_process(
         failed,
         error: error_slot,
         log: log_slot,
+        fallback,
         warned_full: false,
     });
+    if has_fallback {
+        let shared = shared.clone();
+        std::thread::Builder::new()
+            .name("miradio-stream-fallback".into())
+            .spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let next = {
+                    let mut inner = match shared.lock() {
+                        Ok(inner) => inner,
+                        Err(_) => return,
+                    };
+                    let Some(index) = inner.processes.iter().position(|p| p.id == watch_id) else {
+                        return;
+                    };
+                    let process = &mut inner.processes[index];
+                    let exited = !matches!(process.child.try_wait(), Ok(None));
+                    if !exited {
+                        None
+                    } else {
+                        let fallback = process.fallback.take();
+                        if fallback.is_none() {
+                            return;
+                        }
+                        inner.processes.remove(index);
+                        fallback
+                    }
+                };
+                if let Some(fallback) = next {
+                    if let Ok(mut inner) = shared.lock() {
+                        inner.last_error = Some(format!(
+                            "{watch_name}: entrada principal perdida, usando el respaldo"
+                        ));
+                        if let Err(error) = spawn_process(
+                            &mut inner,
+                            &shared,
+                            &fallback.ffmpeg,
+                            fallback.args,
+                            watch_id.clone(),
+                            watch_name.clone(),
+                            &watch_kind,
+                            fallback.wants_audio,
+                            None,
+                        ) {
+                            inner.failed_outputs.push(failed_output(
+                                &watch_id,
+                                &watch_name,
+                                &watch_kind,
+                                error,
+                            ));
+                        }
+                    }
+                    return;
+                }
+            })
+            .ok();
+    }
     Ok(())
 }
 
@@ -944,6 +1081,35 @@ fn rtmp_args(
     preferred_input: Option<&str>,
     audio_device: Option<&str>,
 ) -> Result<Vec<String>, String> {
+    if !video.enabled {
+        return Err("activa el motor de vídeo para emitir por RTMP".to_string());
+    }
+    let input = pick_video_input(video, preferred_input)?;
+    rtmp_args_for_video(
+        video_input_args(input, ndi_device)?,
+        url,
+        width,
+        height,
+        fps,
+        bitrate_kbps,
+        keyframe_secs,
+        audio_device,
+    )
+}
+
+/// Argumentos RTMP con una entrada de video ya preparada (capturadora o
+/// pantalla de programa).
+#[allow(clippy::too_many_arguments)]
+fn rtmp_args_for_video(
+    video_args: Vec<String>,
+    url: &str,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_kbps: u32,
+    keyframe_secs: u32,
+    audio_device: Option<&str>,
+) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("falta la URL RTMP".to_string());
@@ -952,12 +1118,8 @@ fn rtmp_args(
     if !lower.starts_with("rtmp://") && !lower.starts_with("rtmps://") {
         return Err("la URL RTMP debe empezar por rtmp:// o rtmps://".to_string());
     }
-    if !video.enabled {
-        return Err("activa el motor de vídeo para emitir por RTMP".to_string());
-    }
-    let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
-    args.extend(video_input_args(input, ndi_device)?);
+    args.extend(video_args);
     if let Some(audio) = audio_device {
         args.extend(audio_input_args(audio)?);
         args.extend([arg("-map"), arg("1:v:0")]);
@@ -1134,6 +1296,73 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
         }
         other => Err(format!("tipo de entrada de vídeo desconocido: {other}")),
     }
+}
+
+/// Comprueba si el FFmpeg instalado incluye el filtro gfxcapture.
+fn has_filter(ffmpeg: &Path, name: &str) -> bool {
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-filters"]).stdout(Stdio::piped()).stderr(Stdio::null());
+    configure_no_window(&mut cmd);
+    cmd.output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains(name))
+        .unwrap_or(false)
+}
+
+/// Entrada de video con la ventana de programa de MiRadio.
+#[cfg(target_os = "windows")]
+fn program_video_input_args(fps: u32, gfxcapture: bool) -> Result<Vec<String>, String> {
+    if gfxcapture {
+        Ok(vec![
+            arg("-f"),
+            arg("lavfi"),
+            arg("-i"),
+            format!(
+                "gfxcapture=window_title='(?i)^MiRadio Programa$':max_framerate={}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={}",
+                fps.clamp(1, 120),
+                fps.clamp(1, 120)
+            ),
+        ])
+    } else {
+        Ok(vec![
+            arg("-f"),
+            arg("gdigrab"),
+            arg("-framerate"),
+            fps.clamp(1, 120).to_string(),
+            arg("-draw_mouse"),
+            arg("0"),
+            arg("-i"),
+            arg("title=MiRadio Programa"),
+        ])
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+    Ok(vec![
+        arg("-f"),
+        arg("x11grab"),
+        arg("-framerate"),
+        fps.clamp(1, 120).to_string(),
+        arg("-i"),
+        arg(":0.0"),
+    ])
+}
+
+#[cfg(target_os = "macos")]
+fn program_video_input_args(fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+    Ok(vec![
+        arg("-f"),
+        arg("avfoundation"),
+        arg("-framerate"),
+        fps.clamp(1, 120).to_string(),
+        arg("-i"),
+        arg("Capture screen 0:none"),
+    ])
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn program_video_input_args(_fps: u32, _gfxcapture: bool) -> Result<Vec<String>, String> {
+    Err("La pantalla de programa no está soportada en este sistema".to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -1391,7 +1620,7 @@ mod tests {
         args.extend(["-y".to_string(), out.display().to_string()]);
         {
             let mut inner = shared.lock().unwrap();
-            spawn_process(&mut inner, &shared, &ffmpeg, args, "t".into(), "t".into(), "icecast", true).unwrap();
+            spawn_process(&mut inner, &shared, &ffmpeg, args, "t".into(), "t".into(), "icecast", true, None).unwrap();
         }
         let chunk = vec![0u8; 3840];
         for _ in 0..100 {

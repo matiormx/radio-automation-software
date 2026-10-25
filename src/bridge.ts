@@ -52,7 +52,7 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
     if (!win) {
       win = new WebviewWindow("videoout", {
         url: "index.html?w=videoout",
-        title: "Vídeo — MiRadio",
+        title: "MiRadio Programa",
         x,
         y,
         width: w,
@@ -71,6 +71,7 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
       await win.setFullscreen(false).catch(() => undefined);
       await win.setPosition(new LogicalPosition(x, y)).catch(() => undefined);
       await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
+      await win.setTitle("MiRadio Programa").catch(() => undefined);
       await win.show().catch(() => undefined);
     }
     // En un monitor aparte, pantalla completa; en el mismo, ventana normal.

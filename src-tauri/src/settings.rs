@@ -606,6 +606,8 @@ pub struct VideoOutput {
     pub source: String,
     /// Entrada de video a emitir; "" = la de la pantalla externa.
     pub video_input_id: String,
+    /// Respaldo si falla: "" = ninguno, "program" = pantalla de programa.
+    pub fallback_video_input_id: String,
     /// "mixer" = salida Encoders; "device" = audio de una capturadora.
     pub audio_source: String,
     /// Dispositivo de audio de captura.
@@ -625,6 +627,7 @@ impl Default for VideoOutput {
             kind: "screen".to_string(),
             source: "0".to_string(),
             video_input_id: String::new(),
+            fallback_video_input_id: String::new(),
             audio_source: "mixer".to_string(),
             audio_source_id: String::new(),
             enabled: true,
