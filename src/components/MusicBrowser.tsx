@@ -106,6 +106,8 @@ interface MusicBrowserProps {
   onPendingEditDone: () => void;
   /** Asigna una cancion a un bloque (arrastrando desde la lista de emision). */
   onAssignTrackBlock?: (trackId: string, blockId: string) => void;
+  /** Preescucha automatica al seleccionar una cancion. */
+  onPreviewTrack?: (track: Track) => void;
   /** Bloque sobre el que se estan soltando archivos */
   dropBlockId?: string;
   showToast: (msg: string) => void;
@@ -350,6 +352,7 @@ function MusicBrowserBase({
   pendingEdit,
   onPendingEditDone,
   onAssignTrackBlock,
+  onPreviewTrack,
   dropBlockId = "",
   showToast,
 }: MusicBrowserProps) {
@@ -758,6 +761,21 @@ function MusicBrowserBase({
     setPropsId(t.id);
   };
 
+  const toggleCtxBlock = async (blockId: string) => {
+    const track = ctx?.track;
+    if (!track) return;
+    const next = track.blocks.includes(blockId)
+      ? track.blocks.filter((id) => id !== blockId)
+      : [...track.blocks, blockId];
+    try {
+      await setTrackBlocks(track.id, next);
+      await onTrackSaved();
+      setCtx(null);
+    } catch (error) {
+      showToast(`No se pudo cambiar el bloque: ${String(error)}`);
+    }
+  };
+
   const [deezerOpen, setDeezerOpen] = useState(false);
 
   const [scanInfo, setScanInfo] = useState("");
@@ -909,6 +927,7 @@ function MusicBrowserBase({
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedId(t.id);
+                    onPreviewTrack?.(t);
                   }}
                   onDoubleClick={() => onAdd(t)}
                   onContextMenu={(e) => {
@@ -1566,6 +1585,25 @@ function MusicBrowserBase({
             >
               <IconPlus size={13} /> Añadir a la lista
             </button>
+            <div className="ctx-title">Asignar a bloque</div>
+            <div className="ctx-blocks">
+              {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+              {blocks.map((block) => {
+                const inside = ctx.track.blocks.includes(block.id);
+                return (
+                  <button
+                    key={block.id}
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => void toggleCtxBlock(block.id)}
+                  >
+                    <span className="plrow-block-check">{inside ? "✓" : ""}</span>
+                    {block.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="ctx-sep" />
             <button
               type="button"
               className="ctx-item"

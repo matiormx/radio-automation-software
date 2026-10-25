@@ -487,6 +487,24 @@ export function PlaylistZone({
             >
               <IconTag size={13} /> Editar metadatos
             </button>
+            <div className="ctx-title">Asignar a bloque</div>
+            <div className="ctx-blocks">
+              {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+              {blocks.map((block) => {
+                const inside = rows[ctx.index].blocks.includes(block.id);
+                return (
+                  <button
+                    key={block.id}
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => onToggleBlock(rows[ctx.index].id, block.id)}
+                  >
+                    <span className="plrow-block-check">{inside ? "✓" : ""}</span>
+                    {block.name}
+                  </button>
+                );
+              })}
+            </div>
             <div className="ctx-sep" />
             <button
               type="button"

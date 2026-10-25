@@ -414,6 +414,13 @@ export default function App() {
   const [cutsTrackId, setCutsTrackId] = useState("");
   const [pendingEdit, setPendingEdit] = useState<{ id: string; n: number } | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
+  const [preview, setPreview] = useState<{
+    track: Track;
+    playing: boolean;
+    pos: number;
+    from: number;
+    to: number;
+  } | null>(null);
   const autopilotOn = settings.autopilotEnabled;
   const cutsTrack = tracks.find((track) => track.id === cutsTrackId) ?? null;
   const defaultBlockId = blocks.some((block) => block.id === settings.defaultBlockId)
@@ -457,6 +464,11 @@ export default function App() {
   const normalizerRef = useRef(false);
   const normApiRef = useRef<NormalizerApi | null>(null);
   const eventFiring = useRef<Set<string>>(new Set());
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  const previewFromRef = useRef(0);
+  const previewToRef = useRef(0);
   const pendingInsertsRef = useRef(pendingInserts);
   pendingInsertsRef.current = pendingInserts;
   const playRowRef = useRef<(index: number) => void>(() => undefined);
@@ -468,6 +480,80 @@ export default function App() {
     setToast(msg);
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 3200);
+  }, []);
+
+  // Minireproductor de preescucha: independiente de la mesa y del programa.
+  useEffect(() => {
+    const audio = new Audio();
+    audio.preload = "auto";
+    previewAudioRef.current = audio;
+    const sync = () =>
+      setPreview((prev) => {
+        if (!prev) return prev;
+        const to = previewToRef.current;
+        if (to > 0 && audio.currentTime >= to) {
+          audio.pause();
+          return { ...prev, playing: false, pos: to };
+        }
+        return { ...prev, playing: !audio.paused, pos: audio.currentTime };
+      });
+    const onEnded = () =>
+      setPreview((prev) => (prev ? { ...prev, playing: false, pos: prev.to } : prev));
+    audio.addEventListener("timeupdate", sync);
+    audio.addEventListener("play", sync);
+    audio.addEventListener("pause", sync);
+    audio.addEventListener("ended", onEnded);
+    return () => {
+      audio.pause();
+      audio.src = "";
+      audio.removeEventListener("timeupdate", sync);
+      audio.removeEventListener("play", sync);
+      audio.removeEventListener("pause", sync);
+      audio.removeEventListener("ended", onEnded);
+      previewAudioRef.current = null;
+    };
+  }, []);
+
+  const startPreview = useCallback((track: Track) => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    const from = Math.max(0, track.trimStart || 0);
+    const to = Math.max(from + 0.05, track.trimEnd ?? track.durationSecs);
+    previewFromRef.current = from;
+    previewToRef.current = to;
+    const play = () => {
+      try {
+        audio.currentTime = from;
+      } catch {
+        /* aun sin metadatos */
+      }
+      setPreview({ track, playing: true, pos: from, from, to });
+      void audio.play().catch((error) => showToast(`No se pudo preescuchar: ${String(error)}`));
+    };
+    audio.src = trackUrl({ file: track.file });
+    if (audio.readyState >= 1) play();
+    else audio.addEventListener("loadedmetadata", play, { once: true });
+  }, [showToast]);
+
+  const togglePreview = useCallback(() => {
+    const audio = previewAudioRef.current;
+    const current = previewRef.current;
+    if (!audio || !current) return;
+    if (audio.paused) {
+      if (audio.currentTime >= current.to - 0.05) audio.currentTime = current.from;
+      void audio.play().catch((error) => showToast(`No se pudo preescuchar: ${String(error)}`));
+    } else {
+      audio.pause();
+    }
+  }, [showToast]);
+
+  const stopPreview = useCallback(() => {
+    const audio = previewAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.src = "";
+    }
+    setPreview(null);
   }, []);
 
   // Los eventos cambian por minutos; no hace falta re-renderizar cada segundo.
@@ -1767,19 +1853,6 @@ export default function App() {
   const seek = useCallback((seconds: number) => {
     void playerRef.current?.seek(seconds);
   }, []);
-
-  const setVolume = useCallback(
-    (v: number) => {
-      playerRef.current?.setVolume(v);
-      setSettings((prev) => {
-        if (Math.abs(prev.masterVolume - v) < 0.001) return prev;
-        const nextS = { ...prev, masterVolume: v };
-        void saveSettings(nextS).catch(() => undefined);
-        return nextS;
-      });
-    },
-    [],
-  );
 
   const updateSettings = useCallback((s: Settings) => {
     setSettings(s);
@@ -3206,6 +3279,7 @@ export default function App() {
                 pendingEdit={pendingEdit}
                 onPendingEditDone={handlePendingEditDone}
                 onAssignTrackBlock={assignTrackBlock}
+                onPreviewTrack={startPreview}
                 dropBlockId={dropBlockId}
                 showToast={showToast}
               />
@@ -3390,7 +3464,21 @@ export default function App() {
           );
         }}
         onFadeChange={(s) => updateSettings({ ...settings, fadeSeconds: s })}
-        onVolume={setVolume}
+        preview={
+          preview
+            ? {
+                title: preview.track.title,
+                artist: preview.track.artist,
+                cover: preview.track.cover ? trackUrl({ file: preview.track.cover }) : "",
+                playing: preview.playing,
+                pos: preview.pos,
+                from: preview.from,
+                to: preview.to,
+              }
+            : null
+        }
+        onPreviewToggle={togglePreview}
+        onPreviewStop={stopPreview}
       />
 
       {normalizerMounted && (

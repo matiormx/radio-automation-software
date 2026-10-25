@@ -1,4 +1,4 @@
-import { IconPlay, IconPause, IconNext, IconPrev, IconBolt, IconSliders } from "../icons";
+import { IconPlay, IconPause, IconNext, IconPrev, IconBolt, IconSliders, IconX } from "../icons";
 import type { Block } from "../types";
 
 interface PlayerBarProps {
@@ -15,7 +15,17 @@ interface PlayerBarProps {
   onAutopilot: (on: boolean) => void;
   onDefaultBlockChange: (id: string) => void;
   onFadeChange: (secs: number) => void;
-  onVolume: (vol: number) => void;
+  preview: {
+    title: string;
+    artist: string;
+    cover: string;
+    playing: boolean;
+    pos: number;
+    from: number;
+    to: number;
+  } | null;
+  onPreviewToggle: () => void;
+  onPreviewStop: () => void;
   onOpenMixer: () => void;
 }
 
@@ -35,7 +45,9 @@ export function PlayerBar({
   onAutopilot,
   onDefaultBlockChange,
   onFadeChange,
-  onVolume,
+  preview,
+  onPreviewToggle,
+  onPreviewStop,
   onOpenMixer,
 }: PlayerBarProps) {
   return (
@@ -123,16 +135,46 @@ export function PlayerBar({
 
       <div className="pb-divider" />
 
-      <div className="pb-group-seg pb-vol">
-        <span className="pb-label" title="Volumen de las salidas de tarjeta. No afecta al streaming.">VOL. SALIDAS</span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          defaultValue={100}
-          onChange={(e) => onVolume(Number(e.target.value) / 100)}
-          aria-label="Volumen"
-        />
+      <div className="pb-group-seg pb-preview">
+        {preview ? (
+          <>
+            <button
+              type="button"
+              className="pb-preview-play"
+              onClick={onPreviewToggle}
+              title={preview.playing ? "Pausar preescucha" : "Reanudar preescucha"}
+              aria-label={preview.playing ? "Pausar preescucha" : "Reanudar preescucha"}
+            >
+              {preview.playing ? <IconPause size={14} /> : <IconPlay size={14} />}
+            </button>
+            {preview.cover && <img className="pb-preview-cover" src={preview.cover} alt="" />}
+            <div className="pb-preview-info">
+              <span className="pb-preview-title" title={preview.title}>{preview.title}</span>
+              <span className="pb-preview-artist" title={preview.artist}>{preview.artist}</span>
+              <span className="pb-preview-bar">
+                <span
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(100, ((preview.pos - preview.from) / Math.max(0.05, preview.to - preview.from)) * 100),
+                    )}%`,
+                  }}
+                />
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onPreviewStop}
+              title="Cerrar preescucha"
+              aria-label="Cerrar preescucha"
+            >
+              <IconX size={13} />
+            </button>
+          </>
+        ) : (
+          <span className="pb-label pb-preview-empty" title="Haz clic en una canción de la biblioteca para escucharla">PREESCUCHA</span>
+        )}
       </div>
 
       <button
