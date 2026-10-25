@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-type Level = { level: number; db: number };
+import type { VUStereoLevel } from "../types";
 
 interface VuMeterProps {
-  mixer: { getMonitorLevel(): Level; getStreamLevel?(): Level } | null;
+  mixer: {
+    getMonitorLevel(): VUStereoLevel;
+    getStreamLevel?(): VUStereoLevel;
+  } | null;
   /** Que mide: la salida general o lo que va al streaming */
   source?: "master" | "streaming";
   /** Buses de la mesa (se puede medir cualquiera) */
@@ -27,56 +30,76 @@ export function VuMeter({ mixer, source = "master", buses = [], monitorBusId = "
       window.removeEventListener("keydown", key);
     };
   }, [menu]);
-  const [level, setLevel] = useState(0);
-  const [peak, setPeak] = useState(0);
-  const [db, setDb] = useState(-60);
-  const smooth = useRef(0);
-  const hold = useRef(0);
+  const [left, setLeft] = useState(0);
+  const [right, setRight] = useState(0);
+  const [leftPeak, setLeftPeak] = useState(0);
+  const [rightPeak, setRightPeak] = useState(0);
+  const [dbL, setDbL] = useState(-60);
+  const [dbR, setDbR] = useState(-60);
+  const smooth = useRef({ l: 0, r: 0, hl: 0, hr: 0 });
 
   useEffect(() => {
-    smooth.current = 0;
-    hold.current = 0;
+    smooth.current = { l: 0, r: 0, hl: 0, hr: 0 };
+    const reset = () => {
+      setLeft(0);
+      setRight(0);
+      setLeftPeak(0);
+      setRightPeak(0);
+      setDbL(-60);
+      setDbR(-60);
+    };
     if (!mixer) {
-      setLevel(0);
-      setPeak(0);
-      setDb(-60);
+      reset();
       return;
     }
 
     let raf = 0;
     let last = 0;
+    const smoothStep = (current: number, raw: number) =>
+      raw > current ? current + (raw - current) * 0.55 : Math.max(raw, current * 0.86);
     const tick = (time: number) => {
       raf = requestAnimationFrame(tick);
       if (time - last < 33) return;
       last = time;
 
-      const next = source === "streaming" && mixer.getStreamLevel ? mixer.getStreamLevel() : mixer.getMonitorLevel();
-      const raw = next.level;
-      smooth.current =
-        raw > smooth.current
-          ? smooth.current + (raw - smooth.current) * 0.55
-          : Math.max(raw, smooth.current * 0.86);
-      hold.current = Math.max(smooth.current, hold.current - 0.006);
+      const next: VUStereoLevel =
+        source === "streaming" && mixer.getStreamLevel
+          ? mixer.getStreamLevel()
+          : mixer.getMonitorLevel();
+      const s = smooth.current;
+      s.l = smoothStep(s.l, next.left?.level ?? next.level);
+      s.r = smoothStep(s.r, next.right?.level ?? next.level);
+      s.hl = Math.max(s.l, s.hl - 0.006);
+      s.hr = Math.max(s.r, s.hr - 0.006);
 
-      setLevel(smooth.current);
-      setPeak(hold.current);
-      setDb(next.db);
+      setLeft(s.l);
+      setRight(s.r);
+      setLeftPeak(s.hl);
+      setRightPeak(s.hr);
+      setDbL(next.left?.db ?? next.db);
+      setDbR(next.right?.db ?? next.db);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [mixer, source]);
 
-  const pct = Math.round(level * 100);
-  const peakPct = Math.round(peak * 100);
   const options: { key: string; text: string; source: "master" | "streaming"; busId: string }[] = [
     { key: "master", text: "Master (salida general)", source: "master", busId: "" },
     ...buses.map((b) => ({ key: `bus:${b.id}`, text: `Bus · ${b.name}`, source: "master" as const, busId: b.id })),
     { key: "streaming", text: "Streaming (lo que reciben los encoders)", source: "streaming", busId: monitorBusId },
   ];
   const current = source === "streaming" ? "streaming" : monitorBusId && busName ? `bus:${monitorBusId}` : "master";
+  const sides = [
+    { key: "l", name: "L", level: left, peak: leftPeak, db: dbL },
+    { key: "r", name: "R", level: right, peak: rightPeak, db: dbR },
+  ];
+  const fmtDb = (db: number) => (db <= -59.5 ? "-∞" : db.toFixed(0));
 
   return (
-    <aside className="vu-rail" aria-label={source === "streaming" ? "Nivel de la salida de streaming" : "Nivel de salida"}>
+    <aside
+      className="vu-rail"
+      aria-label={`${source === "streaming" ? "Nivel de la salida de streaming" : "Nivel de salida"} (estereo)`}
+    >
       <button
         type="button"
         className={`vu-title vu-switch ${source === "streaming" ? "vu-switch-on" : ""}`}
@@ -89,14 +112,25 @@ export function VuMeter({ mixer, source = "master", buses = [], monitorBusId = "
       >
         {source === "streaming" ? "STR" : busName ? "BUS" : "VU"}
       </button>
-      <div className="vu-track">
-        <div className="vu-fill" style={{ height: `${pct}%` }} />
-        <div className="vu-peak" style={{ bottom: `${peakPct}%` }} />
-        <span className="vu-tick vu-tick-75" />
-        <span className="vu-tick vu-tick-50" />
-        <span className="vu-tick vu-tick-25" />
+      <div className="vu-tracks">
+        {sides.map((s) => (
+          <div className="vu-channel" key={s.key}>
+            <div className="vu-track" title={`Canal ${s.name}`}>
+              <div className="vu-fill" style={{ height: `${Math.round(s.level * 100)}%` }} />
+              <div className="vu-peak" style={{ bottom: `${Math.round(s.peak * 100)}%` }} />
+              <span className="vu-tick vu-tick-75" />
+              <span className="vu-tick vu-tick-50" />
+              <span className="vu-tick vu-tick-25" />
+            </div>
+            <span className="vu-ch">{s.name}</span>
+          </div>
+        ))}
       </div>
-      <span className="vu-db">{db <= -59.5 ? "-∞" : db.toFixed(0)}</span>
+      <div className="vu-db" title="Nivel de cada canal en dBFS">
+        {sides.map((s) => (
+          <span key={s.key}>{fmtDb(s.db)}</span>
+        ))}
+      </div>
       <span className="vu-src" title={`Midiendo: ${label}`}>
         {label}
       </span>

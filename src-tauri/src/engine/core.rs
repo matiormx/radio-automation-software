@@ -11,12 +11,19 @@ pub struct Core {
     music: Vec<f32>,
     preview: Vec<f32>,
     call: Vec<f32>,
-    /// Nivel cuadratico medio reciente del VU
+    /// Nivel cuadratico medio reciente del VU (suma de canales)
     pub monitor_ms: f32,
-    /// Pico reciente del VU (decae)
-    pub monitor_peak: f32,
+    /// Nivel cuadratico medio reciente del VU por canal
+    pub monitor_ms_l: f32,
+    pub monitor_ms_r: f32,
+    /// Pico reciente del VU (decae) por canal
+    pub monitor_peak_l: f32,
+    pub monitor_peak_r: f32,
     /// Nivel de lo que va a los encoders de streaming
     pub stream_ms: f32,
+    /// Nivel de streaming por canal
+    pub stream_ms_l: f32,
+    pub stream_ms_r: f32,
 }
 
 /// Constante de tiempo de los medidores (s).
@@ -34,6 +41,20 @@ fn mean_square(buf: &[f32]) -> f32 {
     buf.iter().map(|x| x * x).sum::<f32>() / buf.len() as f32
 }
 
+/// Nivel cuadratico medio de cada canal de un buffer estereo entrelazado.
+fn channel_mean_squares(buf: &[f32]) -> (f32, f32) {
+    if buf.len() < 2 {
+        return (0.0, 0.0);
+    }
+    let frames = buf.len() / 2;
+    let (mut l, mut r) = (0.0, 0.0);
+    for pair in buf.chunks_exact(2) {
+        l += pair[0] * pair[0];
+        r += pair[1] * pair[1];
+    }
+    (l / frames as f32, r / frames as f32)
+}
+
 impl Core {
     pub fn new(rate: u32) -> Self {
         let cfg = MixConfig::default();
@@ -45,8 +66,13 @@ impl Core {
             preview: vec![0.0; MAX_BLOCK * 2],
             call: vec![0.0; MAX_BLOCK * 2],
             monitor_ms: 0.0,
-            monitor_peak: 0.0,
+            monitor_ms_l: 0.0,
+            monitor_ms_r: 0.0,
+            monitor_peak_l: 0.0,
+            monitor_peak_r: 0.0,
             stream_ms: 0.0,
+            stream_ms_l: 0.0,
+            stream_ms_r: 0.0,
         }
     }
 
@@ -146,10 +172,22 @@ impl Core {
             self.plan.render_inserts(n, &self.music[..s], &self.preview[..s], &self.call[..s], &ins, &part);
             let mon = &self.plan.monitor[..s];
             self.monitor_ms = ema(self.monitor_ms, mean_square(mon), n, rate);
-            let peak = mon.iter().fold(0f32, |a, &b| a.max(b.abs()));
+            let (mon_l, mon_r) = channel_mean_squares(mon);
+            self.monitor_ms_l = ema(self.monitor_ms_l, mon_l, n, rate);
+            self.monitor_ms_r = ema(self.monitor_ms_r, mon_r, n, rate);
+            let (mut peak_l, mut peak_r) = (0f32, 0f32);
+            for pair in mon.chunks_exact(2) {
+                peak_l = peak_l.max(pair[0].abs());
+                peak_r = peak_r.max(pair[1].abs());
+            }
             let decay = (-(n as f32) / (0.3 * rate as f32)).exp();
-            self.monitor_peak = (self.monitor_peak * decay).max(peak);
-            self.stream_ms = ema(self.stream_ms, mean_square(&self.plan.program[..s]), n, rate);
+            self.monitor_peak_l = (self.monitor_peak_l * decay).max(peak_l);
+            self.monitor_peak_r = (self.monitor_peak_r * decay).max(peak_r);
+            let program = &self.plan.program[..s];
+            self.stream_ms = ema(self.stream_ms, mean_square(program), n, rate);
+            let (stream_l, stream_r) = channel_mean_squares(program);
+            self.stream_ms_l = ema(self.stream_ms_l, stream_l, n, rate);
+            self.stream_ms_r = ema(self.stream_ms_r, stream_r, n, rate);
             self.play.sig_ms = self.stream_ms;
             self.play.sig_valid = self.plan.has_music();
             sink(&self.plan, done, n);
@@ -163,9 +201,19 @@ impl Core {
         level_of(self.monitor_ms)
     }
 
+    /// Nivel del VU por canal: (izquierda, derecha), cada uno (nivel, dB).
+    pub fn monitor_level_lr(&self) -> ((f32, f32), (f32, f32)) {
+        (level_of(self.monitor_ms_l), level_of(self.monitor_ms_r))
+    }
+
     /// Nivel de la salida de streaming (lo que reciben los encoders).
     pub fn stream_level(&self) -> (f32, f32) {
         level_of(self.stream_ms)
+    }
+
+    /// Nivel de streaming por canal: (izquierda, derecha), cada uno (nivel, dB).
+    pub fn stream_level_lr(&self) -> ((f32, f32), (f32, f32)) {
+        (level_of(self.stream_ms_l), level_of(self.stream_ms_r))
     }
 }
 

@@ -1,5 +1,10 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { CompressorSettings, InsertSettings, Settings } from "./types";
+import type {
+  CompressorSettings,
+  InsertSettings,
+  Settings,
+  VUStereoLevel,
+} from "./types";
 import { Leveler, levelerOf } from "./leveler";
 
 /**
@@ -119,12 +124,19 @@ export class SoundMixer {
   /** Cancela decodificaciones de preescucha que ya no interesan */
   private previewJob = 0;
   private disposed = false;
-  private monitorAnalyser: AnalyserNode;
+  private monitorSplit: ChannelSplitterNode;
+  private monitorAnalyserL: AnalyserNode;
+  private monitorAnalyserR: AnalyserNode;
   private streamAnalyser: AnalyserNode;
+  private streamSplit: ChannelSplitterNode;
+  private streamAnalyserL: AnalyserNode;
+  private streamAnalyserR: AnalyserNode;
   /** Algun canal lleva la musica de la app (si no, el detector de silencio no vale) */
   musicRouted = true;
-  private streamData: Float32Array<ArrayBuffer>;
-  private monitorData: Float32Array<ArrayBuffer>;
+  private monitorDataL: Float32Array<ArrayBuffer>;
+  private monitorDataR: Float32Array<ArrayBuffer>;
+  private streamDataL: Float32Array<ArrayBuffer>;
+  private streamDataR: Float32Array<ArrayBuffer>;
   private monitorTap: AudioNode | null = null;
   private readonly programTap: GainNode;
   /** Suma de lo enrutado a la salida Streaming (sin volumen maestro) */
@@ -167,23 +179,50 @@ export class SoundMixer {
     this.meterSink.gain.value = 0;
     this.meterSink.connect(this.ctx.destination);
     this.streamMix = this.ctx.createGain();
-    this.monitorAnalyser = this.ctx.createAnalyser();
-    this.monitorAnalyser.fftSize = 1024;
-    this.monitorAnalyser.smoothingTimeConstant = 0.7;
-    this.monitorData = new Float32Array(
-      new ArrayBuffer(this.monitorAnalyser.fftSize * 4),
-    );
     const silent = this.ctx.createGain();
     silent.gain.value = 0;
-    this.monitorAnalyser.connect(silent);
     silent.connect(this.ctx.destination);
+    // VU estereo: el analizador de Web Audio suma los canales, asi que se
+    // separan L y R y cada uno tiene su propio analizador.
+    this.monitorSplit = this.ctx.createChannelSplitter(2);
+    this.monitorAnalyserL = this.ctx.createAnalyser();
+    this.monitorAnalyserR = this.ctx.createAnalyser();
+    for (const an of [this.monitorAnalyserL, this.monitorAnalyserR]) {
+      an.fftSize = 1024;
+      an.smoothingTimeConstant = 0.7;
+      an.connect(silent);
+    }
+    this.monitorDataL = new Float32Array(
+      new ArrayBuffer(this.monitorAnalyserL.fftSize * 4),
+    );
+    this.monitorDataR = new Float32Array(
+      new ArrayBuffer(this.monitorAnalyserR.fftSize * 4),
+    );
+    this.monitorSplit.connect(this.monitorAnalyserL, 0);
+    this.monitorSplit.connect(this.monitorAnalyserR, 1);
     // VU de la salida de streaming: lo que reciben los encoders.
     this.streamAnalyser = this.ctx.createAnalyser();
     this.streamAnalyser.fftSize = 1024;
     this.streamAnalyser.smoothingTimeConstant = 0.7;
-    this.streamData = new Float32Array(new ArrayBuffer(this.streamAnalyser.fftSize * 4));
+    this.streamSplit = this.ctx.createChannelSplitter(2);
+    this.streamAnalyserL = this.ctx.createAnalyser();
+    this.streamAnalyserR = this.ctx.createAnalyser();
+    for (const an of [this.streamAnalyserL, this.streamAnalyserR]) {
+      an.fftSize = 1024;
+      an.smoothingTimeConstant = 0.7;
+      an.connect(silent);
+    }
+    this.streamDataL = new Float32Array(
+      new ArrayBuffer(this.streamAnalyserL.fftSize * 4),
+    );
+    this.streamDataR = new Float32Array(
+      new ArrayBuffer(this.streamAnalyserR.fftSize * 4),
+    );
     this.programTap.connect(this.streamAnalyser);
     this.streamAnalyser.connect(silent);
+    this.programTap.connect(this.streamSplit);
+    this.streamSplit.connect(this.streamAnalyserL, 0);
+    this.streamSplit.connect(this.streamAnalyserR, 1);
     this.apply(this.config);
   }
 
@@ -198,7 +237,7 @@ export class SoundMixer {
 
     if (this.monitorTap) {
       try {
-        this.monitorTap.disconnect(this.monitorAnalyser);
+        this.monitorTap.disconnect(this.monitorSplit);
       } catch {
         /* ya estaba desconectado */
       }
@@ -364,7 +403,7 @@ export class SoundMixer {
       ? this.busFaders.get(cfg.monitorBusId)
       : null;
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
-    monitorTap.connect(this.monitorAnalyser);
+    monitorTap.connect(this.monitorSplit);
     // Los encoders toman la salida Streaming si algo va a ella; si no, la
     // salida predeterminada (se avisa en la mesa; no depende del VU).
     const streamUsed =
@@ -620,9 +659,14 @@ export class SoundMixer {
     return out;
   }
 
-  getMonitorLevel(): { level: number; db: number } {
-    if (this.disposed) return { level: 0, db: -60 };
-    return levelOf(this.monitorAnalyser, this.monitorData);
+  getMonitorLevel(): VUStereoLevel {
+    if (this.disposed) return silentStereo();
+    return levelOfStereo(
+      this.monitorAnalyserL,
+      this.monitorDataL,
+      this.monitorAnalyserR,
+      this.monitorDataR,
+    );
   }
 
   /** Analizador de lo que va a los encoders de streaming (detector de silencio). */
@@ -631,9 +675,14 @@ export class SoundMixer {
   }
 
   /** Nivel de lo que va a los encoders de streaming. */
-  getStreamLevel(): { level: number; db: number } {
-    if (this.disposed) return { level: 0, db: -60 };
-    return levelOf(this.streamAnalyser, this.streamData);
+  getStreamLevel(): VUStereoLevel {
+    if (this.disposed) return silentStereo();
+    return levelOfStereo(
+      this.streamAnalyserL,
+      this.streamDataL,
+      this.streamAnalyserR,
+      this.streamDataR,
+    );
   }
 
   setMasterVolume(v: number) {
@@ -752,7 +801,7 @@ export class SoundMixer {
     this.stopPreview();
     if (this.monitorTap) {
       try {
-        this.monitorTap.disconnect(this.monitorAnalyser);
+        this.monitorTap.disconnect(this.monitorSplit);
       } catch {
         /* ya estaba desconectado */
       }
@@ -1067,4 +1116,29 @@ function levelOf(an: AnalyserNode, data: Float32Array<ArrayBuffer>): { level: nu
   const rms = Math.sqrt(sum / data.length);
   const db = 20 * Math.log10(Math.max(rms, 0.000001));
   return { level: Math.max(0, Math.min(1, (db + 48) / 48)), db: Math.max(-60, db) };
+}
+
+function levelOfStereo(
+  lAn: AnalyserNode,
+  lData: Float32Array<ArrayBuffer>,
+  rAn: AnalyserNode,
+  rData: Float32Array<ArrayBuffer>,
+): VUStereoLevel {
+  const left = levelOf(lAn, lData);
+  const right = levelOf(rAn, rData);
+  return {
+    level: Math.max(left.level, right.level),
+    db: Math.max(left.db, right.db),
+    left,
+    right,
+  };
+}
+
+function silentStereo(): VUStereoLevel {
+  return {
+    level: 0,
+    db: -60,
+    left: { level: 0, db: -60 },
+    right: { level: 0, db: -60 },
+  };
 }

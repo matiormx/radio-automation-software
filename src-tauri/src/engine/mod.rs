@@ -86,8 +86,16 @@ struct StatePayload {
     paused: bool,
     level: f32,
     db: f32,
+    level_l: f32,
+    level_r: f32,
+    db_l: f32,
+    db_r: f32,
     stream_level: f32,
     stream_db: f32,
+    stream_level_l: f32,
+    stream_level_r: f32,
+    stream_db_l: f32,
+    stream_db_r: f32,
 }
 
 #[derive(Deserialize)]
@@ -292,7 +300,7 @@ fn control_loop(
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(15));
         let mut strips: Option<Vec<(String, f32, f32)>> = None;
-        let (events, index, playing, paused, level, db, slevel, sdb) = {
+        let (events, index, playing, paused, level, db, lr, slevel, sdb, slr) = {
             let mut c = lock_ctl(&ctl);
             let Ctl { player, loader } = &mut *c;
             let mut g = lock(&shared);
@@ -302,17 +310,19 @@ fn control_loop(
             let now = g.core.play.now;
             let ended_live = if g.core.play.live.as_ref().map(|l| l.finished(now)).unwrap_or(false) { g.core.play.live.take() } else { None };
             let (level, db) = g.core.monitor_level();
+            let lr = g.core.monitor_level_lr();
             let (slevel, sdb) = g.core.stream_level();
+            let slr = g.core.stream_level_lr();
             let playing = player.is_playing(&g.core.play);
             if meters_on.load(Ordering::Relaxed) && last_emit.elapsed() >= Duration::from_millis(33) {
                 let mut list = g.core.plan.take_meters();
-                let m = g.core.monitor_peak;
-                list.push(("master".to_string(), m, m));
+                let (l, r) = (g.core.monitor_peak_l, g.core.monitor_peak_r);
+                list.push(("master".to_string(), l, r));
                 strips = Some(list);
             }
             drop(g);
             drop(ended_live); // libera el buffer y deja que el lector termine
-            (player.drain_events(), player.index(), playing, player.is_paused(), level, db, slevel, sdb)
+            (player.drain_events(), player.index(), playing, player.is_paused(), level, db, lr, slevel, sdb, slr)
         };
         spare.clear();
         for e in events {
@@ -344,7 +354,26 @@ fn control_loop(
             if let Some(t) = last_tick {
                 out.push(t);
             }
-            let _ = app.emit("engine://state", StatePayload { events: out, index, playing, paused, level, db, stream_level: slevel, stream_db: sdb });
+            let ((level_l, db_l), (level_r, db_r)) = lr;
+            let ((stream_level_l, stream_db_l), (stream_level_r, stream_db_r)) = slr;
+            let _ = app.emit("engine://state", StatePayload {
+                events: out,
+                index,
+                playing,
+                paused,
+                level,
+                db,
+                level_l,
+                level_r,
+                db_l,
+                db_r,
+                stream_level: slevel,
+                stream_db: sdb,
+                stream_level_l,
+                stream_level_r,
+                stream_db_l,
+                stream_db_r,
+            });
             if let Some(list) = strips.take() {
                 let list: Vec<StripMeter> = list.into_iter().map(|(key, l, r)| StripMeter { key, l, r }).collect();
                 let _ = app.emit("engine://meters", list);
@@ -484,13 +513,21 @@ mod contract_tests {
             paused: false,
             level: 0.5,
             db: -12.0,
+            level_l: 0.4,
+            level_r: 0.6,
+            db_l: -15.0,
+            db_r: -10.0,
             stream_level: 0.25,
             stream_db: -30.0,
+            stream_level_l: 0.2,
+            stream_level_r: 0.3,
+            stream_db_l: -33.0,
+            stream_db_r: -28.0,
         };
         let j = serde_json::to_string(&p).unwrap();
         assert_eq!(
             j,
-            r#"{"events":[{"type":"tick","pos":1.0,"total":2.0},{"type":"index","index":2},{"type":"ended"},{"type":"diag","message":"x"}],"index":2,"playing":true,"paused":false,"level":0.5,"db":-12.0,"streamLevel":0.25,"streamDb":-30.0}"#
+            r#"{"events":[{"type":"tick","pos":1.0,"total":2.0},{"type":"index","index":2},{"type":"ended"},{"type":"diag","message":"x"}],"index":2,"playing":true,"paused":false,"level":0.5,"db":-12.0,"levelL":0.4,"levelR":0.6,"dbL":-15.0,"dbR":-10.0,"streamLevel":0.25,"streamDb":-30.0,"streamLevelL":0.2,"streamLevelR":0.3,"streamDbL":-33.0,"streamDbR":-28.0}"#
         );
     }
 }

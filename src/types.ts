@@ -745,3 +745,15 @@ export interface DeezerTrack {
   year: string;
   genre: string;
 }
+
+/** Nivel de un canal del vumetro: 0..1 y dBFS. */
+export interface VULevel {
+  level: number;
+  db: number;
+}
+
+/** Nivel estereo del vumetro, con el maximo en `level`/`db`. */
+export interface VUStereoLevel extends VULevel {
+  left: VULevel;
+  right: VULevel;
+}

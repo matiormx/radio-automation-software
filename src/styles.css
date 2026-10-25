@@ -635,6 +635,29 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 }
 .vu-menu-item:hover { background: #ffffff12; }
 .vu-menu-on { color: var(--text, #fff); }
+.vu-tracks {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 0;
+}
+.vu-channel {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+}
+.vu-ch {
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-faint);
+}
 .vu-track {
   position: relative;
   flex: 1;
@@ -674,10 +697,18 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .vu-tick-50 { bottom: 50%; }
 .vu-tick-75 { bottom: 75%; }
 .vu-db {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  width: 100%;
   font-family: var(--mono);
   font-size: 8.5px;
   color: var(--text-dim);
   line-height: 1;
+}
+.vu-db > span {
+  flex: 1;
+  text-align: center;
 }
 
 /* ---------- playlist ---------- */

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Settings, Track } from "./types";
+import type { Settings, Track, VUStereoLevel } from "./types";
 
 /**
  * Puente con el motor de audio nativo (Rust). Ofrece la misma interfaz que
@@ -20,8 +20,16 @@ interface StatePayload {
   paused: boolean;
   level: number;
   db: number;
+  levelL?: number;
+  levelR?: number;
+  dbL?: number;
+  dbR?: number;
   streamLevel?: number;
   streamDb?: number;
+  streamLevelL?: number;
+  streamLevelR?: number;
+  streamDbL?: number;
+  streamDbR?: number;
 }
 
 type MixerSlice = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
@@ -220,13 +228,29 @@ export class NativePlayer {
     void this.cmd({ op: "meters", on });
   }
 
-  getMonitorLevel(): { level: number; db: number } {
-    return { level: this.state.level, db: this.state.db };
+  getMonitorLevel(): VUStereoLevel {
+    const s = this.state;
+    return stereoLevel(
+      s.level,
+      s.db,
+      s.levelL,
+      s.dbL,
+      s.levelR,
+      s.dbR,
+    );
   }
 
   /** Nivel de lo que va a los encoders de streaming. */
-  getStreamLevel(): { level: number; db: number } {
-    return { level: this.state.streamLevel ?? 0, db: this.state.streamDb ?? -60 };
+  getStreamLevel(): VUStereoLevel {
+    const s = this.state;
+    return stereoLevel(
+      s.streamLevel ?? 0,
+      s.streamDb ?? -60,
+      s.streamLevelL,
+      s.streamDbL,
+      s.streamLevelR,
+      s.streamDbR,
+    );
   }
 
   // ------------------------------------------------------------ internals
@@ -300,6 +324,22 @@ export class NativePlayer {
     if (!indexReported && s.index !== prevIndex) this.onIndexChange?.(s.index);
     this.waiters = this.waiters.filter((w) => !w(s));
   }
+}
+
+function stereoLevel(
+  level: number,
+  db: number,
+  levelL: number | undefined,
+  dbL: number | undefined,
+  levelR: number | undefined,
+  dbR: number | undefined,
+): VUStereoLevel {
+  return {
+    level,
+    db,
+    left: { level: levelL ?? level, db: dbL ?? db },
+    right: { level: levelR ?? level, db: dbR ?? db },
+  };
 }
 
 /**
