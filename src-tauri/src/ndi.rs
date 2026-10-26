@@ -383,6 +383,11 @@ pub fn runtime() -> Result<(), String> {
 
 #[derive(Default)]
 struct Latest {
+    /// Ultima imagen tal cual (BGRA compacta), para FFmpeg (/raw)
+    raw: Arc<Vec<u8>>,
+    raw_w: usize,
+    raw_h: usize,
+    raw_seq: u64,
     jpeg: Arc<Vec<u8>>,
     seq: u64,
     at: Option<Instant>,
@@ -398,6 +403,10 @@ struct Receiver {
     used: Mutex<Instant>,
     /// Quien escucha el audio (PCM s16le estereo a 48 kHz)
     audio: Mutex<Vec<std::sync::mpsc::SyncSender<Arc<Vec<u8>>>>>,
+    /// Lectores MJPEG abiertos: sin ninguno no se comprime nada
+    mjpeg_readers: std::sync::atomic::AtomicUsize,
+    /// El receptor se cerro (el hilo del JPEG termina)
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl Receiver {
@@ -407,6 +416,8 @@ impl Receiver {
             cv: Condvar::new(),
             used: Mutex::new(Instant::now()),
             audio: Mutex::new(Vec::new()),
+            mjpeg_readers: std::sync::atomic::AtomicUsize::new(0),
+            closed: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -474,8 +485,86 @@ fn receiver(source: &str) -> Arc<Receiver> {
     map.insert(source.to_string(), r.clone());
     let name = source.to_string();
     let rr = r.clone();
-    let _ = thread::Builder::new().name("miradio-ndi-recv".into()).spawn(move || run_receiver(&name, rr));
+    let _ = thread::Builder::new().name("miradio-ndi-recv".into()).spawn(move || {
+        run_receiver(&name, rr.clone());
+        rr.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        rr.cv.notify_all();
+    });
+    let rj = r.clone();
+    let _ = thread::Builder::new().name("miradio-ndi-jpeg".into()).spawn(move || run_jpeg(rj));
     r
+}
+
+/// Comprime a JPEG la ultima imagen recibida, solo si alguien la mira por
+/// MJPEG (vista previa o pantalla de emision). Va en su propio hilo: el
+/// receptor NDI no espera nunca al compresor (antes, comprimir cada imagen en
+/// el mismo hilo retrasaba la recepcion y el video iba a tirones).
+fn run_jpeg(r: Arc<Receiver>) {
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut done = 0u64;
+    let min_gap = Duration::from_millis(30);
+    let mut last = Instant::now() - min_gap;
+    loop {
+        let (raw, w, h, seq) = {
+            let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+            while l.raw_seq == done && !r.closed.load(SeqCst) {
+                l = r.cv.wait_timeout(l, Duration::from_millis(500)).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            if r.closed.load(SeqCst) {
+                return;
+            }
+            (l.raw.clone(), l.raw_w, l.raw_h, l.raw_seq)
+        };
+        done = seq;
+        if r.mjpeg_readers.load(SeqCst) == 0 || w == 0 || h == 0 || raw.len() < w * h * 4 {
+            continue;
+        }
+        let wait = min_gap.saturating_sub(last.elapsed());
+        if !wait.is_zero() {
+            thread::sleep(wait);
+        }
+        last = Instant::now();
+        let mut jpeg = Vec::with_capacity(w * h / 4);
+        let enc = jpeg_encoder::Encoder::new(&mut jpeg, 80);
+        if enc.encode(&raw, w as u16, h as u16, jpeg_encoder::ColorType::Bgra).is_ok() {
+            let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+            l.jpeg = Arc::new(jpeg);
+            l.seq += 1;
+            r.cv.notify_all();
+        }
+    }
+}
+
+/// Encaja una imagen BGRA en `dw`x`dh` (con bandas negras), promediando 2x2.
+fn fit_bgra(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize, out: &mut Vec<u8>) {
+    out.clear();
+    out.resize(dw * dh * 4, 0);
+    for px in out.chunks_exact_mut(4) {
+        px[3] = 255;
+    }
+    if sw == 0 || sh == 0 || src.len() < sw * sh * 4 {
+        return;
+    }
+    let k = (dw as f64 / sw as f64).min(dh as f64 / sh as f64);
+    let tw = ((sw as f64 * k).round() as usize).clamp(1, dw);
+    let th = ((sh as f64 * k).round() as usize).clamp(1, dh);
+    let (ox, oy) = ((dw - tw) / 2, (dh - th) / 2);
+    for y in 0..th {
+        let sy = y * sh / th;
+        let sy2 = (sy + 1).min(sh - 1);
+        let r0 = &src[sy * sw * 4..(sy + 1) * sw * 4];
+        let r1 = &src[sy2 * sw * 4..(sy2 + 1) * sw * 4];
+        let row = &mut out[((oy + y) * dw + ox) * 4..((oy + y) * dw + ox + tw) * 4];
+        for x in 0..tw {
+            let sx = x * sw / tw;
+            let sx2 = (sx + 1).min(sw - 1);
+            for c in 0..3 {
+                let v = r0[sx * 4 + c] as u32 + r0[sx2 * 4 + c] as u32 + r1[sx * 4 + c] as u32 + r1[sx2 * 4 + c] as u32;
+                row[x * 4 + c] = ((v + 2) / 4) as u8;
+            }
+            row[x * 4 + 3] = 255;
+        }
+    }
 }
 
 fn set_error(r: &Receiver, msg: String) {
@@ -564,18 +653,18 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
             } else {
                 (&scratch, w, h)
             };
-            let mut jpeg = Vec::with_capacity(w * h / 4);
-            let enc = jpeg_encoder::Encoder::new(&mut jpeg, 80);
-            if enc.encode(img, w as u16, h as u16, jpeg_encoder::ColorType::Bgra).is_ok() {
-                let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
-                l.jpeg = Arc::new(jpeg);
-                l.seq += 1;
-                l.at = Some(Instant::now());
-                l.width = w as i32;
-                l.height = h as i32;
-                l.error.clear();
-                r.cv.notify_all();
-            }
+            // Solo se guarda: el JPEG lo hace otro hilo y FFmpeg lee la imagen tal cual.
+            let raw = Arc::new(img[..w * h * 4].to_vec());
+            let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+            l.raw = raw;
+            l.raw_w = w;
+            l.raw_h = h;
+            l.raw_seq += 1;
+            l.at = Some(Instant::now());
+            l.width = w as i32;
+            l.height = h as i32;
+            l.error.clear();
+            r.cv.notify_all();
         } else {
             unsafe { (api.recv_free_video)(recv, &frame) };
         }
@@ -761,13 +850,95 @@ fn serve(req: tiny_http::Request) {
         serve_audio(req, r);
         return;
     }
+    if url.starts_with("/raw") {
+        let w = query_num(&url, "w").unwrap_or(1280).clamp(16, 7680) & !1;
+        let h = query_num(&url, "h").unwrap_or(720).clamp(16, 4320) & !1;
+        let fps = query_num(&url, "fps").unwrap_or(25).clamp(1, 120);
+        serve_raw(req, r, w, h, fps, url.contains("strict=1"));
+        return;
+    }
     // /ndi?src=… : MJPEG continuo. Se escribe directamente en el socket y se
     // vacia tras cada imagen (con la respuesta normal de tiny_http la imagen se
     // quedaria esperando en un bufer).
     serve_mjpeg(req, r, url.contains("strict=1"));
 }
 
+/// Cuenta los lectores MJPEG mientras dura la conexion.
+struct ReaderGuard(Arc<Receiver>);
+impl ReaderGuard {
+    fn new(r: Arc<Receiver>) -> ReaderGuard {
+        r.mjpeg_readers.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        r.cv.notify_all();
+        ReaderGuard(r)
+    }
+}
+impl Drop for ReaderGuard {
+    fn drop(&mut self) {
+        self.0.mjpeg_readers.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn query_num(url: &str, key: &str) -> Option<usize> {
+    let q = url.split_once('?').map(|(_, q)| q).unwrap_or("");
+    form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == key).and_then(|(_, v)| v.parse().ok())
+}
+
+/// /raw?src=…&w=…&h=…&fps=… : imagen BGRA sin comprimir a ritmo fijo, para
+/// FFmpeg (-f rawvideo). Cada «tic» manda la ultima imagen recibida (si no
+/// llega una nueva se repite la anterior), asi el video sale con marcas de
+/// tiempo perfectas aunque la red entregue las imagenes a destiempo. Sin
+/// JPEG de ida y vuelta: menos CPU y sin perdida.
+fn serve_raw(req: tiny_http::Request, r: Arc<Receiver>, w: usize, h: usize, fps: usize, strict: bool) {
+    let mut out = req.into_writer();
+    let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    if out.write_all(head.as_bytes()).and_then(|_| out.flush()).is_err() {
+        return;
+    }
+    let tick = Duration::from_secs_f64(1.0 / fps.max(1) as f64);
+    let opened = Instant::now();
+    let mut next = Instant::now();
+    let mut frame: Vec<u8> = Vec::new();
+    fit_bgra(&[], 0, 0, w, h, &mut frame); // negro hasta la primera imagen
+    let mut have = 0u64;
+    loop {
+        *r.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        let (raw, sw, sh, seq, at) = {
+            let l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+            (l.raw.clone(), l.raw_w, l.raw_h, l.raw_seq, l.at)
+        };
+        if strict {
+            let stale = match at {
+                Some(at) => at.elapsed() > Duration::from_secs(5),
+                None => opened.elapsed() > Duration::from_secs(15),
+            };
+            if stale {
+                return; // FFmpeg se entera y la salida pasa al respaldo
+            }
+        }
+        if seq != have && sw > 0 {
+            have = seq;
+            if sw == w && sh == h && raw.len() >= w * h * 4 {
+                frame.clear();
+                frame.extend_from_slice(&raw[..w * h * 4]);
+            } else {
+                fit_bgra(&raw, sw, sh, w, h, &mut frame);
+            }
+        }
+        if out.write_all(&frame).and_then(|_| out.flush()).is_err() {
+            return;
+        }
+        next += tick;
+        let now = Instant::now();
+        if next > now {
+            thread::sleep(next - now);
+        } else if now - next > tick * 5 {
+            next = now; // FFmpeg se retraso: no se intenta recuperar de golpe
+        }
+    }
+}
+
 fn serve_mjpeg(req: tiny_http::Request, r: Arc<Receiver>, strict: bool) {
+    let _reader = ReaderGuard::new(r.clone());
     let mut stream = MjpegStream { r, strict, opened: Instant::now(), seq: 0, buf: Vec::new(), pos: 0 };
     let mut w = req.into_writer();
     let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\
@@ -819,20 +990,30 @@ fn serve_audio(req: tiny_http::Request, r: Arc<Receiver>) {
 
 /// Argumentos de FFmpeg para recibir una fuente NDI con el NDI Runtime (sin
 /// FFmpeg especial): la imagen como MJPEG y, si se pide, el audio como PCM.
-pub fn ffmpeg_video_input(source: &str) -> Result<Vec<String>, String> {
+/// Entrada de FFmpeg con una fuente NDI: imagen sin comprimir a ritmo fijo,
+/// ya del tamaño y los fps de la salida.
+pub fn ffmpeg_video_input(source: &str, width: u32, height: u32, fps: u32) -> Result<Vec<String>, String> {
     runtime()?;
-    let base = server_url()?;
+    Ok(ffmpeg_video_input_at(&server_url()?, source, width, height, fps))
+}
+
+fn ffmpeg_video_input_at(base: &str, source: &str, width: u32, height: u32, fps: u32) -> Vec<String> {
     let src: String = form_urlencoded::byte_serialize(source.as_bytes()).collect();
-    Ok(vec![
+    let (w, h, fps) = (width.clamp(16, 7680) & !1, height.clamp(16, 4320) & !1, fps.clamp(1, 120));
+    vec![
         "-thread_queue_size".into(),
-        "512".into(),
-        "-use_wallclock_as_timestamps".into(),
-        "1".into(),
+        "64".into(),
         "-f".into(),
-        "mpjpeg".into(),
+        "rawvideo".into(),
+        "-pix_fmt".into(),
+        "bgra".into(),
+        "-video_size".into(),
+        format!("{w}x{h}"),
+        "-framerate".into(),
+        fps.to_string(),
         "-i".into(),
-        format!("{base}/ndi?src={src}&strict=1"),
-    ])
+        format!("{base}/raw?src={src}&w={w}&h={h}&fps={fps}&strict=1"),
+    ]
 }
 
 pub fn ffmpeg_audio_input(source: &str) -> Result<Vec<String>, String> {
@@ -957,6 +1138,43 @@ mod tests {
             .output()
             .unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// FFmpeg lee la fuente sin comprimir (/raw) a ritmo fijo aunque las
+    /// imagenes lleguen a destiempo y de otro tamaño.
+    #[test]
+    fn ffmpeg_reads_raw_at_steady_rate() {
+        if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let r = Arc::new(Receiver::new());
+        receivers().lock().unwrap().insert("Raw Test".into(), r.clone());
+        let rr = r.clone();
+        std::thread::spawn(move || {
+            for i in 0..120u64 {
+                {
+                    let mut l = rr.latest.lock().unwrap();
+                    l.raw = Arc::new(vec![(i % 255) as u8; 96 * 54 * 4]);
+                    l.raw_w = 96;
+                    l.raw_h = 54;
+                    l.raw_seq = i + 1;
+                    l.at = Some(Instant::now());
+                    rr.cv.notify_all();
+                }
+                // A destiempo: 20-60 ms
+                std::thread::sleep(Duration::from_millis(20 + (i * 17 % 40)));
+            }
+        });
+        let args = ffmpeg_video_input_at(&server_url().unwrap(), "Raw Test", 64, 36, 25);
+        let out = std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error"])
+            .args(&args)
+            .args(["-t", "2", "-f", "rawvideo", "-pix_fmt", "bgra", "-"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let frames = out.stdout.len() / (64 * 36 * 4);
+        assert!((48..=52).contains(&frames), "{frames} imagenes");
     }
 
     /// Si la fuente NDI deja de mandar imagen, FFmpeg recibe fin de flujo y

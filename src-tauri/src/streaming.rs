@@ -455,7 +455,7 @@ pub fn stream_start(
                         Some(input) if input.kind == "ndi" => Err(
                             "una fuente NDI no se reenvía por NDI: elige la pantalla de emisión".to_string(),
                         ),
-                        Some(input) => video_input_args(input, None),
+                        Some(input) => video_input_args(input, None, (w, h, fps)),
                         None => Err("la entrada de vídeo elegida no existe".to_string()),
                     }
                 };
@@ -1527,7 +1527,7 @@ fn rtmp_args(
     let video_args = if audio_in_video {
         capture_input_args_with_audio(&input.source)?
     } else {
-        video_input_args(input, ndi_device)?
+        video_input_args(input, ndi_device, (width, height, fps))?
     };
     rtmp_args_for_video(
         video_args,
@@ -1627,7 +1627,7 @@ fn ndi_args(
     }
     let input = pick_video_input(video, preferred_input)?;
     let mut args = base_input_args();
-    args.extend(video_input_args(input, ndi_device)?);
+    args.extend(video_input_args(input, ndi_device, (width, height, fps))?);
     if let Some(audio) = audio_device {
         args.extend(audio_args(audio)?);
         args.extend([arg("-map"), arg("1:v:0")]);
@@ -1662,7 +1662,7 @@ fn video_output_args(
         return Err("activa el motor de vídeo".to_string());
     }
     let input = pick_video_input(video, preferred_input)?;
-    video_output_args_for_source(output, video_input_args(input, ndi_device)?)
+    video_output_args_for_source(output, video_input_args(input, ndi_device, (output.width, output.height, output.fps))?)
 }
 
 fn video_output_args_for_source(
@@ -1720,7 +1720,8 @@ fn pick_video_input<'a>(
         .ok_or_else(|| "no hay una entrada de vídeo activa".to_string())
 }
 
-fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<String>, String> {
+/// `fmt`: ancho, alto y fps de la salida (las fuentes NDI ya llegan asi).
+fn video_input_args(input: &VideoInput, ndi_device: Option<&str>, fmt: (u32, u32, u32)) -> Result<Vec<String>, String> {
     let source = input.source.trim();
     if source.is_empty() {
         return Err("la entrada de vídeo no tiene fuente".to_string());
@@ -1737,7 +1738,7 @@ fn video_input_args(input: &VideoInput, ndi_device: Option<&str>) -> Result<Vec<
         "rtmp" => Ok(vec![arg("-i"), source.to_string()]),
         "ndi" => {
             // Con el NDI Runtime no hace falta un FFmpeg especial.
-            if let Ok(args) = crate::ndi::ffmpeg_video_input(source) {
+            if let Ok(args) = crate::ndi::ffmpeg_video_input(source, fmt.0, fmt.1, fmt.2) {
                 return Ok(args);
             }
             let device = ndi_device.ok_or_else(|| {
@@ -2300,8 +2301,8 @@ mod tests {
             device_id: String::new(),
             enabled: true,
         };
-        assert!(video_input_args(&input, None).is_err());
-        let args = video_input_args(&input, Some("libndi_newtek")).expect("argumentos");
+        assert!(video_input_args(&input, None, (1280, 720, 25)).is_err());
+        let args = video_input_args(&input, Some("libndi_newtek"), (1280, 720, 25)).expect("argumentos");
         assert!(args.windows(2).any(|pair| pair == ["-f", "libndi_newtek"]));
     }
 
