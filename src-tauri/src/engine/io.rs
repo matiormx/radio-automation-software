@@ -169,20 +169,20 @@ pub fn split_pair(id: &str) -> (&str, usize) {
     (id, 1)
 }
 
-/// Canales que ofrece una tarjeta (formato por defecto y los soportados).
+/// Canales que ofrece una tarjeta.
 fn max_channels(dev: &cpal::Device, output: bool) -> usize {
     let mut n = if output {
         dev.default_output_config().map(|c| c.channels() as usize).unwrap_or(2)
     } else {
         dev.default_input_config().map(|c| c.channels() as usize).unwrap_or(2)
     };
+    // Salidas: solo los canales que Windows da de verdad (su formato). Una
+    // tarjeta 5.1 configurada como estereo ya no ofrece pares que no pueden
+    // sonar por separado. (VB-Matrix y similares dan 8 en su formato.)
     if output {
-        if let Ok(cfgs) = dev.supported_output_configs() {
-            for c in cfgs {
-                n = n.max(c.channels() as usize);
-            }
-        }
-    } else if let Ok(cfgs) = dev.supported_input_configs() {
+        return n;
+    }
+    if let Ok(cfgs) = dev.supported_input_configs() {
         for c in cfgs {
             n = n.max(c.channels() as usize);
         }
