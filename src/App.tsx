@@ -443,16 +443,16 @@ export default function App() {
   const hasStreamOutputs = useMemo(
     () =>
       settings.streaming.icecast.some((stream) => stream.enabled) ||
-      (settings.video.enabled && settings.video.outputs.some((output) => output.enabled)),
+      (settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp")),
     [settings.streaming.icecast, settings.video.enabled, settings.video.outputs],
   );
   const audioStreamRunning =
     streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
   const videoStreamRunning =
-    streamStatus?.outputs.some((output) => output.running && output.kind !== "icecast") ?? false;
+    streamStatus?.outputs.some((output) => output.running && output.kind === "rtmp") ?? false;
   const audioStreamReady = settings.streaming.icecast.some((stream) => stream.enabled);
   const videoStreamReady =
-    settings.video.enabled && settings.video.outputs.some((output) => output.enabled);
+    settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp");
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
   const [native, setNative] = useState<NativePlayer | null>(null);
@@ -2046,7 +2046,7 @@ export default function App() {
       // Solo se rearranca lo que estaba en marcha (el vídeo no se enciende solo).
       const outs = streamStatusRef.current?.outputs ?? [];
       const audioOn = outs.some((o) => o.running && o.kind === "icecast");
-      const videoOn = outs.some((o) => o.running && o.kind !== "icecast");
+      const videoOn = outs.some((o) => o.running && o.kind === "rtmp");
       const group = audioOn && videoOn ? "all" : videoOn ? "video" : "audio";
       await streamEncoderRef.current?.stop();
       streamEncoderRef.current = null;
@@ -2129,15 +2129,66 @@ export default function App() {
     }, 3000);
   }, [mixer, settings.streaming?.autoStart, hasStreamOutputs]);
 
+  // Salidas del estudio (pantalla/HDMI, NDI, SDI): encendidas siempre que el
+  // motor de vídeo esté activo, sin esperar a EMITIR. Se reinician solas al
+  // cambiar sus ajustes.
+  const localVideoKey = useMemo(() => {
+    const v = settings.video;
+    if (!v?.enabled) return "";
+    const outs = v.outputs.filter((o) => o.enabled && (o.kind === "screen" || o.kind === "ndi" || o.kind === "decklink"));
+    if (outs.length === 0) return "";
+    return JSON.stringify({
+      outs,
+      inputs: v.inputs,
+      maxHeight: v.maxHeight,
+      ndiLow: v.ndiLowBandwidth,
+      ndiFfmpeg: v.ndiFfmpegPath,
+      screen: settings.videoScreen,
+    });
+  }, [settings.video, settings.videoScreen]);
   useEffect(() => {
-    if (!streamStatus?.running) return;
+    if (!mixer) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (!localVideoKey) {
+            const status = await stopStreaming("local");
+            if (!cancelled) setStreamStatus(status);
+            return;
+          }
+          const status = await startStreaming(settingsRef.current, "local");
+          if (cancelled) return;
+          setStreamStatus(status);
+          if (status.needsAudio && !(playerRef.current instanceof NativePlayer) && !streamEncoderRef.current && mixerRef.current) {
+            const encoder = new StreamEncoder(mixerRef.current, failStreaming);
+            await encoder.start();
+            streamEncoderRef.current = encoder;
+          }
+          const failed = status.outputs.filter((o) => o.state === "error" && (o.kind === "screen" || o.kind === "ndi" || o.kind === "decklink"));
+          if (failed.length > 0) showToast(`Salida de vídeo: ${failed[0].error ?? failed[0].name}`);
+        } catch (error) {
+          if (!cancelled) showToast(`Salidas de vídeo del estudio: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mixer, localVideoKey]);
+
+  useEffect(() => {
+    if (!streamStatus?.running && !streamStatus?.localRunning) return;
+    const wasRunning = !!streamStatus?.running;
     let alive = true;
     const timer = window.setInterval(() => {
       void getStreamStatus()
         .then((status) => {
           if (!alive) return;
           setStreamStatus(status);
-          if (!status.running) {
+          if (!status.running && wasRunning) {
             void streamEncoderRef.current?.stop();
             streamEncoderRef.current = null;
             showToast(status.lastError ?? "La emisión se detuvo");
@@ -2149,7 +2200,7 @@ export default function App() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [streamStatus?.running, showToast]);
+  }, [streamStatus?.running, streamStatus?.localRunning, showToast]);
 
   /** Entra la emision de internet de un evento hasta `endsAt`. */
   const startLiveEvent = useCallback(

@@ -413,9 +413,9 @@ export function StreamingTab({
         ? "CONECTANDO"
         : "DETENIDA";
   const audioRunning = streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
-  const videoRunning = streamStatus?.outputs.some((output) => output.running && output.kind !== "icecast") ?? false;
+  const videoRunning = streamStatus?.outputs.some((output) => output.running && output.kind === "rtmp") ?? false;
   const audioReady = st.icecast.some((stream) => stream.enabled);
-  const videoReady = settings.video.enabled && settings.video.outputs.some((output) => output.enabled);
+  const videoReady = settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp");
 
   return (
     <>

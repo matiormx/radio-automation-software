@@ -561,7 +561,10 @@ export interface StreamOutputStatus {
 }
 
 export interface StreamStatus {
+  /** La emisión (Icecast o RTMP) está en marcha */
   running: boolean;
+  /** Alguna salida del estudio (pantalla/HDMI, NDI, SDI) está en marcha */
+  localRunning?: boolean;
   needsAudio: boolean;
   ffmpeg: string | null;
   outputs: StreamOutputStatus[];

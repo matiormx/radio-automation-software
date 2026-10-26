@@ -213,7 +213,10 @@ fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutpu
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamStatus {
+    /// La emision (Icecast o RTMP) esta en marcha
     pub running: bool,
+    /// Alguna salida del estudio (pantalla, NDI, SDI) esta en marcha
+    pub local_running: bool,
     pub needs_audio: bool,
     pub ffmpeg: Option<String>,
     pub outputs: Vec<StreamOutputStatus>,
@@ -277,8 +280,10 @@ pub fn stream_start(
     group: Option<String>,
 ) -> Result<StreamStatus, String> {
     let group = group.as_deref().unwrap_or("all");
-    let want_audio = group != "video";
-    let want_video = group != "audio";
+    let want_audio = group == "audio" || group == "all";
+    let want_rtmp = group == "video" || group == "all";
+    let want_local = group == "local";
+    let want_video = want_rtmp || want_local;
     let ffmpeg = find_ffmpeg(&app)
         .or_else(|| {
             find_ndi_ffmpeg(&app, &settings.video.ndi_ffmpeg_path)
@@ -398,8 +403,13 @@ pub fn stream_start(
 
     if want_video && settings.video.enabled {
         // Tope de resolucion (Ajustes > Video): todas las salidas a 720p, p. ej.
-        let capped: Vec<crate::settings::VideoOutput> =
-            settings.video.outputs.iter().filter(|o| o.enabled).map(|o| settings.video.capped(o)).collect();
+        let capped: Vec<crate::settings::VideoOutput> = settings
+            .video
+            .outputs
+            .iter()
+            .filter(|o| o.enabled && if is_local_kind(&o.kind) { want_local } else { want_rtmp })
+            .map(|o| settings.video.capped(o))
+            .collect();
         for output in capped.iter() {
             requested += 1;
             let id = format!("video:{}", output.id);
@@ -719,6 +729,7 @@ pub async fn stream_push_pcm(
 fn empty_status(ffmpeg: Option<String>, error: Option<String>) -> StreamStatus {
     StreamStatus {
         running: false,
+        local_running: false,
         needs_audio: false,
         ffmpeg,
         outputs: Vec::new(),
@@ -797,7 +808,8 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
         .collect();
     outputs.extend(inner.failed_outputs.iter().cloned());
     StreamStatus {
-        running: outputs.iter().any(|output| output.running),
+        running: outputs.iter().any(|output| output.running && !is_local_kind(&output.kind)),
+        local_running: outputs.iter().any(|output| output.running && is_local_kind(&output.kind)),
         needs_audio: inner
             .processes
             .iter()
@@ -1128,11 +1140,28 @@ fn stop_all(inner: &mut EngineInner) {
     inner.failed_outputs.clear();
 }
 
+/// Salidas del estudio (pantalla/HDMI, NDI, SDI): funcionan siempre que el
+/// motor de video este activo, sin depender de EMITIR.
+pub fn is_local_kind(kind: &str) -> bool {
+    matches!(kind, "screen" | "ndi" | "decklink")
+}
+
+/// Grupos: "audio" (Icecast), "video" (RTMP), "all" (la emision: audio y
+/// RTMP), "local" (salidas del estudio) y "everything" (al cerrar).
 fn in_group(kind: &str, group: &str) -> bool {
     match group {
         "audio" => kind == "icecast",
-        "video" => kind != "icecast",
-        _ => true,
+        "video" => kind != "icecast" && !is_local_kind(kind),
+        "local" => is_local_kind(kind),
+        "everything" => true,
+        _ => !is_local_kind(kind),
+    }
+}
+
+/// Al cerrar MiRadio: no deja ningun FFmpeg suelto.
+pub fn shutdown(state: &StreamingState) {
+    if let Ok(mut inner) = state.inner.lock() {
+        stop_group(&mut inner, "everything");
     }
 }
 

@@ -441,7 +441,7 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
         statusByKey={statusByKey}
         kinds={["screen", "ndi", "decklink"]}
         title="Salidas de vídeo"
-        hint="Por dónde sale el vídeo en el estudio: un monitor o HDMI, NDI a la red o una tarjeta SDI. Cada salida elige qué vídeo saca (la pantalla de emisión, lo que suena o una entrada) y, si lleva audio, cuál. Se encienden con EMITIR, junto a las de internet (RTMP), que están en Ajustes › Streaming."
+        hint="Por dónde sale el vídeo en el estudio: un monitor o HDMI, NDI a la red o una tarjeta SDI. Cada salida elige qué vídeo saca (la pantalla de emisión, lo que suena o una entrada) y, si lleva audio, cuál. Funcionan siempre que el motor de vídeo esté activo, sin pulsar EMITIR: están listas antes de salir al aire y los cambios se aplican solos. Las de internet (RTMP) están en Ajustes › Streaming y van con EMITIR VÍDEO."
       />
 
       <fieldset className="fieldset">

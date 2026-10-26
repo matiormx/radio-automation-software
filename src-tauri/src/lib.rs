@@ -199,6 +199,9 @@ pub fn run() {
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 cursor::release();
+                if let Some(st) = _app.try_state::<streaming::StreamingState>() {
+                    streaming::shutdown(&st);
+                }
             }
         });
 }
