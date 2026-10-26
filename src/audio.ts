@@ -665,7 +665,7 @@ export class RadioPlayer {
           buffer = await this.ctx!.decodeAudioData(await res.arrayBuffer());
         } catch {
           // El WebView no sabe decodificarlo (p. ej. el audio de un video):
-          // MiRadio lo decodifica y se usa una copia WAV en cache.
+          // OmniCaster lo decodifica y se usa una copia WAV en cache.
           const wav = await invoke<string>("audio_fallback", { path: track.file });
           const res = await fetch(convertFileSrc(wav));
           if (!res.ok) return null;

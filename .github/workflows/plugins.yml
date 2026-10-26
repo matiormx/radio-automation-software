@@ -2,7 +2,7 @@ name: Plugins recomendados (espejo)
 
 # Baja la última versión de cada plugin recomendado, saca sus VST3 de Windows
 # y de Linux y los publica con nombre fijo en la Release «plugins» de este
-# repositorio, junto a plugins.json (lo que lee MiRadio para instalar y
+# repositorio, junto a plugins.json (lo que lee OmniCaster para instalar y
 # actualizar). LSP no publica versión de Windows: se compila aquí desde su
 # código fuente. Se ejecuta cada semana y a mano desde Actions.
 
@@ -110,6 +110,6 @@ jobs:
         run: |
           if ! gh release view plugins >/dev/null 2>&1; then
             gh release create plugins --title "Plugins recomendados" --latest=false \
-              --notes "VST3 de código abierto preparados para MiRadio (se actualizan cada semana). No es una versión de MiRadio."
+              --notes "VST3 de código abierto preparados para OmniCaster (se actualizan cada semana). No es una versión de OmniCaster."
           fi
           gh release upload plugins out/* --clobber

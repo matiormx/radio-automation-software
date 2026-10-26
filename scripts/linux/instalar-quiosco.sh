@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# MiRadio en modo quiosco: convierte un Debian 12 / Ubuntu 22.04-24.04
+# OmniCaster en modo quiosco: convierte un Debian 12 / Ubuntu 22.04-24.04
 # recién instalado (sin escritorio) en un equipo que arranca directamente en
-# MiRadio y no abre nada más.
+# OmniCaster y no abre nada más.
 #
 # Uso (como root):
 #   curl -fsSL https://raw.githubusercontent.com/matiormx/radio-automation-software/main/scripts/linux/instalar-quiosco.sh -o instalar-quiosco.sh
@@ -11,12 +11,12 @@
 #   KIOSK_USER=radio            usuario que arranca solo (se crea si no existe)
 #   MIRADIO_APPIMAGE=/ruta.AppImage   usar este AppImage en vez de descargarlo
 #   CABLES=4                    cables de audio virtuales (8 canales cada uno)
-#   PLUGINS="lsp airwindows dragonfly"   plugins VST3 que MiRadio instala al
+#   PLUGINS="lsp airwindows dragonfly"   plugins VST3 que OmniCaster instala al
 #                               primer arranque ("" = ninguno; ver Ajustes › Plugins VST)
 #
 # Salidas de emergencia para el técnico:
 #   Ctrl+Alt+T  terminal          Ctrl+Alt+F2  consola de texto (login normal)
-#   Ctrl+Alt+R  reiniciar MiRadio
+#   Ctrl+Alt+R  reiniciar OmniCaster
 # Para quitar el arranque automático: sudo rm /etc/systemd/system/getty@tty1.service.d/miradio-autologin.conf
 
 set -euo pipefail
@@ -26,7 +26,7 @@ CABLES="${CABLES:-4}"
 PLUGINS="${PLUGINS-lsp airwindows dragonfly}"
 REPO="matiormx/radio-automation-software"
 APP_DIR="/opt/miradio"
-APP="$APP_DIR/MiRadio.AppImage"
+APP="$APP_DIR/OmniCaster.AppImage"
 
 say() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -59,7 +59,7 @@ for g in audio video input render plugdev; do
 done
 HOME_DIR=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
 
-say "MiRadio (AppImage en $APP_DIR, se actualiza sola)"
+say "OmniCaster (AppImage en $APP_DIR, se actualiza sola)"
 mkdir -p "$APP_DIR"
 if [ -n "${MIRADIO_APPIMAGE:-}" ]; then
   cp "$MIRADIO_APPIMAGE" "$APP"
@@ -71,13 +71,13 @@ else
   mv "$APP.part" "$APP"
 fi
 chmod +x "$APP"
-# El actualizador de MiRadio sustituye este archivo: el usuario debe poder escribir aquí.
+# El actualizador de OmniCaster sustituye este archivo: el usuario debe poder escribir aquí.
 chown -R "$KIOSK_USER:$KIOSK_USER" "$APP_DIR"
 
 say "Cables de audio virtuales ($CABLES, de 8 canales)"
 mkdir -p /etc/pipewire/pipewire.conf.d /etc/alsa/conf.d
 {
-  echo "# MiRadio: salida por defecto muda y cables virtuales de 8 canales."
+  echo "# OmniCaster: salida por defecto muda y cables virtuales de 8 canales."
   echo "# Cada cable: lo que se manda a «miradio_cableN_in» sale por «miradio_cableN_out»."
   # Salida por defecto que no suena: el audio interno del WebView (que en el
   # motor nativo no debe oírse por su cuenta) va aquí y no se cuela en un cable.
@@ -87,7 +87,7 @@ context.objects = [
     args = {
       factory.name     = support.null-audio-sink
       node.name        = "miradio_silencio"
-      node.description = "MiRadio (silencio)"
+      node.description = "OmniCaster (silencio)"
       media.class      = "Audio/Sink"
       audio.position   = [ FL FR ]
       priority.session = 2000
@@ -102,18 +102,18 @@ EOF
     cat <<EOF
   { name = libpipewire-module-loopback
     args = {
-      node.description = "MiRadio Cable $i"
+      node.description = "OmniCaster Cable $i"
       audio.position   = [ FL FR FC LFE RL RR SL SR ]
-      capture.props  = { node.name = "miradio_cable${i}_in"  media.class = "Audio/Sink"   node.description = "MiRadio Cable $i" }
-      playback.props = { node.name = "miradio_cable${i}_out" media.class = "Audio/Source" node.description = "MiRadio Cable $i" node.passive = true }
+      capture.props  = { node.name = "miradio_cable${i}_in"  media.class = "Audio/Sink"   node.description = "OmniCaster Cable $i" }
+      playback.props = { node.name = "miradio_cable${i}_out" media.class = "Audio/Source" node.description = "OmniCaster Cable $i" node.passive = true }
     }
   }
 EOF
   done
   echo "]"
 } > /etc/pipewire/pipewire.conf.d/50-miradio-cables.conf
-# Que MiRadio los vea como dispositivos de sonido (por ALSA): reproducir en
-# «MiRadio Cable N» lo mete en el cable y grabar de él lo saca.
+# Que OmniCaster los vea como dispositivos de sonido (por ALSA): reproducir en
+# «OmniCaster Cable N» lo mete en el cable y grabar de él lo saca.
 {
   for i in $(seq 1 "$CABLES"); do
     cat <<EOF
@@ -121,13 +121,13 @@ pcm.miradio_cable$i {
   type pipewire
   playback_node "miradio_cable${i}_in"
   capture_node "miradio_cable${i}_out"
-  hint { show on description "MiRadio Cable $i" }
+  hint { show on description "OmniCaster Cable $i" }
 }
 EOF
   done
 } > /etc/alsa/conf.d/60-miradio-cables.conf
 
-# Las tarjetas de sonido las usa MiRadio directamente (sin PipeWire en medio):
+# Las tarjetas de sonido las usa OmniCaster directamente (sin PipeWire en medio):
 # menos latencia y acceso a todos sus canales. PipeWire solo lleva los cables.
 mkdir -p /etc/wireplumber/main.lua.d /etc/wireplumber/wireplumber.conf.d
 echo 'alsa_monitor.enabled = false' > /etc/wireplumber/main.lua.d/51-miradio.lua
@@ -140,7 +140,7 @@ wireplumber.profiles = {
 EOF
 
 say "Plugins VST3 de serie: ${PLUGINS:-ninguno}"
-# MiRadio los descarga e instala en su primer arranque (y los mantiene al día).
+# OmniCaster los descarga e instala en su primer arranque (y los mantiene al día).
 if [ -n "$PLUGINS" ]; then
   DATA_DIR="$(getent passwd "$KIOSK_USER" | cut -d: -f6)/.local/share/com.miradio.app"
   install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$(dirname "$DATA_DIR")" "$DATA_DIR"
@@ -148,7 +148,7 @@ if [ -n "$PLUGINS" ]; then
   chown "$KIOSK_USER:$KIOSK_USER" "$DATA_DIR/vst-preinstall"
 fi
 
-say "Arranque automático en MiRadio"
+say "Arranque automático en OmniCaster"
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/miradio-autologin.conf <<EOF
 [Service]
@@ -169,7 +169,7 @@ fi
 EOF
 echo 'exec openbox-session' > "$HOME_DIR/.xinitrc"
 
-# MiRadio se vuelve a abrir si se cierra o se cuelga
+# OmniCaster se vuelve a abrir si se cierra o se cuelga
 cat > "$HOME_DIR/.local/bin/miradio-quiosco" <<EOF
 #!/usr/bin/env bash
 while true; do
@@ -182,7 +182,7 @@ chmod +x "$HOME_DIR/.local/bin/miradio-quiosco"
 cat > "$HOME_DIR/.config/openbox/autostart" <<'EOF'
 # Pantalla siempre encendida
 xset s off; xset s noblank; xset -dpms
-# Compositor: deja capturar las ventanas de MiRadio aunque estén tapadas
+# Compositor: deja capturar las ventanas de OmniCaster aunque estén tapadas
 picom --backend xrender &
 ~/.local/bin/miradio-quiosco &
 EOF
@@ -192,19 +192,19 @@ cp /etc/xdg/openbox/rc.xml "$HOME_DIR/.config/openbox/rc.xml"
 sed -i '/<menu>root-menu<\/menu>/d; /<menu>client-list-combined-menu<\/menu>/d' "$HOME_DIR/.config/openbox/rc.xml"
 sed -i 's|<keyboard>|<keyboard>\
     <keybind key="C-A-t"><action name="Execute"><command>xterm</command></action></keybind>\
-    <keybind key="C-A-r"><action name="Execute"><command>pkill -f MiRadio.AppImage</command></action></keybind>|' \
+    <keybind key="C-A-r"><action name="Execute"><command>pkill -f OmniCaster.AppImage</command></action></keybind>|' \
   "$HOME_DIR/.config/openbox/rc.xml"
 
 chown -R "$KIOSK_USER:$KIOSK_USER" "$HOME_DIR/.config" "$HOME_DIR/.local" "$HOME_DIR/.bash_profile" "$HOME_DIR/.xinitrc"
 
 say "Listo"
 cat <<EOF
-Reinicia el equipo (sudo reboot): arrancará directamente en MiRadio.
+Reinicia el equipo (sudo reboot): arrancará directamente en OmniCaster.
 
   Ctrl+Alt+T   terminal para el técnico
-  Ctrl+Alt+R   reiniciar MiRadio
+  Ctrl+Alt+R   reiniciar OmniCaster
   Ctrl+Alt+F2  consola de texto (vuelve con Ctrl+Alt+F1)
 
 Audio: las tarjetas aparecen en la mesa con su nombre (hw:…) y hay $CABLES
-cables virtuales «MiRadio Cable N» de 8 canales.
+cables virtuales «OmniCaster Cable N» de 8 canales.
 EOF

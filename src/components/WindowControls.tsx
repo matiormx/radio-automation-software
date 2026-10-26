@@ -81,7 +81,7 @@ export function WindowControls() {
       <button
         type="button"
         className="win-btn win-close"
-        title={isMain ? "Ocultar en la barra de tareas (para cerrar MiRadio: Ajustes › Copia y actualizaciones)" : "Cerrar"}
+        title={isMain ? "Ocultar en la barra de tareas (para cerrar OmniCaster: Ajustes › Copia y actualizaciones)" : "Cerrar"}
         aria-label={isMain ? "Ocultar en la barra de tareas" : "Cerrar"}
         onClick={act((w) => w.close())}
       >

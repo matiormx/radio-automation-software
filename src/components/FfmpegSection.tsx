@@ -10,8 +10,8 @@ const PHASE: Record<string, string> = {
 };
 
 const SOURCE: Record<string, string> = {
-  auto: "descargado y mantenido por MiRadio",
-  manual: "puesto a mano (MiRadio no lo toca)",
+  auto: "descargado y mantenido por OmniCaster",
+  manual: "puesto a mano (OmniCaster no lo toca)",
   system: "el del sistema (PATH)",
   none: "no hay",
 };
@@ -50,7 +50,7 @@ export function FfmpegSection({ showToast }: { showToast: (msg: string) => void 
       <legend>FFmpeg (emisiones, vídeo y conversiones)</legend>
       <p className="hint">
         {info?.canDownload
-          ? "MiRadio descarga FFmpeg sola si no lo encuentra y busca versión nueva cada semana. Si pones tu propio ffmpeg.exe junto a MiRadio.exe, se usa ese."
+          ? "OmniCaster descarga FFmpeg sola si no lo encuentra y busca versión nueva cada semana. Si pones tu propio ffmpeg.exe junto a OmniCaster.exe, se usa ese."
           : "En este sistema se usa el FFmpeg instalado."}
       </p>
       {info && (

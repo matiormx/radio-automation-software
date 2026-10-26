@@ -118,7 +118,7 @@ mod tests {
     #[test]
     #[ignore]
     fn finds_window() {
-        let id = super::find_window("MiRadio Lo que suena");
+        let id = super::find_window("OmniCaster Lo que suena");
         eprintln!("ventana: {id:?}");
         assert!(id.is_some());
     }

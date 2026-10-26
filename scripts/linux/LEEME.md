@@ -1,7 +1,7 @@
-# MiRadio en Linux (modo quiosco)
+# OmniCaster en Linux (modo quiosco)
 
-El equipo arranca directamente en MiRadio: sin escritorio, sin barra de
-tareas y sin nada más. Si MiRadio se cierra o se cuelga, se vuelve a abrir.
+El equipo arranca directamente en OmniCaster: sin escritorio, sin barra de
+tareas y sin nada más. Si OmniCaster se cierra o se cuelga, se vuelve a abrir.
 
 ## Instalación
 
@@ -14,30 +14,30 @@ tareas y sin nada más. Si MiRadio se cierra o se cuelga, se vuelve a abrir.
    sudo bash instalar-quiosco.sh
    ```
 
-3. Reinicia (`sudo reboot`). Arranca solo en MiRadio con el usuario `radio`.
+3. Reinicia (`sudo reboot`). Arranca solo en OmniCaster con el usuario `radio`.
 
-En el primer arranque MiRadio instala de serie LSP Plugins, Airwindows y
+En el primer arranque OmniCaster instala de serie LSP Plugins, Airwindows y
 Dragonfly Reverb (y los mantiene al día; más en Ajustes › Plugins VST).
 
 Opciones: `sudo KIOSK_USER=estudio CABLES=6 PLUGINS="lsp dragonfly" bash instalar-quiosco.sh`, o
-`MIRADIO_APPIMAGE=/ruta/MiRadio.AppImage` para instalar un AppImage concreto.
+`MIRADIO_APPIMAGE=/ruta/OmniCaster.AppImage` para instalar un AppImage concreto.
 
 ## Para el técnico
 
 | Atajo | Qué hace |
 |---|---|
 | Ctrl+Alt+T | Terminal |
-| Ctrl+Alt+R | Reiniciar MiRadio |
+| Ctrl+Alt+R | Reiniciar OmniCaster |
 | Ctrl+Alt+F2 | Consola de texto (vuelve con Ctrl+Alt+F1) |
 
-Registro de MiRadio: `~radio/miradio.log`. Quitar el arranque automático:
+Registro de OmniCaster: `~radio/miradio.log`. Quitar el arranque automático:
 `sudo rm /etc/systemd/system/getty@tty1.service.d/miradio-autologin.conf`.
 
 ## Audio
 
-- **Tarjetas de sonido**: MiRadio las usa directamente (aparecen como
+- **Tarjetas de sonido**: OmniCaster las usa directamente (aparecen como
   `hw:…`), con todos sus canales y la menor latencia.
-- **Cables virtuales** (en lugar de VB-Matrix/Voicemeeter): «MiRadio Cable 1…N»,
+- **Cables virtuales** (en lugar de VB-Matrix/Voicemeeter): «OmniCaster Cable 1…N»,
   de 8 canales. Lo que una salida de la mesa manda a un cable se recoge como
   entrada eligiendo ese mismo cable.
 - Usa el **motor nativo** de audio (Ajustes › Sonido › Motor).

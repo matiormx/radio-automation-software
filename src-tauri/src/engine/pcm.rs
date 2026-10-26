@@ -313,7 +313,7 @@ mod centre_tests {
 
 #[cfg(test)]
 mod flac_compare_tests {
-    /// Compara lo que decodifica MiRadio con lo que decodifica FFmpeg (f32,
+    /// Compara lo que decodifica OmniCaster con lo que decodifica FFmpeg (f32,
     /// misma frecuencia) para cada archivo de MIRADIO_FLAC_DIR.
     #[test]
     fn matches_ffmpeg() {

@@ -88,7 +88,7 @@ export function BackupTab({ showToast }: Props) {
         .filter(([from, to]) => to.trim() && to.trim() !== from)
         .map(([from, to]) => ({ from, to: to.trim() }));
       await backupImport(file, mappings, info.manifest.includeAudio && audioDest ? audioDest : null);
-      showToast("Importación preparada: MiRadio se reinicia");
+      showToast("Importación preparada: OmniCaster se reinicia");
       window.setTimeout(() => void relaunch(), 800);
     } catch (e) {
       showToast(`No se pudo importar: ${String(e)}`);
@@ -104,7 +104,7 @@ export function BackupTab({ showToast }: Props) {
         <div>
           <h4>Copia de seguridad</h4>
           <p className="hint">
-            Guarda todo MiRadio en un único archivo .zip: biblioteca y bloques, listas, historial, programas, eventos,
+            Guarda todo OmniCaster en un único archivo .zip: biblioteca y bloques, listas, historial, programas, eventos,
             campañas, ajustes (mesa, emisión, API, notificaciones…), carátulas y logo. Sirve para recuperarlo o para
             pasarlo a otro equipo.
           </p>
@@ -137,7 +137,7 @@ export function BackupTab({ showToast }: Props) {
         <legend>Importar copia</legend>
         <p className="hint">
           Sustituye todo lo de este equipo por lo de la copia. Antes se guarda automáticamente una copia de lo actual
-          en la carpeta de datos (backups). MiRadio se reinicia al terminar.
+          en la carpeta de datos (backups). OmniCaster se reinicia al terminar.
         </p>
         <div className="field-row">
           <button type="button" className="btn btn-sm" disabled={!!busy} onClick={() => void chooseImport()}>
@@ -147,7 +147,7 @@ export function BackupTab({ showToast }: Props) {
         {info && (
           <>
             <p className="hint">
-              <strong>{file.split(/[\\/]/).pop()}</strong> · creada el {info.manifest.created} con MiRadio{" "}
+              <strong>{file.split(/[\\/]/).pop()}</strong> · creada el {info.manifest.created} con OmniCaster{" "}
               {info.manifest.appVersion} · {info.manifest.tracks} canciones · {info.manifest.playlists} listas
               {info.manifest.includeAudio ? ` · incluye ${info.manifest.audioFiles} archivos de música (${size(info.manifest.audioBytes)})` : " · sin música"}
             </p>

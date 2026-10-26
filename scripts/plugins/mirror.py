@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepara los plugins recomendados para MiRadio.
+"""Prepara los plugins recomendados para OmniCaster.
 
 Por cada plugin: mira su última versión en GitHub, prueba los paquetes de
 Windows y de Linux hasta encontrar los .vst3, y los vuelve a empaquetar como
@@ -48,7 +48,7 @@ def notice(kind, msg):
 
 
 def get(url, binary=False):
-    req = urllib.request.Request(url, headers={"User-Agent": "MiRadio", "Accept": "application/vnd.github+json"})
+    req = urllib.request.Request(url, headers={"User-Agent": "OmniCaster", "Accept": "application/vnd.github+json"})
     if TOKEN and "api.github.com" in url:
         req.add_header("Authorization", f"Bearer {TOKEN}")
     with urllib.request.urlopen(req, timeout=120) as r:
@@ -177,7 +177,7 @@ def main():
                 entry[os_name] = {
                     "file": name,
                     "sha256": sha256(os.path.join(out, name)),
-                    "from": "compilado por MiRadio desde el código fuente",
+                    "from": "compilado por OmniCaster desde el código fuente",
                     "bundles": [os.path.basename(b) for b in bundles],
                 }
                 notice("notice", f"{pid} {os_name}: compilado -> {', '.join(entry[os_name]['bundles'])}")

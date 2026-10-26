@@ -6,7 +6,7 @@ import { VideoSurface, canvasUrl, type VideoState } from "./videoSurface";
 
 /**
  * «Lo que suena»: dibuja en un lienzo lo mismo que se ve (el video o la
- * portada con titulo y artista) y lo manda a MiRadio como JPEG 25 veces por
+ * portada con titulo y artista) y lo manda a OmniCaster como JPEG 25 veces por
  * segundo. Las salidas lo leen de ahi: no dependen de capturar esta ventana
  * escondida, que Windows dejaba de actualizar con una imagen fija.
  */

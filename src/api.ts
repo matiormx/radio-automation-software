@@ -438,7 +438,7 @@ export async function pickAudioFiles(): Promise<string[] | null> {
 }
 
 export async function pickFolder(): Promise<string | null> {
-  return openDialog({ directory: true, title: "Carpeta de música de MiRadio" });
+  return openDialog({ directory: true, title: "Carpeta de música de OmniCaster" });
 }
 
 export async function pickSingleAudioFile(): Promise<string | null> {
@@ -475,7 +475,7 @@ export async function onWindowFileDrop(
 }
 
 /**
- * Cierre de verdad de MiRadio (la X solo minimiza). La ventana principal
+ * Cierre de verdad de OmniCaster (la X solo minimiza). La ventana principal
  * escucha la peticion, pide confirmacion con `getMessage()` (que cambia segun
  * el estado: emitiendo, llamada al aire...) y cierra. Devuelve la funcion para
  * dejar de escuchar.
@@ -485,7 +485,7 @@ export async function onWindowFileDrop(
  * espera la respuesta (devuelve una promesa, que cuenta como «sí»): se borraba
  * primero y se preguntaba después. Esto sí espera.
  */
-export async function confirmAsk(message: string, okLabel = "Aceptar", title = "MiRadio"): Promise<boolean> {
+export async function confirmAsk(message: string, okLabel = "Aceptar", title = "OmniCaster"): Promise<boolean> {
   try {
     return await ask(message, { title, kind: "warning", okLabel, cancelLabel: "Cancelar" });
   } catch {
@@ -496,16 +496,16 @@ export async function confirmAsk(message: string, okLabel = "Aceptar", title = "
 export async function installQuitHandler(getMessage: () => string): Promise<() => void> {
   return listen("app://quit-request", async () => {
     const ok = await ask(getMessage(), {
-      title: "Cerrar MiRadio",
+      title: "Cerrar OmniCaster",
       kind: "warning",
-      okLabel: "Cerrar MiRadio",
+      okLabel: "Cerrar OmniCaster",
       cancelLabel: "Cancelar",
     }).catch(() => false);
     if (ok) await invoke("app_quit");
   });
 }
 
-/** Pide cerrar MiRadio (desde cualquier ventana; confirma la principal). */
+/** Pide cerrar OmniCaster (desde cualquier ventana; confirma la principal). */
 export function requestQuit(): Promise<void> {
   return emit("app://quit-request");
 }
@@ -581,12 +581,12 @@ export interface BackupExportResult {
 
 export async function pickBackupDestination(): Promise<string | null> {
   const day = new Date().toISOString().slice(0, 10);
-  const p = await saveDialog({ defaultPath: `MiRadio-copia-${day}.zip`, filters: [{ name: "Copia de MiRadio", extensions: ["zip"] }] });
+  const p = await saveDialog({ defaultPath: `OmniCaster-copia-${day}.zip`, filters: [{ name: "Copia de OmniCaster", extensions: ["zip"] }] });
   return p ?? null;
 }
 
 export async function pickBackupFile(): Promise<string | null> {
-  const p = await openDialog({ multiple: false, filters: [{ name: "Copia de MiRadio", extensions: ["zip"] }] });
+  const p = await openDialog({ multiple: false, filters: [{ name: "Copia de OmniCaster", extensions: ["zip"] }] });
   return typeof p === "string" ? p : null;
 }
 

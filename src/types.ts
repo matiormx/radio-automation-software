@@ -498,7 +498,7 @@ export interface VideoScreenSettings {
   mirror?: boolean;
   /** Si la capturadora no tiene señal: "program" (lo que suena, por defecto) o "none" (negro) */
   captureFallback?: "program" | "none";
-  /** Encierra el ratón en el monitor de MiRadio (Ctrl+Mayús lo libera) */
+  /** Encierra el ratón en el monitor de OmniCaster (Ctrl+Mayús lo libera) */
   cursorWall?: boolean;
 }
 
@@ -542,7 +542,7 @@ export interface RtmpOutput {
 export interface StreamingSettings {
   icecast: IcecastStream[];
   rtmp: RtmpOutput;
-  /** Empezar a emitir al abrir MiRadio */
+  /** Empezar a emitir al abrir OmniCaster */
   autoStart?: boolean;
 }
 
@@ -551,7 +551,7 @@ export interface StreamOutputStatus {
   name: string;
   kind: string;
   running: boolean;
-  /** "reconnecting": se cayó y MiRadio la está volviendo a arrancar (o pasando al respaldo) */
+  /** "reconnecting": se cayó y OmniCaster la está volviendo a arrancar (o pasando al respaldo) */
   state: "live" | "stopped" | "error" | "reconnecting";
   error: string | null;
   /** Últimas líneas de FFmpeg para diagnosticar la salida */
@@ -636,7 +636,7 @@ export interface StudioCallsSettings {
   token: string;
 }
 
-/** Chat de NGRADIO en MiRadio (usa la direccion y el token de Llamadas). */
+/** Chat de NGRADIO en OmniCaster (usa la direccion y el token de Llamadas). */
 export interface ChatSettings {
   enabled: boolean;
   /** Nombre con el que escribe la emisora */
@@ -793,7 +793,7 @@ export const DEFAULT_SETTINGS: Settings = {
   liveTemplate: "{artist} - {title}",
   targetLufs: -9,
   truePeakDb: -1,
-  radioName: "MiRadio",
+  radioName: "OmniCaster",
   slogan: "Estudio de automatización",
   logoPath: "",
   campaigns: [],

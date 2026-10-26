@@ -113,7 +113,7 @@ function newVideoOutput(): VideoOutput {
 function videoOutputPlaceholder(kind: VideoOutputKind): string {
   if (kind === "screen") return "0 = monitor principal";
   if (kind === "decklink") return "0, 1…";
-  if (kind === "ndi") return "MiRadio Programa";
+  if (kind === "ndi") return "OmniCaster Programa";
   return "rtmp://live.restream.io/live/clave";
 }
 
@@ -139,7 +139,7 @@ function videoOutputSummary(original: VideoOutput, maxHeight = 0): string {
     return `${destination} · ${format}${output.bitrateKbps ? ` · ${output.bitrateKbps} kbps` : ""}`;
   }
   if (output.kind === "ndi") {
-    return `${output.source.trim() || output.name || "MiRadio"} · ${format}`;
+    return `${output.source.trim() || output.name || "OmniCaster"} · ${format}`;
   }
   if (output.kind === "screen") {
     return `Pantalla ${output.source.trim() || "0"} · ${format}`;
@@ -509,8 +509,8 @@ export function StreamingTab({
       </div>
 
       <p className="hint">
-        MiRadio descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Copia y actualizaciones). Si
-        prefieres uno concreto, pon <code>ffmpeg.exe</code> junto a MiRadio.exe y se usará ese.
+        OmniCaster descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Copia y actualizaciones). Si
+        prefieres uno concreto, pon <code>ffmpeg.exe</code> junto a OmniCaster.exe y se usará ese.
       </p>
 
       <label className="check-row">
@@ -519,7 +519,7 @@ export function StreamingTab({
           checked={!!st.autoStart}
           onChange={(e) => set({ autoStart: e.target.checked })}
         />
-        <span>Emitir el audio al iniciar MiRadio (el vídeo nunca arranca solo)</span>
+        <span>Emitir el audio al iniciar OmniCaster (el vídeo nunca arranca solo)</span>
       </label>
 
       <fieldset className="fieldset">
@@ -879,7 +879,7 @@ export function VideoOutputsEditor({
   const addVideoOutput = () => {
     const created = { ...newVideoOutput(), kind: kinds[0] };
     if (created.kind === "rtmp") created.source = "";
-    if (created.kind === "ndi") created.source = "MiRadio Programa";
+    if (created.kind === "ndi") created.source = "OmniCaster Programa";
     if (created.kind === "decklink") created.source = "0";
     setVideo({ outputs: [...settings.video.outputs, created] });
     setEditingVideo(created.id);
@@ -922,7 +922,7 @@ export function VideoOutputsEditor({
                             kind === "ndi"
                               ? output.name && output.name !== "Salida"
                                 ? output.name
-                                : "MiRadio Programa"
+                                : "OmniCaster Programa"
                               : kind === "screen"
                                 ? "0"
                                 : "",

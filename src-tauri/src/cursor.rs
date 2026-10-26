@@ -1,4 +1,4 @@
-//! «Pared» del ratón: lo mantiene dentro de un monitor (el de MiRadio) para
+//! «Pared» del ratón: lo mantiene dentro de un monitor (el de OmniCaster) para
 //! no perderlo en la pantalla de emisión. Windows: ClipCursor; Linux (X11):
 //! se vigila el puntero y se devuelve al monitor.
 //!

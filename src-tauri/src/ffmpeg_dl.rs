@@ -1,4 +1,4 @@
-//! FFmpeg gestionado por MiRadio: si no hay uno puesto a mano, se descarga
+//! FFmpeg gestionado por OmniCaster: si no hay uno puesto a mano, se descarga
 //! solo (compilaciones oficiales para Windows de BtbN/FFmpeg-Builds en
 //! GitHub), se comprueba su SHA-256 y se mantiene al dia.
 //!
@@ -80,14 +80,14 @@ fn exe_name() -> &'static str {
     }
 }
 
-/// ffmpeg.exe descargado por MiRadio (si lo hay).
+/// ffmpeg.exe descargado por OmniCaster (si lo hay).
 pub fn installed(data_dir: &Path) -> Option<PathBuf> {
     let st = read_state(data_dir)?;
     let p = root(data_dir).join(&st.dir).join(exe_name());
     p.is_file().then_some(p)
 }
 
-/// ¿Puede MiRadio descargar FFmpeg en este sistema?
+/// ¿Puede OmniCaster descargar FFmpeg en este sistema?
 pub fn supported() -> bool {
     cfg!(windows)
 }
@@ -134,7 +134,7 @@ fn agent() -> ureq::Agent {
         .timeout_connect(Duration::from_secs(20))
         .timeout_read(Duration::from_secs(60))
         .redirects(8)
-        .user_agent("MiRadio")
+        .user_agent("OmniCaster")
         .build()
 }
 
@@ -142,7 +142,7 @@ fn agent() -> ureq::Agent {
 /// mirado hace poco. Devuelve el mensaje final.
 fn run(app: &AppHandle, data_dir: &Path, force: bool) -> Result<String, String> {
     if !supported() {
-        return Err("En este sistema usa el FFmpeg instalado (MiRadio solo lo descarga en Windows)".into());
+        return Err("En este sistema usa el FFmpeg instalado (OmniCaster solo lo descarga en Windows)".into());
     }
     let mut progress = Progress { busy: true, phase: "comprobando".into(), ..Default::default() };
     set_progress(app, progress.clone());
@@ -279,7 +279,7 @@ fn start(app: AppHandle, force: bool) -> bool {
         .is_ok()
 }
 
-/// Al arrancar: si no hay FFmpeg, se descarga; si es el de MiRadio y hace una
+/// Al arrancar: si no hay FFmpeg, se descarga; si es el de OmniCaster y hace una
 /// semana que no se mira, se busca version nueva.
 pub fn on_startup(app: AppHandle) {
     if !supported() {
@@ -306,7 +306,7 @@ pub fn on_startup(app: AppHandle) {
 pub struct FfmpegInfo {
     /// Ruta del FFmpeg que se usa (vacio = ninguno)
     pub path: String,
-    /// "manual" (puesto a mano), "auto" (de MiRadio), "system" (PATH) o "none"
+    /// "manual" (puesto a mano), "auto" (de OmniCaster), "system" (PATH) o "none"
     pub source: String,
     /// Primera linea de `ffmpeg -version`
     pub version: String,
@@ -347,7 +347,7 @@ pub async fn ffmpeg_info(app: AppHandle) -> FfmpegInfo {
 #[tauri::command]
 pub fn ffmpeg_update(app: AppHandle) -> Result<(), String> {
     if !supported() {
-        return Err("MiRadio solo descarga FFmpeg en Windows; aquí usa el del sistema".into());
+        return Err("OmniCaster solo descarga FFmpeg en Windows; aquí usa el del sistema".into());
     }
     if start(app, true) {
         Ok(())
@@ -366,7 +366,7 @@ pub fn missing_message() -> String {
     if downloading() {
         "FFmpeg se está descargando; en un momento estará listo (Ajustes > Copia y actualizaciones)".into()
     } else if supported() {
-        "Falta FFmpeg: descárgalo en Ajustes > Copia y actualizaciones (o pon ffmpeg.exe junto a MiRadio.exe)".into()
+        "Falta FFmpeg: descárgalo en Ajustes > Copia y actualizaciones (o pon ffmpeg.exe junto a OmniCaster.exe)".into()
     } else {
         "No se encontró FFmpeg: instálalo en el sistema".into()
     }

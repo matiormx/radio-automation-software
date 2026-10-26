@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Verifica la API compatible con RadioBOSS de MiRadio.
+// Verifica la API compatible con RadioBOSS de OmniCaster.
 //
 // Uso:
 //   node scripts/verify-rbapi.mjs --base https://api.ngradio.es --user radio --pass 'clave'
@@ -108,7 +108,7 @@ function diffShape(a, b, path = "") {
   if (a.attrs !== b.attrs) out.push(`${here}: atributos "${a.attrs}" frente a "${b.attrs}"`);
   const n = Math.max(a.kids.length, b.kids.length);
   for (let i = 0; i < n; i += 1) {
-    if (!a.kids[i]) out.push(`${here}: falta <${b.kids[i].name}> en MiRadio`);
+    if (!a.kids[i]) out.push(`${here}: falta <${b.kids[i].name}> en OmniCaster`);
     else if (!b.kids[i]) out.push(`${here}: <${a.kids[i].name}> no está en RadioBOSS`);
     else out.push(...diffShape(a.kids[i], b.kids[i], here));
   }

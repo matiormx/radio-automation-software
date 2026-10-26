@@ -4,8 +4,8 @@ import type { StudioCallsSettings } from "./types";
 /**
  * Parte del estudio de las llamadas al aire de NGRADIO.
  *
- * MiRadio se conecta al worker de NGRADIO con el token de estudio. Cuando un
- * moderador pasa una llamada al aire, el worker mete a MiRadio en esa reunion
+ * OmniCaster se conecta al worker de NGRADIO con el token de estudio. Cuando un
+ * moderador pasa una llamada al aire, el worker mete a OmniCaster en esa reunion
  * de RealtimeKit y manda su token. Aqui se entra en la reunion, la voz del
  * oyente se conecta a la mesa (canal "Llamadas de oyentes") y se le devuelve el
  * programa sin su propia voz. La llamada se abandona sola cuando el worker la

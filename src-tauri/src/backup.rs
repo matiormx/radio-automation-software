@@ -342,7 +342,7 @@ pub fn backup_inspect(path: String) -> Result<BackupInfo, String> {
     let mut zip = open_zip(Path::new(&path))?;
     let manifest: Manifest = read_entry(&mut zip, MANIFEST)
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .ok_or("No es una copia de seguridad de MiRadio")?;
+        .ok_or("No es una copia de seguridad de OmniCaster")?;
     let lib: Vec<Value> = read_entry(&mut zip, "data/library.json").and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let files: Vec<String> = lib.iter().filter_map(|t| t.get("file").and_then(|f| f.as_str()).map(|s| s.to_string())).filter(|s| !s.is_empty()).collect();
     let roots = roots_of(&files, &manifest.audio_roots);
@@ -474,7 +474,7 @@ pub async fn backup_import(app: AppHandle, path: String, mappings: Vec<Mapping>,
         let mut zip = open_zip(&src)?;
         let manifest: Manifest = read_entry(&mut zip, MANIFEST)
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .ok_or("No es una copia de seguridad de MiRadio")?;
+            .ok_or("No es una copia de seguridad de OmniCaster")?;
         let mut maps = mappings;
         let mut audio_files = 0;
         if let Some(dest) = audio_dest.filter(|d| !d.trim().is_empty() && manifest.include_audio) {
@@ -544,7 +544,7 @@ pub fn apply_pending(data_dir: &Path) {
         let mut z = open_zip(&pz)?;
         extract_prefix(&mut z, "data/", &tmp, |_| {})?;
         if !tmp.join("library.json").is_file() && !tmp.join("settings.json").is_file() {
-            return Err("La copia no tiene datos de MiRadio".into());
+            return Err("La copia no tiene datos de OmniCaster".into());
         }
         remap_json_files(&tmp, &pending.mappings);
         // 3. Sustituir.
@@ -689,7 +689,7 @@ mod tests {
     fn bad_backup_restores_previous() {
         let dst = tmp("bad");
         fs::write(dst.join("library.json"), b"[1]").unwrap();
-        // Un zip valido pero sin datos de MiRadio.
+        // Un zip valido pero sin datos de OmniCaster.
         let zp = dst.join(PENDING_ZIP);
         {
             let mut z = ZipWriter::new(File::create(&zp).unwrap());

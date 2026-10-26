@@ -54,7 +54,7 @@ async function parkWindow(win: WebviewWindow) {
 
 /**
  * Abre (o mueve) la ventana de video a pantalla completa en el monitor elegido.
- * Devuelve "hidden" si ese monitor es el de MiRadio (o no hay otro): la
+ * Devuelve "hidden" si ese monitor es el de OmniCaster (o no hay otro): la
  * ventana no se muestra nunca ahi, queda oculta y se sigue emitiendo.
  */
 export async function openVideoOut(monitor: number): Promise<boolean | "hidden"> {
@@ -73,7 +73,7 @@ export async function openVideoOut(monitor: number): Promise<boolean | "hidden">
     if (!win) {
       win = new WebviewWindow("videoout", {
         url: "index.html?w=videoout",
-        title: "MiRadio Programa",
+        title: "OmniCaster Programa",
         x: hidden ? -20000 : x,
         y: hidden ? 0 : y,
         width: hidden ? 1280 : w,
@@ -93,7 +93,7 @@ export async function openVideoOut(monitor: number): Promise<boolean | "hidden">
     }
     window.clearInterval(videoOutWatch);
     videoOutWatch = undefined;
-    await win.setTitle("MiRadio Programa").catch(() => undefined);
+    await win.setTitle("OmniCaster Programa").catch(() => undefined);
     await win.show().catch(() => undefined);
     if (hidden) {
       await parkWindow(win);
@@ -144,7 +144,7 @@ export async function closeVideoOut(): Promise<void> {
 }
 
 /**
- * Ventana «MiRadio Lo que suena»: solo lo que suena (vídeo o portada, nunca
+ * Ventana «OmniCaster Lo que suena»: solo lo que suena (vídeo o portada, nunca
  * cámaras ni NDI). Va fuera de la pantalla, sin barra de tareas; FFmpeg la
  * captura para las salidas que emiten «Lo que está sonando».
  */
@@ -156,7 +156,7 @@ export async function openNowPlayingOut(width: number, height: number): Promise<
     if (!win) {
       win = new WebviewWindow("videonp", {
         url: "index.html?w=videonp",
-        title: "MiRadio Lo que suena",
+        title: "OmniCaster Lo que suena",
         x: -20000,
         y: 0,
         width: w,
@@ -205,10 +205,10 @@ export async function closeNowPlayingOut(): Promise<void> {
 }
 
 const TOOL_SIZES: Record<ToolKind, { title: string; width: number; height: number; minWidth: number; minHeight: number }> = {
-  settings: { title: "Ajustes — MiRadio", width: 1180, height: 820, minWidth: 820, minHeight: 560 },
-  library: { title: "Librería — MiRadio", width: 1360, height: 860, minWidth: 900, minHeight: 560 },
-  mixer: { title: "Mixer — MiRadio", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
-  chat: { title: "Chat — MiRadio", width: 420, height: 680, minWidth: 300, minHeight: 360 },
+  settings: { title: "Ajustes — OmniCaster", width: 1180, height: 820, minWidth: 820, minHeight: 560 },
+  library: { title: "Librería — OmniCaster", width: 1360, height: 860, minWidth: 900, minHeight: 560 },
+  mixer: { title: "Mixer — OmniCaster", width: 1240, height: 860, minWidth: 420, minHeight: 600 },
+  chat: { title: "Chat — OmniCaster", width: 420, height: 680, minWidth: 300, minHeight: 360 },
 };
 
 /** Area util de la pantalla (sin barra de tareas), en pixeles logicos. */

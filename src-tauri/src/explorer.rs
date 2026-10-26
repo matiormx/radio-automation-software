@@ -1,5 +1,5 @@
 //! Explorador de archivos del ordenador: unidades, carpetas y los archivos de
-//! audio y video que MiRadio puede usar (esten o no en la biblioteca).
+//! audio y video que OmniCaster puede usar (esten o no en la biblioteca).
 
 use std::path::{Path, PathBuf};
 

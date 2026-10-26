@@ -174,7 +174,7 @@ fn library_candidates() -> Vec<std::path::PathBuf> {
         ] {
             out.push(std::path::Path::new(dir).join("Processing.NDI.Lib.x64.dll"));
         }
-        // Junto a MiRadio.exe o en el PATH
+        // Junto a OmniCaster.exe o en el PATH
         out.push("Processing.NDI.Lib.x64.dll".into());
     }
     #[cfg(target_os = "linux")]
@@ -586,7 +586,7 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let rname = CString::new("MiRadio").unwrap_or_default();
+    let rname = CString::new("OmniCaster").unwrap_or_default();
     let cfg = RecvCreateV3 {
         source: SourceT { name: cname.as_ptr(), url: std::ptr::null() },
         color_format: COLOR_BGRX_BGRA,

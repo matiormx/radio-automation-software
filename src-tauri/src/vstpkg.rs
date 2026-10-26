@@ -1,5 +1,5 @@
 //! Plugins recomendados: un catalogo de plugins VST3 gratuitos y de codigo
-//! abierto que MiRadio instala en la carpeta VST3 del usuario y mantiene al
+//! abierto que OmniCaster instala en la carpeta VST3 del usuario y mantiene al
 //! dia. Se descargan del espejo de este repositorio (Release «plugins»), donde
 //! un flujo semanal los prepara desde su pagina oficial (y compila LSP para
 //! Windows, que no publica binarios).
@@ -202,11 +202,11 @@ fn agent() -> ureq::Agent {
         .timeout_connect(Duration::from_secs(20))
         .timeout_read(Duration::from_secs(60))
         .redirects(8)
-        .user_agent("MiRadio")
+        .user_agent("OmniCaster")
         .build()
 }
 
-/// Espejo de MiRadio: los VST3 de cada plugin ya preparados por sistema
+/// Espejo de OmniCaster: los VST3 de cada plugin ya preparados por sistema
 /// (los publica el flujo «Plugins recomendados» de este repositorio).
 const MIRROR: &str = "https://github.com/matiormx/radio-automation-software/releases/download/plugins";
 
@@ -424,7 +424,7 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
         // En uso: se coloca al reiniciar (queda en vstpkg-tmp/<id>/vst3).
         entry.pending = Some(version.clone());
         write_state(data_dir, &st);
-        Ok(format!("{} {}: está en uso; se actualizará al reiniciar MiRadio", item.name, version))
+        Ok(format!("{} {}: está en uso; se actualizará al reiniciar OmniCaster", item.name, version))
     }
 }
 
@@ -579,7 +579,7 @@ pub fn vstpkg_remove(app: AppHandle, id: String) -> Result<String, String> {
     if busy.is_empty() {
         Ok("Plugin quitado".into())
     } else {
-        Err("Está en uso: quítalo de la mesa y vuelve a intentarlo (o reinicia MiRadio)".into())
+        Err("Está en uso: quítalo de la mesa y vuelve a intentarlo (o reinicia OmniCaster)".into())
     }
 }
 

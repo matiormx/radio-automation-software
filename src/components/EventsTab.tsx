@@ -1068,7 +1068,7 @@ function StreamFields({ draft, set }: { draft: StationEvent; set: (patch: Partia
         </label>
         <p className="hint">
           Vale cualquier cosa que abra FFmpeg: Icecast/Shoutcast, HLS (.m3u8), MP3/AAC por HTTP, RTMP o un archivo. Si
-          la conexión se corta, se reintenta sola. Hace falta FFmpeg junto a MiRadio.
+          la conexión se corta, se reintenta sola. Hace falta FFmpeg junto a OmniCaster.
         </p>
       </fieldset>
       <fieldset className="fieldset">

@@ -95,14 +95,14 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
       {error && <p className="hint update-error">{error}</p>}
     </fieldset>
     <fieldset className="fieldset">
-      <legend>Cerrar MiRadio</legend>
+      <legend>Cerrar OmniCaster</legend>
       <p className="hint">
         La X de la ventana solo la oculta en la barra de tareas, para que la emisora no se cierre por descuido. Para
         cerrarla de verdad (mantenimiento, apagar el equipo…):
       </p>
       <div className="update-actions">
         <button type="button" className="btn btn-sm btn-danger" onClick={() => void requestQuit()}>
-          Cerrar MiRadio…
+          Cerrar OmniCaster…
         </button>
       </div>
     </fieldset>

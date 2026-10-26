@@ -33,7 +33,7 @@ export function ChatWindow() {
     await getCurrentWindow().destroy().catch(() => undefined);
   };
 
-  if (!settings) return <div className="tool-window"><div className="tool-loading">Conectando con MiRadio…</div></div>;
+  if (!settings) return <div className="tool-window"><div className="tool-loading">Conectando con OmniCaster…</div></div>;
   const chat = settings.chat ?? DEFAULT_SETTINGS.chat;
   const sc = settings.studioCalls;
 

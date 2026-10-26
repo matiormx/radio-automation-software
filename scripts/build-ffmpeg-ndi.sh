@@ -76,7 +76,7 @@ FFMPEG_DIR="$BUILD_DIR/ffmpeg"
 cd "$FFMPEG_DIR"
 
 git config user.email "miradio-build@localhost"
-git config user.name "MiRadio build"
+git config user.name "OmniCaster build"
 git config core.autocrlf false
 git config core.eol lf
 git reset --hard HEAD >/dev/null

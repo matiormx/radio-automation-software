@@ -132,7 +132,7 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
             checked={chat.enabled}
             onChange={(e) => setChat({ enabled: e.target.checked })}
           />
-          <span>Mostrar el chat de los oyentes en MiRadio</span>
+          <span>Mostrar el chat de los oyentes en OmniCaster</span>
         </label>
         <label className="field">
           <span>Nombre con el que escribe la emisora</span>
@@ -149,7 +149,7 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
           <span>En una ventana flotante (si no, acoplado bajo la lista de emisión)</span>
         </label>
         <p className="hint">
-          Usa la misma dirección y token de estudio que las llamadas. Desde MiRadio escribes como la emisora y puedes
+          Usa la misma dirección y token de estudio que las llamadas. Desde OmniCaster escribes como la emisora y puedes
           borrar mensajes o silenciar a un oyente (como un moderador).
         </p>
       </fieldset>

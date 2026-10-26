@@ -231,7 +231,7 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
           </button>
         </div>
         <p className="hint">
-          Cada vez que cambia la canción que suena, MiRadio llama una sola vez a{" "}
+          Cada vez que cambia la canción que suena, OmniCaster llama una sola vez a{" "}
           <code>{(api.updateUrl || "https://core.ngradio.es/update") + "?token=…"}</code>, sin reintentos.
           {status?.lastUpdate ? ` Último aviso: ${status.lastUpdate}.` : ""}
         </p>

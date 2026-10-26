@@ -30,7 +30,7 @@ pub struct AppState {
     pub data_dir: PathBuf,
 }
 
-/// Cierra MiRadio de verdad (la X solo minimiza). La confirmacion la pide la
+/// Cierra OmniCaster de verdad (la X solo minimiza). La confirmacion la pide la
 /// ventana principal antes de llamar aqui.
 #[tauri::command]
 fn app_quit(app: tauri::AppHandle) {
@@ -40,7 +40,7 @@ fn app_quit(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
-    // Primero de todo: si ya hay un MiRadio abierto, se trae al frente y
+    // Primero de todo: si ya hay un OmniCaster abierto, se trae al frente y
     // este segundo arranque termina sin abrir nada.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -76,7 +76,7 @@ pub fn run() {
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
             app.manage(notify::NotifyState::default());
-            // FFmpeg: si falta se descarga solo; si es el de MiRadio, se mantiene al dia.
+            // FFmpeg: si falta se descarga solo; si es el de OmniCaster, se mantiene al dia.
             ffmpeg_dl::on_startup(app.handle().clone());
             vstpkg::on_startup(app.handle().clone());
             Ok(())
@@ -195,7 +195,7 @@ pub fn run() {
             nowplaying::write_now_playing_image
         ])
         .build(tauri::generate_context!())
-        .expect("error al iniciar MiRadio")
+        .expect("error al iniciar OmniCaster")
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 cursor::release();

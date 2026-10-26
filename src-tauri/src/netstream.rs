@@ -20,7 +20,7 @@ pub fn ffmpeg_args(url: &str, rate: u32) -> Vec<String> {
     if lower.starts_with("http://") || lower.starts_with("https://") {
         // Si la conexion se corta, FFmpeg reintenta en lugar de terminar.
         a.extend(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5"].iter().map(|s| s.to_string()));
-        a.extend(["-user_agent", "MiRadio"].iter().map(|s| s.to_string()));
+        a.extend(["-user_agent", "OmniCaster"].iter().map(|s| s.to_string()));
     }
     a.extend(["-i".to_string(), url.to_string()]);
     a.extend(["-vn", "-f", "f32le", "-ac", "2", "-ar"].iter().map(|s| s.to_string()));

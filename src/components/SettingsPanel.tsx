@@ -504,7 +504,7 @@ function GeneralTab({
               type="text"
               value={s.radioName}
               maxLength={60}
-              placeholder="MiRadio"
+              placeholder="OmniCaster"
               onChange={(e) => onChange({ ...s, radioName: e.target.value })}
             />
           </label>
@@ -634,7 +634,7 @@ function GeneralTab({
               type="text"
               value={s.nowPlayingPath}
               spellCheck={false}
-              placeholder="C:\\MiRadio\\nowplaying.txt"
+              placeholder="C:\\OmniCaster\\nowplaying.txt"
               onChange={(e) => onChange({ ...s, nowPlayingPath: e.target.value })}
             />
             <button type="button" className="btn btn-sm" onClick={() => void onPickNowPlaying()}>

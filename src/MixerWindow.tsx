@@ -632,7 +632,7 @@ export function MixerWindow() {
     return (
       <div className="tool-window">
         <MixerTitle />
-        <div className="tool-loading">Conectando con MiRadio…</div>
+        <div className="tool-loading">Conectando con OmniCaster…</div>
       </div>
     );
   }
@@ -845,7 +845,7 @@ function MixerBoard({
         >
           Detectar entradas
         </button>
-        <label className="mx-engine" title="Nativo: todo el audio (música, entradas, preescucha, llamadas) se mezcla en MiRadio y va a las tarjetas por su nombre del sistema. Web: el motor de la ventana (solo estéreo por tarjeta).">
+        <label className="mx-engine" title="Nativo: todo el audio (música, entradas, preescucha, llamadas) se mezcla en OmniCaster y va a las tarjetas por su nombre del sistema. Web: el motor de la ventana (solo estéreo por tarjeta).">
           Motor{" "}
           <select
             value={isNative ? "native" : "web"}

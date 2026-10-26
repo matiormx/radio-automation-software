@@ -484,7 +484,7 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
       <fieldset className="fieldset">
         <legend>NDI</legend>
         <p className="hint">
-          Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), MiRadio recibe NDI por sí mismo: las
+          Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), OmniCaster recibe NDI por sí mismo: las
           fuentes se ven en la pantalla de emisión y en la botonera VÍDEO, y salen por las salidas que emiten la
           pantalla de emisión. Las salidas NDI (Streaming) también usan el Runtime. El FFmpeg con NDI ya solo
           haría falta para emitir una fuente NDI directamente a RTMP sin pasar por la pantalla de emisión.

@@ -12,7 +12,7 @@ const HISTORY_FILE: &str = "history.json";
 const SESSION_FILE: &str = "session.json";
 const MAX_HISTORY: usize = 800;
 
-/// Chat de NGRADIO en MiRadio (usa la direccion y el token de Llamadas).
+/// Chat de NGRADIO en OmniCaster (usa la direccion y el token de Llamadas).
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChatSettings {
@@ -38,7 +38,7 @@ pub struct VideoScreenSettings {
     pub mirror: bool,
     /// Si la capturadora no tiene senal: "program" (lo que suena) o "none" (negro)
     pub capture_fallback: String,
-    /// Encierra el raton en el monitor de MiRadio (Ctrl+Mayus lo libera)
+    /// Encierra el raton en el monitor de OmniCaster (Ctrl+Mayus lo libera)
     pub cursor_wall: bool,
 }
 
@@ -770,7 +770,7 @@ impl Default for IcecastStream {
             sample_rate: 48000,
             channels: 2,
             public: false,
-            station_name: "MiRadio".to_string(),
+            station_name: "OmniCaster".to_string(),
             description: String::new(),
             genre: String::new(),
         }
@@ -827,7 +827,7 @@ pub struct StudioCallsSettings {
 pub struct StreamingSettings {
     pub icecast: Vec<IcecastStream>,
     pub rtmp: RtmpOutput,
-    /// Empezar a emitir al abrir MiRadio
+    /// Empezar a emitir al abrir OmniCaster
     pub auto_start: bool,
 }
 
@@ -880,7 +880,7 @@ impl Default for Settings {
             live_template: "{artist} - {title}".to_string(),
             target_lufs: -9.0,
             true_peak_db: -1.0,
-            radio_name: "MiRadio".to_string(),
+            radio_name: "Mi radio".to_string(),
             slogan: "Estudio de automatización".to_string(),
             logo_path: String::new(),
             campaigns: Vec::new(),
@@ -1006,7 +1006,7 @@ pub fn delete_program_cover(state: State<'_, AppState>, path: String) -> Result<
     let dir = state.data_dir.join("programs");
     let target = PathBuf::from(path.trim());
     if target.parent() != Some(dir.as_path()) {
-        return Err("Esa imagen no es de MiRadio".to_string());
+        return Err("Esa imagen no es de OmniCaster".to_string());
     }
     if target.is_file() {
         let _ = std::fs::remove_file(&target);

@@ -409,7 +409,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
     }
 }
 
-/// Pone la ventana del editor delante de todo (y encima de MiRadio).
+/// Pone la ventana del editor delante de todo (y encima de OmniCaster).
 #[cfg(windows)]
 fn raise_editor(host: &Host) {
     #[link(name = "user32")]

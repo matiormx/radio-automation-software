@@ -1132,8 +1132,8 @@ export default function App() {
         i.playing ? "está sonando la emisión" : "",
       ].filter(Boolean);
       return extra.length > 0
-        ? `¿Cerrar MiRadio? Ahora mismo ${extra.join(", ")} y se cortará.`
-        : "¿Cerrar MiRadio?";
+        ? `¿Cerrar OmniCaster? Ahora mismo ${extra.join(", ")} y se cortará.`
+        : "¿Cerrar OmniCaster?";
     }).then((fn) => {
       if (cancelled) fn();
       else off = fn;
@@ -3243,7 +3243,7 @@ export default function App() {
       return;
     }
     void openVideoOut(videoScreen.monitor).then((ok) => {
-      if (ok === "hidden") showToast("La pantalla de emisión está en el monitor de MiRadio: queda oculta (se emite igual). Elige otro monitor para verla.");
+      if (ok === "hidden") showToast("La pantalla de emisión está en el monitor de OmniCaster: queda oculta (se emite igual). Elige otro monitor para verla.");
       else if (!ok) showToast("No se pudo abrir la ventana de vídeo");
     });
     const t = window.setInterval(() => {
@@ -3253,7 +3253,7 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [videoScreen.enabled, videoScreen.monitor, videoSource, showToast]);
 
-  // Pared del ratón: queda en el monitor de MiRadio y no se pierde en la pantalla de emisión.
+  // Pared del ratón: queda en el monitor de OmniCaster y no se pierde en la pantalla de emisión.
   useEffect(() => {
     if (!videoScreen.enabled || !videoScreen.cursorWall) {
       void cursorWall(null).catch(() => undefined);
@@ -3316,7 +3316,7 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [npSize, videoScreen.enabled, videoSource]);
 
-  // FFmpeg descargado/actualizado por MiRadio: avisos al empezar y al terminar.
+  // FFmpeg descargado/actualizado por OmniCaster: avisos al empezar y al terminar.
   useEffect(() => {
     let wasBusy = false;
     let announced = false;
@@ -3403,7 +3403,7 @@ export default function App() {
             <LogoRadio size={32} />
           )}
           <div className="brand-txt" data-tauri-drag-region>
-            <span className="brand-name" data-tauri-drag-region>{settings.radioName.trim() || "MiRadio"}</span>
+            <span className="brand-name" data-tauri-drag-region>{settings.radioName.trim() || "OmniCaster"}</span>
             <span className="brand-sub" data-tauri-drag-region>
               {settings.slogan.trim() || "Estudio de automatización"}
             </span>

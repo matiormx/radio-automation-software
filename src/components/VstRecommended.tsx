@@ -68,8 +68,8 @@ export function VstRecommended({ onInstalled }: { onInstalled: () => void }) {
         </button>
       </div>
       <p className="hint">
-        Gratuitos. Los de código abierto se instalan con un clic (MiRadio los prepara desde su versión oficial y
-        comprueba su firma) y se actualizan solos cada semana; los demás se descargan en su web y MiRadio los
+        Gratuitos. Los de código abierto se instalan con un clic (OmniCaster los prepara desde su versión oficial y
+        comprueba su firma) y se actualizan solos cada semana; los demás se descargan en su web y OmniCaster los
         encuentra igual.
       </p>
       <div className="vst-reco-list">
@@ -92,7 +92,7 @@ export function VstRecommended({ onInstalled }: { onInstalled: () => void }) {
                   {inst ? (
                     <>
                       ✓ Instalado {inst.version}
-                      {inst.pending && ` · ${inst.pending} se pondrá al reiniciar MiRadio`}
+                      {inst.pending && ` · ${inst.pending} se pondrá al reiniciar OmniCaster`}
                       {outdated && ` · nueva versión ${p.latest}`}
                     </>
                   ) : canAuto ? (

@@ -26,7 +26,7 @@ struct EngineInner {
 }
 
 /// Salida NDI nativa: FFmpeg (el normal) solo captura la imagen y la da en
-/// BGRA por su salida; MiRadio la manda por NDI junto al audio de la mesa.
+/// BGRA por su salida; OmniCaster la manda por NDI junto al audio de la mesa.
 #[derive(Clone)]
 struct NdiOut {
     name: String,
@@ -445,7 +445,7 @@ pub fn stream_start(
                 input_audio.as_deref()
             };
             // Salida NDI con el NDI Runtime (sin FFmpeg con NDI): FFmpeg solo
-            // captura la imagen y MiRadio la envia por NDI con el audio de la mesa.
+            // captura la imagen y OmniCaster la envia por NDI con el audio de la mesa.
             if kind == "ndi" && crate::ndi::runtime().is_ok() {
                 let (w, h, fps) = (output.width.max(16) & !1, output.height.max(16) & !1, output.fps.clamp(1, 60));
                 let video_args = if use_program {
@@ -461,7 +461,7 @@ pub fn stream_start(
                 };
                 let ndi_name = {
                     let src = output.source.trim();
-                    if !src.is_empty() { src.to_string() } else if !output.name.trim().is_empty() { output.name.trim().to_string() } else { "MiRadio".to_string() }
+                    if !src.is_empty() { src.to_string() } else if !output.name.trim().is_empty() { output.name.trim().to_string() } else { "OmniCaster".to_string() }
                 };
                 let result = video_args.and_then(|video_args| {
                     let mut args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-nostdin"].iter().map(|x| x.to_string()).collect();
@@ -540,7 +540,7 @@ pub fn stream_start(
                     Some((_, device)) => {
                         let source = if output.source.trim().is_empty() {
                             if output.name.trim().is_empty() {
-                                "MiRadio"
+                                "OmniCaster"
                             } else {
                                 output.name.trim()
                             }
@@ -1158,7 +1158,7 @@ fn in_group(kind: &str, group: &str) -> bool {
     }
 }
 
-/// Al cerrar MiRadio: no deja ningun FFmpeg suelto.
+/// Al cerrar OmniCaster: no deja ningun FFmpeg suelto.
 pub fn shutdown(state: &StreamingState) {
     if let Ok(mut inner) = state.inner.lock() {
         stop_group(&mut inner, "everything");
@@ -1206,7 +1206,7 @@ pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
             candidates.push(dir.join("bin").join(ndi_ffmpeg_name()));
         }
     }
-    // El que descarga y mantiene MiRadio (antes que el del PATH, que puede ser viejo).
+    // El que descarga y mantiene OmniCaster (antes que el del PATH, que puede ser viejo).
     if let Ok(data_dir) = app.path().app_data_dir() {
         if let Some(p) = crate::ffmpeg_dl::installed(&data_dir) {
             candidates.push(p);
@@ -1676,7 +1676,7 @@ fn video_output_args_for_source(
         "screen" => {
             args.extend([arg("-an"), arg("-pix_fmt"), arg("yuv420p")]);
             args.extend([arg("-f"), arg("sdl")]);
-            args.extend([arg("-window_title"), arg("MiRadio")]);
+            args.extend([arg("-window_title"), arg("OmniCaster")]);
             args.extend([arg("-window_size"), format!("{width}x{height}")]);
             args.extend([arg("-window_borderless"), arg("1")]);
             args.extend([arg("-window_fullscreen"), arg("1")]);
@@ -1766,15 +1766,15 @@ fn has_filter(ffmpeg: &Path, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Entrada de video con la ventana de programa de MiRadio.
-/// Imagen de una ventana de MiRadio: la pantalla de emision («MiRadio
-/// Programa», sigue la botonera) o la de lo que suena («MiRadio Lo que suena»).
+/// Entrada de video con la ventana de programa de OmniCaster.
+/// Imagen de una ventana de OmniCaster: la pantalla de emision («OmniCaster
+/// Programa», sigue la botonera) o la de lo que suena («OmniCaster Lo que suena»).
 fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_playing: bool) -> Result<Vec<String>, String> {
     if !now_playing {
         return program_video_input_args(fps, monitor, gfxcapture, ddagrab);
     }
     let fps = fps.clamp(1, 120);
-    // La ventana «Lo que suena» manda su imagen a MiRadio (sin capturar ventanas).
+    // La ventana «Lo que suena» manda su imagen a OmniCaster (sin capturar ventanas).
     if let Ok(args) = crate::ndi::ffmpeg_np_input() {
         return Ok(args);
     }
@@ -1784,7 +1784,7 @@ fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_pla
             arg("lavfi"),
             arg("-i"),
             format!(
-                "gfxcapture=window_title='(?i)^MiRadio Lo que suena$':max_framerate={fps}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={fps}"
+                "gfxcapture=window_title='(?i)^OmniCaster Lo que suena$':max_framerate={fps}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={fps}"
             ),
         ]);
     }
@@ -1797,13 +1797,13 @@ fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_pla
             arg("-draw_mouse"),
             arg("0"),
             arg("-i"),
-            arg("title=MiRadio Lo que suena"),
+            arg("title=OmniCaster Lo que suena"),
         ]);
     }
     #[cfg(target_os = "linux")]
     {
         let _ = (monitor, gfxcapture, ddagrab);
-        x11_window_args("MiRadio Lo que suena", fps)
+        x11_window_args("OmniCaster Lo que suena", fps)
     }
     #[cfg(not(target_os = "linux"))]
     program_video_input_args(fps, monitor, gfxcapture, ddagrab)
@@ -1822,7 +1822,7 @@ fn program_video_input_args(
             arg("lavfi"),
             arg("-i"),
             format!(
-                "gfxcapture=window_title='(?i)^MiRadio Programa$':max_framerate={}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={}",
+                "gfxcapture=window_title='(?i)^OmniCaster Programa$':max_framerate={}:capture_cursor=0,hwdownload,format=bgra,format=yuv420p,fps={}",
                 fps.clamp(1, 120),
                 fps.clamp(1, 120)
             ),
@@ -1847,17 +1847,17 @@ fn program_video_input_args(
             arg("-draw_mouse"),
             arg("0"),
             arg("-i"),
-            arg("title=MiRadio Programa"),
+            arg("title=OmniCaster Programa"),
         ])
     }
 }
 
 #[cfg(target_os = "linux")]
 fn program_video_input_args(fps: u32, _monitor: u32, _gfxcapture: bool, _ddagrab: bool) -> Result<Vec<String>, String> {
-    x11_window_args("MiRadio Programa", fps)
+    x11_window_args("OmniCaster Programa", fps)
 }
 
-/// Linux (X11): solo la ventana de MiRadio (no la pantalla entera). Con un
+/// Linux (X11): solo la ventana de OmniCaster (no la pantalla entera). Con un
 /// compositor (picom) se captura aunque este tapada o fuera de la pantalla.
 #[cfg(target_os = "linux")]
 fn x11_window_args(title: &str, fps: u32) -> Result<Vec<String>, String> {
@@ -2233,7 +2233,7 @@ mod tests {
             sample_rate: 48000,
             channels: 2,
             public: true,
-            station_name: "MiRadio".to_string(),
+            station_name: "OmniCaster".to_string(),
             description: "Prueba".to_string(),
             genre: "Variado".to_string(),
         }

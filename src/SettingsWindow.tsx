@@ -106,7 +106,7 @@ export function SettingsWindow() {
     return (
       <div className="tool-window">
         <ToolTitle title="Ajustes" />
-        <div className="tool-loading">Conectando con MiRadio…</div>
+        <div className="tool-loading">Conectando con OmniCaster…</div>
       </div>
     );
   }
