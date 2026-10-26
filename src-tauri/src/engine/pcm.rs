@@ -40,6 +40,76 @@ impl Pcm {
     }
 }
 
+/// Pesos (izquierda, derecha) de cada canal para mezclar a estereo.
+/// Antes se tomaban solo los dos primeros canales: en un archivo 5.1 se
+/// perdia el central, que es donde va la voz («voz apagada»).
+pub fn downmix_weights(channels: symphonia::core::audio::Channels) -> Vec<(f32, f32)> {
+    use symphonia::core::audio::Channels as C;
+    const H: f32 = std::f32::consts::FRAC_1_SQRT_2; // -3 dB
+    let n = channels.count();
+    if n <= 1 {
+        return vec![(1.0, 1.0); n.max(1)];
+    }
+    if n == 2 {
+        return vec![(1.0, 0.0), (0.0, 1.0)];
+    }
+    let mut w: Vec<(f32, f32)> = channels
+        .iter()
+        .map(|c| {
+            if c == C::FRONT_LEFT || c == C::FRONT_LEFT_WIDE || c == C::FRONT_LEFT_HIGH {
+                (1.0, 0.0)
+            } else if c == C::FRONT_RIGHT || c == C::FRONT_RIGHT_WIDE || c == C::FRONT_RIGHT_HIGH {
+                (0.0, 1.0)
+            } else if c == C::FRONT_CENTRE || c == C::FRONT_CENTRE_HIGH {
+                (H, H)
+            } else if c == C::LFE1 || c == C::LFE2 {
+                (0.0, 0.0)
+            } else if c == C::REAR_LEFT || c == C::SIDE_LEFT || c == C::FRONT_LEFT_CENTRE || c == C::REAR_LEFT_CENTRE || c == C::TOP_FRONT_LEFT || c == C::TOP_REAR_LEFT {
+                (H, 0.0)
+            } else if c == C::REAR_RIGHT || c == C::SIDE_RIGHT || c == C::FRONT_RIGHT_CENTRE || c == C::REAR_RIGHT_CENTRE || c == C::TOP_FRONT_RIGHT || c == C::TOP_REAR_RIGHT {
+                (0.0, H)
+            } else {
+                (0.5, 0.5)
+            }
+        })
+        .collect();
+    if w.len() != n {
+        // Sin posiciones conocidas: 1º izq, 2º der, el resto a los dos lados.
+        w = (0..n).map(|i| match i { 0 => (1.0, 0.0), 1 => (0.0, 1.0), _ => (0.5, 0.5) }).collect();
+    }
+    // Que no sature: cada lado suma como mucho 1 (el volumen lo iguala luego
+    // la normalizacion de sonoridad, medida con esta misma mezcla).
+    let sl: f32 = w.iter().map(|x| x.0).sum();
+    let sr: f32 = w.iter().map(|x| x.1).sum();
+    let k = 1.0 / sl.max(sr).max(1.0);
+    w.iter().map(|&(l, r)| (l * k, r * k)).collect()
+}
+
+/// Muestras entrelazadas de `n` canales -> estereo entrelazado.
+pub fn downmix_into(samples: &[f32], weights: &[(f32, f32)], out: &mut Vec<f32>) {
+    let n = weights.len().max(1);
+    if n == 1 {
+        for &s in samples {
+            out.push(s);
+            out.push(s);
+        }
+        return;
+    }
+    if n == 2 {
+        out.extend_from_slice(samples);
+        return;
+    }
+    for f in samples.chunks_exact(n) {
+        let (mut l, mut r) = (0.0f32, 0.0f32);
+        for (s, w) in f.iter().zip(weights) {
+            l += s * w.0;
+            r += s * w.1;
+        }
+        out.push(l);
+        out.push(r);
+    }
+}
+
 /// Decodifica un archivo completo y lo lleva a `rate` Hz.
 pub fn decode_file(path: &Path, rate: u32) -> Result<Arc<Pcm>, String> {
     let (src_rate, data) = decode_native(path)?;
@@ -123,25 +193,13 @@ fn decode_native(path: &Path) -> Result<(u32, Vec<f32>), String> {
         if rate == 0 {
             rate = spec.rate;
         }
-        let channels = spec.channels.count().max(1);
         let needed = decoded.capacity() as u64;
         if buf.as_ref().map(|b| b.capacity() < needed as usize).unwrap_or(true) {
             buf = Some(symphonia::core::audio::SampleBuffer::<f32>::new(needed, spec));
         }
         let sb = buf.as_mut().expect("buffer");
         sb.copy_interleaved_ref(decoded);
-        let samples = sb.samples();
-        if channels == 1 {
-            for &s in samples {
-                out.push(s);
-                out.push(s);
-            }
-        } else {
-            for ch in samples.chunks_exact(channels) {
-                out.push(ch[0]);
-                out.push(ch[1]);
-            }
-        }
+        downmix_into(sb.samples(), &downmix_weights(spec.channels), &mut out);
     }
     if rate == 0 {
         return Err("No se pudo leer la frecuencia del audio".into());
@@ -201,4 +259,32 @@ fn resample(data: &[f32], from: u32, to: u32) -> Result<Vec<f32>, String> {
     let start = delay.min(out.len() / 2) * 2;
     let end = ((delay + expected) * 2).min(out.len());
     Ok(out[start..end].to_vec())
+}
+
+#[cfg(test)]
+mod downmix_tests {
+    use super::*;
+    use symphonia::core::audio::Channels as C;
+
+    #[test]
+    fn surround_keeps_centre() {
+        let ch = C::FRONT_LEFT | C::FRONT_RIGHT | C::FRONT_CENTRE | C::LFE1 | C::REAR_LEFT | C::REAR_RIGHT;
+        let w = downmix_weights(ch);
+        let mut out = Vec::new();
+        // Solo suena el central (orden: FL FR FC LFE RL RR)
+        downmix_into(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0], &w, &mut out);
+        assert!(out[0] > 0.2 && (out[0] - out[1]).abs() < 1e-6, "{out:?}");
+        // El LFE no entra
+        out.clear();
+        downmix_into(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0], &w, &mut out);
+        assert_eq!(out, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn stereo_untouched() {
+        let w = downmix_weights(C::FRONT_LEFT | C::FRONT_RIGHT);
+        let mut out = Vec::new();
+        downmix_into(&[0.25, -0.5], &w, &mut out);
+        assert_eq!(out, vec![0.25, -0.5]);
+    }
 }

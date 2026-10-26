@@ -133,24 +133,14 @@ fn scan_file(path: &Path) -> Result<Scan, String> {
             );
         }
 
-        let channels = spec.channels.count().max(1);
         let mut sample_buf =
             symphonia::core::audio::SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
         sample_buf.copy_interleaved_ref(decoded);
         let samples = sample_buf.samples();
 
         stereo.clear();
-        if channels == 1 {
-            for &s in samples {
-                stereo.push(s);
-                stereo.push(s);
-            }
-        } else {
-            for ch in samples.chunks_exact(channels) {
-                stereo.push(ch[0]);
-                stereo.push(ch[1]);
-            }
-        }
+        // Misma mezcla a estereo que el motor (con el canal central).
+        crate::engine::pcm::downmix_into(samples, &crate::engine::pcm::downmix_weights(spec.channels), &mut stereo);
         let frames = (stereo.len() / 2) as u64;
         frames_total += frames;
 
