@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -74,6 +75,38 @@ struct Progress {
     value: String,
     at: Instant,
     seen: bool,
+    /// Ultimo bloque de -progress (fps, speed, dup_frames, drop_frames, bitrate)
+    fields: HashMap<String, String>,
+    /// Resumen para la ventana de Streaming
+    stats: String,
+}
+
+/// «25.0 fps · 1.00x · 3000 kbps · 12 duplicadas · 0 perdidas» y, si algo va
+/// mal, la causa probable.
+fn progress_stats(f: &HashMap<String, String>, prev: &HashMap<String, String>) -> String {
+    let num = |m: &HashMap<String, String>, k: &str| -> f64 {
+        m.get(k).and_then(|v| v.trim().trim_end_matches('x').trim_end_matches("kbits/s").parse().ok()).unwrap_or(0.0)
+    };
+    let fps = num(f, "fps");
+    let speed = num(f, "speed");
+    let dup = num(f, "dup_frames");
+    let drop = num(f, "drop_frames");
+    let mut s = format!("{fps:.1} fps · {speed:.2}x");
+    let kbps = num(f, "bitrate");
+    if kbps > 0.0 {
+        s.push_str(&format!(" · {kbps:.0} kbps"));
+    }
+    s.push_str(&format!(" · {dup:.0} duplicadas · {drop:.0} perdidas"));
+    let new_dup = dup - num(prev, "dup_frames");
+    let new_drop = drop - num(prev, "drop_frames");
+    if speed > 0.0 && speed < 0.95 {
+        s.push_str(" — FFmpeg no da abasto: CPU o subida a internet insuficiente");
+    } else if new_dup > 2.0 {
+        s.push_str(" — la fuente no entrega imágenes a tiempo (red NDI o captura)");
+    } else if new_drop > 2.0 {
+        s.push_str(" — llegan más imágenes de las que se emiten");
+    }
+    s
 }
 
 struct StreamProcess {
@@ -159,6 +192,9 @@ pub struct StreamOutputStatus {
     /// Ultimas lineas de FFmpeg, para diagnosticar conexiones y fuentes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log: Option<String>,
+    /// Rendimiento en directo (fps, velocidad, imagenes duplicadas/perdidas).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<String>,
 }
 
 fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutputStatus {
@@ -170,6 +206,7 @@ fn failed_output(id: &str, name: &str, kind: &str, error: String) -> StreamOutpu
         state: "error".to_string(),
         error: Some(error),
         log: None,
+        stats: None,
     }
 }
 
@@ -735,6 +772,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 .ok()
                 .and_then(|slot| Option::clone(&*slot));
             let log = process.log.lock().ok().map(|lines| lines.join(" | "));
+            let stats = process.progress.lock().ok().map(|p| p.stats.clone()).filter(|s| !s.is_empty() && process.alive);
             let reconnecting = !process.alive && process.supervised();
             let state = if process.alive {
                 "live"
@@ -753,6 +791,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 state: state.to_string(),
                 error,
                 log,
+                stats,
             }
         })
         .collect();
@@ -823,7 +862,13 @@ fn spawn_process_ex(
         .spawn()
         .map_err(|error| format!("{name}: no se pudo iniciar FFmpeg ({error})"))?;
 
-    let progress = Arc::new(Mutex::new(Progress { value: String::new(), at: Instant::now(), seen: false }));
+    let progress = Arc::new(Mutex::new(Progress {
+        value: String::new(),
+        at: Instant::now(),
+        seen: false,
+        fields: HashMap::new(),
+        stats: String::new(),
+    }));
     let error_slot = Arc::new(Mutex::new(None));
     let log_slot = Arc::new(Mutex::new(Vec::new()));
     {
@@ -848,6 +893,17 @@ fn spawn_process_ex(
                 // Lineas de -progress (clave=valor, sin espacios): no van al registro.
                 if let Some((key, value)) = line.split_once('=') {
                     if !key.is_empty() && !line.contains(' ') && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                        if let Ok(mut p) = progress.lock() {
+                            if key == "progress" {
+                                // Fin de un bloque: resumen comparado con el anterior
+                                let prev = p.fields.remove("_prev").map(|v| serde_json::from_str(&v).unwrap_or_default()).unwrap_or_default();
+                                p.stats = progress_stats(&p.fields, &prev);
+                                let snap = serde_json::to_string(&p.fields).unwrap_or_default();
+                                p.fields.insert("_prev".into(), snap);
+                            } else if matches!(key, "fps" | "speed" | "dup_frames" | "drop_frames" | "bitrate") {
+                                p.fields.insert(key.to_string(), value.to_string());
+                            }
+                        }
                         if key == "out_time_us" {
                             if let Ok(mut p) = progress.lock() {
                                 if value != p.value && value != "N/A" {

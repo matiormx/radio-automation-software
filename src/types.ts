@@ -556,6 +556,8 @@ export interface StreamOutputStatus {
   error: string | null;
   /** Últimas líneas de FFmpeg para diagnosticar la salida */
   log?: string | null;
+  /** Rendimiento en directo: fps, velocidad, imágenes duplicadas/perdidas */
+  stats?: string | null;
 }
 
 export interface StreamStatus {

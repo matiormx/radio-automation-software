@@ -511,8 +511,11 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         receivers().lock().unwrap_or_else(|e| e.into_inner()).remove(source);
         return;
     }
-    let min_gap = Duration::from_millis(33); // como mucho ~30 imagenes/s al WebView
-    let mut last_sent = Instant::now() - min_gap;
+    // Como mucho ~30 imagenes/s: de una fuente a 50/60 se manda una de cada
+    // dos, siempre la misma cadencia. (Antes se media el tiempo desde la
+    // ultima y, con una fuente a 30/29,97, cualquier imagen que llegaba un
+    // pelin antes de 33 ms se saltaba: el video iba a tirones.)
+    let mut frame_no: u64 = 0;
     let mut scratch: Vec<u8> = Vec::new();
     let mut small: Vec<u8> = Vec::new();
     let mut phase = 0.0f64;
@@ -540,8 +543,11 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         if kind != FRAME_VIDEO {
             continue;
         }
-        if last_sent.elapsed() >= min_gap && !frame.data.is_null() && frame.xres > 0 && frame.yres > 0 {
-            last_sent = Instant::now();
+        let src_fps = if frame.frame_rate_d > 0 { frame.frame_rate_n as f64 / frame.frame_rate_d as f64 } else { 30.0 };
+        let every = ((src_fps / 30.0).round() as u64).max(1);
+        let keep = frame_no % every == 0;
+        frame_no = frame_no.wrapping_add(1);
+        if keep && !frame.data.is_null() && frame.xres > 0 && frame.yres > 0 {
             let (w, h, stride) = (frame.xres as usize, frame.yres as usize, frame.line_stride.max(0) as usize);
             // Copia compacta (sin el relleno de cada linea) para el codificador.
             scratch.resize(w * h * 4, 0);

@@ -409,6 +409,7 @@ export function StreamingTab({
       emission.configError,
     ),
     log: streamStatus?.outputs.find((output) => output.id === emission.key)?.log ?? null,
+    stats: streamStatus?.outputs.find((output) => output.id === emission.key)?.stats ?? null,
   }));
   const statusByKey = new Map(rows.map((row) => [row.key, row.status]));
   const dotFor = (key: string) => {
@@ -514,6 +515,11 @@ export function StreamingTab({
             {row.status.error && (
               <p className="stream-status-error" title={row.status.error}>
                 {row.status.error}
+              </p>
+            )}
+            {row.stats && (
+              <p className="hint stream-status-stats" title="Velocidad 1.00x = en tiempo real. Si las duplicadas suben sin parar, la fuente no llega a tiempo; si la velocidad baja de 1, no da abasto el ordenador o la subida a internet.">
+                {row.stats}
               </p>
             )}
             {row.log && (
