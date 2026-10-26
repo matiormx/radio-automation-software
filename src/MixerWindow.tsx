@@ -9,14 +9,14 @@ import {
   nextColor,
   type Device,
   CompressorControls,
-  PluginSlots,
+  PluginPicker,
   setVstHidden,
 } from "./components/MixerControls";
 import { vstEditor } from "./api";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
-import type { MixerAgc, MixerBus, MixerChannel, MixerSend, Settings } from "./types";
+import type { MixerAgc, MixerBus, MixerChannel, MixerSend, PluginSlot, Settings } from "./types";
 import type { SharedState } from "./SettingsWindow";
 
 /**
@@ -63,19 +63,113 @@ function fmtDb(db: number): string {
   return `${r > 0 ? "+" : ""}${r.toFixed(1)}`;
 }
 
-function fxTitle(plugins: { name: string }[] | undefined): string {
-  const list = plugins ?? [];
-  if (list.length === 0) return "Plugins VST3: clic para añadir";
-  if (list.length === 1) return `Clic: abrir la ventana de ${list[0].name}\nClic derecho: gestionar plugins`;
-  return `${list.map((p) => p.name).join(" → ")}\nClic: elegir cuál abrir`;
-}
-
-/** Rotulo de la ranura de plugins: «FX», «FX · Nombre» o «FX · 3». */
-function fxLabel(plugins: { name: string }[] | undefined): string {
-  const list = plugins ?? [];
-  if (list.length === 0) return "FX";
-  if (list.length === 1) return `FX · ${list[0].name}`;
-  return `FX · ${list.length}`;
+/**
+ * Plugins VST3 de un canal o bus, uno por casilla. Doble clic: abre su
+ * ventana. Clic derecho: bypass, desactivar, mover o quitar. La casilla
+ * «+ FX» del final añade otro.
+ */
+function FxSlots({
+  plugins,
+  isNative,
+  onChange,
+}: {
+  plugins: PluginSlot[];
+  isNative: boolean;
+  onChange: (plugins: PluginSlot[]) => void;
+}) {
+  const [menu, setMenu] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const patch = (id: string, change: Partial<PluginSlot>) =>
+    onChange(plugins.map((x) => (x.id === id ? { ...x, ...change } : x)));
+  const move = (i: number, d: -1 | 1) => {
+    const j = i + d;
+    if (j < 0 || j >= plugins.length) return;
+    const next = plugins.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const open = (p: PluginSlot) => {
+    setErr("");
+    if (p.off) {
+      setErr("Está desactivado: actívalo para abrirlo.");
+      setMenu(p.id);
+      return;
+    }
+    void vstEditor(p).catch((e) => {
+      setErr(String(e));
+      setMenu(p.id);
+    });
+  };
+  return (
+    <>
+      {plugins.map((p, i) => {
+        const state = p.off ? "desactivado" : !p.enabled ? "bypass" : "activo";
+        return (
+          <div key={p.id} className="mx-fx-cell">
+            <button
+              type="button"
+              className={`mx-slot ${p.off ? "mx-fx-off" : !p.enabled ? "mx-fx-bypass" : "mx-slot-on"}`}
+              title={`${p.name} (${state})\nDoble clic: abrir · Clic derecho: opciones`}
+              onDoubleClick={() => open(p)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setErr("");
+                setMenu(menu === p.id ? null : p.id);
+              }}
+            >
+              <span className="mx-slot-name">{p.name || "Plugin"}</span>
+              {!p.off && !p.enabled && <span className="mx-slot-val">BYP</span>}
+            </button>
+            <Pop open={menu === p.id} onClose={closeMenu}>
+              <div className="mx-menu">
+                <div className="mx-pop-title">{p.name}</div>
+                <button type="button" disabled={p.off} onClick={() => { setMenu(null); open(p); }}>
+                  Abrir ventana
+                </button>
+                <button type="button" disabled={p.off} onClick={() => { patch(p.id, { enabled: !p.enabled }); setMenu(null); }}>
+                  {p.enabled ? "Bypass (dejar pasar sin procesar)" : "Quitar bypass"}
+                </button>
+                <button type="button" onClick={() => { patch(p.id, { off: !p.off }); setMenu(null); }}>
+                  {p.off ? "Activar" : "Desactivar (no se carga)"}
+                </button>
+                <button type="button" disabled={i === 0} onClick={() => { move(i, -1); setMenu(null); }}>
+                  Subir
+                </button>
+                <button type="button" disabled={i === plugins.length - 1} onClick={() => { move(i, 1); setMenu(null); }}>
+                  Bajar
+                </button>
+                <button type="button" className="mx-menu-danger" onClick={() => { onChange(plugins.filter((x) => x.id !== p.id)); setMenu(null); }}>
+                  Quitar
+                </button>
+                {err && <p className="mixer-insert-hint">{err}</p>}
+              </div>
+            </Pop>
+          </div>
+        );
+      })}
+      <div className="mx-fx-cell">
+        <button
+          type="button"
+          className="mx-slot mx-fx-add"
+          title="Añadir un plugin VST3"
+          onClick={() => setMenu(menu === "add" ? null : "add")}
+        >
+          + FX
+        </button>
+        <Pop open={menu === "add"} onClose={closeMenu}>
+          <PluginPicker
+            isNative={isNative}
+            onPick={(path, name) => {
+              const id = `vst${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+              onChange([...plugins, { id, path, name, enabled: true }]);
+              setMenu(null);
+            }}
+          />
+        </Pop>
+      </div>
+    </>
+  );
 }
 
 type MonoMode = "off" | "sum" | "left" | "right";
@@ -876,7 +970,6 @@ function ChannelStrip({
   onRemove: () => void;
 }) {
   const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "in" | "gain" | "out" | `send:${number}`>("");
-  const [fxError, setFxError] = useState("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
@@ -1029,7 +1122,7 @@ function ChannelStrip({
       </div>
 
       <div className="mx-section">
-        <span className="mx-label">INSERTS</span>
+        <span className="mx-label">INSERT</span>
         <button
           type="button"
           className={`mx-slot ${ch.insert?.enabled ? "mx-slot-on" : ""}`}
@@ -1037,48 +1130,29 @@ function ChannelStrip({
         >
           {ch.insert?.enabled ? "Envío/Ret." : "—"}
         </button>
+      </div>
+      <div className="mx-section">
+        <span className="mx-label">FX</span>
         <button
           type="button"
-          className={`mx-slot ${ch.leveler?.enabled ? "mx-slot-on" : ""}`}
+          className={`mx-slot ${ch.leveler?.enabled ? "mx-slot-on" : "mx-fx-idle"}`}
+          title="Nivelador automático (clic para ajustar)"
           onClick={() => setPop(pop === "leveler" ? "" : "leveler")}
         >
-          {ch.leveler?.enabled ? "Nivelador" : "—"}
+          Nivelador
         </button>
         <button
           type="button"
-          className={`mx-slot ${ch.compressor?.enabled ? "mx-slot-on" : ""}`}
+          className={`mx-slot ${ch.compressor?.enabled ? "mx-slot-on" : "mx-fx-idle"}`}
+          title="Compresor (clic para ajustar)"
           onClick={() => setPop(pop === "comp" ? "" : "comp")}
         >
-          {ch.compressor?.enabled ? `Comp ${ch.compressor.ratio}:1` : "—"}
+          {ch.compressor?.enabled ? `Comp ${ch.compressor.ratio}:1` : "Compresor"}
         </button>
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={ch} label={ch.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
-        <button
-          type="button"
-          className={`mx-slot ${(ch.plugins ?? []).some((p) => p.enabled) ? "mx-slot-on" : ""}`}
-          title={fxTitle(ch.plugins)}
-          onClick={() => {
-            const list = ch.plugins ?? [];
-            // Con un solo plugin, el clic abre su ventana; si no, la lista.
-            if (list.length === 1 && pop !== "vst") {
-              setFxError("");
-              void vstEditor(list[0]).catch((e) => {
-                setFxError(String(e));
-                setPop("vst");
-              });
-            } else setPop(pop === "vst" ? "" : "vst");
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setPop(pop === "vst" ? "" : "vst");
-          }}
-        >
-          {fxLabel(ch.plugins)}
-        </button>
-        <Pop open={pop === "vst"} onClose={close}>
-          <PluginSlots owner={ch} isNative={isNative} initialError={fxError} onChange={(plugins) => onPatch({ plugins })} />
-        </Pop>
+        <FxSlots plugins={ch.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls
             owner={ch}
@@ -1290,7 +1364,6 @@ function BusStrip({
   onRemove: () => void;
 }) {
   const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "io">("");
-  const [fxError, setFxError] = useState("");
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
   const outputLabel =
@@ -1306,7 +1379,7 @@ function BusStrip({
         </span>
       </div>
       <div className="mx-section">
-        <span className="mx-label">INSERTS</span>
+        <span className="mx-label">INSERT</span>
         <button
           type="button"
           className={`mx-slot ${bus.insert?.enabled ? "mx-slot-on" : ""}`}
@@ -1314,48 +1387,29 @@ function BusStrip({
         >
           {bus.insert?.enabled ? "Envío/Ret." : "—"}
         </button>
+      </div>
+      <div className="mx-section">
+        <span className="mx-label">FX</span>
         <button
           type="button"
-          className={`mx-slot ${bus.leveler?.enabled ? "mx-slot-on" : ""}`}
+          className={`mx-slot ${bus.leveler?.enabled ? "mx-slot-on" : "mx-fx-idle"}`}
+          title="Nivelador automático (clic para ajustar)"
           onClick={() => setPop(pop === "leveler" ? "" : "leveler")}
         >
-          {bus.leveler?.enabled ? "Nivelador" : "—"}
+          Nivelador
         </button>
         <button
           type="button"
-          className={`mx-slot ${bus.compressor?.enabled ? "mx-slot-on" : ""}`}
+          className={`mx-slot ${bus.compressor?.enabled ? "mx-slot-on" : "mx-fx-idle"}`}
+          title="Compresor (clic para ajustar)"
           onClick={() => setPop(pop === "comp" ? "" : "comp")}
         >
-          {bus.compressor?.enabled ? `Comp ${bus.compressor.ratio}:1` : "—"}
+          {bus.compressor?.enabled ? `Comp ${bus.compressor.ratio}:1` : "Compresor"}
         </button>
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={bus} label={bus.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
-        <button
-          type="button"
-          className={`mx-slot ${(bus.plugins ?? []).some((p) => p.enabled) ? "mx-slot-on" : ""}`}
-          title={fxTitle(bus.plugins)}
-          onClick={() => {
-            const list = bus.plugins ?? [];
-            // Con un solo plugin, el clic abre su ventana; si no, la lista.
-            if (list.length === 1 && pop !== "vst") {
-              setFxError("");
-              void vstEditor(list[0]).catch((e) => {
-                setFxError(String(e));
-                setPop("vst");
-              });
-            } else setPop(pop === "vst" ? "" : "vst");
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setPop(pop === "vst" ? "" : "vst");
-          }}
-        >
-          {fxLabel(bus.plugins)}
-        </button>
-        <Pop open={pop === "vst"} onClose={close}>
-          <PluginSlots owner={bus} isNative={isNative} initialError={fxError} onChange={(plugins) => onPatch({ plugins })} />
-        </Pop>
+        <FxSlots plugins={bus.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls owner={bus} label={bus.name} inputs={inputs} outputs={outputs} onChange={(insert) => onPatch({ insert })} />
         </Pop>

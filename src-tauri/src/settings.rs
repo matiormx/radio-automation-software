@@ -370,7 +370,11 @@ pub struct PluginSlot {
     pub id: String,
     pub path: String,
     pub name: String,
+    /// false = bypass (cargado pero sin procesar)
     pub enabled: bool,
+    /// Desactivado: ni se carga ni gasta CPU
+    #[serde(default)]
+    pub off: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

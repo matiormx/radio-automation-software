@@ -4411,3 +4411,16 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 .vst-plugin strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vst-plugin span, .vst-plugin small { opacity: .65; white-space: nowrap; }
 .vst-plugin-hidden { opacity: .45; }
+
+/* Casillas FX de la mesa */
+.mx-fx-cell { display: block; }
+.mx-fx-cell > .mx-slot { width: 100%; box-sizing: border-box; }
+.mx-fx-idle { color: var(--text-faint); }
+.mx-fx-bypass { background: #3a3320; border-color: #6b5a26; color: #f0dca0; }
+.mx-fx-off { color: var(--text-faint); text-decoration: line-through; opacity: .7; }
+.mx-fx-add { color: var(--text-faint); border-style: dashed; }
+.mx-menu { display: flex; flex-direction: column; gap: 2px; min-width: 200px; }
+.mx-menu > button { text-align: left; background: none; border: 0; color: var(--text); padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; }
+.mx-menu > button:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
+.mx-menu > button:disabled { opacity: .4; cursor: default; }
+.mx-menu-danger { color: #ff8a8a !important; }

@@ -310,7 +310,10 @@ export interface PluginSlot {
   /** Ruta del .vst3 */
   path: string;
   name: string;
+  /** false = bypass (cargado, sin procesar) */
   enabled: boolean;
+  /** Desactivado: ni se carga ni gasta CPU */
+  off?: boolean;
 }
 
 export interface CompressorSettings {

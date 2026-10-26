@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { CompressorSettings, InsertSettings, LevelerSettings, PluginSlot } from "../types";
-import { pickVstFile, vstEditor, vstScan } from "../api";
+import type { CompressorSettings, InsertSettings, LevelerSettings } from "../types";
+import { pickVstFile, vstScan } from "../api";
 import { levelerOf } from "../leveler";
 
 /** Controles compartidos de la mesa (ventana Mixer y Ajustes → Sonido). */
@@ -348,115 +348,69 @@ export function setVstHidden(list: string[] | undefined) {
   vstHiddenNow = list ?? [];
 }
 
-/** Plugins VST3 de un canal o bus: se abren con clic, se apagan y se quitan. */
-export function PluginSlots({
-  owner,
+/**
+ * Selector para añadir un plugin VST3: busca los del equipo (sin los ocultos
+ * en Ajustes > Plugins VST) o deja elegir el archivo .vst3.
+ */
+export function PluginPicker({
   isNative,
-  hidden = [],
-  initialError = "",
-  onChange,
+  onPick,
 }: {
-  /** Error al abrir directamente desde la ranura */
-  initialError?: string;
-  owner: { plugins?: PluginSlot[] };
   isNative: boolean;
-  /** Rutas ocultas en Ajustes > Sonido > Plugins VST3 */
-  hidden?: string[];
-  onChange: (plugins: PluginSlot[]) => void;
+  onPick: (path: string, name: string) => void;
 }) {
-  const plugins = owner.plugins ?? [];
   const [found, setFound] = useState<{ name: string; vendor: string; path: string }[] | null>(null);
-  const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
-  const [error, setError] = useState(initialError);
-  useEffect(() => setError(initialError), [initialError]);
-  const add = (path: string, name: string) => {
-    const id = `vst${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    onChange([...plugins, { id, path, name, enabled: true }]);
-    setFound(null);
-  };
-  const scan = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const hide = new Set([...hidden, ...vstHiddenNow].map((h) => h.toLowerCase()));
-      setFound((await vstScan()).plugins.filter((p) => !hide.has(p.path.toLowerCase())));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const move = (i: number, d: -1 | 1) => {
-    const j = i + d;
-    if (j < 0 || j >= plugins.length) return;
-    const next = plugins.slice();
-    [next[i], next[j]] = [next[j], next[i]];
-    onChange(next);
-  };
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void vstScan()
+      .then((r) => {
+        if (!alive) return;
+        const hide = new Set(vstHiddenNow.map((h) => h.toLowerCase()));
+        setFound(r.plugins.filter((p) => !hide.has(p.path.toLowerCase())));
+      })
+      .catch((e) => alive && setError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const list = (found ?? []).filter((p) => `${p.name} ${p.vendor}`.toLowerCase().includes(filter.toLowerCase()));
   return (
     <div className="mixer-leveler vst-slots">
-      <div className="mx-pop-title">Plugins VST3</div>
+      <div className="mx-pop-title">Añadir plugin VST3</div>
       {!isNative && <p className="mixer-insert-hint">Los plugins solo suenan con el motor nativo.</p>}
-      {plugins.length === 0 && <p className="mixer-insert-hint">Sin plugins. Se procesan en orden, después del compresor.</p>}
-      {plugins.map((p, i) => (
-        <div key={p.id} className={`vst-row ${p.enabled ? "" : "vst-off"}`}>
-          <button type="button" className="vst-name" title={`Abrir la ventana de ${p.name}\n${p.path}`} onClick={() => {
-              setError("");
-              void vstEditor(p).catch((e) => setError(String(e)));
-            }}>
-            {p.name || p.path.split(/[\\/]/).pop()}
-          </button>
-          <button type="button" className="vst-mini" title="Subir" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
-          <button
-            type="button"
-            className={`vst-mini ${p.enabled ? "vst-on" : ""}`}
-            title={p.enabled ? "Activo (clic: puentear)" : "Puenteado (clic: activar)"}
-            onClick={() => onChange(plugins.map((x) => (x.id === p.id ? { ...x, enabled: !x.enabled } : x)))}
-          >
-            {p.enabled ? "ON" : "OFF"}
-          </button>
-          <button type="button" className="vst-mini" title="Quitar" onClick={() => onChange(plugins.filter((x) => x.id !== p.id))}>✕</button>
+      <div className="vst-pick">
+        <input
+          autoFocus
+          placeholder={found ? `Buscar entre ${found.length} plugins…` : "Buscando plugins…"}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <div className="vst-list">
+          {found && list.length === 0 && (
+            <span className="mixer-insert-hint">
+              No hay plugins VST3 (o están ocultos). Revisa las carpetas en Ajustes &gt; Plugins VST.
+            </span>
+          )}
+          {list.map((p) => (
+            <button key={p.path} type="button" className="vst-item" title={p.path} onClick={() => onPick(p.path, p.name)}>
+              <strong>{p.name}</strong> <span>{p.vendor}</span>
+            </button>
+          ))}
         </div>
-      ))}
-      {found === null ? (
-        <div className="vst-add">
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void scan()}>
-            {busy ? "Buscando plugins…" : "+ Añadir plugin"}
-          </button>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={() =>
-              void pickVstFile().then((path) => {
-                if (path) add(path, path.split(/[\\/]/).pop()?.replace(/\.vst3$/i, "") ?? "Plugin");
-              })
-            }
-          >
-            Elegir archivo…
-          </button>
-        </div>
-      ) : (
-        <div className="vst-pick">
-          <input autoFocus placeholder={`Buscar entre ${found.length} plugins…`} value={filter} onChange={(e) => setFilter(e.target.value)} />
-          <div className="vst-list">
-            {list.length === 0 && (
-              <span className="mixer-insert-hint">
-                No hay plugins VST3 (o están ocultos). Revisa las carpetas en Ajustes &gt; Sonido &gt; Plugins VST3.
-              </span>
-            )}
-            {list.map((p) => (
-              <button key={p.path} type="button" className="vst-item" title={p.path} onClick={() => add(p.path, p.name)}>
-                <strong>{p.name}</strong> <span>{p.vendor}</span>
-              </button>
-            ))}
-          </div>
-          <button type="button" className="ghost-btn" onClick={() => setFound(null)}>
-            Cancelar
-          </button>
-        </div>
-      )}
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() =>
+            void pickVstFile().then((path) => {
+              if (path) onPick(path, path.split(/[\\/]/).pop()?.replace(/\.vst3$/i, "") ?? "Plugin");
+            })
+          }
+        >
+          Elegir archivo .vst3…
+        </button>
+      </div>
       {error && <p className="mixer-insert-hint">{error}</p>}
     </div>
   );

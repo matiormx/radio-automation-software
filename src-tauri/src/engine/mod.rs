@@ -488,7 +488,7 @@ pub async fn vst_scan(state: State<'_, crate::AppState>) -> Result<vst::ScanResu
 /// Abre la ventana del plugin de una ranura (lo carga si hace falta).
 #[tauri::command]
 pub async fn vst_editor(slot: String, path: String, name: String) -> Result<(), String> {
-    let cfg = vst::PluginCfg { id: slot, path, name, enabled: true };
+    let cfg = vst::PluginCfg { id: slot, path, name, enabled: true, off: false };
     tauri::async_runtime::spawn_blocking(move || vst::open_editor(cfg)).await.map_err(|e| e.to_string())?
 }
 

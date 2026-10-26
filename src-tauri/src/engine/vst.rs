@@ -29,8 +29,10 @@ pub struct PluginCfg {
     /// Ruta del .vst3
     pub path: String,
     pub name: String,
-    /// Apagado = la señal pasa sin tocar
+    /// Apagado = la señal pasa sin tocar (bypass)
     pub enabled: bool,
+    /// Desactivado: no se carga
+    pub off: bool,
 }
 
 /// Un plugin cargado.
@@ -233,7 +235,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
         match cmd {
             Ok(Cmd::Ensure(slots, reply)) => {
                 let mut errors = Vec::new();
-                let wanted: HashMap<String, PluginCfg> = slots.into_iter().map(|s| (s.id.clone(), s)).collect();
+                let wanted: HashMap<String, PluginCfg> = slots.into_iter().filter(|s| !s.off).map(|s| (s.id.clone(), s)).collect();
                 // Fuera lo que ya no esta (o cambio de archivo)
                 let gone: Vec<String> = loaded
                     .iter()
@@ -298,10 +300,18 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 }
                 let res = match loaded.get_mut(&cfg.id) {
                     None => Err("El plugin no está cargado".to_string()),
-                    Some(l) if l.window.as_ref().map(|w| w.is_open()).unwrap_or(false) => Ok(()),
+                    Some(l) if l.window.as_ref().map(|w| w.is_open()).unwrap_or(false) => {
+                        raise_editor(&l.host);
+                        Ok(())
+                    }
                     Some(l) => {
                         let mut w = PluginWindow::new(l.host.plugin.clone());
-                        w.open().map(|_| l.window = Some(w)).map_err(|e| format!("No se pudo abrir el editor: {e}"))
+                        let r = w.open().map(|_| l.window = Some(w)).map_err(|e| format!("No se pudo abrir el editor: {e}"));
+                        if r.is_ok() {
+                            pump_messages();
+                            raise_editor(&l.host);
+                        }
+                        r
                     }
                 };
                 let _ = reply.send(res);
@@ -369,6 +379,41 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
         }
     }
 }
+
+/// Pone la ventana del editor delante de todo (y encima de MiRadio).
+#[cfg(windows)]
+fn raise_editor(host: &Host) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowW(class: *const u16, title: *const u16) -> isize;
+        fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+        fn SetForegroundWindow(hwnd: isize) -> i32;
+        fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
+        fn IsIconic(hwnd: isize) -> i32;
+    }
+    let name = match host.plugin.lock() {
+        Ok(p) => p.info().name.clone(),
+        Err(_) => return,
+    };
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let class = wide("VST3PluginWindow");
+    let title = wide(&format!("{name} - VST3"));
+    unsafe {
+        let hwnd = FindWindowW(class.as_ptr(), title.as_ptr());
+        if hwnd == 0 {
+            return;
+        }
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, 9); // SW_RESTORE
+        }
+        // HWND_TOPMOST; SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+        SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0040);
+        SetForegroundWindow(hwnd);
+    }
+}
+
+#[cfg(not(windows))]
+fn raise_editor(_host: &Host) {}
 
 #[cfg(windows)]
 fn pump_messages() {

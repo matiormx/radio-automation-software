@@ -29,7 +29,7 @@ pub fn db_to_gain(db: f64) -> f32 {
 
 /// Plugins activos ya cargados de una ranura (los que faltan se saltan).
 fn fx_of(cfgs: &[PluginCfg]) -> Vec<Arc<VstHost>> {
-    cfgs.iter().filter(|p| p.enabled).filter_map(|p| super::vst::get(&p.id)).collect()
+    cfgs.iter().filter(|p| p.enabled && !p.off).filter_map(|p| super::vst::get(&p.id)).collect()
 }
 
 /// Id de captura de una entrada: `nombre` (canales 1-2), `nombre#P` (par P) o
