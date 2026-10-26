@@ -655,3 +655,43 @@ export function fsList(path: string): Promise<FsListing> {
 export function fsPlaces(): Promise<FsPlace[]> {
   return invoke("fs_places");
 }
+
+export interface VstPkg {
+  item: {
+    id: string;
+    name: string;
+    vendor: string;
+    description: string;
+    category: string;
+    license: string;
+    homepage: string;
+    repo: string;
+    platforms: string[];
+  };
+  available: boolean;
+  installed: { version: string; files: string[]; installedAt: number; pending: string | null } | null;
+  latest: string | null;
+  busy: boolean;
+}
+export interface VstPkgProgress {
+  id: string;
+  busy: boolean;
+  phase: string;
+  fraction: number;
+  error: string | null;
+  done: string | null;
+}
+
+/** Catálogo de plugins recomendados con su estado. */
+export function vstPkgList(): Promise<VstPkg[]> {
+  return invoke("vstpkg_list");
+}
+export function vstPkgInstall(id: string): Promise<void> {
+  return invoke("vstpkg_install", { id });
+}
+export function vstPkgCheck(): Promise<void> {
+  return invoke("vstpkg_check");
+}
+export function vstPkgRemove(id: string): Promise<string> {
+  return invoke("vstpkg_remove", { id });
+}

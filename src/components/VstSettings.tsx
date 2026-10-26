@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Settings } from "../types";
 import { pickVstFolder, vstScan, type VstScanResult } from "../api";
+import { VstRecommended } from "./VstRecommended";
 
 /**
  * Ajustes > Sonido > Plugins VST3: en qué carpetas se buscan, añadir otras y
@@ -57,6 +58,8 @@ export function VstSettings({ settings, onChange }: { settings: Settings; onChan
         Los plugins se cargan en las ranuras FX de cada canal y bus de la mesa (suenan con el motor nativo). Haz clic en
         el nombre del plugin en la ranura para abrir su ventana.
       </p>
+
+      <VstRecommended onInstalled={() => void scan()} />
 
       <div className="field-label">Carpetas donde se buscan</div>
       <ul className="vst-folders">

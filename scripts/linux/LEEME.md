@@ -16,7 +16,10 @@ tareas y sin nada más. Si MiRadio se cierra o se cuelga, se vuelve a abrir.
 
 3. Reinicia (`sudo reboot`). Arranca solo en MiRadio con el usuario `radio`.
 
-Opciones: `sudo KIOSK_USER=estudio CABLES=6 bash instalar-quiosco.sh`, o
+En el primer arranque MiRadio instala de serie LSP Plugins, Airwindows y
+Dragonfly Reverb (y los mantiene al día; más en Ajustes › Plugins VST).
+
+Opciones: `sudo KIOSK_USER=estudio CABLES=6 PLUGINS="lsp dragonfly" bash instalar-quiosco.sh`, o
 `MIRADIO_APPIMAGE=/ruta/MiRadio.AppImage` para instalar un AppImage concreto.
 
 ## Para el técnico

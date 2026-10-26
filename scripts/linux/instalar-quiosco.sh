@@ -11,6 +11,8 @@
 #   KIOSK_USER=radio            usuario que arranca solo (se crea si no existe)
 #   MIRADIO_APPIMAGE=/ruta.AppImage   usar este AppImage en vez de descargarlo
 #   CABLES=4                    cables de audio virtuales (8 canales cada uno)
+#   PLUGINS="lsp airwindows dragonfly"   plugins VST3 que MiRadio instala al
+#                               primer arranque ("" = ninguno; ver Ajustes › Plugins VST)
 #
 # Salidas de emergencia para el técnico:
 #   Ctrl+Alt+T  terminal          Ctrl+Alt+F2  consola de texto (login normal)
@@ -21,6 +23,7 @@ set -euo pipefail
 
 KIOSK_USER="${KIOSK_USER:-radio}"
 CABLES="${CABLES:-4}"
+PLUGINS="${PLUGINS-lsp airwindows dragonfly}"
 REPO="matiormx/radio-automation-software"
 APP_DIR="/opt/miradio"
 APP="$APP_DIR/MiRadio.AppImage"
@@ -135,6 +138,15 @@ wireplumber.profiles = {
   }
 }
 EOF
+
+say "Plugins VST3 de serie: ${PLUGINS:-ninguno}"
+# MiRadio los descarga e instala en su primer arranque (y los mantiene al día).
+if [ -n "$PLUGINS" ]; then
+  DATA_DIR="$(getent passwd "$KIOSK_USER" | cut -d: -f6)/.local/share/com.miradio.app"
+  install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$(dirname "$DATA_DIR")" "$DATA_DIR"
+  printf '%s\n' $PLUGINS > "$DATA_DIR/vst-preinstall"
+  chown "$KIOSK_USER:$KIOSK_USER" "$DATA_DIR/vst-preinstall"
+fi
 
 say "Arranque automático en MiRadio"
 mkdir -p /etc/systemd/system/getty@tty1.service.d

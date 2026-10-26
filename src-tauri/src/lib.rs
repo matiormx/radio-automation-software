@@ -24,6 +24,7 @@ pub mod x11util;
 pub mod ffmpeg_dl;
 pub mod media;
 pub mod explorer;
+pub mod vstpkg;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -50,6 +51,8 @@ pub fn run() {
             backup::apply_pending(&data_dir);
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
+            // Plugins actualizados que estaban en uso: se colocan antes de cargar la mesa.
+            vstpkg::apply_pending(&data_dir);
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             app.manage(engine::EngineState::default());
@@ -57,6 +60,7 @@ pub fn run() {
             app.manage(notify::NotifyState::default());
             // FFmpeg: si falta se descarga solo; si es el de MiRadio, se mantiene al dia.
             ffmpeg_dl::on_startup(app.handle().clone());
+            vstpkg::on_startup(app.handle().clone());
             Ok(())
         })
         // Las ventanas de herramientas se ocultan al cerrarse: al cerrar la
@@ -89,6 +93,10 @@ pub fn run() {
             cursor::cursor_wall,
             ffmpeg_dl::ffmpeg_info,
             explorer::fs_list,
+            vstpkg::vstpkg_list,
+            vstpkg::vstpkg_install,
+            vstpkg::vstpkg_check,
+            vstpkg::vstpkg_remove,
             explorer::fs_places,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
