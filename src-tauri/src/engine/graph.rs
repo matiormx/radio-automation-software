@@ -899,3 +899,187 @@ mod delay_tests {
         assert!(DelayLine::new(false).buf.is_empty());
     }
 }
+
+#[cfg(test)]
+mod echo_tests {
+    use super::*;
+
+    /// Pasa ruido identico en L y R (una «voz centrada») por la mesa de un
+    /// settings.json real (MIRADIO_MIX_JSON) y busca en cada salida: L != R,
+    /// copias retrasadas (eco/peine) o inversion de fase.
+    #[test]
+    fn mix_keeps_centre_clean() {
+        let Ok(path) = std::env::var("MIRADIO_MIX_JSON") else { return };
+        let mut cfg: MixConfig = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        // Sin inserts (no hay tarjetas): se prueba la mesa en si.
+        for c in cfg.mixer_channels.iter_mut() {
+            c.insert.enabled = false;
+        }
+        for b in cfg.mixer_buses.iter_mut() {
+            b.insert.enabled = false;
+        }
+        let mut plan = Plan::build(&cfg, 1.0, None);
+        let total = 48_000 * 6;
+        let mut seed = 12345u32;
+        let mut input = Vec::with_capacity(total);
+        for _ in 0..total {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            input.push(((seed >> 8) as f32 / 16_777_216.0 - 0.5) * 0.2);
+        }
+        let mut outs: Vec<Vec<f32>> = vec![Vec::new(); plan.outs.len()];
+        let silence = vec![0.0f32; MAX_BLOCK * 2];
+        let mut pos = 0;
+        while pos < total {
+            let n = (total - pos).min(MAX_BLOCK);
+            let mut music = vec![0.0f32; n * 2];
+            for i in 0..n {
+                music[i * 2] = input[pos + i];
+                music[i * 2 + 1] = input[pos + i];
+            }
+            plan.render(n, &music, &silence[..n * 2], &silence[..n * 2], &[]);
+            for (k, o) in plan.outs.iter().enumerate() {
+                outs[k].extend_from_slice(&o.buf[..n * 2]);
+            }
+            pos += n;
+        }
+        let mut problems = Vec::new();
+        for (k, o) in plan.outs.iter().enumerate() {
+            let out = &outs[k];
+            let frames = out.len() / 2;
+            let energy: f32 = out.iter().map(|x| x * x).sum::<f32>() / out.len().max(1) as f32;
+            if energy < 1e-9 {
+                eprintln!("salida «{}»: silencio", o.device);
+                continue;
+            }
+            let mut lr = 0.0f32;
+            for f in out.chunks_exact(2) {
+                lr = lr.max((f[0] - f[1]).abs());
+            }
+            // Correlacion cruzada con la entrada (desde 2 s: niveladores asentados)
+            let start = 96_000;
+            let corr = |lag: usize, ch: usize| -> f32 {
+                let mut s = 0.0f64;
+                let mut e = 0.0f64;
+                let mut x = 0.0f64;
+                for i in start..frames {
+                    let a = out[i * 2 + ch] as f64;
+                    let b = input[i - lag] as f64;
+                    s += a * b;
+                    e += a * a;
+                    x += b * b;
+                }
+                (s / (e.sqrt() * x.sqrt()).max(1e-12)) as f32
+            };
+            let mut best = (0usize, 0.0f32);
+            for lag in 0..4800 {
+                let c = corr(lag, 0);
+                if c.abs() > best.1.abs() {
+                    best = (lag, c);
+                }
+            }
+            let mut second = (0usize, 0.0f32);
+            for lag in 0..4800 {
+                if (lag as i64 - best.0 as i64).abs() < 2 {
+                    continue;
+                }
+                let c = corr(lag, 0);
+                if c.abs() > second.1.abs() {
+                    second = (lag, c);
+                }
+            }
+            eprintln!(
+                "salida «{}»: L-R max {lr:.5}, copia principal retraso {} (corr {:.3}), segunda copia retraso {} (corr {:.3})",
+                o.device, best.0, best.1, second.0, second.1
+            );
+            if lr > 1e-3 || best.1 < 0.9 || second.1.abs() > 0.1 {
+                problems.push(o.device.clone());
+            }
+        }
+        assert!(problems.is_empty(), "salidas con problemas: {problems:?}");
+    }
+}
+
+#[cfg(test)]
+mod song_tests {
+    use super::*;
+
+    fn seg_stats(x: &[f32], rate: usize) -> Vec<(f32, f32)> {
+        // (correlacion L-R, lado/medio en dB) por tramos de 5 s
+        let w = rate * 5;
+        let frames = x.len() / 2;
+        let mut v = Vec::new();
+        let mut i = 0;
+        while i + w <= frames {
+            let (mut sl, mut sr, mut slr, mut m, mut d) = (0f64, 0f64, 0f64, 0f64, 0f64);
+            for k in i..i + w {
+                let l = x[k * 2] as f64;
+                let r = x[k * 2 + 1] as f64;
+                sl += l * l;
+                sr += r * r;
+                slr += l * r;
+                m += ((l + r) / 2.0).powi(2);
+                d += ((l - r) / 2.0).powi(2);
+            }
+            v.push(((slr / (sl.sqrt() * sr.sqrt()).max(1e-12)) as f32, (10.0 * (d / m.max(1e-12)).log10()) as f32));
+            i += w;
+        }
+        v
+    }
+
+    /// La cancion real por la mesa real y el remuestreo a la tarjeta:
+    /// el estereo (correlacion y lado/medio) no debe cambiar.
+    #[test]
+    fn song_through_mixer_keeps_image() {
+        let (Ok(song), Ok(mix)) = (std::env::var("MIRADIO_SONG"), std::env::var("MIRADIO_MIX_JSON")) else { return };
+        let pcm = crate::engine::pcm::decode_file(std::path::Path::new(&song), 48_000).unwrap();
+        let cfg: MixConfig = serde_json::from_slice(&std::fs::read(mix).unwrap()).unwrap();
+        let mut plan = Plan::build(&cfg, 1.0, None);
+        let d = plan.out_index("default").expect("salida default");
+        let silence = vec![0.0f32; MAX_BLOCK * 2];
+        let mut engine_out = Vec::with_capacity(pcm.data.len());
+        let frames = pcm.data.len() / 2;
+        let mut pos = 0;
+        while pos < frames {
+            let n = (frames - pos).min(MAX_BLOCK);
+            plan.render(n, &pcm.data[pos * 2..(pos + n) * 2], &silence[..n * 2], &silence[..n * 2], &[]);
+            engine_out.extend_from_slice(&plan.outs[d].buf[..n * 2]);
+            pos += n;
+        }
+        // Tarjeta a 44,1 kHz como en muchos equipos
+        let mut st = crate::engine::resamp::Stretch::new();
+        let mut card = Vec::new();
+        let mut src_pos = 0usize;
+        let ratio = 48_000.0 / 44_100.0;
+        let total_out = (frames as f64 / ratio) as usize - 4096;
+        let mut done = 0;
+        while done < total_out {
+            let n = 441.min(total_out - done);
+            st.process(
+                n,
+                ratio,
+                |buf, k| {
+                    for _ in 0..k {
+                        let (l, r) = if src_pos < frames { (engine_out[src_pos * 2], engine_out[src_pos * 2 + 1]) } else { (0.0, 0.0) };
+                        buf.push(l);
+                        buf.push(r);
+                        src_pos += 1;
+                    }
+                },
+                |_, l, r| {
+                    card.push(l);
+                    card.push(r);
+                },
+            );
+            done += n;
+        }
+        let a = seg_stats(&pcm.data, 48_000);
+        let b = seg_stats(&engine_out, 48_000);
+        let c = seg_stats(&card, 44_100);
+        let mut worst = 0f32;
+        for i in 0..a.len().min(b.len()).min(c.len()) {
+            eprintln!("{:4}s archivo corr {:.3} lado {:6.1} dB | mesa corr {:.3} lado {:6.1} dB | tarjeta corr {:.3} lado {:6.1} dB", i * 5, a[i].0, a[i].1, b[i].0, b[i].1, c[i].0, c[i].1);
+            worst = worst.max((a[i].1 - b[i].1).abs()).max((a[i].1 - c[i].1).abs());
+        }
+        assert!(worst < 3.0, "la imagen estereo cambia hasta {worst} dB");
+    }
+}
