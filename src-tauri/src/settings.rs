@@ -38,6 +38,8 @@ pub struct VideoScreenSettings {
     pub mirror: bool,
     /// Si la capturadora no tiene senal: "program" (lo que suena) o "none" (negro)
     pub capture_fallback: String,
+    /// Encierra el raton en el monitor de MiRadio (Ctrl+Mayus lo libera)
+    pub cursor_wall: bool,
 }
 
 impl Default for VideoScreenSettings {
@@ -50,6 +52,7 @@ impl Default for VideoScreenSettings {
             capture_input_id: String::new(),
             mirror: false,
             capture_fallback: "program".into(),
+            cursor_wall: false,
         }
     }
 }

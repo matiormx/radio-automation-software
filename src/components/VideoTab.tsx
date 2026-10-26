@@ -223,6 +223,14 @@ export function VideoTab({ settings, onChange }: Props) {
           />
           Espejo horizontal (solo en este monitor)
         </label>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={!!vs.cursorWall}
+            onChange={(e) => setVs({ cursorWall: e.target.checked })}
+          />
+          Pared del ratón: que no se escape a este monitor (mantén Ctrl+Mayús para cruzar)
+        </label>
         {vs.source === "capture" && (
           <label className="field">
             <span className="field-label">Respaldo si la capturadora no tiene señal</span>

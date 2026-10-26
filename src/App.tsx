@@ -94,7 +94,8 @@ import {
   serveMain,
 } from "./bridge";
 import type { VideoState } from "./videoSurface";
-import { apiApply, apiPublish, backupLastImportLog, notifyFire } from "./api";
+import { apiApply, apiPublish, backupLastImportLog, cursorWall, notifyFire } from "./api";
+import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { Clock } from "./components/Clock";
@@ -3163,6 +3164,44 @@ export default function App() {
     }, 200);
     return () => window.clearInterval(t);
   }, [videoScreen.enabled, videoScreen.monitor, videoSource, showToast]);
+
+  // Pared del ratón: queda en el monitor de MiRadio y no se pierde en la pantalla de emisión.
+  useEffect(() => {
+    if (!videoScreen.enabled || !videoScreen.cursorWall) {
+      void cursorWall(null).catch(() => undefined);
+      return;
+    }
+    let last = "";
+    const tick = async () => {
+      try {
+        const [ms, main] = await Promise.all([availableMonitors(), currentMonitor()]);
+        const target = ms[videoScreen.monitor] ?? ms[0];
+        const same = !!main && !!target && main.position.x === target.position.x && main.position.y === target.position.y;
+        if (!main || ms.length < 2 || same) {
+          if (last !== "off") void cursorWall(null).catch(() => undefined);
+          last = "off";
+          return;
+        }
+        const rect: [number, number, number, number] = [
+          main.position.x,
+          main.position.y,
+          main.position.x + main.size.width,
+          main.position.y + main.size.height,
+        ];
+        const key = rect.join(",");
+        if (key !== last) void cursorWall(rect).catch(() => undefined);
+        last = key;
+      } catch {
+        /* sin monitores: sin pared */
+      }
+    };
+    void tick();
+    const t = window.setInterval(() => void tick(), 2000);
+    return () => {
+      window.clearInterval(t);
+      void cursorWall(null).catch(() => undefined);
+    };
+  }, [videoScreen.enabled, videoScreen.cursorWall, videoScreen.monitor]);
 
   // Ventana «Lo que suena» (fuera de pantalla) para las salidas que la emiten.
   const npSize = useMemo(() => {

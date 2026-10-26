@@ -322,6 +322,11 @@ export function ndiNative(): Promise<{ available: boolean; error: string | null;
   return invoke("ndi_native");
 }
 
+/** Pared del ratón: rectángulo (px físicos) donde queda encerrado, o null para quitarla. */
+export function cursorWall(rect: [number, number, number, number] | null): Promise<void> {
+  return invoke<void>("cursor_wall", { rect });
+}
+
 /** Direccion del servidor local que sirve la imagen NDI (MJPEG). */
 export function ndiServer(): Promise<string> {
   return invoke<string>("ndi_server");

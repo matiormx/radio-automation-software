@@ -487,6 +487,8 @@ export interface VideoScreenSettings {
   mirror?: boolean;
   /** Si la capturadora no tiene señal: "program" (lo que suena, por defecto) o "none" (negro) */
   captureFallback?: "program" | "none";
+  /** Encierra el ratón en el monitor de MiRadio (Ctrl+Mayús lo libera) */
+  cursorWall?: boolean;
 }
 
 export type IcecastCodec = "flac" | "aac";
