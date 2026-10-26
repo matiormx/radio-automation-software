@@ -107,6 +107,12 @@ pub struct Track {
     /// Ya se leyo la calidad del archivo
     #[serde(default)]
     pub audio_checked: bool,
+    /// «Artista del álbum» (TPE2/ALBUMARTIST): agrupa los álbumes
+    #[serde(default)]
+    pub album_artist: String,
+    /// Version de la lectura de etiquetas extra (1 = ya se leyo album_artist)
+    #[serde(default)]
+    pub tags_v: u8,
 }
 
 fn default_library() -> String {
@@ -481,7 +487,7 @@ fn read_metadata(
                     title = v.trim().to_string();
                 }
                 if let Some(v) = tag.artist().filter(|v| !v.trim().is_empty()) {
-                    artist = v.trim().to_string();
+                    artist = multi_value(&v);
                 }
                 if let Some(v) = tag.album().filter(|v| !v.trim().is_empty()) {
                     album = v.trim().to_string();
@@ -502,26 +508,35 @@ fn read_metadata(
 }
 
 /// Frecuencia, bits y kbps del archivo (0 si no se sabe).
-fn read_audio_props(path: &Path) -> (u32, u8, u32) {
+/// Calidad del archivo y «artista del album».
+fn read_audio_props(path: &Path) -> (u32, u8, u32, String) {
     match read_from_path(path) {
         Ok(tagged) => {
             let p = tagged.properties();
+            let album_artist = tagged
+                .primary_tag()
+                .or_else(|| tagged.first_tag())
+                .and_then(|t| t.get_string(lofty::tag::ItemKey::AlbumArtist).map(multi_value))
+                .unwrap_or_default();
             (
                 p.sample_rate().unwrap_or(0),
                 p.bit_depth().unwrap_or(0),
                 p.audio_bitrate().or_else(|| p.overall_bitrate()).unwrap_or(0),
+                album_artist,
             )
         }
-        Err(_) => (0, 0, 0),
+        Err(_) => (0, 0, 0, String::new()),
     }
 }
 
 fn fill_audio_props(t: &mut Track) {
-    let (r, b, k) = read_audio_props(Path::new(t.file.trim()));
+    let (r, b, k, aa) = read_audio_props(Path::new(t.file.trim()));
     t.audio_rate = r;
     t.audio_bits = b;
     t.audio_kbps = k;
+    t.album_artist = aa;
     t.audio_checked = true;
+    t.tags_v = 1;
 }
 
 /// Antes de separar «intro» y «mix», un unico marcador (`mix_point`) servia
@@ -536,6 +551,11 @@ fn is_legacy_intro_marker(mix_point: f64, intro_point: f64, duration: f64) -> bo
 /// sin `file`, el enlace se reconstruye desde el `fileName` de la
 /// carpeta interna, y un marcador de intro guardado como mix pasa a ser
 /// el punto de intro. La migracion se guarda con la siguiente escritura.
+/// «A\0B\0» -> «A, B» (varios valores de una etiqueta).
+fn multi_value(v: &str) -> String {
+    v.split('\0').map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
+}
+
 pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
     let file = data_dir.join(LIBRARY_FILE);
     match fs::read(&file) {
@@ -553,6 +573,13 @@ pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
                 if is_legacy_intro_marker(t.mix_point, t.intro_point, t.duration_secs) {
                     t.intro_point = t.mix_point;
                     t.mix_point = 0.0;
+                }
+                // Etiquetas ID3v2.4 con varios valores: vienen separados por un
+                // caracter nulo (salia como «□»).
+                for f in [&mut t.artist, &mut t.album, &mut t.title, &mut t.genre] {
+                    if f.contains('\0') {
+                        *f = multi_value(f);
+                    }
                 }
                 t
             })
@@ -646,6 +673,8 @@ pub struct TrackResolved {
     pub audio_rate: u32,
     pub audio_bits: u8,
     pub audio_kbps: u32,
+    /// «Artista del álbum»
+    pub album_artist: String,
 }
 
 impl TrackResolved {
@@ -689,6 +718,7 @@ impl TrackResolved {
             audio_rate: t.audio_rate,
             audio_bits: t.audio_bits,
             audio_kbps: t.audio_kbps,
+            album_artist: t.album_artist,
             language: t.language,
         }
     }
@@ -942,23 +972,25 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
     tauri::async_runtime::spawn_blocking(move || {
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
-            .filter(|t| !t.audio_checked && Path::new(t.file.trim()).is_file())
+            .filter(|t| (!t.audio_checked || t.tags_v < 1) && Path::new(t.file.trim()).is_file())
             .map(|t| (t.id, t.file))
             .collect();
         if pending.is_empty() {
             return Ok::<usize, String>(0);
         }
         // Se lee fuera del candado (puede tardar) y luego se guarda de una vez.
-        let props: Vec<(String, (u32, u8, u32))> =
+        let props: Vec<(String, (u32, u8, u32, String))> =
             pending.into_iter().map(|(id, f)| (id, read_audio_props(Path::new(f.trim())))).collect();
         let _guard = lock_library();
         let mut tracks = read_library_internal(&data_dir);
         let mut n = 0;
-        for (id, (r, b, k)) in props {
+        for (id, (r, b, k, aa)) in props {
             if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
                 t.audio_rate = r;
                 t.audio_bits = b;
                 t.audio_kbps = k;
+                t.album_artist = aa;
+                t.tags_v = 1;
                 t.audio_checked = true;
                 n += 1;
             }

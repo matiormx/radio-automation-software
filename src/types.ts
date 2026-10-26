@@ -37,6 +37,8 @@ export interface Track {
   cover: string;
   /** Codigo de idioma de la cancion ("es", "en"…); vacio = sin indicar */
   language?: string;
+  /** «Artista del álbum» (agrupa los álbumes) */
+  albumArtist?: string;
   /** Extension del archivo en minusculas (flac, mp3…) */
   format?: string;
   /** Calidad del archivo (0 = desconocida) */

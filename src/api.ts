@@ -698,3 +698,8 @@ export function vstPkgRemove(id: string): Promise<string> {
 export function vstLatencies(): Promise<Record<string, number>> {
   return invoke("vst_latencies");
 }
+
+/** Foto de un artista (Deezer, guardada en el equipo); null si no hay. */
+export function artistImage(name: string): Promise<string | null> {
+  return invoke("artist_image", { name });
+}

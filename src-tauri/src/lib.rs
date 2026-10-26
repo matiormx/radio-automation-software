@@ -104,6 +104,7 @@ pub fn run() {
             library::import_files,
             deezer::deezer_search,
             deezer::deezer_track,
+            deezer::artist_image,
             library::list_tracks,
             library::scan_music_folder,
             library::update_track,

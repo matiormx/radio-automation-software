@@ -115,3 +115,73 @@ pub async fn deezer_track(id: u64) -> Result<DeezerTrack, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+
+// ------------------------------------------------------------ fotos de artistas
+
+/// Foto de un artista (Deezer), guardada en <datos>/artistas/. Devuelve la
+/// ruta del archivo, o None si Deezer no lo conoce. Lo que ya se busco no se
+/// vuelve a pedir (tampoco los que no tienen foto, durante un mes).
+#[tauri::command]
+pub async fn artist_image(state: tauri::State<'_, crate::AppState>, name: String) -> Result<Option<String>, String> {
+    let dir = state.data_dir.join("artistas");
+    tauri::async_runtime::spawn_blocking(move || artist_image_blocking(&dir, &name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn artist_key(name: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let norm: String = name.trim().to_lowercase();
+    format!("{:x}", Sha256::digest(norm.as_bytes()))[..20].to_string()
+}
+
+fn artist_image_blocking(dir: &std::path::Path, name: &str) -> Result<Option<String>, String> {
+    let name = name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("Artista desconocido") {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let key = artist_key(name);
+    let img = dir.join(format!("{key}.jpg"));
+    if img.is_file() {
+        return Ok(Some(img.to_string_lossy().into_owned()));
+    }
+    // Buscado hace poco y sin foto: no se insiste.
+    let none = dir.join(format!("{key}.none"));
+    if let Ok(m) = std::fs::metadata(&none) {
+        let fresh = m.modified().ok().and_then(|t| t.elapsed().ok()).map(|d| d.as_secs() < 30 * 24 * 3600).unwrap_or(false);
+        if fresh {
+            return Ok(None);
+        }
+    }
+    let v = get_json(&format!("{API}/search/artist"), &[("q", name), ("limit", "5")])?;
+    let wanted = name.to_lowercase();
+    let list = v.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
+    // Mejor el que se llama exactamente igual; si no, el primero.
+    let hit = list
+        .iter()
+        .find(|a| s(a, &["name"]).to_lowercase() == wanted)
+        .or_else(|| list.first());
+    let url = hit.map(|a| s(a, &["picture_big"])).unwrap_or_default();
+    // Deezer devuelve una silueta gris cuando no hay foto (…/artist//…).
+    if url.is_empty() || url.contains("/artist//") {
+        let _ = std::fs::write(&none, b"");
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    use std::io::Read;
+    ureq::get(&url)
+        .timeout(Duration::from_secs(15))
+        .call()
+        .map_err(|e| format!("No se pudo descargar la foto: {e}"))?
+        .into_reader()
+        .take(5 * 1024 * 1024)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() < 500 {
+        let _ = std::fs::write(&none, b"");
+        return Ok(None);
+    }
+    std::fs::write(&img, &bytes).map_err(|e| e.to_string())?;
+    Ok(Some(img.to_string_lossy().into_owned()))
+}
