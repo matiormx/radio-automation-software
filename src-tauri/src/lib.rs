@@ -30,9 +30,27 @@ pub struct AppState {
     pub data_dir: PathBuf,
 }
 
+/// Cierra MiRadio de verdad (la X solo minimiza). La confirmacion la pide la
+/// ventana principal antes de llamar aqui.
+#[tauri::command]
+fn app_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Primero de todo: si ya hay un MiRadio abierto, se trae al frente y
+    // este segundo arranque termina sin abrir nada.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }));
+    builder
         // .m4v (y similares) servidos como MP4: el protocolo normal les pone
         // un tipo que el WebView no reproduce.
         .register_asynchronous_uri_scheme_protocol("media", |_ctx, request, responder| {
@@ -67,8 +85,16 @@ pub fn run() {
         // principal la aplicacion termina del todo.
         .on_window_event(|window, event| {
             if window.label() == "main" {
-                if let tauri::WindowEvent::Destroyed = event {
-                    window.app_handle().exit(0);
+                match event {
+                    // La X (y Alt+F4, o cerrar desde la barra de tareas) no
+                    // cierra la emisora: la manda a la barra de tareas. Para
+                    // cerrar de verdad: Ajustes › Copia y actualizaciones.
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = window.minimize();
+                    }
+                    tauri::WindowEvent::Destroyed => window.app_handle().exit(0),
+                    _ => {}
                 }
             }
         })
@@ -91,6 +117,7 @@ pub fn run() {
             ndi::ndi_native,
             ndi::ndi_server,
             cursor::cursor_wall,
+            app_quit,
             ffmpeg_dl::ffmpeg_info,
             explorer::fs_list,
             vstpkg::vstpkg_list,

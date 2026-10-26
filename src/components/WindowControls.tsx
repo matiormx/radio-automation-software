@@ -4,10 +4,19 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 /**
  * Botones de ventana propios (la barra de Windows esta oculta): minimizar,
  * maximizar/restaurar y cerrar, al estilo de las apps de Windows 11.
- * Cerrar pasa por la confirmacion de cierre (onCloseRequested).
+ * En la ventana principal la X minimiza (no se puede cerrar la emisora por
+ * descuido); se cierra de verdad desde Ajustes › Copia y actualizaciones.
  */
 export function WindowControls() {
   const [maximized, setMaximized] = useState(false);
+  // En la principal la X no cierra la emisora: la manda a la barra de tareas.
+  const isMain = (() => {
+    try {
+      return getCurrentWindow().label === "main";
+    } catch {
+      return false;
+    }
+  })();
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -69,7 +78,13 @@ export function WindowControls() {
           </svg>
         )}
       </button>
-      <button type="button" className="win-btn win-close" title="Cerrar" aria-label="Cerrar" onClick={act((w) => w.close())}>
+      <button
+        type="button"
+        className="win-btn win-close"
+        title={isMain ? "Ocultar en la barra de tareas (para cerrar MiRadio: Ajustes › Copia y actualizaciones)" : "Cerrar"}
+        aria-label={isMain ? "Ocultar en la barra de tareas" : "Cerrar"}
+        onClick={act((w) => w.close())}
+      >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
         </svg>

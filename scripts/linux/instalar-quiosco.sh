@@ -41,7 +41,7 @@ apt-get update
 FUSE=libfuse2
 apt-cache show libfuse2t64 >/dev/null 2>&1 && FUSE=libfuse2t64
 apt-get install -y --no-install-recommends \
-  xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 \
+  xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 dbus-user-session \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
   ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \

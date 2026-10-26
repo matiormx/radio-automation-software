@@ -1,4 +1,4 @@
-import { getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
+import { emit, listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -475,28 +475,26 @@ export async function onWindowFileDrop(
 }
 
 /**
- * Pide confirmacion antes de cerrar la ventana. `message` puede cambiar segun
- * el estado (emitiendo, llamada al aire...). Devuelve la funcion para quitarlo.
+ * Cierre de verdad de MiRadio (la X solo minimiza). La ventana principal
+ * escucha la peticion, pide confirmacion con `getMessage()` (que cambia segun
+ * el estado: emitiendo, llamada al aire...) y cierra. Devuelve la funcion para
+ * dejar de escuchar.
  */
-export async function guardWindowClose(getMessage: () => string): Promise<() => void> {
-  const win = getCurrentWindow();
-  return win.onCloseRequested(async (event) => {
-    event.preventDefault();
+export async function installQuitHandler(getMessage: () => string): Promise<() => void> {
+  return listen("app://quit-request", async () => {
     const ok = await ask(getMessage(), {
       title: "Cerrar MiRadio",
       kind: "warning",
-      okLabel: "Cerrar",
+      okLabel: "Cerrar MiRadio",
       cancelLabel: "Cancelar",
-    }).catch(() => true);
-    if (ok) {
-      // Las ventanas de herramientas se cierran con la principal.
-      const all = await getAllWebviewWindows().catch(() => []);
-      for (const w of all) {
-        if (w.label !== win.label) await w.destroy().catch(() => undefined);
-      }
-      await win.destroy();
-    }
+    }).catch(() => false);
+    if (ok) await invoke("app_quit");
   });
+}
+
+/** Pide cerrar MiRadio (desde cualquier ventana; confirma la principal). */
+export function requestQuit(): Promise<void> {
+  return emit("app://quit-request");
 }
 
 

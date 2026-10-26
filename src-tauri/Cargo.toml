@@ -51,6 +51,8 @@ vst3-host = { version = "0.10", default-features = false }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+# Una sola instancia: abrir MiRadio otra vez trae al frente la que ya esta abierta
+tauri-plugin-single-instance = "2"
 
 # Linux (X11): ventana a capturar por su título y pared del ratón.
 [target.'cfg(target_os = "linux")'.dependencies]

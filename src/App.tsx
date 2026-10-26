@@ -39,7 +39,7 @@ import {
   writeNowPlayingImage,
   pickNowPlayingFile,
   getStreamStatus,
-  guardWindowClose,
+  installQuitHandler,
   startStreaming,
   stopStreaming,
 } from "./api";
@@ -1123,7 +1123,7 @@ export default function App() {
   useEffect(() => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void guardWindowClose(() => {
+    void installQuitHandler(() => {
       const i = closeInfoRef.current;
       const extra = [
         i.calls > 0 ? "hay una llamada al aire" : "",

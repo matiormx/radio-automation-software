@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { openExternal } from "../api";
+import { openExternal, requestQuit } from "../api";
 import { RELEASES_PAGE, checkForUpdate, installUpdate } from "../update";
 import type { AppUpdateInfo } from "../types";
 
@@ -55,6 +55,7 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
   };
 
   return (
+    <>
     <fieldset className="fieldset">
       <legend>Actualizaciones de la app</legend>
       <p className="hint">
@@ -93,5 +94,18 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
       {info?.notes && <p className="hint update-notes">{info.notes}</p>}
       {error && <p className="hint update-error">{error}</p>}
     </fieldset>
+    <fieldset className="fieldset">
+      <legend>Cerrar MiRadio</legend>
+      <p className="hint">
+        La X de la ventana solo la oculta en la barra de tareas, para que la emisora no se cierre por descuido. Para
+        cerrarla de verdad (mantenimiento, apagar el equipo…):
+      </p>
+      <div className="update-actions">
+        <button type="button" className="btn btn-sm btn-danger" onClick={() => void requestQuit()}>
+          Cerrar MiRadio…
+        </button>
+      </div>
+    </fieldset>
+    </>
   );
 }
