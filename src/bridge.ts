@@ -38,11 +38,32 @@ export async function listMonitors(): Promise<MonitorInfo[]> {
   }
 }
 
-/** Abre (o mueve) la ventana de video a pantalla completa en el monitor elegido. */
-export async function openVideoOut(monitor: number): Promise<boolean> {
+let videoOutWatch: number | undefined;
+let npWatch: number | undefined;
+
+/** Esconde una ventana: fuera de todos los monitores, al fondo, sin clics ni foco. */
+async function parkWindow(win: WebviewWindow) {
+  await win.setFullscreen(false).catch(() => undefined);
+  await win.setPosition(new PhysicalPosition(-32000, -32000)).catch(() => undefined);
+  await win.setAlwaysOnTop(false).catch(() => undefined);
+  await win.setAlwaysOnBottom(true).catch(() => undefined);
+  await win.setSkipTaskbar(true).catch(() => undefined);
+  await win.setIgnoreCursorEvents(true).catch(() => undefined);
+  await win.setFocusable(false).catch(() => undefined);
+}
+
+/**
+ * Abre (o mueve) la ventana de video a pantalla completa en el monitor elegido.
+ * Devuelve "hidden" si ese monitor es el de MiRadio (o no hay otro): la
+ * ventana no se muestra nunca ahi, queda oculta y se sigue emitiendo.
+ */
+export async function openVideoOut(monitor: number): Promise<boolean | "hidden"> {
   try {
     const ms = await availableMonitors();
     const m = ms[monitor] ?? ms[0];
+    const main = await currentMonitor();
+    const sameAsMain = !!m && !!main && m.position.x === main.position.x && m.position.y === main.position.y;
+    const hidden = ms.length < 2 || sameAsMain;
     const sf = m?.scaleFactor ?? 1;
     const x = m ? m.position.x / sf : 0;
     const y = m ? m.position.y / sf : 0;
@@ -53,13 +74,15 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
       win = new WebviewWindow("videoout", {
         url: "index.html?w=videoout",
         title: "MiRadio Programa",
-        x,
-        y,
-        width: w,
-        height: h,
+        x: hidden ? -20000 : x,
+        y: hidden ? 0 : y,
+        width: hidden ? 1280 : w,
+        height: hidden ? 720 : h,
         decorations: false,
         shadow: false,
         focus: false,
+        skipTaskbar: true,
+        alwaysOnTop: !hidden,
         dragDropEnabled: false,
       });
       const created = await new Promise<boolean>((resolve) => {
@@ -67,15 +90,42 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
         void win!.once("tauri://error", () => resolve(false));
       });
       if (!created) return false;
-    } else {
-      await win.setFullscreen(false).catch(() => undefined);
-      await win.setPosition(new LogicalPosition(x, y)).catch(() => undefined);
-      await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
-      await win.setTitle("MiRadio Programa").catch(() => undefined);
-      await win.show().catch(() => undefined);
     }
-    // En un monitor aparte, pantalla completa; en el mismo, ventana normal.
-    if (ms.length > 1) await win.setFullscreen(true).catch(() => undefined);
+    window.clearInterval(videoOutWatch);
+    videoOutWatch = undefined;
+    await win.setTitle("MiRadio Programa").catch(() => undefined);
+    await win.show().catch(() => undefined);
+    if (hidden) {
+      await parkWindow(win);
+      // Windows la recoloca a veces: se vigila que siga fuera de la vista.
+      const target = win;
+      videoOutWatch = window.setInterval(async () => {
+        const p = await target.outerPosition().catch(() => null);
+        if (p && p.x > -10000) await parkWindow(target);
+      }, 2000);
+      return "hidden";
+    }
+    const place = async (full: boolean) => {
+      await win!.setIgnoreCursorEvents(false).catch(() => undefined);
+      await win!.setAlwaysOnBottom(false).catch(() => undefined);
+      await win!.setFullscreen(false).catch(() => undefined);
+      await win!.setPosition(new LogicalPosition(x, y)).catch(() => undefined);
+      await win!.setSize(new LogicalSize(w, h)).catch(() => undefined);
+      await win!.setAlwaysOnTop(true).catch(() => undefined);
+      if (full) await win!.setFullscreen(true).catch(() => undefined);
+    };
+    await place(true);
+    // Vigilante: siempre en su monitor, a pantalla completa y por encima de todo.
+    const target = win;
+    videoOutWatch = window.setInterval(async () => {
+      const [p, full] = await Promise.all([
+        target.outerPosition().catch(() => null),
+        target.isFullscreen().catch(() => true),
+      ]);
+      const off = !p || p.x < (m?.position.x ?? 0) - 2 || p.x >= (m?.position.x ?? 0) + (m?.size.width ?? 1) || p.y < (m?.position.y ?? 0) - 2 || p.y >= (m?.position.y ?? 0) + (m?.size.height ?? 1);
+      if (off || !full) await place(true);
+      else await target.setAlwaysOnTop(true).catch(() => undefined);
+    }, 2000);
     return true;
   } catch {
     return false;
@@ -83,6 +133,8 @@ export async function openVideoOut(monitor: number): Promise<boolean> {
 }
 
 export async function closeVideoOut(): Promise<void> {
+  window.clearInterval(videoOutWatch);
+  videoOutWatch = undefined;
   try {
     const win = await WebviewWindow.getByLabel("videoout");
     await win?.destroy();
@@ -128,11 +180,13 @@ export async function openNowPlayingOut(width: number, height: number): Promise<
     }
     // Windows suele ignorar la posicion al crear: se esconde despues, fuera de
     // todos los monitores, al fondo y sin recibir clics ni foco.
-    await win.setPosition(new PhysicalPosition(-32000, -32000)).catch(() => undefined);
-    await win.setAlwaysOnBottom(true).catch(() => undefined);
-    await win.setSkipTaskbar(true).catch(() => undefined);
-    await win.setIgnoreCursorEvents(true).catch(() => undefined);
-    await win.setFocusable(false).catch(() => undefined);
+    await parkWindow(win);
+    window.clearInterval(npWatch);
+    const target = win;
+    npWatch = window.setInterval(async () => {
+      const p = await target.outerPosition().catch(() => null);
+      if (p && p.x > -10000) await parkWindow(target);
+    }, 2000);
     return true;
   } catch {
     return false;
@@ -140,6 +194,8 @@ export async function openNowPlayingOut(width: number, height: number): Promise<
 }
 
 export async function closeNowPlayingOut(): Promise<void> {
+  window.clearInterval(npWatch);
+  npWatch = undefined;
   try {
     const win = await WebviewWindow.getByLabel("videonp");
     await win?.destroy();

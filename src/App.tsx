@@ -3154,7 +3154,8 @@ export default function App() {
       return;
     }
     void openVideoOut(videoScreen.monitor).then((ok) => {
-      if (!ok) showToast("No se pudo abrir la ventana de vídeo");
+      if (ok === "hidden") showToast("La pantalla de emisión está en el monitor de MiRadio: queda oculta (se emite igual). Elige otro monitor para verla.");
+      else if (!ok) showToast("No se pudo abrir la ventana de vídeo");
     });
     const t = window.setInterval(() => {
       const st = videoSource();
