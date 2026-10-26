@@ -51,6 +51,11 @@ jobs:
           cd src
           # Todo enlazado dentro (sin libwinpthread/libstdc++ de MinGW, que no
           # existen en un Windows normal).
+          # Sin las bibliotecas de importación dinámicas, el enlazador usa las
+          # estáticas (.a) y el plugin no necesita libwinpthread-1.dll.
+          for l in libwinpthread.dll.a libpthread.dll.a; do
+            [ -f /mingw64/lib/$l ] && mv /mingw64/lib/$l /mingw64/lib/$l.off
+          done
           export LDFLAGS_EXT="-static -static-libgcc -static-libstdc++"
           export LDFLAGS="$LDFLAGS_EXT"
           make config FEATURES='vst3 ui' PREFIX=/opt/lsp LDFLAGS_EXT="$LDFLAGS_EXT"
