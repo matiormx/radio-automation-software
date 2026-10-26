@@ -485,6 +485,12 @@ pub async fn vst_scan(state: State<'_, crate::AppState>) -> Result<vst::ScanResu
     tauri::async_runtime::spawn_blocking(move || vst::scan(extra)).await.map_err(|e| e.to_string())
 }
 
+/// Latencia (muestras a 48 kHz) de cada plugin cargado, por id de ranura.
+#[tauri::command]
+pub fn vst_latencies() -> std::collections::HashMap<String, u32> {
+    vst::latencies()
+}
+
 /// Abre la ventana del plugin de una ranura (lo carga si hace falta).
 #[tauri::command]
 pub async fn vst_editor(slot: String, path: String, name: String) -> Result<(), String> {

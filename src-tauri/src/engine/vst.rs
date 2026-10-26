@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -41,9 +42,24 @@ pub struct Host {
     pub path: String,
     plugin: Arc<Mutex<Plugin>>,
     bufs: Mutex<AudioBuffers>,
+    /// Retardo que mete el plugin (muestras), segun el propio plugin
+    latency: AtomicU32,
 }
 
 impl Host {
+    /// Latencia que declara el plugin, en muestras (48 kHz).
+    pub fn latency(&self) -> u32 {
+        self.latency.load(Ordering::Relaxed)
+    }
+
+    /// Vuelve a leer la latencia (si el plugin no esta ocupado).
+    fn refresh_latency(&self) {
+        if let Ok(mut p) = self.plugin.try_lock() {
+            let _ = p.take_restart_flags();
+            self.latency.store(p.latency_samples(), Ordering::Relaxed);
+        }
+    }
+
     /// Procesa `frames` (estereo entrelazado) en el sitio. Si el plugin esta
     /// ocupado (el editor lo esta tocando) la señal sigue tal cual.
     pub fn process(&self, buf: &mut [f32], frames: usize) {
@@ -183,6 +199,11 @@ pub fn ensure(slots: Vec<PluginCfg>) -> Vec<String> {
 }
 
 /// Plugin cargado de una ranura (sin esperar).
+/// Latencia de cada plugin cargado (id de ranura -> muestras).
+pub fn latencies() -> HashMap<String, u32> {
+    control().hosts.lock().map(|m| m.iter().map(|(k, h)| (k.clone(), h.latency())).collect()).unwrap_or_default()
+}
+
 pub fn get(id: &str) -> Option<Arc<Host>> {
     control().hosts.lock().ok()?.get(id).cloned()
 }
@@ -228,6 +249,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
     // nadie mas los tiene (siempre en este hilo, como pide VST3).
     let mut graveyard: Vec<Arc<Host>> = Vec::new();
     let mut last_save = Instant::now();
+    let mut last_latency = Instant::now();
     let mut vst = Vst3Host::builder().sample_rate(48_000.0).block_size(MAX_BLOCK).build().ok();
     loop {
         let has_windows = loaded.values().any(|l| l.window.is_some());
@@ -370,6 +392,13 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
             }
         }
         graveyard.retain(|h| Arc::strong_count(h) > 1);
+        // La latencia cambia si se toca algo en el plugin (oversampling, lookahead…).
+        if last_latency.elapsed() > Duration::from_secs(2) {
+            last_latency = Instant::now();
+            for l in loaded.values() {
+                l.host.refresh_latency();
+            }
+        }
         // Copia de seguridad del estado cada minuto (por si se cierra la app).
         if last_save.elapsed() > Duration::from_secs(60) {
             last_save = Instant::now();
@@ -469,5 +498,6 @@ fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
     for ch in bufs.outputs.iter_mut() {
         ch.reserve_exact(MAX_BLOCK);
     }
-    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs) })
+    let latency = AtomicU32::new(plugin.latency_samples());
+    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency })
 }

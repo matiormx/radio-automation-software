@@ -12,7 +12,7 @@ import {
   PluginPicker,
   setVstHidden,
 } from "./components/MixerControls";
-import { vstEditor } from "./api";
+import { vstEditor, vstLatencies } from "./api";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
@@ -61,6 +61,46 @@ function fmtDb(db: number): string {
   if (db <= MIN_GAIN_DB) return "−∞";
   const r = Math.round(db * 10) / 10;
   return `${r > 0 ? "+" : ""}${r.toFixed(1)}`;
+}
+
+/** Latencia de plugins de una tira (muestras): solo los activos y cargados. */
+function pluginLatency(plugins: PluginSlot[] | undefined, lat: Record<string, number>): number {
+  return (plugins ?? []).filter((p) => p.enabled && !p.off).reduce((a, p) => a + (lat[p.id] ?? 0), 0);
+}
+
+const ms = (samples: number) => `${(samples / 48).toFixed(samples < 4800 ? 1 : 0).replace(".", ",")} ms`;
+
+/** Dos canales con la misma fuente (misma entrada y mismo canal de la tarjeta). */
+function sameSource(a: MixerChannel, b: MixerChannel): boolean {
+  if (a.input.kind !== b.input.kind) return false;
+  if (a.input.kind === "app") return a.input.app === b.input.app;
+  return a.input.deviceId !== "none" && a.input.deviceId === b.input.deviceId && (a.input.channel ?? 0) === (b.input.channel ?? 0);
+}
+
+/**
+ * Latencia de un canal y si debe ir sincronizado con los demás:
+ * - «debe»: comparte fuente con otro canal de distinta latencia (sonaría a eco o a fase).
+ * - «conviene»: va más de 20 ms por detrás de otros canales (se nota con vídeo o con varios micros).
+ * - «libre»: diferencia imperceptible.
+ */
+function latencyAdvice(ch: MixerChannel, all: MixerChannel[], lat: Record<string, number>) {
+  const own = pluginLatency(ch.plugins, lat);
+  const others = all.filter((o) => o.id !== ch.id);
+  const maxOther = others.reduce((m, o) => Math.max(m, pluginLatency(o.plugins, lat)), 0);
+  const syncMax = all.filter((o) => o.sync).reduce((m, o) => Math.max(m, pluginLatency(o.plugins, lat)), 0);
+  const twin = others.find((o) => sameSource(ch, o) && pluginLatency(o.plugins, lat) !== own);
+  const diff = Math.max(Math.abs(own - maxOther), own);
+  let level: "debe" | "conviene" | "libre" = "libre";
+  let why = `${ms(own)} de latencia: imperceptible, puede ir por libre.`;
+  if (twin) {
+    level = "debe";
+    why = `Comparte fuente con «${twin.name}» y tienen distinta latencia: sin sincronizar sonará a eco o a fase.`;
+  } else if (diff > 960) {
+    level = "conviene";
+    why = `Diferencia de ${ms(diff)} con otros canales: si se emiten juntos (vídeo, varios micros), sincronízalo.`;
+  }
+  const wait = ch.sync ? Math.max(0, syncMax - own) : 0;
+  return { own, level, why, wait, show: own > 0 || !!ch.sync || all.some((o) => o.sync) || !!twin };
 }
 
 /**
@@ -678,6 +718,19 @@ function MixerBoard({
   const channels = s.mixerChannels ?? [];
   const buses = s.mixerBuses ?? [];
   setVstHidden(s.vst?.hidden);
+  // Latencia de los plugins (motor nativo): se mira cada 2 s.
+  const [lat, setLat] = useState<Record<string, number>>({});
+  const anyPlugins = channels.some((c) => (c.plugins ?? []).length > 0) || buses.some((b) => (b.plugins ?? []).length > 0);
+  useEffect(() => {
+    if (!isNative || !anyPlugins) {
+      setLat({});
+      return;
+    }
+    const tick = () => void vstLatencies().then(setLat).catch(() => undefined);
+    tick();
+    const t = window.setInterval(tick, 2000);
+    return () => window.clearInterval(t);
+  }, [isNative, anyPlugins]);
   // Todas las tiras con la cabecera igual de alta: los faders quedan alineados
   // aunque una tira tenga mas envios, plugins o ranuras que otra.
   const stripsRef = useRef<HTMLDivElement | null>(null);
@@ -849,6 +902,7 @@ function MixerBoard({
             outputs={outputs}
             meters={meters}
             isNative={isNative}
+            latency={latencyAdvice(ch, channels, lat)}
             onPatch={(patch) => patchChannel(ch.id, patch)}
             onRemove={() => removeChannel(ch.id)}
           />
@@ -863,6 +917,7 @@ function MixerBoard({
             meters={meters}
             isMonitor={s.monitorBusId === bus.id}
             isNative={isNative}
+            latency={pluginLatency(bus.plugins, lat)}
             onPatch={(patch) => patchBus(bus.id, patch)}
             onRemove={() => removeBus(bus.id)}
           />
@@ -956,9 +1011,11 @@ function ChannelStrip({
   outputs,
   meters,
   isNative,
+  latency,
   onPatch,
   onRemove,
 }: {
+  latency: ReturnType<typeof latencyAdvice>;
   ch: MixerChannel;
   buses: MixerBus[];
   inputs: Device[];
@@ -1153,6 +1210,22 @@ function ChannelStrip({
           <CompressorControls owner={ch} label={ch.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
         <FxSlots plugins={ch.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
+        {isNative && latency.show && (
+          <div className={`mx-lat mx-lat-${latency.level}`} title={`${latency.why}${latency.wait > 0 ? `\nSincronizado: espera ${ms(latency.wait)} para ir a la par del más lento.` : ""}`}>
+            <span className="mx-lat-val">
+              {ms(latency.own)}
+              {latency.wait > 0 && <small> +{ms(latency.wait)}</small>}
+            </span>
+            <button
+              type="button"
+              className={`mx-lat-sync ${ch.sync ? "mx-lat-sync-on" : ""}`}
+              onClick={() => onPatch({ sync: !ch.sync })}
+              title={ch.sync ? "En el grupo sincronizado (clic para sacarlo)" : "Meter en el grupo que se sincroniza"}
+            >
+              SYNC
+            </button>
+          </div>
+        )}
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls
             owner={ch}
@@ -1350,6 +1423,7 @@ function BusStrip({
   outputs,
   meters,
   isNative,
+  latency,
   isMonitor,
   onPatch,
   onRemove,
@@ -1359,6 +1433,8 @@ function BusStrip({
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
   isNative: boolean;
+  /** Latencia de sus plugins (muestras) */
+  latency: number;
   isMonitor: boolean;
   onPatch: (patch: Partial<MixerBus>) => void;
   onRemove: () => void;
@@ -1410,6 +1486,11 @@ function BusStrip({
           <CompressorControls owner={bus} label={bus.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
         <FxSlots plugins={bus.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
+        {isNative && latency > 0 && (
+          <div className="mx-lat mx-lat-libre" title="Latencia de los plugins de este bus: retrasa por igual todo lo que pasa por él.">
+            <span className="mx-lat-val">{ms(latency)}</span>
+          </div>
+        )}
         <Pop open={pop === "insert"} onClose={close}>
           <InsertControls owner={bus} label={bus.name} inputs={inputs} outputs={outputs} onChange={(insert) => onPatch({ insert })} />
         </Pop>

@@ -695,3 +695,8 @@ export function vstPkgCheck(): Promise<void> {
 export function vstPkgRemove(id: string): Promise<string> {
   return invoke("vstpkg_remove", { id });
 }
+
+/** Latencia (muestras a 48 kHz) de cada plugin cargado, por id de ranura. */
+export function vstLatencies(): Promise<Record<string, number>> {
+  return invoke("vst_latencies");
+}

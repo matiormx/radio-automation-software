@@ -301,6 +301,8 @@ pub struct MixerChannel {
     pub compressor: CompressorSettings,
     /// Plugins VST3 (motor nativo), en orden
     pub plugins: Vec<PluginSlot>,
+    /// En el grupo que se sincroniza (compensación de latencia de plugins)
+    pub sync: bool,
     pub insert: InsertSettings,
     pub pan: f32,
     pub solo: bool,
@@ -324,6 +326,7 @@ impl Default for MixerChannel {
             leveler: LevelerSettings::default(),
             compressor: CompressorSettings::default(),
             plugins: Vec::new(),
+            sync: false,
             insert: InsertSettings::default(),
             pan: 0.0,
             solo: false,

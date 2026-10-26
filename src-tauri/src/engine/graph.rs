@@ -107,6 +107,9 @@ pub struct ChannelCfg {
     pub compressor: CompressorCfg,
     /// Plugins VST3 (en orden, despues del compresor)
     pub plugins: Vec<PluginCfg>,
+    /// En el grupo que se sincroniza: se retrasa para igualar la latencia
+    /// de plugins del canal mas lento del grupo.
+    pub sync: bool,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -242,6 +245,41 @@ struct Chan {
     fx: Vec<Arc<VstHost>>,
     /// Indice en `Plan::inserts`, si el canal tiene insert
     insert: Option<usize>,
+    sync: bool,
+    delay: DelayLine,
+}
+
+/// Linea de retardo (compensacion de latencia de los canales sincronizados).
+/// Hasta 1 s; la memoria se reserva al montar la mesa, no en el audio.
+struct DelayLine {
+    buf: Vec<f32>,
+    pos: usize,
+}
+
+const MAX_DELAY: usize = 48_000;
+
+impl DelayLine {
+    fn new(sync: bool) -> DelayLine {
+        DelayLine { buf: if sync { vec![0.0; MAX_DELAY * 2] } else { Vec::new() }, pos: 0 }
+    }
+
+    /// Retrasa `d` muestras el audio estereo entrelazado de `io`.
+    fn process(&mut self, io: &mut [f32], d: usize) {
+        let len = self.buf.len() / 2;
+        if len == 0 {
+            return;
+        }
+        let d = d.min(len - 1);
+        for f in io.chunks_exact_mut(2) {
+            let w = self.pos;
+            self.buf[w * 2] = f[0];
+            self.buf[w * 2 + 1] = f[1];
+            let r = (w + len - d) % len;
+            f[0] = self.buf[r * 2];
+            f[1] = self.buf[r * 2 + 1];
+            self.pos = (w + 1) % len;
+        }
+    }
 }
 
 struct Bus {
@@ -534,7 +572,7 @@ impl Plan {
             let pc = prev.and_then(|p| p.chans.iter().find(|x| x.key == key));
             let leveler = Leveler::new(&c.leveler).map(|lv| lv.carry(pc.and_then(|x| x.leveler.as_ref())));
             let comp = Compressor::new(&c.compressor).map(|x| x.carry(pc.and_then(|y| y.comp.as_ref())));
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert, sync: c.sync, delay: DelayLine::new(c.sync) });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -669,6 +707,14 @@ impl Plan {
         }
         let silence: &[f32] = &[];
         self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
+        // Latencia de plugins del canal mas lento del grupo sincronizado.
+        let sync_max: u32 = self
+            .chans
+            .iter()
+            .filter(|c| c.sync)
+            .map(|c| c.fx.iter().map(|f| f.latency()).sum::<u32>())
+            .max()
+            .unwrap_or(0);
         for c in self.chans.iter_mut() {
             let mut src: &[f32] = match c.src {
                 Source::Music => music,
@@ -719,7 +765,7 @@ impl Plan {
                 src = &self.mono[..n];
             }
             // Nivelador y compresor del canal (antes del fader).
-            if (c.leveler.is_some() || c.comp.is_some() || !c.fx.is_empty()) && src.len() >= n {
+            if (c.leveler.is_some() || c.comp.is_some() || !c.fx.is_empty() || c.sync) && src.len() >= n {
                 self.lv[..n].copy_from_slice(&src[..n]);
                 if let Some(lv) = c.leveler.as_mut() {
                     lv.process(&mut self.lv[..n], frames);
@@ -729,6 +775,11 @@ impl Plan {
                 }
                 for fx in &c.fx {
                     fx.process(&mut self.lv[..n], frames);
+                }
+                // Grupo sincronizado: espera lo que le falta para ir a la par del mas lento.
+                if c.sync {
+                    let own: u32 = c.fx.iter().map(|f| f.latency()).sum();
+                    c.delay.process(&mut self.lv[..n], sync_max.saturating_sub(own) as usize);
                 }
                 src = &self.lv[..n];
             }
@@ -820,5 +871,31 @@ impl Plan {
             Some(s) => self.program[..n].copy_from_slice(&self.outs[s].buf[..n]),
             None => self.program[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]),
         }
+    }
+}
+
+#[cfg(test)]
+mod delay_tests {
+    use super::*;
+
+    #[test]
+    fn delay_line_delays_exactly() {
+        let mut d = DelayLine::new(true);
+        // 4 tramas de 3 marcos: un impulso en el marco 0 sale en el marco 5.
+        let mut out = Vec::new();
+        for block in 0..4 {
+            let mut io = vec![0.0f32; 6];
+            if block == 0 {
+                io[0] = 1.0;
+                io[1] = -1.0;
+            }
+            d.process(&mut io, 5);
+            out.extend(io);
+        }
+        let pos = out.chunks_exact(2).position(|f| f[0] == 1.0).unwrap();
+        assert_eq!(pos, 5);
+        assert_eq!(out[pos * 2 + 1], -1.0);
+        // Sin canal sincronizado no se reserva memoria.
+        assert!(DelayLine::new(false).buf.is_empty());
     }
 }

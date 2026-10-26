@@ -395,6 +395,8 @@ export interface MixerChannel {
   leveler?: LevelerSettings;
   compressor?: CompressorSettings;
   plugins?: PluginSlot[];
+  /** En el grupo que se sincroniza (compensación de latencia de plugins) */
+  sync?: boolean;
   insert?: InsertSettings;
   /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;

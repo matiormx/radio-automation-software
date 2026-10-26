@@ -4501,3 +4501,15 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 .vst-reco-state { font-size: 11.5px; color: #8fd5a6; }
 .vst-reco-err { color: #ff9a9a; }
 .vst-reco-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+/* Latencia de plugins y grupo sincronizado */
+.mx-lat { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 10px; padding: 1px 2px; }
+.mx-lat-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mx-lat-val small { opacity: .75; }
+.mx-lat-libre .mx-lat-val { color: #7fd29a; }
+.mx-lat-conviene .mx-lat-val { color: #f0c46a; }
+.mx-lat-debe .mx-lat-val { color: #ff8a8a; }
+.mx-lat-sync { background: #0f1217; border: 1px solid #2a313d; color: var(--text-faint); border-radius: 3px; font: inherit; font-size: 9.5px; padding: 0 4px; cursor: pointer; }
+.mx-lat-debe .mx-lat-sync:not(.mx-lat-sync-on) { border-color: #a04848; color: #ff9a9a; }
+.mx-lat-conviene .mx-lat-sync:not(.mx-lat-sync-on) { border-color: #8a6a2a; color: #f0c46a; }
+.mx-lat-sync-on { background: #2b3b5c; border-color: #3d5585; color: #dbe6ff; }
