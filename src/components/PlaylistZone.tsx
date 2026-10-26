@@ -29,8 +29,10 @@ interface PlaylistZoneProps {
   onReorder: (from: number, to: number) => void;
   onRemove: (index: number) => void;
   onDropTrack: (trackId: string, at: number) => void;
-  /** Suelta un bloque entero: todas sus canciones a partir de `at` */
+  /** Suelta una lista entero: todas sus canciones a partir de `at` */
   onDropBlock?: (blockId: string, at: number) => void;
+  /** Archivos del Explorador: se importan si hace falta y entran en `at` */
+  onDropFiles?: (paths: string[], at: number) => void;
   onPreview: (index: number) => void;
   onEditMeta: (index: number) => void;
   onEditCuts: (index: number) => void;
@@ -73,6 +75,7 @@ export function PlaylistZone({
   onRemove,
   onDropTrack,
   onDropBlock,
+  onDropFiles,
   onPreview,
   onEditMeta,
   onEditCuts,
@@ -89,8 +92,8 @@ export function PlaylistZone({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(active?.name ?? "");
   // Soltar en la lista (con el puntero; ver dnd.ts): canciones, bloques y filas.
-  const dropRef = useRef({ onDropTrack, onDropBlock, onReorder, count: rows.length });
-  dropRef.current = { onDropTrack, onDropBlock, onReorder, count: rows.length };
+  const dropRef = useRef({ onDropTrack, onDropBlock, onDropFiles, onReorder, count: rows.length });
+  dropRef.current = { onDropTrack, onDropBlock, onDropFiles, onReorder, count: rows.length };
   useEffect(() => {
     const at = (el: HTMLElement, after: boolean) => {
       if (el.dataset.dropZone === "playlist-end") return dropRef.current.count;
@@ -98,12 +101,13 @@ export function PlaylistZone({
       return after ? i + 1 : i;
     };
     const zone = {
-      accepts: (p: { kind: string; blockId?: string }) => p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && !!p.blockId),
+      accepts: (p: { kind: string; blockId?: string }) => p.kind === "track" || p.kind === "row" || p.kind === "files" || (p.kind === "blockItem" && !!p.blockId),
       drop: (p: import("../dnd").DragPayload, el: HTMLElement, pos: { after: boolean }) => {
         const to = at(el, pos.after);
         const h = dropRef.current;
         if (p.kind === "track") h.onDropTrack(p.trackId, to);
         else if (p.kind === "blockItem") h.onDropBlock?.(p.blockId, to);
+        else if (p.kind === "files") h.onDropFiles?.(p.paths, to);
         else if (p.kind === "row") {
           const t = p.index < to ? to - 1 : to;
           if (t !== p.index) h.onReorder(p.index, t);
@@ -147,7 +151,7 @@ export function PlaylistZone({
 
   const totalSecs = rows.reduce((acc, r) => acc + r.durationSecs, 0);
 
-  const blockName = (id: string) => blocks.find((b) => b.id === id)?.name ?? "Bloque";
+  const blockName = (id: string) => blocks.find((b) => b.id === id)?.name ?? "Lista";
 
   // Cierra el menu contextual con Escape.
   useEffect(() => {
@@ -265,7 +269,7 @@ export function PlaylistZone({
         <span className="col-num">#</span>
         <span className="col-cover" />
         <span className="col-main">TÍTULO</span>
-        <span className="col-blocks">BLOQUES</span>
+        <span className="col-blocks">LISTAS</span>
         <span className="col-dur">DURACIÓN</span>
         <span className="col-acts" />
       </div>
@@ -363,7 +367,7 @@ export function PlaylistZone({
                 <button
                   type="button"
                   className="plrow-block plrow-block-add"
-                  title="Añadir a un bloque"
+                  title="Añadir a una lista"
                   onClick={(e) => {
                     e.stopPropagation();
                     setBlockMenu((prev) => (prev === r.id ? null : r.id));
@@ -374,7 +378,7 @@ export function PlaylistZone({
                 {blockMenu === r.id && (
                   <div className="plrow-block-menu" role="menu">
                     {blocks.length === 0 && (
-                      <span className="hint">Todavía no hay bloques. Créalos en Música.</span>
+                      <span className="hint">Todavía no hay listas. Créalas en Música › Listas.</span>
                     )}
                     {blocks.map((block) => {
                       const inside = r.blocks.includes(block.id);
@@ -477,9 +481,9 @@ export function PlaylistZone({
             >
               <IconTag size={13} /> Editar metadatos
             </button>
-            <div className="ctx-title">Asignar a bloque</div>
+            <div className="ctx-title">Añadir a una lista</div>
             <div className="ctx-blocks">
-              {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+              {blocks.length === 0 && <span className="hint">No hay listas creadas.</span>}
               {blocks.map((block) => {
                 const inside = rows[ctx.index].blocks.includes(block.id);
                 return (

@@ -17,6 +17,8 @@ import {
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
 import { beginDrag, registerDropZone } from "../dnd";
+import { GalleryHeader, MusicGallery, matchesSel } from "./MusicGallery";
+import { ExplorerView } from "./ExplorerView";
 import { pickScanFolder, scanFolder } from "../api";
 import { listen } from "@tauri-apps/api/event";
 
@@ -75,14 +77,13 @@ import {
   IconBolt,
   IconList,
   IconFolder,
-  IconChevron,
   IconMore,
   IconTag,
   IconWave,
   IconSparkles,
 } from "../icons";
 
-type Mode = "folders" | "artists" | "blocks" | "genres" | "tags" | "history";
+type Mode = "blocks" | "music" | "explorer" | "tags" | "history";
 type SortKey = "title" | "album" | "genre" | "duration";
 const NONE = "__none";
 
@@ -106,12 +107,16 @@ interface MusicBrowserProps {
   /** Peticion de edicion de metadatos desde otra zona de la app */
   pendingEdit: { id: string; n: number } | null;
   onPendingEditDone: () => void;
-  /** Asigna una cancion a un bloque (arrastrando desde la lista de emision). */
+  /** Asigna una cancion a una lista (arrastrando desde la lista de emision). */
   onAssignTrackBlock?: (trackId: string, blockId: string) => void;
   /** Preescucha automatica al seleccionar una cancion. */
   onPreviewTrack?: (track: Track) => void;
   /** Bloque sobre el que se estan soltando archivos */
   dropBlockId?: string;
+  /** Preescucha a peticion (menu del Explorador) */
+  onPreviewNow?: (track: Track) => void;
+  /** Importa archivos del Explorador: a la biblioteca, a una lista o a la lista de emision */
+  onImportPaths?: (paths: string[], opts: { blockId?: string; toPlaylist?: boolean }) => void;
   showToast: (msg: string) => void;
 }
 
@@ -147,13 +152,6 @@ interface CtxMenu {
   track: Track;
   x: number;
   y: number;
-}
-
-interface FolderNode {
-  name: string;
-  path: string;
-  count: number;
-  children: FolderNode[];
 }
 
 type BlockLayoutItem =
@@ -192,10 +190,9 @@ function loadSideWidth(): number {
 }
 
 const MODES: { id: Mode; label: string }[] = [
-  { id: "folders", label: "Carpetas" },
-  { id: "artists", label: "Artistas" },
-  { id: "blocks", label: "Bloques" },
-  { id: "genres", label: "Estilos" },
+  { id: "blocks", label: "Listas" },
+  { id: "music", label: "Música" },
+  { id: "explorer", label: "Explorador" },
   { id: "tags", label: "Etiquetas" },
   { id: "history", label: "Historial" },
 ];
@@ -220,120 +217,6 @@ function fileStem(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
-const normPath = (p: string): string =>
-  p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
-function buildFolderTree(tracks: Track[]): FolderNode[] {
-  const roots: FolderNode[] = [];
-  const findNode = (list: FolderNode[], name: string, path: string): FolderNode => {
-    let n = list.find((x) => x.name === name);
-    if (!n) {
-      n = { name, path, count: 0, children: [] };
-      list.push(n);
-    }
-    return n;
-  };
-
-  for (const t of tracks) {
-    if (!t.file) continue;
-    const slash = Math.max(t.file.lastIndexOf("\\"), t.file.lastIndexOf("/"));
-    if (slash <= 0) continue;
-    const dir = t.file.slice(0, slash);
-    const isAbs = /^\//.test(dir) || /^[A-Za-z]:/.test(dir);
-    const sep = dir.includes("\\") ? "\\" : "/";
-    const parts = dir.split(/[\\/]+/).filter(Boolean);
-
-    let list = roots;
-    let acc = "";
-    for (const part of parts) {
-      if (acc === "") {
-        acc = isAbs && !/^[A-Za-z]:/.test(part) ? sep + part : part;
-      } else {
-        acc = acc + sep + part;
-      }
-      const node = findNode(list, part, acc);
-      node.count += 1;
-      list = node.children;
-    }
-  }
-
-  const sortTree = (nodes: FolderNode[]) => {
-    nodes.sort((a, b) => a.name.localeCompare(b.name, "es"));
-    for (const n of nodes) sortTree(n.children);
-  };
-  sortTree(roots);
-  return roots;
-}
-
-function FolderTree({
-  nodes,
-  depth,
-  expanded,
-  selected,
-  onToggle,
-  onSelect,
-}: {
-  nodes: FolderNode[];
-  depth: number;
-  expanded: Set<string>;
-  selected: string;
-  onToggle: (path: string) => void;
-  onSelect: (path: string) => void;
-}) {
-  return (
-    <>
-      {nodes.map((n) => {
-        const hasChildren = n.children.length > 0;
-        const open = expanded.has(n.path);
-        return (
-          <div key={n.path}>
-            <div
-              className={`nav-item ${selected === n.path ? "nav-item-on" : ""}`}
-              style={{ paddingLeft: 6 + depth * 13 }}
-              onClick={() => onSelect(n.path)}
-              title={n.path}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onSelect(n.path);
-              }}
-            >
-              {hasChildren ? (
-                <button
-                  type="button"
-                  className={`nav-caret ${open ? "nav-caret-open" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggle(n.path);
-                  }}
-                  aria-label={open ? "Contraer carpeta" : "Expandir carpeta"}
-                >
-                  <IconChevron size={9} />
-                </button>
-              ) : (
-                <span className="nav-caret" />
-              )}
-              <IconFolder size={12} />
-              <span className="nav-name">{n.name}</span>
-              <span className="nav-count">{n.count}</span>
-            </div>
-            {hasChildren && open && (
-              <FolderTree
-                nodes={n.children}
-                depth={depth + 1}
-                expanded={expanded}
-                selected={selected}
-                onToggle={onToggle}
-                onSelect={onSelect}
-              />
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
 function MusicBrowserBase({
   tracks,
   blocks,
@@ -356,9 +239,14 @@ function MusicBrowserBase({
   onAssignTrackBlock,
   onPreviewTrack,
   dropBlockId = "",
+  onPreviewNow,
+  onImportPaths,
   showToast,
 }: MusicBrowserProps) {
-  const [mode, setMode] = useState<Mode>("folders");
+  // Lo primero que se ve al abrir: las listas.
+  const [mode, setMode] = useState<Mode>("blocks");
+  // Musica: de donde se viene (para «volver»)
+  const [musicBack, setMusicBack] = useState<string[]>([]);
   const [selection, setSelection] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "title", dir: 1 });
@@ -375,7 +263,6 @@ function MusicBrowserBase({
   const [renamingId, setRenamingId] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [sideWidth, setSideWidth] = useState(loadSideWidth);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [blockLayout, setBlockLayout] = useState<BlockLayoutItem[]>(loadBlockLayout);
@@ -403,8 +290,8 @@ function MusicBrowserBase({
     }
   }, [blockLayout]);
 
-  // Mantiene el orden guardado y descarta bloques que ya no existen. Al abrir
-  // la app los bloques aun no han llegado (lista vacia): entonces no se toca
+  // Mantiene el orden guardado y descarta listas que ya no existen. Al abrir
+  // la app las listas aun no han llegado (lista vacia): entonces no se toca
   // nada, o se perderia el orden guardado.
   useEffect(() => {
     if (blocks.length === 0) return;
@@ -522,27 +409,29 @@ function MusicBrowserBase({
     setBlockLayout(rest);
   };
 
-  // Bloque cuya lista se esta viendo: soltar canciones en ella las suma al bloque.
+  // Bloque cuya lista se esta viendo: soltar canciones en ella las suma a la lista.
   const listBlockId = mode === "blocks" && selection && selection !== NONE ? selection : "";
 
   // Soltar sobre la lista de bloques (con el puntero; ver dnd.ts).
-  const dropRef = useRef({ moveBlockItem, onAssignTrackBlock });
-  dropRef.current = { moveBlockItem, onAssignTrackBlock };
+  const dropRef = useRef({ moveBlockItem, onAssignTrackBlock, onImportPaths });
+  dropRef.current = { moveBlockItem, onAssignTrackBlock, onImportPaths };
   useEffect(() => {
     const offBlock = registerDropZone("block", {
       accepts: (p, el) =>
-        p.kind === "track" || p.kind === "row" || (p.kind === "blockItem" && !!p.blockId && p.key !== el.dataset.key),
+        p.kind === "track" || p.kind === "row" || p.kind === "files" || (p.kind === "blockItem" && !!p.blockId && p.key !== el.dataset.key),
       drop: (p, el, pos) => {
         const blockId = el.dataset.blockId ?? "";
         if (p.kind === "track" || p.kind === "row") dropRef.current.onAssignTrackBlock?.(p.trackId, blockId);
+        else if (p.kind === "files") dropRef.current.onImportPaths?.(p.paths, { blockId });
         else if (p.kind === "blockItem") dropRef.current.moveBlockItem(p.key, el.dataset.key ?? "", pos.after);
       },
     });
     const offList = registerDropZone("block-list", {
-      accepts: (p) => p.kind === "track" || p.kind === "row",
+      accepts: (p) => p.kind === "track" || p.kind === "row" || p.kind === "files",
       drop: (p, el) => {
         const blockId = el.dataset.blockId ?? "";
         if ((p.kind === "track" || p.kind === "row") && blockId) dropRef.current.onAssignTrackBlock?.(p.trackId, blockId);
+        else if (p.kind === "files" && blockId) dropRef.current.onImportPaths?.(p.paths, { blockId });
       },
     });
     const offSep = registerDropZone("block-sep", {
@@ -594,31 +483,11 @@ function MusicBrowserBase({
     }
   };
 
-  const folderTree = useMemo(() => buildFolderTree(tracks), [tracks]);
-
-  // Al cambiar de biblioteca, deja los discos/carpetas raíz abiertos.
-  useEffect(() => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      for (const n of folderTree) next.add(n.path);
-      return next;
-    });
-  }, [folderTree]);
-
   const artists = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tracks) {
       const a = t.artist.trim() || "Artista desconocido";
       m.set(a, (m.get(a) ?? 0) + 1);
-    }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "es"));
-  }, [tracks]);
-
-  const genres = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of tracks) {
-      const g = t.genre.trim() || "Sin estilo";
-      m.set(g, (m.get(g) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "es"));
   }, [tracks]);
@@ -662,24 +531,13 @@ function MusicBrowserBase({
   const filtered = useMemo(() => {
     let list = tracks;
     if (selection) {
-      if (mode === "folders") {
-        const dir = normPath(selection);
-        list = list.filter((t) => {
-          const f = normPath(t.file);
-          return f === dir || f.startsWith(dir + "/");
-        });
-      } else if (mode === "artists") {
-        list = list.filter((t) => (t.artist.trim() || "Artista desconocido") === selection);
+      if (mode === "music") {
+        list = list.filter((t) => matchesSel(t, selection));
       } else if (mode === "blocks") {
         list =
           selection === NONE
             ? list.filter((t) => t.blocks.length === 0)
             : list.filter((t) => t.blocks.includes(selection));
-      } else if (mode === "genres") {
-        list =
-          selection === NONE
-            ? list.filter((t) => !t.genre.trim())
-            : list.filter((t) => t.genre === selection);
       } else if (mode === "tags") {
         list =
           selection === NONE
@@ -717,20 +575,26 @@ function MusicBrowserBase({
   const changeMode = (m: Mode) => {
     setMode(m);
     setSelection("");
+    setMusicBack([]);
     setCtx(null);
+  };
+
+  // Musica: entrar en un artista/album/estilo y volver.
+  const openMusic = (next: string) => {
+    setMusicBack((b) => [...b, selection]);
+    setSelection(next);
+  };
+  const musicGoBack = () => {
+    setMusicBack((b) => {
+      const copy = b.slice();
+      const prev = copy.pop() ?? "";
+      setSelection(prev);
+      return copy;
+    });
   };
 
   const toggleSort = (key: SortKey) => {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
-  };
-
-  const toggleFolder = (path: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
   };
 
   const closeCtx = useCallback(() => setCtx(null), []);
@@ -858,7 +722,7 @@ function MusicBrowserBase({
       await onTrackSaved();
       setCtx(null);
     } catch (error) {
-      showToast(`No se pudo cambiar el bloque: ${String(error)}`);
+      showToast(`No se pudo cambiar la lista: ${String(error)}`);
     }
   };
 
@@ -950,7 +814,7 @@ function MusicBrowserBase({
       setMode("blocks");
       setSelection(res.blockId);
       setImp((s) => (s ? { ...s, busy: false, report: res } : s));
-      showToast(`«${res.blockName}»: ${res.added + res.matched} canciones en el bloque`);
+      showToast(`«${res.blockName}»: ${res.added + res.matched} canciones en la lista`);
     } catch (e) {
       showToast(`No se pudo importar la lista: ${String(e)}`);
       setImp((s) => (s ? { ...s, busy: false } : s));
@@ -991,9 +855,7 @@ function MusicBrowserBase({
 
   const selectionLabel = (() => {
     if (!selection) return "Toda la música";
-    if (mode === "folders") return baseName(selection.replace(/[\\/]+$/, "")) || selection;
-    if (mode === "blocks") return selection === NONE ? "Sin bloque" : blockNames.get(selection) ?? "Bloque";
-    if (mode === "genres") return selection === NONE ? "Sin estilo" : selection;
+    if (mode === "blocks") return selection === NONE ? "Sin lista" : blockNames.get(selection) ?? "Lista";
     if (mode === "tags") return selection === NONE ? "Sin etiquetas" : selection;
     if (mode === "history") return "Últimas canciones emitidas";
     return selection;
@@ -1079,7 +941,7 @@ function MusicBrowserBase({
       <div className="panel-head">
         <h2>Música</h2>
         <span className="panel-count">
-          {tracks.length} canciones · {artists.length} artistas · {blocks.length} bloques
+          {tracks.length} canciones · {artists.length} artistas · {blocks.length} listas
         </span>
       </div>
 
@@ -1135,7 +997,7 @@ function MusicBrowserBase({
           disabled={scanning}
           title={
             scanInfo ||
-            "Elegir una carpeta o un disco duro y añadir sus canciones (con subcarpetas) al catálogo general, sin copiarlas ni meterlas en bloques"
+            "Elegir una carpeta o un disco duro y añadir sus canciones (con subcarpetas) al catálogo general, sin copiarlas ni meterlas en listas"
           }
           aria-label="Escanear una carpeta o un disco duro"
         >
@@ -1145,8 +1007,8 @@ function MusicBrowserBase({
           type="button"
           className="btn btn-sm icon-only"
           onClick={() => void openPlaylistImport()}
-          title="Importar una lista .m3u/.m3u8 a un bloque"
-          aria-label="Importar una lista a un bloque"
+          title="Importar un archivo .m3u/.m3u8 a una lista"
+          aria-label="Importar M3U a una lista"
         >
           <IconList size={14} />
         </button>
@@ -1161,61 +1023,34 @@ function MusicBrowserBase({
         </button>
       </div>
 
+      {mode === "explorer" ? (
+        <div className="browser-body browser-body-full">
+          <ExplorerView
+            tracks={tracks}
+            blocks={blocks}
+            query={query}
+            onPreview={onPreviewTrack}
+            onPreviewNow={onPreviewNow}
+            onAddToPlaylist={(paths) => onImportPaths?.(paths, { toPlaylist: true })}
+            onImport={(paths, blockId) => onImportPaths?.(paths, { blockId })}
+            showToast={showToast}
+          />
+        </div>
+      ) : mode === "music" && !selection ? (
+        <div className="browser-body browser-body-full">
+          <MusicGallery tracks={tracks} query={query} onOpen={openMusic} />
+        </div>
+      ) : (
       <div
         className="browser-body"
-        style={{ gridTemplateColumns: `${sideWidth}px 6px minmax(0, 1fr)` }}
+        style={{ gridTemplateColumns: mode === "music" ? "minmax(0, 1fr)" : `${sideWidth}px 6px minmax(0, 1fr)` }}
       >
+        {mode !== "music" && (
+        <>
         <aside
           className={`browser-side ${dropBlockId ? "browser-side-drop" : ""}`}
           aria-label="Filtros"
         >
-          {mode === "folders" && (
-            <>
-              <button
-                type="button"
-                className={`nav-item nav-item-all ${selection === "" ? "nav-item-on" : ""}`}
-                onClick={() => setSelection("")}
-              >
-                <IconFolder size={12} />
-                <span className="nav-name">Toda la música</span>
-                <span className="nav-count">{tracks.length}</span>
-              </button>
-              <FolderTree
-                nodes={folderTree}
-                depth={0}
-                expanded={expanded}
-                selected={selection}
-                onToggle={toggleFolder}
-                onSelect={setSelection}
-              />
-            </>
-          )}
-
-          {mode === "artists" && (
-            <>
-              <button
-                type="button"
-                className={`nav-item nav-item-all ${selection === "" ? "nav-item-on" : ""}`}
-                onClick={() => setSelection("")}
-              >
-                <span className="nav-name">Todos los artistas</span>
-                <span className="nav-count">{tracks.length}</span>
-              </button>
-              {artists.map(([name, count]) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={`nav-item ${selection === name ? "nav-item-on" : ""}`}
-                  onClick={() => setSelection(name)}
-                  title={name}
-                >
-                  <span className="nav-name">{name}</span>
-                  <span className="nav-count">{count}</span>
-                </button>
-              ))}
-            </>
-          )}
-
           {mode === "blocks" && (
             <>
               <button
@@ -1274,7 +1109,7 @@ function MusicBrowserBase({
                       <button
                         type="button"
                         className="nav-act nav-act-danger"
-                        title="Quitar separador (los bloques no se tocan)"
+                        title="Quitar grupo (las listas no se tocan)"
                         onClick={() => removeSeparator(item.id)}
                       >
                         <IconTrash size={11} />
@@ -1296,7 +1131,7 @@ function MusicBrowserBase({
                     data-block-id={b.id}
                     onPointerDown={(e) => {
                       if (renamingId === b.id) return;
-                      beginDrag(e, { kind: "blockItem", key, blockId: b.id, label: `Bloque ${b.name}` });
+                      beginDrag(e, { kind: "blockItem", key, blockId: b.id, label: `Lista ${b.name}` });
                     }}
                     onClick={() => setSelection(b.id)}
                     role="button"
@@ -1333,8 +1168,8 @@ function MusicBrowserBase({
                         }}
                         title={
                           autoBlocks.includes(b.id)
-                            ? "El piloto automático elige de este bloque"
-                            : "El piloto automático ignora este bloque"
+                            ? "El piloto automático elige de esta lista"
+                            : "El piloto automático ignora esta lista"
                         }
                       >
                         <IconBolt size={11} />
@@ -1347,7 +1182,7 @@ function MusicBrowserBase({
                           setRenamingId(b.id);
                           setRenameValue(b.name);
                         }}
-                        title="Renombrar bloque"
+                        title="Renombrar lista"
                       >
                         <IconEdit size={11} />
                       </button>
@@ -1358,7 +1193,7 @@ function MusicBrowserBase({
                           e.stopPropagation();
                           void tryDeleteBlock(b);
                         }}
-                        title="Eliminar bloque (las canciones no se tocan)"
+                        title="Eliminar lista (las canciones no se tocan)"
                       >
                         <IconTrash size={11} />
                       </button>
@@ -1416,39 +1251,6 @@ function MusicBrowserBase({
             </>
           )}
 
-          {mode === "genres" && (
-            <>
-              <button
-                type="button"
-                className={`nav-item nav-item-all ${selection === "" ? "nav-item-on" : ""}`}
-                onClick={() => setSelection("")}
-              >
-                <span className="nav-name">Todos los estilos</span>
-                <span className="nav-count">{tracks.length}</span>
-              </button>
-              {genres.map(([name, count]) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={`nav-item ${selection === name ? "nav-item-on" : ""}`}
-                  onClick={() => setSelection(name)}
-                  title={name}
-                >
-                  <span className="nav-name">{name}</span>
-                  <span className="nav-count">{count}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`nav-item ${selection === NONE ? "nav-item-on" : ""}`}
-                onClick={() => setSelection(NONE)}
-              >
-                <span className="nav-name">Sin estilo</span>
-                <span className="nav-count">{tracks.filter((t) => !t.genre.trim()).length}</span>
-              </button>
-            </>
-          )}
-
           {mode === "tags" && (
             <>
               <button
@@ -1495,7 +1297,7 @@ function MusicBrowserBase({
           className="browser-split"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Ancho de la lista de carpetas y bloques"
+          aria-label="Ancho de la lista de carpetas y listas"
           tabIndex={0}
           onPointerDown={startResize}
           onPointerMove={moveResize}
@@ -1514,16 +1316,29 @@ function MusicBrowserBase({
           }}
         />
 
+        </>
+        )}
         <div
           className={`browser-main ${listBlockId && dropBlockId === listBlockId ? "browser-main-drop" : ""}`}
           {...(listBlockId
             ? { "data-drop-zone": "block-list", "data-block-id": listBlockId, "data-block-drop": listBlockId }
             : {})}
         >
-          <div className="browser-crumbs">
-            <span className="crumb">{selectionLabel}</span>
-            <span className="crumb-count">{filtered.length} canciones</span>
-          </div>
+          {mode === "music" ? (
+            <GalleryHeader
+              tracks={tracks}
+              selection={selection}
+              count={filtered.length}
+              backTo={musicBack[musicBack.length - 1] ?? ""}
+              onBack={musicGoBack}
+              onOpen={openMusic}
+            />
+          ) : (
+            <div className="browser-crumbs">
+              <span className="crumb">{selectionLabel}</span>
+              <span className="crumb-count">{filtered.length} canciones</span>
+            </div>
+          )}
 
           <div className="browser-cols">
             <button type="button" className="bcol bcol-name" onClick={() => toggleSort("title")}>
@@ -1598,6 +1413,7 @@ function MusicBrowserBase({
           )}
         </div>
       </div>
+      )}
 
       {ctx && (
         <div
@@ -1625,9 +1441,9 @@ function MusicBrowserBase({
             >
               <IconPlus size={13} /> Añadir a la lista
             </button>
-            <div className="ctx-title">Asignar a bloque</div>
+            <div className="ctx-title">Añadir a una lista</div>
             <div className="ctx-blocks">
-              {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+              {blocks.length === 0 && <span className="hint">No hay listas creadas.</span>}
               {blocks.map((block) => {
                 const inside = ctx.track.blocks.includes(block.id);
                 return (
@@ -1848,10 +1664,10 @@ function MusicBrowserBase({
               </label>
 
               <div className="field">
-                <span className="field-label">Bloques musicales</span>
+                <span className="field-label">Listas</span>
                 <div className="edit-blocks">
                   {blocks.length === 0 && (
-                    <span className="hint">Crea bloques en la pestaña «Bloques» para clasificar esta canción.</span>
+                    <span className="hint">Crea listas en la pestaña «Listas» para clasificar esta canción.</span>
                   )}
                   {blocks.map((b) => {
                     const on = edit.blocks.includes(b.id);
@@ -1905,10 +1721,10 @@ function MusicBrowserBase({
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="Importar lista a un bloque"
+            aria-label="Importar M3U a una lista"
           >
             <div className="modal-head">
-              <h3>Importar lista a un bloque</h3>
+              <h3>Importar M3U a una lista</h3>
               <button type="button" className="ghost-btn" onClick={() => setImp(null)}>
                 Cerrar
               </button>
@@ -1917,7 +1733,7 @@ function MusicBrowserBase({
               <p className="hint">
                 <strong>{imp.fileName}</strong>
                 <br />
-                Las canciones que ya estén en la biblioteca se añaden al bloque; las que no,
+                Las canciones que ya estén en la biblioteca se añaden a la lista; las que no,
                 se catalogan.
               </p>
 
@@ -1957,7 +1773,7 @@ function MusicBrowserBase({
               ) : (
                 <>
                   <fieldset className="fieldset">
-                    <legend>Bloque de destino</legend>
+                    <legend>Lista de destino</legend>
                     <label className="radio-row">
                       <input
                         type="radio"
@@ -1965,7 +1781,7 @@ function MusicBrowserBase({
                         disabled={blocks.length === 0}
                         onChange={() => setImp({ ...imp, mode: "existing" })}
                       />
-                      <span>Añadir a un bloque existente</span>
+                      <span>Añadir a una lista existente</span>
                       <select
                         value={imp.blockId}
                         disabled={imp.mode !== "existing" || blocks.length === 0}
@@ -1982,7 +1798,7 @@ function MusicBrowserBase({
                         checked={imp.mode === "new"}
                         onChange={() => setImp({ ...imp, mode: "new" })}
                       />
-                      <span>Crear un bloque nuevo</span>
+                      <span>Crear una lista nueva</span>
                       <input
                         type="text"
                         value={imp.newName}
@@ -1990,7 +1806,7 @@ function MusicBrowserBase({
                         onChange={(e) => setImp({ ...imp, newName: e.target.value })}
                       />
                     </label>
-                    <p className="hint">Si ya existe un bloque con ese nombre, se reutiliza.</p>
+                    <p className="hint">Si ya existe una lista con ese nombre, se reutiliza.</p>
                   </fieldset>
 
                   <fieldset className="fieldset">

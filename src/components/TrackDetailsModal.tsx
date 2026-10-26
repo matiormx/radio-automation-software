@@ -140,7 +140,7 @@ export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModa
                 </span>
                 <span className="prop-k">Tamaño</span>
                 <span className="prop-v">{fmtBytes(details.fileSize)}</span>
-                <span className="prop-k">Bloques</span>
+                <span className="prop-k">Listas</span>
                 <span className="prop-v">
                   {details.blockNames.length > 0 ? (
                     <span className="props-chips">

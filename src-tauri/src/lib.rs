@@ -20,6 +20,8 @@ pub mod netstream;
 pub mod ndi;
 pub mod cursor;
 pub mod ffmpeg_dl;
+pub mod media;
+pub mod explorer;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -28,6 +30,11 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // .m4v (y similares) servidos como MP4: el protocolo normal les pone
+        // un tipo que el WebView no reproduce.
+        .register_asynchronous_uri_scheme_protocol("media", |_ctx, request, responder| {
+            std::thread::spawn(move || responder.respond(media::handle(&request)));
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
@@ -79,6 +86,8 @@ pub fn run() {
             ndi::ndi_server,
             cursor::cursor_wall,
             ffmpeg_dl::ffmpeg_info,
+            explorer::fs_list,
+            explorer::fs_places,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,

@@ -101,7 +101,7 @@ function sourceLabel(event: StationEvent, blocks: Block[]): string {
   if (event.sourceKind === "library") {
     return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
   }
-  return blocks.find((b) => b.id === event.sourceId)?.name ?? "Bloque eliminado";
+  return blocks.find((b) => b.id === event.sourceId)?.name ?? "Lista eliminada";
 }
 
 function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track>): string[] {
@@ -285,7 +285,7 @@ export function EventsTab({
       );
       if (draft.kind === "auto") {
         if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
-          setError("Elige un bloque musical para la franja.");
+          setError("Elige un lista para la franja.");
           return;
         }
         if (draft.sourceKind === "library" && draft.sourceId !== "a" && draft.sourceId !== "b") {
@@ -294,7 +294,7 @@ export function EventsTab({
         }
       } else if (draft.trackMode === "random") {
         if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
-          setError("Elige el bloque del que saldrán las pistas.");
+          setError("Elige la lista del que saldrán las pistas.");
           return;
         }
         if (randomPool(draft, tracks).length === 0) {
@@ -450,7 +450,7 @@ export function EventsTab({
                         ? "La pista ya no está en la biblioteca."
                         : emptyPool
                           ? "La fuente no tiene pistas disponibles."
-                          : "El bloque ya no existe."}
+                          : "La lista ya no existe."}
                     </div>
                   )}
                   {event.lastFired && (
@@ -766,21 +766,21 @@ function EventEditor({
                 onChange={(e) => setSourceKind(e.target.value as StationEventSource)}
               >
                 <option value="block" disabled={blocks.length === 0}>
-                  Bloque musical
+                  Lista
                 </option>
                 <option value="library">Biblioteca completa</option>
               </select>
             </label>
             <label className="field">
               <span className="field-label">
-                {draft.sourceKind === "block" ? "Bloque" : "Biblioteca"}
+                {draft.sourceKind === "block" ? "Lista" : "Biblioteca"}
               </span>
               {draft.sourceKind === "block" ? (
                 <select
                   value={draft.sourceId}
                   onChange={(e) => set({ sourceId: e.target.value })}
                 >
-                  {blocks.length === 0 && <option value="">Sin bloques</option>}
+                  {blocks.length === 0 && <option value="">Sin listas</option>}
                   {blocks.map((block) => (
                     <option key={block.id} value={block.id}>
                       {block.name}
@@ -836,8 +836,8 @@ function EventEditor({
               <select
                 value={trackBlock}
                 onChange={(e) => setTrackBlock(e.target.value)}
-                title="Filtrar las pistas por bloque musical"
-                aria-label="Bloque musical"
+                title="Filtrar las pistas por lista"
+                aria-label="Lista"
               >
                 <option value="">Toda la biblioteca</option>
                 {blocks.map((block) => (
@@ -970,7 +970,7 @@ function RandomFields({
               <option value="library:b">Biblioteca B</option>
             </optgroup>
             {blocks.length > 0 && (
-              <optgroup label="Bloque musical">
+              <optgroup label="Lista">
                 {blocks.map((block) => (
                   <option key={block.id} value={`block:${block.id}`}>
                     {block.name}
@@ -979,7 +979,7 @@ function RandomFields({
               </optgroup>
             )}
             {draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId) && (
-              <option value={source}>Bloque eliminado</option>
+              <option value={source}>Lista eliminada</option>
             )}
           </select>
         </label>

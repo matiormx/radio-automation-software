@@ -1645,6 +1645,7 @@ pub fn import_files_dedup(
     paths: Vec<String>,
     library: Option<String>,
     block_id: Option<String>,
+    in_place: Option<bool>,
 ) -> Result<ImportResult, String> {
     // Por cada archivo: la cancion que ya existia o el indice en `fresh`.
     let mut order: Vec<Result<String, usize>> = Vec::new();
@@ -1667,7 +1668,20 @@ pub fn import_files_dedup(
         }
         (fresh, ids)
     };
-    let added = if fresh.is_empty() { Vec::new() } else { import_files(state.clone(), fresh.clone(), library)? };
+    let added = if fresh.is_empty() {
+        Vec::new()
+    } else if in_place.unwrap_or(false) {
+        // Desde el Explorador: se catalogan en su sitio, sin copiarlos.
+        let _guard = lock_library();
+        let mut tracks = read_library_internal(&state.data_dir);
+        let before = tracks.len();
+        catalog_in_place(&state.data_dir, &mut tracks, fresh.iter().map(PathBuf::from).collect(), |_, _| {});
+        let added: Vec<Track> = tracks[before..].to_vec();
+        write_library(&state.data_dir, &tracks)?;
+        resolve_all(added, &state.data_dir)
+    } else {
+        import_files(state.clone(), fresh.clone(), library)?
+    };
     // Las nuevas se reconocen por el nombre del archivo original.
     let new_id = |i: usize| -> Option<String> {
         let name = Path::new(&fresh[i]).file_name()?.to_string_lossy().to_string();

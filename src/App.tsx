@@ -169,7 +169,7 @@ function eventSourceLabel(event: StationEvent, blocks: Block[]): string {
   if (event.sourceKind === "library") {
     return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
   }
-  return blocks.find((b) => b.id === event.sourceId)?.name ?? "Bloque eliminado";
+  return blocks.find((b) => b.id === event.sourceId)?.name ?? "Lista eliminada";
 }
 
 /** Emision de internet de un evento que esta sonando. */
@@ -1309,7 +1309,7 @@ export default function App() {
   // Arrastrar archivos desde el escritorio
   const mutateViewRef = useRef<((fn: (ids: string[]) => string[]) => Promise<void>) | null>(null);
   const doImport = useCallback(
-    async (paths: string[], library: "a" | "b" = "a", blockId?: string | null, playlistAt?: number) => {
+    async (paths: string[], library: "a" | "b" = "a", blockId?: string | null, playlistAt?: number, inPlace = false) => {
       const targetBlock =
         blockId && blocksRef.current.some((block) => block.id === blockId) ? blockId : null;
       let ok = paths.filter(extOk);
@@ -1321,6 +1321,8 @@ export default function App() {
       try {
         // Los videos que el reproductor no abre (avi, wmv, mkv…) se pasan a MP4.
         const toConvert = ok.filter(needsVideoConversion);
+        // Los convertidos viven en una carpeta temporal: esos siempre se copian.
+        let converted: string[] = [];
         if (toConvert.length > 0) {
           showToast(`Convirtiendo ${toConvert.length === 1 ? "1 vídeo" : `${toConvert.length} vídeos`} a MP4…`);
           const off = listen<{ index: number; total: number; name: string; fraction: number }>("video://convert", (e) => {
@@ -1330,16 +1332,29 @@ export default function App() {
           try {
             const res = await convertVideos(toConvert);
             const failed = res.filter((r) => !r.output);
-            ok = ok.filter((p) => !needsVideoConversion(p)).concat(res.flatMap((r) => (r.output ? [r.output] : [])));
+            ok = ok.filter((p) => !needsVideoConversion(p));
+            converted = res.flatMap((r) => (r.output ? [r.output] : []));
+            if (!inPlace) {
+              ok = ok.concat(converted);
+              converted = [];
+            }
             if (failed.length > 0) showToast(`No se pudo convertir ${failed[0].source.split(/[\\/]/).pop()}: ${failed[0].error ?? ""}`);
           } finally {
             void off.then((f) => f());
           }
         }
-        if (ok.length === 0) return;
+        if (ok.length === 0 && converted.length === 0) return;
         // Lo que ya estaba en el catalogo no se copia otra vez; si se suelta
-        // sobre un bloque, todo queda asignado a ese bloque.
-        const res = await importFilesDedup(ok, library, targetBlock);
+        // sobre una lista, todo queda asignado a esa lista. Desde el Explorador
+        // se catalogan en su sitio (sin copiarlos).
+        const res =
+          converted.length > 0
+            ? await (async () => {
+                const a = ok.length > 0 ? await importFilesDedup(ok, library, targetBlock, true) : { added: 0, existing: 0, ids: [] as string[] };
+                const b = await importFilesDedup(converted, library, targetBlock, false);
+                return { added: a.added + b.added, existing: a.existing + b.existing, ids: [...a.ids, ...b.ids] };
+              })()
+            : await importFilesDedup(ok, library, targetBlock, inPlace);
         setTracks(await listTracks());
         const blockName = targetBlock
           ? blocksRef.current.find((block) => block.id === targetBlock)?.name ?? ""
@@ -1374,7 +1389,7 @@ export default function App() {
   );
 
   // Destino de los archivos que se arrastran desde el Explorador: solo se
-  // ilumina la zona donde caeran (un bloque, la biblioteca o la lista).
+  // ilumina la zona donde caeran (una lista, la biblioteca o la lista).
   type FileTarget =
     | { kind: "block"; id: string; el: HTMLElement }
     | { kind: "library"; el: HTMLElement }
@@ -1427,7 +1442,7 @@ export default function App() {
           const cssX = position ? position.x / dpr : window.innerWidth / 2;
           void doImport(paths, cssX < window.innerWidth / 2 ? "a" : "b", t?.kind === "block" ? t.id : null);
         } else if (!t) {
-          showToast("Suelta los archivos sobre la biblioteca, un bloque o la lista de emisión");
+          showToast("Suelta los archivos sobre la biblioteca, una lista o la lista de emisión");
         } else if (t.kind === "block") {
           void doImport(paths, "a", t.id);
         } else if (t.kind === "playlist") {
@@ -1505,10 +1520,10 @@ export default function App() {
             item.id === trackId ? { ...item, blocks: [...item.blocks, blockId] } : item,
           ),
         );
-        const name = blocksRef.current.find((block) => block.id === blockId)?.name ?? "bloque";
+        const name = blocksRef.current.find((block) => block.id === blockId)?.name ?? "lista";
         showToast(`«${track.title}» añadida a ${name}`);
       } catch (error) {
-        showToast(`No se pudo asignar al bloque: ${String(error)}`);
+        showToast(`No se pudo asignar a la lista: ${String(error)}`);
       }
     },
     [showToast],
@@ -1517,12 +1532,12 @@ export default function App() {
   const handlePendingEditDone = useCallback(() => setPendingEdit(null), []);
 
 
-  // ---- bloques musicales ----
+  // ---- listas ----
   const handleCreateBlock = useCallback(
     async (name: string) => {
       const b = await createBlock(name);
       setBlocks((prev) => [...prev, b]);
-      showToast(`Bloque «${b.name}» creado`);
+      showToast(`Lista «${b.name}» creada`);
     },
     [showToast],
   );
@@ -1542,7 +1557,7 @@ export default function App() {
         void saveSettings(nextS).catch(() => undefined);
         return nextS;
       });
-      showToast("Bloque eliminado");
+      showToast("Lista eliminada");
     },
     [showToast],
   );
@@ -1702,12 +1717,12 @@ export default function App() {
     [mutateView],
   );
 
-  /** Suelta un bloque entero en la lista: sus canciones (las que no estan ya). */
+  /** Suelta una lista entero en la lista: sus canciones (las que no estan ya). */
   const dropBlockAt = useCallback(
     (blockId: string, at: number) => {
       const ids = tracksRef.current.filter((t) => t.blocks.includes(blockId) && !t.missing).map((t) => t.id);
       if (ids.length === 0) {
-        showToast("Ese bloque no tiene canciones");
+        showToast("Esa lista no tiene canciones");
         return;
       }
       let added = 0;
@@ -1718,7 +1733,7 @@ export default function App() {
         copy.splice(Math.max(0, Math.min(copy.length, at)), 0, ...fresh);
         return copy;
       }).then(() => {
-        const name = blocksRef.current.find((b) => b.id === blockId)?.name ?? "bloque";
+        const name = blocksRef.current.find((b) => b.id === blockId)?.name ?? "lista";
         showToast(added ? `${added} canciones de «${name}» añadidas a la lista` : `Las canciones de «${name}» ya estaban en la lista`);
       });
     },
@@ -1754,7 +1769,7 @@ export default function App() {
     [],
   );
 
-  /** Quita o pone una pista en un bloque musical. */
+  /** Quita o pone una pista en un lista. */
   const toggleRowBlock = useCallback(
     async (trackId: string, blockId: string) => {
       const track = tracksRef.current.find((t) => t.id === trackId);
@@ -1766,7 +1781,7 @@ export default function App() {
         await setTrackBlocks(trackId, next);
         await refreshTracksAndBlocks();
       } catch (e) {
-        showToast(`No se pudo cambiar el bloque: ${String(e)}`);
+        showToast(`No se pudo cambiar la lista: ${String(e)}`);
       }
     },
     [refreshTracksAndBlocks, showToast],
@@ -3447,6 +3462,10 @@ export default function App() {
                 onAssignTrackBlock={assignTrackBlock}
                 onPreviewTrack={autoPreview ? startPreview : undefined}
                 dropBlockId={dropBlockId}
+                onPreviewNow={startPreview}
+                onImportPaths={(paths, opts) =>
+                  void doImport(paths, "a", opts.blockId ?? null, opts.toPlaylist ? Number.MAX_SAFE_INTEGER : undefined, true)
+                }
                 showToast={showToast}
               />
             ),
@@ -3598,6 +3617,7 @@ export default function App() {
                   onRemove={removeRow}
                   onDropTrack={dropTrackAt}
             onDropBlock={dropBlockAt}
+            onDropFiles={(paths, at) => void doImport(paths, "a", null, at, true)}
                   blocks={blocks}
                   onPreview={previewRow}
                   onEditMeta={editRowMeta}
@@ -3642,10 +3662,10 @@ export default function App() {
           const name = blocks.find((block) => block.id === id)?.name;
           showToast(
             activeAutoEvent
-              ? `Bloque guardado; ahora manda el evento «${eventSourceLabel(activeAutoEvent, blocks)}»`
+              ? `Lista guardada; ahora manda el evento «${eventSourceLabel(activeAutoEvent, blocks)}»`
               : name
                 ? `AutoDJ: «${name}»`
-                : "AutoDJ: automático (bloques de Música)",
+                : "AutoDJ: automático (listas de Música)",
           );
         }}
         onFadeChange={(s) => updateSettings({ ...settings, fadeSeconds: s })}
@@ -3788,9 +3808,9 @@ export default function App() {
           >
             <div className="ctx-menu" style={{ left: blockMenu.x, top: blockMenu.y }} onClick={(e) => e.stopPropagation()} role="menu">
               <div className="ctx-title" title={t.title}>{t.title}</div>
-              <div className="ctx-title">Asignar a bloque</div>
+              <div className="ctx-title">Añadir a una lista</div>
               <div className="ctx-blocks">
-                {blocks.length === 0 && <span className="hint">No hay bloques creados.</span>}
+                {blocks.length === 0 && <span className="hint">No hay listas creadas.</span>}
                 {blocks.map((block) => (
                   <button key={block.id} type="button" className="ctx-item" onClick={() => void toggleRowBlock(t.id, block.id)}>
                     <span className="plrow-block-check">{t.blocks.includes(block.id) ? "✓" : ""}</span>

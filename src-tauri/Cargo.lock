@@ -2138,6 +2138,7 @@ dependencies = [
  "jpeg-encoder",
  "libloading 0.8.9",
  "lofty",
+ "percent-encoding",
  "rtrb",
  "rubato",
  "serde",

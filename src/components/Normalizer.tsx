@@ -19,7 +19,7 @@ type Side = "a" | "b";
 const MODES: { id: Mode; label: string }[] = [
   { id: "folders", label: "Carpetas" },
   { id: "artists", label: "Artistas" },
-  { id: "blocks", label: "Bloques" },
+  { id: "blocks", label: "Listas" },
   { id: "genres", label: "Estilos" },
   { id: "tags", label: "Etiquetas" },
 ];
@@ -68,7 +68,7 @@ function fmtGain(v: number | null): string {
   return `${v >= 0 ? "+" : "-"}${s}`;
 }
 
-/** Lo que muestra una columna: si es un bloque, se le pueden pasar canciones. */
+/** Lo que muestra una columna: si es una lista, se le pueden pasar canciones. */
 export interface PaneView {
   blockId: string | null;
   label: string;
@@ -143,7 +143,7 @@ function Pane({
       if (b) return { blockId: b.id, label: b.name };
     }
     if (!pick) return { blockId: null, label: "Toda la música" };
-    if (mode === "blocks") return { blockId: null, label: "Sin bloque" };
+    if (mode === "blocks") return { blockId: null, label: "Sin lista" };
     if (mode === "folders") return { blockId: null, label: pick.split("/").pop() || pick };
     return { blockId: null, label: pick };
   }, [mode, pick, blocks]);
@@ -346,7 +346,7 @@ function Pane({
           className={`nside-item ${pick === NO_FOLDER ? "nside-on" : ""}`}
           onClick={() => choose(NO_FOLDER)}
         >
-          <span className="nside-name">Todos los bloques</span>
+          <span className="nside-name">Todas las listas</span>
           <span className="nside-count">{tracks.length}</span>
         </button>
         {blocks.map((b) => (
@@ -366,14 +366,14 @@ function Pane({
           className={`nside-item ${pick === "__none__" ? "nside-on" : ""}`}
           onClick={() => choose("__none__")}
         >
-          <span className="nside-name">Sin bloque</span>
+          <span className="nside-name">Sin lista</span>
           <span className="nside-count">{none}</span>
         </button>
       </>
     );
   };
 
-  const title = view.blockId ? `Bloque «${view.label}»` : view.label;
+  const title = view.blockId ? `Lista «${view.label}»` : view.label;
 
   return (
     <section className="npane" onDragOver={(e) => e.preventDefault()} onDrop={drop}>
@@ -493,7 +493,7 @@ function Pane({
                 {tracks.length === 0
                   ? "La biblioteca está vacía. Importa canciones o arrástralas desde el explorador."
                   : view.blockId
-                    ? "Este bloque está vacío. Pasa canciones desde la otra columna."
+                    ? "Esta lista está vacía. Pasa canciones desde la otra columna."
                     : "Ninguna canción coincide con el filtro."}
               </span>
             )}
@@ -531,7 +531,7 @@ function Pane({
           type="button"
           className="btn btn-sm"
           disabled={busy || selected.size === 0 || !other.blockId}
-          title={other.blockId ? undefined : "Elige un bloque en la otra columna"}
+          title={other.blockId ? undefined : "Elige una lista en la otra columna"}
           onClick={() => onMove(Array.from(selected), side === "a" ? "b" : "a")}
         >
           {side === "a" ? `A «${other.blockId ? other.label : "…"}» →` : `← A «${other.blockId ? other.label : "…"}»`}
@@ -1030,7 +1030,7 @@ export function Normalizer({
   const move = async (ids: string[], to: Side) => {
     const target = views[to].blockId;
     if (!target) {
-      showToast("Elige un bloque en la columna de destino para pasarle canciones");
+      showToast("Elige una lista en la columna de destino para pasarle canciones");
       return;
     }
     const from = views[to === "a" ? "b" : "a"].blockId;
@@ -1265,7 +1265,7 @@ export function Normalizer({
             className="nmove-btn"
             disabled={running !== null || selA.size === 0 || !views.b.blockId}
             onClick={() => void move(Array.from(selA), "b")}
-            title={views.b.blockId ? `Pasar la selección a «${views.b.label}»` : "Elige un bloque a la derecha"}
+            title={views.b.blockId ? `Pasar la selección a «${views.b.label}»` : "Elige una lista a la derecha"}
           >
             →
           </button>
@@ -1274,7 +1274,7 @@ export function Normalizer({
             className="nmove-btn"
             disabled={running !== null || selB.size === 0 || !views.a.blockId}
             onClick={() => void move(Array.from(selB), "a")}
-            title={views.a.blockId ? `Pasar la selección a «${views.a.label}»` : "Elige un bloque a la izquierda"}
+            title={views.a.blockId ? `Pasar la selección a «${views.a.label}»` : "Elige una lista a la izquierda"}
           >
             ←
           </button>
@@ -1285,7 +1285,7 @@ export function Normalizer({
               aria-checked={transfer === "move"}
               className={transfer === "move" ? "on" : ""}
               onClick={() => setTransfer("move")}
-              title="Salen del bloque de origen y entran en el de destino"
+              title="Salen de la lista de origen y entran en el de destino"
             >
               Mover
             </button>
@@ -1295,7 +1295,7 @@ export function Normalizer({
               aria-checked={transfer === "copy"}
               className={transfer === "copy" ? "on" : ""}
               onClick={() => setTransfer("copy")}
-              title="Quedan en los dos bloques"
+              title="Quedan en los dos listas"
             >
               Copiar
             </button>
@@ -1352,7 +1352,7 @@ export function Normalizer({
           {all.length} canciones en la biblioteca. Pasar canciones entre bloques no mueve ni borra
           archivos.
         </span>
-        <span>Cada columna muestra lo que elijas: un bloque, una carpeta, un estilo…</span>
+        <span>Cada columna muestra lo que elijas: una lista, una carpeta, un estilo…</span>
       </div>
 
       {trimTrack && (

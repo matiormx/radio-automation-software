@@ -96,16 +96,16 @@ export function PlayerBar({
       <div className="pb-divider" />
 
       <div className="pb-group-seg pb-block">
-        <span className="pb-label">BLOQUE AUTO</span>
+        <span className="pb-label">LISTA AUTO</span>
         <select
           className="pb-select"
           value={defaultBlockId}
           onChange={(e) => onDefaultBlockChange(e.target.value)}
-          aria-label="Bloque musical que usa el AutoDJ"
+          aria-label="Lista que usa el AutoDJ"
           title={
             autoEventLabel
               ? `Ahora manda el evento: ${autoEventLabel}`
-              : "Bloque del que el AutoDJ saca las próximas canciones"
+              : "Lista de la que el AutoDJ saca las próximas canciones"
           }
         >
           <option value="">Automático</option>
@@ -116,7 +116,7 @@ export function PlayerBar({
           ))}
         </select>
         {autoEventLabel && (
-          <span className="pb-block-event" title="Evento activo: tiene prioridad sobre el bloque">
+          <span className="pb-block-event" title="Evento activo: tiene prioridad sobre la lista">
             Evento: {autoEventLabel}
           </span>
         )}

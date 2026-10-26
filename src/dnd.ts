@@ -15,7 +15,9 @@ export type DragPayload =
   /** Fila de la lista de emision */
   | { kind: "row"; index: number; trackId: string; label: string }
   /** Bloque o separador de la lista de bloques */
-  | { kind: "blockItem"; key: string; blockId: string; label: string };
+  | { kind: "blockItem"; key: string; blockId: string; label: string }
+  /** Archivos del Explorador (pueden no estar en la biblioteca) */
+  | { kind: "files"; paths: string[]; label: string };
 
 export interface DropZone {
   /** ¿Acepta esto aqui? (si no, no se resalta ni se suelta) */

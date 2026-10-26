@@ -69,8 +69,10 @@ export function importFilesDedup(
   paths: string[],
   library: "a" | "b" = "a",
   blockId: string | null = null,
+  /** Catalogar en su sitio (sin copiar a la carpeta de música) */
+  inPlace = false,
 ): Promise<{ added: number; existing: number; ids: string[] }> {
-  return invoke("import_files_dedup", { paths, library, blockId });
+  return invoke("import_files_dedup", { paths, library, blockId, inPlace });
 }
 
 export function deezerSearch(query: string): Promise<DeezerTrack[]> {
@@ -418,6 +420,9 @@ export function autoPick(
 }
 
 export function trackUrl(track: { file: string }): string {
+  // .m4v: el protocolo normal los marca como video/x-m4v y el WebView no los
+  // reproduce; el protocolo «media» los sirve como MP4.
+  if (/\.m4v$/i.test(track.file)) return convertFileSrc(track.file, "media");
   return convertFileSrc(track.file);
 }
 
@@ -619,4 +624,34 @@ export function ffmpegInfo(): Promise<FfmpegInfo> {
 /** Busca (y si hay, instala) la última versión de FFmpeg. */
 export function ffmpegUpdate(): Promise<void> {
   return invoke("ffmpeg_update");
+}
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  kind: "audio" | "video" | "";
+  size: number;
+  modified: number;
+}
+export interface FsListing {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+  truncated: boolean;
+}
+export interface FsPlace {
+  label: string;
+  path: string;
+  kind: "drive" | "folder";
+}
+
+/** Carpetas y archivos compatibles de una carpeta del ordenador. */
+export function fsList(path: string): Promise<FsListing> {
+  return invoke("fs_list", { path });
+}
+
+/** Accesos rápidos: carpetas del usuario y unidades. */
+export function fsPlaces(): Promise<FsPlace[]> {
+  return invoke("fs_places");
 }

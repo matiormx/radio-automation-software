@@ -601,7 +601,7 @@ function GeneralTab({
           </label>
         )}
         <label className="field">
-          <span className="field-label">Bloque musical por defecto del AutoDJ</span>
+          <span className="field-label">Lista por defecto del AutoDJ</span>
           <select
             value={defaultBlock}
             onChange={(e) => onChange({ ...s, defaultBlockId: e.target.value })}
@@ -615,8 +615,8 @@ function GeneralTab({
           </select>
         </label>
         <p className="hint">
-          Si eliges un bloque, el AutoDJ saca las próximas canciones de ahí. En «Automático»
-          usa los bloques marcados con el rayo en Música; si no hay ninguno, toda la biblioteca.
+          Si eliges una lista, el AutoDJ saca las próximas canciones de ahí. En «Automático»
+          usa las listas marcados con el rayo en Música; si no hay ninguno, toda la biblioteca.
           Un evento activo tiene prioridad sobre esta selección.
         </p>
       </fieldset>
@@ -778,7 +778,7 @@ function AutoDjTab({
       <fieldset className="fieldset">
         <legend>Intros</legend>
         <p className="hint">
-          Audios de un bloque especial (presentaciones, identificadores…) que suenan encima del hueco entre el
+          Audios de una lista especial (presentaciones, identificadores…) que suenan encima del hueco entre el
           inicio de una canción y su punto de intro, sin pisar la voz. Solo se usan en canciones que tengan el
           intro marcado en el editor de cortes, y solo si el audio cabe en ese hueco.
         </p>
@@ -789,9 +789,9 @@ function AutoDjTab({
         {intros.enabled && (
           <>
             <label className="field">
-              <span className="field-label">Bloque de intros</span>
+              <span className="field-label">Lista de intros</span>
               <select value={intros.blockId} onChange={(e) => setIntros({ blockId: e.target.value })}>
-                <option value="">— elige un bloque —</option>
+                <option value="">— elige una lista —</option>
                 {blocks.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
@@ -832,7 +832,7 @@ function AutoDjTab({
               />
             </label>
             <p className="hint">
-              El bloque de intros no entra en la rotación normal del AutoDJ. Los cambios valen para las canciones
+              La lista de intros no entra en la rotación normal del AutoDJ. Los cambios valen para las canciones
               que aún no han empezado a sonar.
             </p>
           </>
@@ -926,8 +926,8 @@ function AutoDjTab({
           onCommit={(v) => onChange({ ...s, autopilotFillTo: v })}
         />
         <p className="hint">
-          Los bloques musicales de los que saca canciones se eligen en el navegador «Música», con
-          el rayo de cada bloque. Las campañas programadas se configuran en la pestaña Campañas.
+          Los listas de los que saca canciones se eligen en el navegador «Música», con
+          el rayo de cada lista. Las campañas programadas se configuran en la pestaña Campañas.
         </p>
       </fieldset>
     </>
@@ -1370,8 +1370,8 @@ function CampaignEditor({
           <select
             value={spotBlock}
             onChange={(e) => setSpotBlock(e.target.value)}
-            title="Filtrar los spots por bloque musical"
-            aria-label="Bloque musical"
+            title="Filtrar los spots por lista"
+            aria-label="Lista"
           >
             <option value="">Toda la biblioteca</option>
             {blocks.map((block) => (
