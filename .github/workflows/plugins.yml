@@ -33,6 +33,7 @@ jobs:
             make git tar
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-binutils
 
       - name: Código fuente de la última versión
         shell: pwsh
@@ -48,13 +49,22 @@ jobs:
         run: |
           mkdir src && tar -xzf lsp-src.tar.gz -C src --strip-components=1
           cd src
-          make config FEATURES='vst3 ui' PREFIX=/opt/lsp
+          # Todo enlazado dentro (sin libwinpthread/libstdc++ de MinGW, que no
+          # existen en un Windows normal).
+          export LDFLAGS_EXT="-static -static-libgcc -static-libstdc++"
+          export LDFLAGS="$LDFLAGS_EXT"
+          make config FEATURES='vst3 ui' PREFIX=/opt/lsp LDFLAGS_EXT="$LDFLAGS_EXT"
           make -j4
           make install DESTDIR="$PWD/../dest"
           cd ..
           mkdir -p built/lsp-windows
           find dest -type d -name '*.vst3' -prune -exec cp -r {} built/lsp-windows/ \;
           ls -la built/lsp-windows
+          # Comprobación: solo DLL del sistema
+          for f in $(find built/lsp-windows -type f -iname '*.vst3'); do
+            deps=$(objdump -p "$f" | grep "DLL Name" | grep -iE "libwinpthread|libstdc|libgcc|libssp" || true)
+            if [ -n "$deps" ]; then echo "::error::$f depende de MinGW: $deps"; exit 1; fi
+          done
 
       - uses: actions/upload-artifact@v4
         with:
