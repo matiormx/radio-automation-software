@@ -405,7 +405,7 @@ export function SettingsPanel({
             {tab === "sound" && <MixerEmbedded settings={s} onChange={onChange} />}
             {tab === "plugins" && <VstSettings settings={s} onChange={onChange} />}
             {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
-            {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
+            {tab === "video" && <VideoTab settings={s} onChange={onChange} streamStatus={streamStatus} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab

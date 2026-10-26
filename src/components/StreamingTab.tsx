@@ -335,16 +335,6 @@ export function StreamingTab({
   onToggleStreamGroup,
 }: Props) {
   const st = settings.streaming;
-  const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
-  const refreshCapture = useCallback(() => {
-    void listVideoCaptureDevices()
-      .then(setCaptureDevices)
-      .catch(() => setCaptureDevices([]));
-  }, []);
-  useEffect(() => {
-    refreshCapture();
-  }, [refreshCapture]);
-  const audioDevices = captureDevices.filter((device) => device.kind === "audio");
   // Solo se edita un encoder a la vez; el resto se ve como lista de una línea.
   const [editing, setEditing] = useState<string | null>(null);
   const set = (patch: Partial<StreamingSettings>) =>
@@ -361,25 +351,6 @@ export function StreamingTab({
     setEditing(created.id);
   };
 
-  // Salidas de vídeo: igual que Icecast, solo una abierta y el resto en una línea.
-  const [editingVideo, setEditingVideo] = useState<string | null>(null);
-  const setVideo = (patch: Partial<Settings["video"]>) =>
-    onChange({ ...settings, video: { ...settings.video, ...patch } });
-  const updateVideoOutput = (id: string, patch: Partial<VideoOutput>) =>
-    setVideo({
-      outputs: settings.video.outputs.map((output) =>
-        output.id === id ? { ...output, ...patch } : output,
-      ),
-    });
-  const addVideoOutput = () => {
-    const created = newVideoOutput();
-    setVideo({ outputs: [...settings.video.outputs, created] });
-    setEditingVideo(created.id);
-  };
-  const removeVideoOutput = (id: string) => {
-    setVideo({ outputs: settings.video.outputs.filter((output) => output.id !== id) });
-    setEditingVideo((current) => (current === id ? null : current));
-  };
 
   const emissions = [
     ...st.icecast.map((s) => ({
@@ -852,21 +823,80 @@ export function StreamingTab({
         </div>
       </fieldset>
 
+      <VideoOutputsEditor
+        settings={settings}
+        onChange={onChange}
+        statusByKey={statusByKey}
+        kinds={["rtmp"]}
+        title="Salidas de vídeo por internet (RTMP)"
+        hint="YouTube, Facebook, Twitch, Restream… Cada salida elige su vídeo y su audio (la salida Encoders de la mesa o el de una capturadora). Las salidas locales (pantalla/HDMI, NDI, tarjeta SDI) se configuran en Ajustes › Vídeo. Si cambias salidas con la emisión en marcha, pulsa «Aplicar cambios»."
+      />
+    </>
+  );
+}
+
+/**
+ * Lista editable de salidas de vídeo de ciertos tipos. Streaming muestra las
+ * RTMP; Ajustes › Vídeo, las locales (pantalla/HDMI, NDI, tarjeta SDI).
+ * Todas viven en settings.video.outputs.
+ */
+export function VideoOutputsEditor({
+  settings,
+  onChange,
+  statusByKey,
+  kinds,
+  title,
+  hint,
+}: {
+  settings: Settings;
+  onChange: (s: Settings) => void;
+  statusByKey?: Map<string, { tone: string; label: string }>;
+  kinds: VideoOutputKind[];
+  title: string;
+  hint: string;
+}) {
+  const [captureDevices, setCaptureDevices] = useState<VideoCaptureDevice[]>([]);
+  const refreshCapture = useCallback(() => {
+    void listVideoCaptureDevices()
+      .then(setCaptureDevices)
+      .catch(() => setCaptureDevices([]));
+  }, []);
+  useEffect(() => {
+    refreshCapture();
+  }, [refreshCapture]);
+  const audioDevices = captureDevices.filter((device) => device.kind === "audio");
+  // Solo una abierta; el resto en una línea.
+  const [editingVideo, setEditingVideo] = useState<string | null>(null);
+  const mine = settings.video.outputs.filter((output) => kinds.includes(output.kind));
+  const setVideo = (patch: Partial<Settings["video"]>) =>
+    onChange({ ...settings, video: { ...settings.video, ...patch } });
+  const updateVideoOutput = (id: string, patch: Partial<VideoOutput>) =>
+    setVideo({
+      outputs: settings.video.outputs.map((output) =>
+        output.id === id ? { ...output, ...patch } : output,
+      ),
+    });
+  const addVideoOutput = () => {
+    const created = { ...newVideoOutput(), kind: kinds[0] };
+    if (created.kind === "rtmp") created.source = "";
+    if (created.kind === "ndi") created.source = "MiRadio Programa";
+    if (created.kind === "decklink") created.source = "0";
+    setVideo({ outputs: [...settings.video.outputs, created] });
+    setEditingVideo(created.id);
+  };
+  const removeVideoOutput = (id: string) => {
+    setVideo({ outputs: settings.video.outputs.filter((output) => output.id !== id) });
+    setEditingVideo((current) => (current === id ? null : current));
+  };
+  return (
       <fieldset className="fieldset">
-        <legend>Salidas de vídeo</legend>
-        <p className="hint">
-          Cada salida elige su entrada de vídeo y su audio: la salida Encoders de la mesa (lo que
-          está sonando) o el audio de una capturadora. Si no eliges vídeo se usa la pantalla
-          externa. Guarda cada salida como en Icecast. Si añades o cambias salidas con la emisión
-          en marcha, detén la emisión y vuelve a pulsar EMITIR para aplicarlas.
-        </p>
-        {settings.video.outputs.length === 0 && (
-          <p className="hint">Añade una pantalla, una tarjeta SDI, NDI o una salida RTMP.</p>
-        )}
+        <legend>{title}</legend>
+        <p className="hint">{hint}</p>
+        {mine.length === 0 && <p className="hint">Todavía no hay ninguna. Pulsa «Añadir salida».</p>}
         <div className="stream-list">
-          {settings.video.outputs.map((output) => {
+          {mine.map((output) => {
             const isOpen = editingVideo === output.id;
-            const status = statusByKey.get(`video:${output.id}`);
+            const status = statusByKey?.get(`video:${output.id}`);
             return (
               <div
                 className={`stream-card ${isOpen ? "stream-card-open" : "stream-row"}`}
@@ -899,7 +929,7 @@ export function StreamingTab({
                         });
                       }}
                     >
-                      {(Object.keys(VIDEO_OUTPUT_KIND) as VideoOutputKind[]).map((kind) => (
+                      {kinds.map((kind) => (
                         <option key={kind} value={kind}>
                           {VIDEO_OUTPUT_KIND[kind]}
                         </option>
@@ -1108,6 +1138,5 @@ export function StreamingTab({
           </button>
         </div>
       </fieldset>
-    </>
   );
 }

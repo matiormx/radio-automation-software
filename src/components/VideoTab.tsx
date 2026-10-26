@@ -1,6 +1,7 @@
 import type {
   NdiProbe,
   Settings,
+  StreamStatus,
   VideoCaptureDevice,
   VideoInput,
   VideoInputKind,
@@ -10,10 +11,12 @@ import { useCallback, useEffect, useState } from "react";
 import { listMonitors, type MonitorInfo } from "../bridge";
 import { listVideoCaptureDevices, pickFfmpegFile, ndiNative, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
+import { VideoOutputsEditor } from "./StreamingTab";
 
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
+  streamStatus?: StreamStatus | null;
 }
 
 const INPUT_KIND: Record<VideoInputKind, string> = {
@@ -38,7 +41,19 @@ function inputPlaceholder(kind: VideoInputKind): string {
   return "Ruta del archivo de vídeo";
 }
 
-export function VideoTab({ settings, onChange }: Props) {
+export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
+  const statusByKey = new Map(
+    (streamStatus?.outputs ?? []).map((o) => [
+      o.id,
+      o.state === "live"
+        ? { tone: "live", label: "En vivo" }
+        : o.state === "reconnecting"
+          ? { tone: "pending", label: "Reconectando" }
+          : o.state === "error"
+            ? { tone: "error", label: o.error ?? "Error" }
+            : { tone: "idle", label: "Detenida" },
+    ]),
+  );
   const v = settings.video;
   const set = (patch: Partial<Settings["video"]>) =>
     onChange({ ...settings, video: { ...v, ...patch } });
@@ -419,6 +434,15 @@ export function VideoTab({ settings, onChange }: Props) {
           <IconPlus size={14} /> Añadir entrada
         </button>
       </fieldset>
+
+      <VideoOutputsEditor
+        settings={settings}
+        onChange={onChange}
+        statusByKey={statusByKey}
+        kinds={["screen", "ndi", "decklink"]}
+        title="Salidas de vídeo"
+        hint="Por dónde sale el vídeo en el estudio: un monitor o HDMI, NDI a la red o una tarjeta SDI. Cada salida elige qué vídeo saca (la pantalla de emisión, lo que suena o una entrada) y, si lleva audio, cuál. Se encienden con EMITIR, junto a las de internet (RTMP), que están en Ajustes › Streaming."
+      />
 
       <fieldset className="fieldset">
         <legend>Rendimiento</legend>
