@@ -255,7 +255,7 @@ fn find_input(id: &str) -> Option<cpal::Device> {
 }
 
 /// Abre una salida; `fill(buf, channels)` rellena f32 entrelazado.
-fn open_output<F>(device: &cpal::Device, fill: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32), String>
+fn open_output<F>(device: &cpal::Device, fill: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32, usize), String>
 where
     F: FnMut(&mut [f32], usize) + Send + 'static,
 {
@@ -265,6 +265,7 @@ where
     let rate = supported.sample_rate().0;
     let format = supported.sample_format();
     let config: cpal::StreamConfig = supported.into();
+    let channels = config.channels.max(1) as usize;
     let stream = match format {
         SampleFormat::F32 => build::<f32, F>(device, &config, fill, failed),
         SampleFormat::I16 => build::<i16, F>(device, &config, fill, failed),
@@ -273,7 +274,7 @@ where
         other => return Err(format!("Formato de tarjeta no soportado: {other}")),
     }?;
     stream.play().map_err(|e| format!("No se pudo arrancar la tarjeta: {e}"))?;
-    Ok((stream, rate))
+    Ok((stream, rate, channels))
 }
 
 fn build<T, F>(device: &cpal::Device, config: &cpal::StreamConfig, mut fill: F, failed: Arc<AtomicBool>) -> Result<cpal::Stream, String>
@@ -378,20 +379,21 @@ fn put_at(out: &mut [f32], channels: usize, k: usize, off: usize, l: f32, r: f32
 /// Como `put_at`; con `mono`, escribe solo el canal `off` (mezcla L+R).
 #[inline]
 fn put_sel(out: &mut [f32], channels: usize, k: usize, off: usize, mono: bool, l: f32, r: f32) {
+    // Se suma: el bufer llega a cero y varias salidas pueden ir a la misma tarjeta.
     let base = k * channels;
     if mono {
         if off < channels {
-            out[base + off] = 0.5 * (l + r);
+            out[base + off] += 0.5 * (l + r);
         }
         return;
     }
     if channels == 1 {
         if off == 0 {
-            out[base] = 0.5 * (l + r);
+            out[base] += 0.5 * (l + r);
         }
     } else if off + 1 < channels {
-        out[base + off] = l;
-        out[base + off + 1] = r;
+        out[base + off] += l;
+        out[base + off + 1] += r;
     }
 }
 
@@ -476,32 +478,44 @@ fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize
     }
 }
 
-/// Callback de una tarjeta secundaria: lee su anillo y corrige la deriva.
-fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, off: usize, mono: bool) -> impl FnMut(&mut [f32], usize) + Send + 'static {
-    let mut stretch = Stretch::new();
-    let mut drift = Drift::default();
-    let base = ENGINE_RATE as f64 / dev_rate.max(1) as f64;
-    let mut primed = false;
-    move |out: &mut [f32], channels: usize| {
+/// Un par de canales (o un canal mono) de una tarjeta secundaria: lee su
+/// anillo y corrige la deriva con su propio lazo.
+struct PairFeed {
+    cons: Consumer<f32>,
+    stretch: Stretch,
+    drift: Drift,
+    primed: bool,
+    off: usize,
+    mono: bool,
+}
+
+impl PairFeed {
+    fn new(cons: Consumer<f32>, off: usize, mono: bool) -> Self {
+        PairFeed { cons, stretch: Stretch::new(), drift: Drift::default(), primed: false, off, mono }
+    }
+
+    fn fill(&mut self, out: &mut [f32], channels: usize, base: f64) {
         let frames = out.len() / channels;
         let target = (frames as f64 * base * 3.0).max(ENGINE_RATE as f64 * 0.03);
-        let mut fill = cons.slots() as f64 / 2.0 + stretch.pending();
+        let mut fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
         // Colchon excesivo (tarjeta recien abierta o atascada): se recorta.
         if fill > target * 4.0 {
             let drop = ((fill - target) as usize) * 2;
-            for _ in 0..drop.min(cons.slots()) {
-                let _ = cons.pop();
+            for _ in 0..drop.min(self.cons.slots()) {
+                let _ = self.cons.pop();
             }
-            fill = cons.slots() as f64 / 2.0 + stretch.pending();
+            fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
         }
-        if !primed {
+        if !self.primed {
             if fill < target {
                 return; // silencio hasta tener colchon
             }
-            primed = true;
+            self.primed = true;
         }
-        let ratio = drift.ratio(base, fill, target);
+        let ratio = self.drift.ratio(base, fill, target);
         let mut starved = false;
+        let (off, mono) = (self.off, self.mono);
+        let PairFeed { cons, stretch, .. } = self;
         stretch.process(
             frames,
             ratio,
@@ -523,10 +537,25 @@ fn secondary_fill(mut cons: Consumer<f32>, dev_rate: u32, off: usize, mono: bool
             |k, l, r| put_sel(out, channels, k, off, mono, l, r),
         );
         if starved {
-            primed = false;
+            self.primed = false;
         }
     }
 }
+
+/// Callback de una tarjeta secundaria: UNA sola conexion por tarjeta con
+/// todos sus pares (1-2, 3-4, 5-6...). Antes cada par abria su propia
+/// conexion: en una tarjeta 5.1 que Windows tiene como estereo, el sistema o
+/// el driver repartia esa senal por los otros canales (en 3-4 se oia lo de
+/// 1-2, con la diferencia L-R: la voz centrada desaparecia, «karaoke»).
+fn device_fill(mut pairs: Vec<PairFeed>, dev_rate: u32) -> impl FnMut(&mut [f32], usize) + Send + 'static {
+    let base = ENGINE_RATE as f64 / dev_rate.max(1) as f64;
+    move |out: &mut [f32], channels: usize| {
+        for p in pairs.iter_mut() {
+            p.fill(out, channels, base);
+        }
+    }
+}
+
 
 enum IoCmd {
     Route { outputs: Vec<String>, sends: Vec<String>, returns: Vec<String> },
@@ -623,11 +652,10 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
     let mut master: Option<Opened> = None;
     let mut master_retry = Instant::now();
     let mut wanted: Vec<String> = Vec::new();
-    let mut secs: HashMap<String, Opened> = HashMap::new();
+    // Tarjeta -> (conexion, ids que lleva: (id, es envio de insert))
+    let mut cards: HashMap<String, (Opened, Vec<(String, bool)>)> = HashMap::new();
     let mut retry_at: HashMap<String, Instant> = HashMap::new();
     let mut wanted_sends: Vec<String> = Vec::new();
-    let mut send_secs: HashMap<String, Opened> = HashMap::new();
-    let mut send_retry: HashMap<String, Instant> = HashMap::new();
     let mut wanted_returns: Vec<String> = Vec::new();
     let mut ret_secs: HashMap<String, Opened> = HashMap::new();
     let mut ret_retry: HashMap<String, Instant> = HashMap::new();
@@ -643,7 +671,7 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
                     // La frecuencia real se conoce al abrir: se pide antes.
                     let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
                     match open_output(&dev, master_fill(shared.clone(), rate), failed.clone()) {
-                        Ok((stream, _)) => {
+                        Ok((stream, _, _)) => {
                             master = Some(Opened { _stream: stream, failed });
                             master_warned = false;
                         }
@@ -665,80 +693,89 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
             master_retry = Instant::now() + Duration::from_secs(2);
         }
 
-        // Tarjetas secundarias
-        secs.retain(|id, o| {
-            let keep = wanted.contains(id) && !o.failed.load(Ordering::SeqCst);
-            if !keep && o.failed.load(Ordering::SeqCst) {
-                retry_at.insert(id.clone(), Instant::now() + Duration::from_secs(3));
+        // Tarjetas secundarias y envios de inserts: una conexion por tarjeta
+        // con todos sus pares.
+        let mut desired: HashMap<String, Vec<(String, bool)>> = HashMap::new();
+        for (id, send) in wanted.iter().map(|i| (i, false)).chain(wanted_sends.iter().map(|i| (i, true))) {
+            let name = parse_input(id).0.to_string();
+            let list = desired.entry(name).or_default();
+            if !list.iter().any(|(x, s)| x == id && *s == send) {
+                list.push((id.clone(), send));
             }
-            keep
+        }
+        for list in desired.values_mut() {
+            list.sort();
+        }
+        cards.retain(|name, (o, ids)| {
+            let failed = o.failed.load(Ordering::SeqCst);
+            if failed {
+                retry_at.insert(name.clone(), Instant::now() + Duration::from_secs(3));
+            }
+            !failed && desired.get(name) == Some(ids)
         });
         {
+            let open_ids = |send: bool| -> Vec<String> {
+                cards
+                    .values()
+                    .flat_map(|(_, ids)| ids.iter().filter(|(_, s)| *s == send).map(|(i, _)| i.clone()))
+                    .collect()
+            };
+            let outs = open_ids(false);
+            let sends = open_ids(true);
             let mut g = lock(&shared);
-            g.sinks.retain(|s| secs.contains_key(&s.device));
+            g.sinks.retain(|s| outs.contains(&s.device));
+            g.insert_sinks.retain(|s| sends.contains(&s.device));
         }
-        for id in wanted.iter() {
-            if secs.contains_key(id) || retry_at.get(id).map(|t| Instant::now() < *t).unwrap_or(false) {
+        for (name, ids) in desired.iter() {
+            if cards.contains_key(name) || retry_at.get(name).map(|t| Instant::now() < *t).unwrap_or(false) {
                 continue;
             }
-            let Some(dev) = find_output(id) else {
-                if !retry_at.contains_key(id) {
-                    report(format!("La tarjeta «{id}» no está disponible"));
+            let Some(dev) = find_output(name) else {
+                if !retry_at.contains_key(name) {
+                    report(format!("La tarjeta «{name}» no está disponible"));
                 }
-                retry_at.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                retry_at.insert(name.clone(), Instant::now() + Duration::from_secs(5));
                 continue;
             };
             let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
-            let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
+            let mut feeds = Vec::new();
+            let mut prods = Vec::new();
+            for (id, send) in ids {
+                let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
+                let (_, off, mono) = parse_input(id);
+                feeds.push(PairFeed::new(cons, off, mono));
+                prods.push((id.clone(), *send, prod));
+            }
             let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate, parse_input(id).1, parse_input(id).2), failed.clone()) {
-                Ok((stream, _)) => {
-                    lock(&shared).sinks.push(SecSink { device: id.clone(), prod });
-                    secs.insert(id.clone(), Opened { _stream: stream, failed });
-                    retry_at.remove(id);
+            match open_output(&dev, device_fill(feeds, rate), failed.clone()) {
+                Ok((stream, _, channels)) => {
+                    let mut g = lock(&shared);
+                    for (id, send, prod) in prods {
+                        let (_, off, mono) = parse_input(&id);
+                        let need = if mono { off + 1 } else { off + 2 };
+                        if need > channels {
+                            report(format!(
+                                "«{id}»: Windows solo da {channels} canales a «{name}», así que los canales {}-{} no suenan. \
+                                 Configura la tarjeta como 5.1 o 7.1 (Configuración de sonido › la tarjeta › Configurar altavoces) \
+                                 y desactiva las «Mejoras de audio» para que no reparta el sonido entre canales.",
+                                off + 1,
+                                off + 2
+                            ));
+                        }
+                        let sink = SecSink { device: id, prod };
+                        if send {
+                            g.insert_sinks.push(sink);
+                        } else {
+                            g.sinks.push(sink);
+                        }
+                    }
+                    drop(g);
+                    cards.insert(name.clone(), (Opened { _stream: stream, failed }, ids.clone()));
+                    retry_at.remove(name);
                 }
                 Err(e) => {
-                    report(format!("«{id}»: {e}"));
-                    retry_at.insert(id.clone(), Instant::now() + Duration::from_secs(5));
-                }
-            }
-        }
-
-        // Salidas de envio de los inserts
-        send_secs.retain(|id, o| {
-            let keep = wanted_sends.contains(id) && !o.failed.load(Ordering::SeqCst);
-            if !keep && o.failed.load(Ordering::SeqCst) {
-                send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(3));
-            }
-            keep
-        });
-        {
-            let mut g = lock(&shared);
-            g.insert_sinks.retain(|s| send_secs.contains_key(&s.device));
-        }
-        for id in wanted_sends.iter() {
-            if send_secs.contains_key(id) || send_retry.get(id).map(|t| Instant::now() < *t).unwrap_or(false) {
-                continue;
-            }
-            let Some(dev) = find_output(id) else {
-                if !send_retry.contains_key(id) {
-                    report(format!("Envío de insert «{id}» no disponible"));
-                }
-                send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
-                continue;
-            };
-            let rate = dev.default_output_config().map(|c| c.sample_rate().0).unwrap_or(ENGINE_RATE);
-            let (prod, cons) = RingBuffer::<f32>::new(RING_SAMPLES);
-            let failed = Arc::new(AtomicBool::new(false));
-            match open_output(&dev, secondary_fill(cons, rate, parse_input(id).1, parse_input(id).2), failed.clone()) {
-                Ok((stream, _)) => {
-                    lock(&shared).insert_sinks.push(SecSink { device: id.clone(), prod });
-                    send_secs.insert(id.clone(), Opened { _stream: stream, failed });
-                    send_retry.remove(id);
-                }
-                Err(e) => {
-                    report(format!("Envío de insert «{id}»: {e}"));
-                    send_retry.insert(id.clone(), Instant::now() + Duration::from_secs(5));
+                    report(format!("«{name}»: {e}"));
+                    retry_at.insert(name.clone(), Instant::now() + Duration::from_secs(5));
                 }
             }
         }
@@ -804,8 +841,9 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
                     .filter(|d| d != DEFAULT_DEVICE && d != STREAM_DEVICE)
                     .collect();
                 wanted_returns = returns;
-                retry_at.retain(|id, _| wanted.contains(id));
-                send_retry.retain(|id, _| wanted_sends.contains(id));
+                retry_at.retain(|name, _| {
+                    wanted.iter().chain(wanted_sends.iter()).any(|id| parse_input(id).0 == name.as_str())
+                });
                 ret_retry.retain(|id, _| wanted_returns.contains(id));
             }
             Ok(IoCmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
@@ -818,8 +856,40 @@ fn io_thread(shared: SharedRef, rx: Receiver<IoCmd>, errors: Arc<Mutex<Vec<Strin
         g.insert_sinks.clear();
         g.returns.clear();
     }
-    drop(send_secs);
     drop(ret_secs);
-    drop(secs);
+    drop(cards);
     drop(master);
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::*;
+
+    /// Una conexion por tarjeta: cada par suena solo en sus canales (lo de
+    /// 1-2 no aparece en 3-4) y dos salidas al mismo par se suman.
+    #[test]
+    fn pairs_land_on_their_own_channels() {
+        let (mut p1, c1) = RingBuffer::<f32>::new(RING_SAMPLES);
+        let (mut p2, c2) = RingBuffer::<f32>::new(RING_SAMPLES);
+        let (mut p3, c3) = RingBuffer::<f32>::new(RING_SAMPLES);
+        for _ in 0..20_000 {
+            let _ = p1.push(0.5); // par 1: L
+            let _ = p1.push(-0.5); // par 1: R
+            let _ = p2.push(0.25);
+            let _ = p2.push(0.25);
+            let _ = p3.push(0.1); // tambien al par 1 (se suma)
+            let _ = p3.push(0.1);
+        }
+        let mut fill = device_fill(
+            vec![PairFeed::new(c1, 0, false), PairFeed::new(c2, 2, false), PairFeed::new(c3, 0, false)],
+            ENGINE_RATE,
+        );
+        let channels = 6;
+        let mut out = vec![0.0f32; 256 * channels];
+        fill(&mut out, channels);
+        let f = &out[200 * channels..201 * channels];
+        assert!((f[0] - 0.6).abs() < 1e-3 && (f[1] + 0.4).abs() < 1e-3, "{f:?}");
+        assert!((f[2] - 0.25).abs() < 1e-3 && (f[3] - 0.25).abs() < 1e-3, "{f:?}");
+        assert!(f[4].abs() < 1e-6 && f[5].abs() < 1e-6, "{f:?}");
+    }
 }
