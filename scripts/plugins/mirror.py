@@ -20,9 +20,10 @@ import urllib.request
 import zipfile
 
 # id -> repositorio (debe coincidir con el catálogo de src-tauri/src/vstpkg.rs)
+# repo o (repo, etiqueta) si los plugins de DAW no están en la última versión
 PLUGINS = {
     "lsp": "lsp-plugins/lsp-plugins",
-    "airwindows": "baconpaul/airwin2rack",
+    "airwindows": ("baconpaul/airwin2rack", "DAWPlugin"),
     "dragonfly": "michaelwillis/dragonfly-reverb",
     "zl-eq": "ZL-Audio/ZLEqualizer",
     "zl-comp": "ZL-Audio/ZLCompressor",
@@ -30,11 +31,14 @@ PLUGINS = {
 
 OS_WORDS = {
     "windows": ["windows", "win64", "win-x64", "win_x64", "-win", "_win", "win."],
-    "linux": ["linux", "ubuntu"],
+    "linux": ["linux", "ubuntu", "-lin-", "_lin_"],
 }
-BAD = ["arm", "aarch64", "i686", "x86_32", "win32", "32bit", "mac", "osx", "darwin",
-       "debug", "src", "source", "dbg", "pdb", "-lv2", "lv2-", "ladspa"]
-ARCHIVES = (".zip", ".tar.gz", ".tgz", ".tar.xz", ".7z")
+# PC normal de 64 bits (en Windows «win64» ya lo dice)
+X64 = ["x86_64", "x86-64", "x64", "amd64", "win64"]
+BAD = ["arm", "aarch64", "riscv", "i686", "i586", "i386", "x86_32", "win32", "32bit", "mac", "osx",
+       "darwin", "freebsd", "debug", "src", "source", "dbg", "pdb", "-lv2", "lv2-", "ladspa", "-doc",
+       "vcvplugin"]
+ARCHIVES = (".zip", ".tar.gz", ".tgz", ".tar.xz", ".7z", ".msi")
 
 TOKEN = os.environ.get("GH_TOKEN", "")
 
@@ -62,7 +66,13 @@ def candidates(assets, os_name):
             continue
         if any(b in n for b in BAD):
             continue
-        score = (10 if "vst3" in n else 0) + (3 if any(x in n for x in ("x86_64", "x64", "amd64", "64")) else 0)
+        if not any(x in n for x in X64):
+            continue
+        score = (10 if "vst3" in n else 0)
+        # Sin AVX2: funciona en cualquier PC (la diferencia de rendimiento es mínima)
+        score += 0 if "avx" in n else 2
+        # Mejor un comprimido que un instalador .msi
+        score += 0 if n.endswith(".msi") else 1
         out.append((score, a))
     return [a for _, a in sorted(out, key=lambda t: -t[0])]
 
@@ -75,6 +85,10 @@ def extract(path, dest):
     elif n.endswith((".tar.gz", ".tgz", ".tar.xz")):
         with tarfile.open(path) as t:
             t.extractall(dest, filter="data")
+    elif n.endswith(".msi"):
+        # Se abre sin instalar (msitools): deja los archivos con sus carpetas
+        os.makedirs(dest, exist_ok=True)
+        subprocess.run(["msiextract", "-C", dest, path], check=True, stdout=subprocess.DEVNULL)
     elif n.endswith(".7z"):
         subprocess.run(["7z", "x", "-y", f"-o{dest}", path], check=True, stdout=subprocess.DEVNULL)
 
@@ -135,12 +149,18 @@ def main():
     list_only = bool(os.environ.get("LIST_ONLY"))
     manifest = {"updated": int(time.time()), "plugins": {}}
     for pid, repo in PLUGINS.items():
+        repo, tag_name = repo if isinstance(repo, tuple) else (repo, None)
         try:
-            rel = get(f"https://api.github.com/repos/{repo}/releases/latest")
+            url = f"https://api.github.com/repos/{repo}/releases/" + (f"tags/{tag_name}" if tag_name else "latest")
+            rel = get(url)
         except Exception as e:  # noqa: BLE001
             notice("warning", f"{pid}: no se pudo consultar {repo}: {e}")
             continue
         tag = rel["tag_name"]
+        if tag_name:
+            # Publicación continua: la versión es la fecha del último archivo
+            dates = sorted(a.get("updated_at", "") for a in rel.get("assets", []))
+            tag = (dates[-1][:10] if dates and dates[-1] else tag)
         names = [a["name"] for a in rel.get("assets", [])]
         notice("notice", f"{pid} {tag}: {', '.join(names) or '(sin archivos)'}")
         if list_only:

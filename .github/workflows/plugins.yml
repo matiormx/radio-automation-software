@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Herramientas
-        run: sudo apt-get install -y --no-install-recommends p7zip-full >/dev/null
+        run: sudo apt-get install -y --no-install-recommends p7zip-full msitools >/dev/null
 
       - name: Preparar los plugins
         env:
