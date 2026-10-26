@@ -1,5 +1,6 @@
 //! «Pared» del ratón: lo mantiene dentro de un monitor (el de MiRadio) para
-//! no perderlo en la pantalla de emisión. Solo en Windows (ClipCursor).
+//! no perderlo en la pantalla de emisión. Windows: ClipCursor; Linux (X11):
+//! se vigila el puntero y se devuelve al monitor.
 //!
 //! Mientras se mantienen pulsadas Ctrl y Mayús la pared se abre, para poder
 //! pasar al otro monitor cuando haga falta. Se suelta al desactivarla y al
@@ -42,6 +43,38 @@ fn apply(rect: Option<[i32; 4]>) {
 #[cfg(not(windows))]
 fn apply(_rect: Option<[i32; 4]>) {}
 
+/// Linux (X11): no hay ClipCursor; se vigila el raton y se le devuelve al
+/// monitor si sale (cada 8 ms, imperceptible).
+#[cfg(target_os = "linux")]
+fn ensure_thread() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = std::thread::Builder::new().name("miradio-cursor-wall".into()).spawn(|| {
+            let mut wall: Option<crate::x11util::Wall> = None;
+            loop {
+                let rect = *WALL.lock().unwrap_or_else(|e| e.into_inner());
+                match rect {
+                    Some(r) => {
+                        if wall.is_none() {
+                            wall = crate::x11util::Wall::new();
+                        }
+                        if let Some(w) = &wall {
+                            w.keep_inside(r);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(8));
+                    }
+                    None => {
+                        wall = None;
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                }
+            }
+        });
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
 fn ensure_thread() {
     use std::sync::Once;
     static ONCE: Once = Once::new();

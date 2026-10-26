@@ -48,6 +48,10 @@ vst3-host = { version = "0.10", default-features = false }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 
+# Linux (X11): ventana a capturar por su título y pared del ratón.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2"
+
 # El JPEG de la vista NDI se codifica en cada fotograma: siempre optimizado.
 [profile.release.package.jpeg-encoder]
 opt-level = 3

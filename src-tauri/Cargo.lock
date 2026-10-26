@@ -2155,6 +2155,7 @@ dependencies = [
  "ureq",
  "uuid",
  "vst3-host",
+ "x11-dl",
  "zip",
 ]
 

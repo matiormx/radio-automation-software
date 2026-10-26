@@ -1707,6 +1707,12 @@ fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_pla
             arg("title=MiRadio Lo que suena"),
         ]);
     }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (monitor, gfxcapture, ddagrab);
+        x11_window_args("MiRadio Lo que suena", fps)
+    }
+    #[cfg(not(target_os = "linux"))]
     program_video_input_args(fps, monitor, gfxcapture, ddagrab)
 }
 
@@ -1755,13 +1761,27 @@ fn program_video_input_args(
 
 #[cfg(target_os = "linux")]
 fn program_video_input_args(fps: u32, _monitor: u32, _gfxcapture: bool, _ddagrab: bool) -> Result<Vec<String>, String> {
+    x11_window_args("MiRadio Programa", fps)
+}
+
+/// Linux (X11): solo la ventana de MiRadio (no la pantalla entera). Con un
+/// compositor (picom) se captura aunque este tapada o fuera de la pantalla.
+#[cfg(target_os = "linux")]
+fn x11_window_args(title: &str, fps: u32) -> Result<Vec<String>, String> {
+    let id = crate::x11util::find_window(title)
+        .ok_or_else(|| format!("no se encuentra la ventana «{title}» (¿está abierta? En Linux hace falta X11)"))?;
+    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".into());
     Ok(vec![
         arg("-f"),
         arg("x11grab"),
         arg("-framerate"),
         fps.clamp(1, 120).to_string(),
+        arg("-draw_mouse"),
+        arg("0"),
+        arg("-window_id"),
+        id.to_string(),
         arg("-i"),
-        arg(":0.0"),
+        display,
     ])
 }
 

@@ -1,16 +1,19 @@
-name: Compilar MiRadio para Windows
+name: Compilar MiRadio (Windows y Linux)
 
 # Publicar una versión:
 #   1. Sube la versión en package.json, src-tauri/Cargo.toml y
 #      src-tauri/tauri.conf.json (las tres iguales).
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
-# El workflow crea la Release con el instalador .exe, el .msi, sus firmas y
-# latest.json, que es lo que lee la app para actualizarse sola.
 # Alternativa sin git local: Actions > "Run workflow" con "publicar" activado.
-# Crea la etiqueta vX.Y.Z a partir de la versión de tauri.conf.json y publica
-# la Release igual que con la etiqueta.
+#
+# Se crea la Release como borrador, se compila Windows (.exe NSIS y .msi) y
+# después Linux (.AppImage y .deb); cada uno sube sus paquetes, sus firmas y
+# su parte de latest.json (lo que leen las apps para actualizarse). Al final
+# la Release se publica: hasta entonces las apps siguen viendo la anterior.
+# Windows y Linux van uno detrás de otro para que latest.json no se pise.
+#
 # Con "Run workflow" sin "publicar" solo compila y guarda los paquetes como
-# artefacto de la ejecución, sin publicar nada.
+# artefactos de la ejecución, sin publicar nada.
 
 on:
   push:
@@ -24,25 +27,50 @@ on:
         default: false
 
 jobs:
-  build:
+  create-release:
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crear la Release (borrador)
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          if [ "$REF_TYPE" = "tag" ]; then
+            if [ "${REF_NAME#v}" != "$version" ]; then
+              echo "::error::La etiqueta $REF_NAME no coincide con la versión $version de tauri.conf.json"
+              exit 1
+            fi
+            tag="$REF_NAME"
+          else
+            tag="v$version"
+          fi
+          # Si ya existe (un intento anterior), se reutiliza.
+          id=$(gh api "repos/${{ github.repository }}/releases?per_page=30" --jq ".[] | select(.tag_name == \"$tag\") | .id" | head -n1)
+          if [ -z "$id" ]; then
+            id=$(gh api "repos/${{ github.repository }}/releases" \
+              -f tag_name="$tag" -f target_commitish="${{ github.sha }}" \
+              -f name="MiRadio $tag" -F draft=true --jq .id)
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    needs: create-release
+    if: ${{ !failure() && !cancelled() }}
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Comprobar que la etiqueta coincide con la versión
-        if: github.ref_type == 'tag'
-        shell: pwsh
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $tag = $env:TAG.TrimStart('v')
-          if ($config.version -ne $tag) {
-            Write-Error "La etiqueta $env:TAG no coincide con la versión $($config.version) de tauri.conf.json. Súbela en los tres archivos antes de etiquetar."
-            exit 1
-          }
 
       - name: Comprobar la clave de firma de actualizaciones
         shell: pwsh
@@ -83,10 +111,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # En un tag vX.Y.Z crea una Release con los instaladores y latest.json.
-          # Sin tag solo compila.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || (inputs.publish && 'v__VERSION__' || '') }}
-          releaseName: ${{ github.ref_type == 'tag' && format('MiRadio {0}', github.ref_name) || (inputs.publish && 'MiRadio v__VERSION__' || '') }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           # latest.json apunta al instalador NSIS: se instala por usuario, sin
           # permisos de administrador, igual que la instalación actual.
           updaterJsonPreferNsis: true
@@ -100,3 +125,68 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*
             src-tauri/target/release/bundle/msi/*
+
+  build-linux:
+    needs: [create-release, build-windows]
+    if: ${{ !failure() && !cancelled() }}
+    # 22.04: el AppImage funciona también en sistemas más nuevos (Debian 12, Ubuntu 24.04…).
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Librerías del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libasound2-dev libxcb1-dev libx11-xcb-dev libxcb-shm0-dev \
+            libxcb-render0-dev libssl-dev file \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar paquetes (.AppImage y .deb)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --bundles appimage,deb
+
+      - name: Guardar los paquetes de la ejecución manual
+        if: github.ref_type != 'tag' && !inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiRadio-linux
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+
+  publish:
+    needs: [create-release, build-windows, build-linux]
+    if: ${{ needs.create-release.result == 'success' && needs.build-windows.result == 'success' && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publicar la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Si Linux falló, se publica igual con lo de Windows (se avisa).
+          if [ "${{ needs.build-linux.result }}" != "success" ]; then
+            echo "::warning::La compilación de Linux falló: la Release sale solo con Windows."
+          fi
+          gh api -X PATCH "repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }}" \
+            -F draft=false -f make_latest=true --jq .html_url

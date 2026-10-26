@@ -19,6 +19,8 @@ pub mod video;
 pub mod netstream;
 pub mod ndi;
 pub mod cursor;
+#[cfg(target_os = "linux")]
+pub mod x11util;
 pub mod ffmpeg_dl;
 pub mod media;
 pub mod explorer;
