@@ -151,7 +151,7 @@ struct Deck {
 }
 
 enum Pending {
-    Play { idx: usize, pos: Option<f64>, seek_rel: Option<f64>, fast: bool },
+    Play { idx: usize, pos: Option<f64>, seek_rel: Option<f64>, fast: bool, xfade: bool },
     Prepare { idx: usize, pos_rel: f64 },
     Crossfade { next: usize, keep_current: bool, remaining: f64 },
 }
@@ -246,7 +246,7 @@ impl Player {
         if idx >= self.playlist.len() {
             return;
         }
-        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: None, fast: false });
+        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: None, fast: false, xfade: false });
         self.resolve(core, ld);
     }
 
@@ -267,7 +267,7 @@ impl Player {
             return;
         }
         let seek = if pos_rel > 0.0 { Some(pos_rel) } else { None };
-        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: seek, fast: false });
+        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: seek, fast: false, xfade: false });
         self.resolve(core, ld);
     }
 
@@ -282,7 +282,7 @@ impl Player {
                 self.paused_offset = None;
                 return;
             }
-            self.pending = Some(Pending::Play { idx, pos: Some(pos), seek_rel: None, fast: false });
+            self.pending = Some(Pending::Play { idx, pos: Some(pos), seek_rel: None, fast: false, xfade: false });
             self.resolve(core, ld);
             return;
         }
@@ -300,7 +300,7 @@ impl Player {
             return;
         }
         let i = ((self.index + 1).rem_euclid(n as i64)) as usize;
-        self.play_at(i, core, ld);
+        self.skip_to(i, core, ld);
     }
 
     pub fn prev(&mut self, core: &mut PlayCore, ld: &mut dyn Loader) {
@@ -309,7 +309,19 @@ impl Player {
             return;
         }
         let i = ((self.index - 1).rem_euclid(n as i64)) as usize;
-        self.play_at(i, core, ld);
+        self.skip_to(i, core, ld);
+    }
+
+    /// Salto manual: con algo sonando, transicion en vez de corte.
+    fn skip_to(&mut self, idx: usize, core: &mut PlayCore, ld: &mut dyn Loader) {
+        let xfade = self.deck.is_some() && self.paused_offset.is_none();
+        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: None, fast: false, xfade });
+        self.resolve(core, ld);
+    }
+
+    /// Fundido de salida al saltar: el del crossfade, entre 1 y 4 s.
+    fn skip_fade(&self) -> f64 {
+        if self.fade_seconds > 0.0 { self.fade_seconds.clamp(1.0, 4.0) } else { 1.5 }
     }
 
     pub fn seek(&mut self, rel: f64, core: &mut PlayCore, ld: &mut dyn Loader) {
@@ -328,7 +340,7 @@ impl Player {
             }
             return;
         }
-        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: Some(rel), fast: true });
+        self.pending = Some(Pending::Play { idx, pos: None, seek_rel: Some(rel), fast: true, xfade: false });
         self.resolve(core, ld);
     }
 
@@ -377,10 +389,10 @@ impl Player {
     fn resolve(&mut self, core: &mut PlayCore, ld: &mut dyn Loader) {
         let Some(p) = self.pending.take() else { return };
         match p {
-            Pending::Play { idx, pos, seek_rel, fast } => {
+            Pending::Play { idx, pos, seek_rel, fast, xfade } => {
                 let Some(track) = self.playlist.get(idx).cloned() else { return };
                 match ld.get(&track) {
-                    Load::Pending => self.pending = Some(Pending::Play { idx, pos, seek_rel, fast }),
+                    Load::Pending => self.pending = Some(Pending::Play { idx, pos, seek_rel, fast, xfade }),
                     Load::Failed(e) => self.load_failed(idx, &track, &e, core, ld),
                     Load::Ready(pcm) => {
                         self.fail_streak = 0;
@@ -392,7 +404,10 @@ impl Player {
                             (None, Some(rel)) => start + rel.clamp(0.0, (end - start - 0.2).max(0.0)),
                             (None, None) => start,
                         };
-                        core.voices.fade_stop_all(core.now, core.frames(0.05));
+                        // Siguiente/anterior con algo sonando: la actual se
+                        // funde (no se corta en seco) y la nueva entra ya.
+                        let out = if xfade { self.skip_fade() } else { 0.05 };
+                        core.voices.fade_stop_all(core.now, core.frames(out));
                         self.paused_offset = None;
                         if self.index != idx as i64 {
                             self.index = idx as i64;

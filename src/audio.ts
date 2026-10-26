@@ -157,7 +157,7 @@ export class RadioPlayer {
     this.onIndexChange?.(this.index);
   }
 
-  async playAt(index: number): Promise<void> {
+  async playAt(index: number, fadeOut = 0.05): Promise<void> {
     const track = this.playlist[index];
     if (!track) return;
     const generation = ++this.playGeneration;
@@ -170,7 +170,7 @@ export class RadioPlayer {
     if (!buffer || generation !== this.playGeneration) return;
 
     // El fundido del deck anterior va en paralelo: la pista entra ya.
-    void this.stopAll(0.05);
+    void this.stopAll(fadeOut);
     if (generation !== this.playGeneration) return;
 
     const start = Math.min(trimStartOf(track), Math.max(0, buffer.duration - 0.2));
@@ -233,14 +233,20 @@ export class RadioPlayer {
     await this.playAt(this.index);
   }
 
+  /** Salto manual con algo sonando: la actual se funde en vez de cortarse. */
+  private skipFade(): number {
+    if (!this.isPlaying) return 0.05;
+    return this.fadeSeconds > 0 ? Math.min(4, Math.max(1, this.fadeSeconds)) : 1.5;
+  }
+
   async next(): Promise<void> {
     if (this.playlist.length === 0) return;
-    await this.playAt((this.index + 1) % this.playlist.length);
+    await this.playAt((this.index + 1) % this.playlist.length, this.skipFade());
   }
 
   async prev(): Promise<void> {
     if (this.playlist.length === 0) return;
-    await this.playAt((this.index - 1 + this.playlist.length) % this.playlist.length);
+    await this.playAt((this.index - 1 + this.playlist.length) % this.playlist.length, this.skipFade());
   }
 
   async seek(seconds: number): Promise<void> {

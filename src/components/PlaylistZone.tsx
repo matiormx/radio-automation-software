@@ -351,7 +351,7 @@ export function PlaylistZone({
                   />
                 )}
               </button>
-              <button type="button" className="plrow-main" onClick={() => onPlayRow(i)} title="Emitir desde esta pista">
+              <button type="button" className="plrow-main" onDoubleClick={() => onPlayRow(i)} title="Doble clic: emitir esta canción">
                 <span className="plrow-line">
                   <span className="plrow-title">{r.title}</span>
                   {r.video && <span className="badge-video">VÍDEO</span>}
