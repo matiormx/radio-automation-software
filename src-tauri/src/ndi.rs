@@ -678,8 +678,59 @@ pub fn server_url() -> Result<String, String> {
     .clone()
 }
 
+/// Imagen de «Lo que suena»: la dibuja la propia ventana (vídeo o portada,
+/// titulo y artista) y la manda aqui como JPEG; las salidas la leen como
+/// MJPEG en /np. Antes FFmpeg capturaba esa ventana escondida y Windows
+/// dejaba de entregar imagen con una portada fija (se quedaba el ultimo
+/// fotograma del videoclip).
+fn np_receiver() -> Arc<Receiver> {
+    static NP: OnceLock<Arc<Receiver>> = OnceLock::new();
+    NP.get_or_init(|| Arc::new(Receiver::new())).clone()
+}
+
+#[tauri::command]
+pub fn np_frame(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(jpeg) = request.body() else {
+        return Err("se esperaba un JPEG".into());
+    };
+    push_np(jpeg.clone())
+}
+
+fn push_np(jpeg: Vec<u8>) -> Result<(), String> {
+    if jpeg.len() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
+        return Err("no es un JPEG".into());
+    }
+    let r = np_receiver();
+    let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+    l.jpeg = Arc::new(jpeg);
+    l.seq += 1;
+    l.at = Some(Instant::now());
+    l.error.clear();
+    r.cv.notify_all();
+    Ok(())
+}
+
+/// Entrada de FFmpeg con la imagen de «Lo que suena».
+pub fn ffmpeg_np_input() -> Result<Vec<String>, String> {
+    let base = server_url()?;
+    Ok(vec![
+        "-thread_queue_size".into(),
+        "512".into(),
+        "-use_wallclock_as_timestamps".into(),
+        "1".into(),
+        "-f".into(),
+        "mpjpeg".into(),
+        "-i".into(),
+        format!("{base}/np"),
+    ])
+}
+
 fn serve(req: tiny_http::Request) {
     let url = req.url().to_string();
+    if url.starts_with("/np") {
+        serve_mjpeg(req, np_receiver(), false);
+        return;
+    }
     let src = query_src(&url);
     let cors = tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).ok();
     if src.is_empty() {
@@ -713,7 +764,10 @@ fn serve(req: tiny_http::Request) {
     // /ndi?src=… : MJPEG continuo. Se escribe directamente en el socket y se
     // vacia tras cada imagen (con la respuesta normal de tiny_http la imagen se
     // quedaria esperando en un bufer).
-    let strict = url.contains("strict=1");
+    serve_mjpeg(req, r, url.contains("strict=1"));
+}
+
+fn serve_mjpeg(req: tiny_http::Request, r: Arc<Receiver>, strict: bool) {
     let mut stream = MjpegStream { r, strict, opened: Instant::now(), seq: 0, buf: Vec::new(), pos: 0 };
     let mut w = req.into_writer();
     let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\
@@ -958,5 +1012,41 @@ mod scale_tests {
         assert_eq!(nw, 1280);
         assert_eq!(out.len(), 1280 * 720 * 4);
         assert_eq!(&out[..4], &[10, 20, 30, 255]);
+    }
+}
+
+#[cfg(test)]
+mod np_tests {
+    use std::io::{Read, Write};
+
+    #[test]
+    fn np_frames_reach_the_mjpeg_stream() {
+        let base = super::server_url().unwrap();
+        let addr = base.trim_start_matches("http://").to_string();
+        let jpeg = vec![0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9];
+        super::push_np(jpeg.clone()).unwrap();
+        assert!(super::push_np(vec![1, 2, 3, 4]).is_err());
+        let mut s = std::net::TcpStream::connect(&addr).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        write!(s, "GET /np HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        // Una imagen nueva mientras se escucha
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let _ = super::push_np(vec![0xFF, 0xD8, 9, 9, 0xFF, 0xD9]);
+        });
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        while got.len() < 400 {
+            match s.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+            }
+            if got.windows(4).any(|w| w == [0xFF, 0xD8, 9, 9]) {
+                break;
+            }
+        }
+        let text = String::from_utf8_lossy(&got);
+        assert!(text.contains("multipart/x-mixed-replace"), "{text}");
+        assert!(got.windows(4).any(|w| w == [0xFF, 0xD8, 9, 9]), "{text}");
     }
 }

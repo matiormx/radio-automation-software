@@ -1744,6 +1744,10 @@ fn program_args(fps: u32, monitor: u32, gfxcapture: bool, ddagrab: bool, now_pla
         return program_video_input_args(fps, monitor, gfxcapture, ddagrab);
     }
     let fps = fps.clamp(1, 120);
+    // La ventana «Lo que suena» manda su imagen a MiRadio (sin capturar ventanas).
+    if let Ok(args) = crate::ndi::ffmpeg_np_input() {
+        return Ok(args);
+    }
     if cfg!(windows) && gfxcapture {
         return Ok(vec![
             arg("-f"),

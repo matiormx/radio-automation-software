@@ -7,14 +7,27 @@ use std::io::{Read, Seek, SeekFrom};
 
 use tauri::http::{header, Request, Response, StatusCode};
 
-/// Extensiones que pasan por aqui (el resto sigue por el protocolo normal).
-pub const EXTENSIONS: [&str; 1] = ["m4v"];
+/// Extensiones que pasan por aqui. Ademas de .m4v, los videos y las
+/// portadas que dibuja la ventana «Lo que suena» en un lienzo: este protocolo
+/// manda Access-Control-Allow-Origin y el lienzo no queda «contaminado» (si
+/// no, no se podria sacar la imagen como JPEG).
+pub const EXTENSIONS: [&str; 13] =
+    ["m4v", "mp4", "mov", "webm", "mkv", "ogv", "jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"];
 
 const CHUNK: u64 = 4 * 1024 * 1024;
 
 fn mime(ext: &str) -> &'static str {
     match ext {
-        "m4v" | "mp4" => "video/mp4",
+        "m4v" | "mp4" | "mov" => "video/mp4",
+        "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "ogv" => "video/ogg",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
         _ => "application/octet-stream",
     }
 }
@@ -70,6 +83,8 @@ pub fn handle(req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                 .unwrap_or_default();
         }
         Some(Some((s, e))) => (s, e.min(s + CHUNK - 1), true),
+        // Una imagen va entera (no se pide por trozos).
+        None if mime(&ext).starts_with("image/") => (0, len.saturating_sub(1), false),
         None => (0, len.saturating_sub(1).min(CHUNK - 1), len > CHUNK),
     };
     let mut buf = vec![0u8; if len == 0 { 0 } else { (end - start + 1) as usize }];

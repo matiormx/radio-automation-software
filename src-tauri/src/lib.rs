@@ -117,6 +117,7 @@ pub fn run() {
             library::import_files_dedup,
             ndi::ndi_native,
             ndi::ndi_server,
+            ndi::np_frame,
             cursor::cursor_wall,
             app_quit,
             ffmpeg_dl::ffmpeg_info,

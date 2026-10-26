@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { ndiServer, trackUrl } from "./api";
 
 /** Lo que suena, para pintar su video (o su portada) sincronizado con el audio. */
@@ -31,13 +32,20 @@ interface Props {
   source: () => VideoState | null;
   /** Ventana de emision (pantalla completa) o vista previa pequeña */
   output: boolean;
+  /** El video se podra copiar a un lienzo (ventana «Lo que suena») */
+  canvasSafe?: boolean;
+}
+
+/** URL que se puede dibujar en un lienzo sin «contaminarlo» (protocolo media, con CORS). */
+export function canvasUrl(file: string): string {
+  return convertFileSrc(file, "media");
 }
 
 /**
  * Video sincronizado con el motor de audio: el <video> va siempre en
  * silencio (el sonido sale por la mesa) y se corrige si se desvia.
  */
-export function VideoSurface({ source, output }: Props) {
+export function VideoSurface({ source, output, canvasSafe = false }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const captureRef = useRef<HTMLVideoElement | null>(null);
   const [shown, setShown] = useState<VideoState | null>(null);
@@ -304,7 +312,8 @@ export function VideoSurface({ source, output }: Props) {
           key={shown.file}
           ref={videoRef}
           className="vs-video"
-          src={trackUrl({ file: shown.file })}
+          src={canvasSafe ? canvasUrl(shown.file) : trackUrl({ file: shown.file })}
+          crossOrigin={canvasSafe ? "anonymous" : undefined}
           muted
           playsInline
           preload="auto"

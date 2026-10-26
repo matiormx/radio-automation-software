@@ -1,7 +1,129 @@
 import { useCallback, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { VideoSurface, type VideoState } from "./videoSurface";
+import { invoke } from "@tauri-apps/api/core";
+import { VideoSurface, canvasUrl, type VideoState } from "./videoSurface";
+
+/**
+ * «Lo que suena»: dibuja en un lienzo lo mismo que se ve (el video o la
+ * portada con titulo y artista) y lo manda a MiRadio como JPEG 25 veces por
+ * segundo. Las salidas lo leen de ahi: no dependen de capturar esta ventana
+ * escondida, que Windows dejaba de actualizar con una imagen fija.
+ */
+function useNowPlayingFeed(source: () => VideoState | null, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const images = new Map<string, HTMLImageElement>();
+    const img = (file: string): HTMLImageElement | null => {
+      if (!file) return null;
+      let el = images.get(file);
+      if (!el) {
+        el = new Image();
+        el.crossOrigin = "anonymous";
+        el.src = canvasUrl(file);
+        images.set(file, el);
+        if (images.size > 24) images.delete(images.keys().next().value as string);
+      }
+      return el.complete && el.naturalWidth > 0 ? el : null;
+    };
+    const fit = (iw: number, ih: number, w: number, h: number, cover: boolean) => {
+      const k = cover ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih);
+      const dw = iw * k;
+      const dh = ih * k;
+      return [(w - dw) / 2, (h - dh) / 2, dw, dh] as const;
+    };
+    const text = (t: string, x: number, y: number, size: number, weight: number, color: string, maxW: number) => {
+      ctx.font = `${weight} ${size}px "Segoe UI", system-ui, sans-serif`;
+      ctx.fillStyle = color;
+      let s = t;
+      while (s.length > 1 && ctx.measureText(s).width > maxW) s = s.slice(0, -1);
+      if (s !== t) s = `${s.slice(0, -1)}…`;
+      ctx.fillText(s, x, y);
+    };
+    let busy = false;
+    const draw = () => {
+      if (busy) return;
+      const w = Math.max(320, Math.round(window.innerWidth)) & ~1;
+      const h = Math.max(180, Math.round(window.innerHeight)) & ~1;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      ctx.filter = "none";
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+      const s = source();
+      const video = document.querySelector<HTMLVideoElement>("video.vs-video");
+      if (s?.isVideo) {
+        if (video && video.readyState >= 2 && video.videoWidth > 0) {
+          ctx.drawImage(video, ...fit(video.videoWidth, video.videoHeight, w, h, false));
+        }
+      } else if (s && s.audioMode === "logo") {
+        const logo = img(s.logo);
+        if (logo) {
+          ctx.drawImage(logo, ...fit(logo.naturalWidth, logo.naturalHeight, w * 0.5, h * 0.5, false).map((v, i) => v + (i === 0 ? w * 0.25 : i === 1 ? h * 0.25 : 0)) as [number, number, number, number]);
+        } else if (s.stationName) {
+          ctx.textAlign = "center";
+          text(s.stationName, w / 2, h / 2, Math.round(h * 0.08), 700, "#fff", w * 0.9);
+          ctx.textAlign = "left";
+        }
+      } else if (s && s.audioMode !== "black") {
+        // Portada, titulo y artista (como en la pantalla de emision)
+        ctx.fillStyle = "#0b0d12";
+        ctx.fillRect(0, 0, w, h);
+        const cover = img(s.cover);
+        if (cover) {
+          ctx.filter = "blur(40px) brightness(0.35)";
+          ctx.drawImage(cover, ...fit(cover.naturalWidth, cover.naturalHeight, w, h, true));
+          ctx.filter = "none";
+        }
+        const side = Math.round(h * 0.42);
+        const x0 = Math.round(w * 0.12);
+        const y0 = Math.round((h - side) / 2);
+        if (cover) {
+          ctx.drawImage(cover, ...fit(cover.naturalWidth, cover.naturalHeight, side, side, true).map((v, i) => v + (i === 0 ? x0 : i === 1 ? y0 : 0)) as [number, number, number, number]);
+        } else {
+          ctx.fillStyle = "#1c2030";
+          ctx.fillRect(x0, y0, side, side);
+        }
+        const tx = x0 + side + Math.round(w * 0.04);
+        const maxW = w - tx - Math.round(w * 0.05);
+        text(s.title, tx, y0 + side * 0.42, Math.round(h * 0.075), 800, "#fff", maxW);
+        text(s.artist, tx, y0 + side * 0.6, Math.round(h * 0.045), 500, "rgba(255,255,255,0.85)", maxW);
+        text((s.stationName || "").toUpperCase(), tx, y0 + side * 0.78, Math.round(h * 0.03), 700, "rgba(255,255,255,0.7)", maxW);
+      }
+      busy = true;
+      try {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            busy = false;
+            return;
+          }
+          void blob
+            .arrayBuffer()
+            .then((buf) => invoke("np_frame", new Uint8Array(buf)))
+            .catch(() => undefined)
+            .finally(() => {
+              busy = false;
+            });
+        },
+        "image/jpeg",
+        0.85,
+      );
+      } catch {
+        // Lienzo «contaminado» por una imagen sin CORS: se olvidan las imagenes.
+        images.clear();
+        busy = false;
+      }
+    };
+    const t = window.setInterval(draw, 40);
+    return () => window.clearInterval(t);
+  }, [source, enabled]);
+}
 
 /**
  * Ventana de video de la emision: pantalla completa en el monitor elegido.
@@ -40,6 +162,7 @@ export function VideoOutWindow({ programOnly = false }: { programOnly?: boolean 
     }
     return { ...cur.s, pos };
   }, [programOnly]);
+  useNowPlayingFeed(source, programOnly);
 
   return (
     <div
@@ -51,7 +174,7 @@ export function VideoOutWindow({ programOnly = false }: { programOnly?: boolean 
           .then((f) => getCurrentWindow().setFullscreen(!f))
       }
     >
-      <VideoSurface source={source} output />
+      <VideoSurface source={source} output canvasSafe={programOnly} />
       {/* Latido: un punto casi invisible que cambia siempre, para que la
           ventana pinte fotogramas nuevos aunque la imagen sea fija (portada). */}
       <div className="vs-heartbeat" aria-hidden="true" />
