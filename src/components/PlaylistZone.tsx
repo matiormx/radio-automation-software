@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Block, Playlist, PlaylistRow } from "../types";
 import { trackUrl } from "../api";
 import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave, IconNext } from "../icons";
@@ -127,7 +127,12 @@ export function PlaylistZone({
   const blockMenuRef = useRef<HTMLDivElement | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
   const [showAllPast, setShowAllPast] = useState(false);
-  const hiddenPast = showAllPast ? 0 : Math.max(0, playingRow - PAST_VISIBLE);
+  // Emitidas que se ocultan (o que se muestran al pulsar «ver»): el aviso queda
+  // siempre en la frontera entre esas y las que se ven normalmente.
+  const pastCut = Math.max(0, playingRow - PAST_VISIBLE);
+  const hiddenPast = showAllPast ? 0 : pastCut;
+  // Un clic en la portada abre los detalles; doble clic emite la cancion.
+  const coverClick = useRef<number | null>(null);
 
   // Al cambiar de cancion, deja a la vista las ultimas emitidas y la que suena.
   useEffect(() => {
@@ -137,7 +142,10 @@ export function PlaylistZone({
     const el = box.querySelector<HTMLElement>(`[data-row="${first}"]`);
     if (!el) return;
     box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
-  }, [playingRow, activeId, rows.length]);
+    // Solo al cambiar de cancion o de lista: al soltar o reordenar, la lista
+    // no debe saltar a otra parte.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingRow, activeId]);
 
   useEffect(() => {
     if (!editing) setDraft(active?.name ?? "");
@@ -284,20 +292,20 @@ export function PlaylistZone({
         </div>
       ) : (
         <div className="rows flex-1" ref={rowsRef} data-drop-zone="playlist-end">
-          {(hiddenPast > 0 || (showAllPast && playingRow > PAST_VISIBLE)) && (
-            <button
-              type="button"
-              className="plrow-pastnote"
-              onClick={() => setShowAllPast((v) => !v)}
-            >
-              {showAllPast
-                ? "Ocultar las emitidas más antiguas"
-                : `${hiddenPast} ${hiddenPast === 1 ? "canción emitida oculta" : "canciones emitidas ocultas"} · ver todas`}
-            </button>
-          )}
           {rows.map((r, i) => i < hiddenPast ? null : (
+            <Fragment key={`${r.id}-${i}`}>
+            {pastCut > 0 && i === pastCut && (
+              <button
+                type="button"
+                className="plrow-pastnote"
+                onClick={() => setShowAllPast((v) => !v)}
+              >
+                {showAllPast
+                  ? `▲ ${pastCut} ${pastCut === 1 ? "canción emitida" : "canciones emitidas"} · ocultar`
+                  : `${pastCut} ${pastCut === 1 ? "canción emitida oculta" : "canciones emitidas ocultas"} · ver`}
+              </button>
+            )}
             <div
-              key={`${r.id}-${i}`}
               data-row={i}
               className={`plrow ${i === playingRow ? "plrow-now" : ""} ${i === nextRow ? "plrow-next" : ""} ${i === leavingRow ? "plrow-leaving" : ""} ${playingRow >= 0 && i < playingRow ? "plrow-past" : ""} `}
               data-drop-zone="playlist-row"
@@ -316,8 +324,19 @@ export function PlaylistZone({
               <button
                 type="button"
                 className="plrow-cover"
-                onClick={() => setDetailsId(r.id)}
-                title="Ver detalles de la canción"
+                onClick={() => {
+                  if (coverClick.current !== null) window.clearTimeout(coverClick.current);
+                  coverClick.current = window.setTimeout(() => {
+                    coverClick.current = null;
+                    setDetailsId(r.id);
+                  }, 260);
+                }}
+                onDoubleClick={() => {
+                  if (coverClick.current !== null) window.clearTimeout(coverClick.current);
+                  coverClick.current = null;
+                  onPlayRow(i);
+                }}
+                title="Clic: detalles · doble clic: emitir esta canción"
                 aria-label={`Ver detalles de ${r.title}`}
               >
                 <span className="plrow-cover-ph">
@@ -416,6 +435,7 @@ export function PlaylistZone({
                 </button>
               </div>
             </div>
+            </Fragment>
           ))}
           <div className="pl-end-drop" data-drop-zone="playlist-end" aria-hidden="true" />
         </div>

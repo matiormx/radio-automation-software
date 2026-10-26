@@ -480,6 +480,19 @@ export async function onWindowFileDrop(
  * el estado: emitiendo, llamada al aire...) y cierra. Devuelve la funcion para
  * dejar de escuchar.
  */
+/**
+ * Pregunta antes de hacer algo. En el WebView de Tauri `window.confirm` no
+ * espera la respuesta (devuelve una promesa, que cuenta como «sí»): se borraba
+ * primero y se preguntaba después. Esto sí espera.
+ */
+export async function confirmAsk(message: string, okLabel = "Aceptar", title = "MiRadio"): Promise<boolean> {
+  try {
+    return await ask(message, { title, kind: "warning", okLabel, cancelLabel: "Cancelar" });
+  } catch {
+    return false;
+  }
+}
+
 export async function installQuitHandler(getMessage: () => string): Promise<() => void> {
   return listen("app://quit-request", async () => {
     const ok = await ask(getMessage(), {

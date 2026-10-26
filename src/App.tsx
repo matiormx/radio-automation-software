@@ -94,7 +94,8 @@ import {
   serveMain,
 } from "./bridge";
 import type { VideoState } from "./videoSurface";
-import { apiApply, apiPublish, backupLastImportLog, cursorWall, notifyFire } from "./api";
+import { isDragging } from "./dnd";
+import { apiApply, apiPublish, backupLastImportLog, confirmAsk, cursorWall, notifyFire } from "./api";
 import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
@@ -1577,32 +1578,6 @@ export default function App() {
     [],
   );
 
-  // Editar la lista activa
-  const mutateList = useCallback(
-    async (
-      fn: (ids: string[]) => string[],
-      overrides?: (id: string, index: number) => StreamMeta | null,
-    ) => {
-      if (!active) return;
-      const ids = fn(active.trackIds);
-      const updated: Playlist = {
-        ...active,
-        trackIds: ids,
-        meta: alignPlaylistMeta(active.trackIds, active.meta, ids, overrides),
-      };
-      setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-      try {
-        await savePlaylist(updated);
-      } catch (e) {
-        showToast(`No se pudo guardar la lista: ${String(e)}`);
-      }
-    },
-    [active, showToast],
-  );
-
-  const mutateListRef = useRef(mutateList);
-  mutateListRef.current = mutateList;
-
   // ---- lista en pantalla (puede no ser la que suena) ----
   const playlistsRef = useRef(playlists);
   playlistsRef.current = playlists;
@@ -1625,7 +1600,20 @@ export default function App() {
         trackIds: ids,
         meta: alignPlaylistMeta(pl.trackIds, pl.meta, ids, overrides),
       };
+      // La referencia se actualiza ya: dos cambios seguidos (ordenar mientras
+      // el AutoDJ añade) parten cada uno del anterior y no se pisan.
+      playlistsRef.current = playlistsRef.current.map((p) => (p.id === updated.id ? updated : p));
       setPlaylists((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      // La que suena sigue marcada en su sitio nuevo sin esperar al reproductor
+      // (si no, durante un instante la lista y el AutoDJ ven la fila equivocada).
+      if (listId === activeIdRef.current && playingRowRef.current >= 0) {
+        const playingId = pl.trackIds[playingRowRef.current];
+        const now = playingId ? ids.indexOf(playingId) : -1;
+        if (now >= 0 && now !== playingRowRef.current) {
+          playingRowRef.current = now;
+          setPlayingRow(now);
+        }
+      }
       // Si la siguiente elegida esta en esta lista, su posicion puede cambiar.
       const pick = nextPickRef.current;
       if (pick && pick.listId === listId) {
@@ -1645,6 +1633,36 @@ export default function App() {
     (fn: (ids: string[]) => string[]) => mutateById(viewIdRef.current, fn),
     [mutateById],
   );
+  // Editar la lista activa (la que suena)
+  const mutateList = useCallback(
+    (
+      fn: (ids: string[]) => string[],
+      overrides?: (id: string, index: number) => StreamMeta | null,
+    ) => mutateById(activeIdRef.current, fn, overrides),
+    [mutateById],
+  );
+  const mutateListRef = useRef(mutateList);
+  mutateListRef.current = mutateList;
+
+  /**
+   * Mete `add` en la posicion `at` sin duplicados: si una ya estaba (y no es
+   * la que suena) se mueve; la que suena se queda donde esta.
+   */
+  const placeIds = (cur: string[], add: string[], at: number, listId: string): string[] => {
+    const playingId =
+      listId === activeIdRef.current && playingRowRef.current >= 0 ? cur[playingRowRef.current] : undefined;
+    const moving = new Set(add.filter((id) => id !== playingId));
+    let to = Math.max(0, Math.min(cur.length, at));
+    const kept: string[] = [];
+    cur.forEach((id, k) => {
+      if (moving.has(id)) {
+        if (k < to) to -= 1;
+      } else kept.push(id);
+    });
+    const unique = [...moving];
+    kept.splice(Math.max(0, Math.min(kept.length, to)), 0, ...unique);
+    return kept;
+  };
   mutateViewRef.current = mutateView;
 
   /** Emitir desde una fila de la lista en pantalla (si es otra, pasa a ser la activa). */
@@ -1707,12 +1725,8 @@ export default function App() {
 
   const dropTrackAt = useCallback(
     (trackId: string, at: number) => {
-      void mutateView((ids) => {
-        if (ids.includes(trackId)) return ids; // sin duplicados
-        const copy = [...ids];
-        copy.splice(Math.max(0, Math.min(copy.length, at)), 0, trackId);
-        return copy;
-      });
+      const listId = viewIdRef.current;
+      void mutateView((ids) => placeIds(ids, [trackId], at, listId));
     },
     [mutateView],
   );
@@ -1726,15 +1740,13 @@ export default function App() {
         return;
       }
       let added = 0;
+      const listId = viewIdRef.current;
       void mutateView((cur) => {
-        const fresh = ids.filter((id) => !cur.includes(id));
-        added = fresh.length;
-        const copy = [...cur];
-        copy.splice(Math.max(0, Math.min(copy.length, at)), 0, ...fresh);
-        return copy;
+        added = ids.filter((id) => !cur.includes(id)).length;
+        return placeIds(cur, ids, at, listId);
       }).then(() => {
         const name = blocksRef.current.find((b) => b.id === blockId)?.name ?? "lista";
-        showToast(added ? `${added} canciones de «${name}» añadidas a la lista` : `Las canciones de «${name}» ya estaban en la lista`);
+        showToast(added ? `${added} canciones de «${name}» añadidas a la lista` : `Canciones de «${name}» colocadas en la lista`);
       });
     },
     [mutateView, showToast],
@@ -1871,7 +1883,7 @@ export default function App() {
     if (!active) return;
     if (view && view.id !== active.id) {
       if (view.trackIds.length === 0) return showToast("La lista ya está vacía");
-      if (!window.confirm(`¿Vaciar la lista «${view.name}»? Se quitan todas sus pistas.`)) return;
+      if (!(await confirmAsk(`¿Vaciar la lista «${view.name}»? Se quitan todas sus pistas.`, "Vaciar"))) return;
       if (nextPickRef.current?.listId === view.id) setNextPick(null);
       await mutateById(view.id, () => []);
       showToast(`Lista «${view.name}» vaciada`);
@@ -1881,12 +1893,19 @@ export default function App() {
       showToast("La lista ya está vacía");
       return;
     }
-    if (!window.confirm(`¿Vaciar la lista «${active.name}»? Se quitan todas sus pistas.`)) return;
-    playerRef.current?.pause?.();
-    setPlayingRow(-1);
-    setPaused(true);
-    pausedRef.current = true;
-    userPausedRef.current = true;
+    const playing = playingRowRef.current;
+    const keepId = playing >= 0 ? active.trackIds[playing] : undefined;
+    const msg = keepId
+      ? `¿Vaciar la lista «${active.name}»? Se quitan todas las pistas menos la que está sonando, que termina con normalidad.`
+      : `¿Vaciar la lista «${active.name}»? Se quitan todas sus pistas.`;
+    if (!(await confirmAsk(msg, "Vaciar"))) return;
+    if (nextPickRef.current?.listId === active.id) setNextPick(null);
+    if (keepId) {
+      // La que suena sigue sonando: queda sola en la lista.
+      await mutateList(() => [keepId]);
+      showToast(`Lista «${active.name}» vaciada · sigue sonando la actual`);
+      return;
+    }
     await mutateList(() => []);
     showToast(`Lista «${active.name}» vaciada`);
   }, [active, view, mutateList, mutateById, showToast]);
@@ -1894,7 +1913,7 @@ export default function App() {
   const removeActivePlaylist = useCallback(async () => {
     if (!active || playlists.length <= 1) return;
     if (view && view.id !== active.id) {
-      if (!window.confirm(`¿Eliminar la lista «${view.name}»?`)) return;
+      if (!(await confirmAsk(`¿Eliminar la lista «${view.name}»?`, "Eliminar"))) return;
       try {
         await deletePlaylist(view.id);
         if (nextPickRef.current?.listId === view.id) setNextPick(null);
@@ -1906,6 +1925,7 @@ export default function App() {
       }
       return;
     }
+    if (!(await confirmAsk(`¿Eliminar la lista «${active.name}»? Es la que está sonando.`, "Eliminar"))) return;
     try {
       await deletePlaylist(active.id);
       const rest = playlists.filter((p) => p.id !== active.id);
@@ -2772,6 +2792,8 @@ export default function App() {
 
   useEffect(() => {
     if (!autopilotOn || !active) return;
+    // Mientras se arrastra no se añade nada: la lista no cambia bajo el puntero.
+    if (isDragging()) return;
     const upComing = rows.length - (playingRow >= 0 ? playingRow + 1 : 0);
     if (upComing >= settings.autopilotMinUpcoming) return;
     if (topupBusy.current) return;

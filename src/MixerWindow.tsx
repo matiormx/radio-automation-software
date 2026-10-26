@@ -12,7 +12,7 @@ import {
   PluginPicker,
   setVstHidden,
 } from "./components/MixerControls";
-import { vstEditor, vstLatencies } from "./api";
+import { confirmAsk, vstEditor, vstLatencies } from "./api";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
@@ -852,8 +852,9 @@ function MixerBoard({
             aria-label="Motor de audio"
             onChange={(e) => {
               const next = e.target.value === "native" ? "native" : "web";
-              if (!window.confirm("Cambiar de motor detiene la reproducción. ¿Continuar? (No lo cambies en pleno directo.)")) return;
-              commit({ ...s, audioEngine: next });
+              void confirmAsk("Cambiar de motor detiene la reproducción. ¿Continuar? (No lo cambies en pleno directo.)", "Cambiar").then((ok) => {
+                if (ok) commit({ ...s, audioEngine: next });
+              });
             }}
           >
             <option value="native">Nativo</option>
@@ -995,7 +996,7 @@ function NameField({ name, onRename, onRemove }: { name: string; onRename: (n: s
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (window.confirm(`¿Eliminar «${name}»?`)) onRemove();
+        void confirmAsk(`¿Eliminar «${name}»?`, "Eliminar").then((ok) => ok && onRemove());
       }}
     >
       {name}

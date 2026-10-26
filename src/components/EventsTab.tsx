@@ -13,7 +13,7 @@ import { effectiveDuration, eventSchedules } from "../types";
 import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
 import { IconPlus, IconTrash } from "../icons";
-import { pickImageFile, trackUrl } from "../api";
+import { confirmAsk, pickImageFile, trackUrl } from "../api";
 
 const DAYS: { value: number; label: string; long: string }[] = [
   { value: 1, label: "L", long: "lunes" },
@@ -345,8 +345,8 @@ export function EventsTab({
     setError("");
   };
 
-  const remove = (event: StationEvent) => {
-    if (!window.confirm(`¿Eliminar el evento «${event.name}»?`)) return;
+  const remove = async (event: StationEvent) => {
+    if (!(await confirmAsk(`¿Eliminar el evento «${event.name}»?`, "Eliminar"))) return;
     onChange({ ...settings, events: settings.events.filter((x) => x.id !== event.id) });
     if (draft?.id === event.id) setDraft(null);
   };

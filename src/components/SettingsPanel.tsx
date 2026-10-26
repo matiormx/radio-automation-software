@@ -12,7 +12,7 @@ import type {
   Track,
 } from "../types";
 import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
-import { trackUrl } from "../api";
+import { confirmAsk, trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
@@ -1051,8 +1051,8 @@ function CampaignsTab({
     setError("");
   };
 
-  const remove = (c: Campaign) => {
-    if (!window.confirm(`¿Eliminar la campaña «${c.name}»?`)) return;
+  const remove = async (c: Campaign) => {
+    if (!(await confirmAsk(`¿Eliminar la campaña «${c.name}»?`, "Eliminar"))) return;
     onChange({ ...s, campaigns: s.campaigns.filter((x) => x.id !== c.id) });
     if (draft?.id === c.id) setDraft(null);
   };
