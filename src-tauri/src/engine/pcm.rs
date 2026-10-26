@@ -288,3 +288,25 @@ mod downmix_tests {
         assert_eq!(out, vec![0.25, -0.5]);
     }
 }
+
+#[cfg(test)]
+mod centre_tests {
+    /// Voz centrada (L = R): tras decodificar y remuestrear, L y R deben ser
+    /// identicos. Archivos en MIRADIO_CENTRE_DIR (c.flac, c.mp3, c.m4a).
+    #[test]
+    fn centred_stays_centred() {
+        let Ok(dir) = std::env::var("MIRADIO_CENTRE_DIR") else { return };
+        for f in ["c.flac", "c.mp3", "c.m4a"] {
+            let p = std::path::Path::new(&dir).join(f);
+            let pcm = super::decode_file(&p, 48_000).unwrap();
+            let mut diff = 0.0f32;
+            let mut peak = 0.0f32;
+            for fr in pcm.data.chunks_exact(2) {
+                diff = diff.max((fr[0] - fr[1]).abs());
+                peak = peak.max(fr[0].abs());
+            }
+            eprintln!("{f}: pico {peak:.3}, diferencia L-R {diff:.6}");
+            assert!(diff < 1e-3, "{f}: L y R no coinciden ({diff})");
+        }
+    }
+}
