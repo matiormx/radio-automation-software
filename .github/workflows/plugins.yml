@@ -3,7 +3,8 @@ name: Plugins recomendados (espejo)
 # Baja la última versión de cada plugin recomendado, saca sus VST3 de Windows
 # y de Linux y los publica con nombre fijo en la Release «plugins» de este
 # repositorio, junto a plugins.json (lo que lee MiRadio para instalar y
-# actualizar). Se ejecuta cada semana y a mano desde Actions.
+# actualizar). LSP no publica versión de Windows: se compila aquí desde su
+# código fuente. Se ejecuta cada semana y a mano desde Actions.
 
 on:
   schedule:
@@ -16,13 +17,67 @@ on:
         default: false
 
 jobs:
+  lsp-windows:
+    if: ${{ !inputs.list_only }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make git tar
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+
+      - name: Código fuente de la última versión
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $rel = gh api repos/lsp-plugins/lsp-plugins/releases/latest | ConvertFrom-Json
+          $src = $rel.assets | Where-Object { $_.name -like 'lsp-plugins-src-*.tar.gz' } | Select-Object -First 1
+          Invoke-WebRequest $src.browser_download_url -OutFile lsp-src.tar.gz
+          "LSP_VERSION=$($rel.tag_name)" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Compilar LSP (VST3)
+        run: |
+          mkdir src && tar -xzf lsp-src.tar.gz -C src --strip-components=1
+          cd src
+          make config FEATURES='vst3 ui' PREFIX=/opt/lsp
+          make -j4
+          make install DESTDIR="$PWD/../dest"
+          cd ..
+          mkdir -p built/lsp-windows
+          find dest -type d -name '*.vst3' -prune -exec cp -r {} built/lsp-windows/ \;
+          ls -la built/lsp-windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lsp-windows
+          path: built/lsp-windows
+
   mirror:
+    needs: lsp-windows
+    # Si LSP no compila, el resto se publica igual (LSP queda sin Windows).
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: LSP compilado para Windows
+        if: ${{ needs.lsp-windows.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: lsp-windows
+          path: built/lsp-windows
 
       - name: Herramientas
         run: sudo apt-get install -y --no-install-recommends p7zip-full msitools >/dev/null

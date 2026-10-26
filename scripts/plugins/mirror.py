@@ -35,7 +35,7 @@ OS_WORDS = {
 }
 # PC normal de 64 bits (en Windows «win64» ya lo dice)
 X64 = ["x86_64", "x86-64", "x64", "amd64", "win64"]
-BAD = ["arm", "aarch64", "riscv", "i686", "i586", "i386", "x86_32", "win32", "32bit", "mac", "osx",
+BAD = ["arm", "aarch64", "riscv", "windows7", "arm64ec", "setup.exe", "i686", "i586", "i386", "x86_32", "win32", "32bit", "mac", "osx",
        "darwin", "freebsd", "debug", "src", "source", "dbg", "pdb", "-lv2", "lv2-", "ladspa", "-doc",
        "vcvplugin"]
 ARCHIVES = (".zip", ".tar.gz", ".tgz", ".tar.xz", ".7z", ".msi")
@@ -66,9 +66,8 @@ def candidates(assets, os_name):
             continue
         if any(b in n for b in BAD):
             continue
-        if not any(x in n for x in X64):
-            continue
-        score = (10 if "vst3" in n else 0)
+        # Sin arquitectura en el nombre se acepta (suele ser x86_64), con menos prioridad
+        score = (10 if "vst3" in n else 0) + (3 if any(x in n for x in X64) else 0)
         # Sin AVX2: funciona en cualquier PC (la diferencia de rendimiento es mínima)
         score += 0 if "avx" in n else 2
         # Mejor un comprimido que un instalador .msi
@@ -168,6 +167,20 @@ def main():
         entry = {"version": tag, "repo": repo}
         for os_name in ("windows", "linux"):
             done = False
+            # Compilado en este mismo flujo (LSP en Windows): carpeta built/<id>-<sistema>
+            built = os.path.join("built", f"{pid}-{os_name}")
+            if os.path.isdir(built) and find_vst3(built):
+                bundles = find_vst3(built)
+                name = f"{pid}-{os_name}.zip"
+                zip_bundles(bundles, os.path.join(out, name))
+                entry[os_name] = {
+                    "file": name,
+                    "sha256": sha256(os.path.join(out, name)),
+                    "from": "compilado por MiRadio desde el código fuente",
+                    "bundles": [os.path.basename(b) for b in bundles],
+                }
+                notice("notice", f"{pid} {os_name}: compilado -> {', '.join(entry[os_name]['bundles'])}")
+                continue
             for a in candidates(rel.get("assets", []), os_name):
                 work = tempfile.mkdtemp()
                 try:
