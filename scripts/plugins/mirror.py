@@ -59,7 +59,8 @@ def get(url, binary=False):
 def candidates(assets, os_name):
     out = []
     for a in assets:
-        n = a["name"].lower()
+        # «Airwindows» lleva «windows» dentro: no debe confundirse con el sistema
+        n = a["name"].lower().replace("airwindows", "airw")
         if not n.endswith(ARCHIVES):
             continue
         if not any(w in n for w in OS_WORDS[os_name]):
