@@ -310,3 +310,39 @@ mod centre_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod flac_compare_tests {
+    /// Compara lo que decodifica MiRadio con lo que decodifica FFmpeg (f32,
+    /// misma frecuencia) para cada archivo de MIRADIO_FLAC_DIR.
+    #[test]
+    fn matches_ffmpeg() {
+        let Ok(dir) = std::env::var("MIRADIO_FLAC_DIR") else { return };
+        let mut bad = Vec::new();
+        let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().map(|e| e == "flac").unwrap_or(false)).collect();
+        files.sort();
+        for p in files {
+            let (rate, ours) = super::decode_native(&p).unwrap();
+            let out = std::process::Command::new("ffmpeg")
+                .args(["-loglevel", "error", "-i"])
+                .arg(&p)
+                .args(["-f", "f32le", "-ac", "2", "-ar"])
+                .arg(rate.to_string())
+                .arg("-")
+                .output()
+                .unwrap();
+            let refs: Vec<f32> = out.stdout.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+            let n = ours.len().min(refs.len());
+            let mut maxd = 0.0f32;
+            for i in 0..n {
+                maxd = maxd.max((ours[i] - refs[i]).abs());
+            }
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            eprintln!("{name}: {rate} Hz, nuestras {} / ffmpeg {} muestras, diferencia max {maxd:.6}", ours.len(), refs.len());
+            if maxd > 1e-3 || (ours.len() as i64 - refs.len() as i64).abs() > 4096 {
+                bad.push(name);
+            }
+        }
+        assert!(bad.is_empty(), "difieren: {bad:?}");
+    }
+}
