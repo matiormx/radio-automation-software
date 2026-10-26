@@ -4521,6 +4521,9 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 .vs-heartbeat {
   position: fixed; right: 0; bottom: 0; width: 2px; height: 2px;
   background: #000; pointer-events: none; z-index: 2147483647;
-  animation: vs-heartbeat 1s steps(2) infinite;
+  /* Cambia en cada fotograma: la captura de Windows (gfxcapture) solo entrega
+     imagen cuando algo cambia, y con una portada fija FFmpeg se quedaba
+     esperando y la salida NDI repetía el último fotograma del vídeo. */
+  animation: vs-heartbeat 0.4s linear infinite alternate;
 }
-@keyframes vs-heartbeat { from { opacity: 0.02; } to { opacity: 0.04; } }
+@keyframes vs-heartbeat { from { opacity: 0.02; } to { opacity: 0.05; } }
