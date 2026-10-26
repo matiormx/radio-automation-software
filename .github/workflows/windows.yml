@@ -26,7 +26,7 @@ on:
         type: boolean
         default: false
       platform:
-        description: "Qué compilar (solo para pruebas sin publicar)"
+        description: "Qué compilar (también al publicar: «windows» publica solo Windows)"
         type: choice
         options: [todo, windows, linux]
         default: todo
@@ -70,7 +70,7 @@ jobs:
 
   build-windows:
     needs: create-release
-    if: ${{ !failure() && !cancelled() && (inputs.publish || inputs.platform != 'linux') }}
+    if: ${{ !failure() && !cancelled() && inputs.platform != 'linux' }}
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -134,7 +134,7 @@ jobs:
 
   build-linux:
     needs: [create-release, build-windows]
-    if: ${{ !failure() && !cancelled() && (inputs.publish || inputs.platform != 'windows') }}
+    if: ${{ !failure() && !cancelled() && inputs.platform != 'windows' }}
     # 22.04: el AppImage funciona también en sistemas más nuevos (Debian 12, Ubuntu 24.04…).
     runs-on: ubuntu-22.04
     timeout-minutes: 60
