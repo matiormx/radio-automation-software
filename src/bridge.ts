@@ -1,5 +1,5 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize, type Window } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize, PhysicalPosition, type Window } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /**
@@ -122,9 +122,17 @@ export async function openNowPlayingOut(width: number, height: number): Promise<
         void win!.once("tauri://created", () => resolve(true));
         void win!.once("tauri://error", () => resolve(false));
       });
-      return created;
+      if (!created) return false;
+    } else {
+      await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
     }
-    await win.setSize(new LogicalSize(w, h)).catch(() => undefined);
+    // Windows suele ignorar la posicion al crear: se esconde despues, fuera de
+    // todos los monitores, al fondo y sin recibir clics ni foco.
+    await win.setPosition(new PhysicalPosition(-32000, -32000)).catch(() => undefined);
+    await win.setAlwaysOnBottom(true).catch(() => undefined);
+    await win.setSkipTaskbar(true).catch(() => undefined);
+    await win.setIgnoreCursorEvents(true).catch(() => undefined);
+    await win.setFocusable(false).catch(() => undefined);
     return true;
   } catch {
     return false;
