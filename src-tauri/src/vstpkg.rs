@@ -1,6 +1,8 @@
 //! Plugins recomendados: un catalogo de plugins VST3 gratuitos y de codigo
-//! abierto que MiRadio descarga de su pagina oficial (publicaciones de GitHub),
-//! instala en la carpeta VST3 del usuario y mantiene al dia.
+//! abierto que MiRadio instala en la carpeta VST3 del usuario y mantiene al
+//! dia. Se descargan del espejo de este repositorio (Release «plugins»), donde
+//! un flujo semanal los prepara desde su pagina oficial (y compila LSP para
+//! Windows, que no publica binarios).
 //!
 //! - Windows: %LOCALAPPDATA%\Programs\Common\VST3 (sin permisos de administrador)
 //! - Linux: ~/.vst3
@@ -204,74 +206,36 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
+/// Espejo de MiRadio: los VST3 de cada plugin ya preparados por sistema
+/// (los publica el flujo «Plugins recomendados» de este repositorio).
+const MIRROR: &str = "https://github.com/matiormx/radio-automation-software/releases/download/plugins";
+
 #[derive(Deserialize)]
-struct GhAsset {
-    name: String,
-    browser_download_url: String,
-    #[serde(default)]
-    size: u64,
+struct MFile {
+    file: String,
+    sha256: String,
 }
 
 #[derive(Deserialize)]
-struct GhRelease {
-    tag_name: String,
-    #[serde(default)]
-    assets: Vec<GhAsset>,
+struct MEntry {
+    version: String,
+    windows: Option<MFile>,
+    linux: Option<MFile>,
 }
 
-fn latest_release(repo: &str) -> Result<GhRelease, String> {
-    agent()
-        .get(&format!("https://api.github.com/repos/{repo}/releases/latest"))
-        .set("Accept", "application/vnd.github+json")
+#[derive(Deserialize)]
+struct Manifest {
+    plugins: HashMap<String, MEntry>,
+}
+
+fn manifest() -> Result<Manifest, String> {
+    let text = agent()
+        .get(&format!("{MIRROR}/plugins.json"))
         .call()
-        .map_err(|e| format!("No se pudo consultar {repo}: {e}"))?
+        .map_err(|e| format!("No se pudo consultar la lista de plugins: {e}"))?
         .into_string()
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str::<GhRelease>(&t).map_err(|e| e.to_string()))
-}
-
-/// Elige el archivo de la publicacion para este sistema (por su nombre):
-/// del sistema y 64 bits, preferiblemente con «vst3», sin instaladores ni
-/// otras arquitecturas. Devuelve None si ninguno encaja.
-pub fn pick_asset<'a>(names: &'a [&'a str], os: &str) -> Option<&'a str> {
-    let os_words: &[&str] = match os {
-        "windows" => &["windows", "win64", "win-x64", "win_x64", "win"],
-        "linux" => &["linux"],
-        _ => &["mac", "osx", "darwin"],
-    };
-    let archive = |n: &str| n.ends_with(".zip") || n.ends_with(".tar.gz") || n.ends_with(".tgz") || n.ends_with(".tar.xz");
-    let bad = ["arm", "aarch64", "i686", "x86_32", "win32", "32bit", "debug", "src", "source", "lv2-", "-lv2", "clap-", "-clap", "ladspa", "jack", "standalone", "-vst2", "vst2-", "pdb", "dbg"];
-    let mut best: Option<(i32, &str)> = None;
-    for &n in names {
-        let l = n.to_lowercase();
-        if !archive(&l) {
-            continue;
-        }
-        if !os_words.iter().any(|w| l.contains(w)) {
-            continue;
-        }
-        // Que «win» no coincida con «darwin»
-        if os == "windows" && l.contains("darwin") {
-            continue;
-        }
-        if bad.iter().any(|b| l.contains(b)) {
-            continue;
-        }
-        let mut score = 0;
-        if l.contains("vst3") {
-            score += 10;
-        }
-        if l.contains("x86_64") || l.contains("x64") || l.contains("amd64") || l.contains("64") {
-            score += 3;
-        }
-        if l.ends_with(".zip") {
-            score += 1;
-        }
-        if best.map(|(s, _)| score > s).unwrap_or(true) {
-            best = Some((score, n));
-        }
-    }
-    best.map(|(_, n)| n)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| format!("Lista de plugins dañada: {e}"))
 }
 
 fn emit(app: &AppHandle, p: &Progress) {
@@ -369,27 +333,26 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
     }
     let mut p = Progress { id: id.into(), busy: true, phase: "comprobando".into(), ..Default::default() };
     emit(app, &p);
-    let rel = latest_release(item.repo)?;
-    let names: Vec<&str> = rel.assets.iter().map(|a| a.name.as_str()).collect();
-    let chosen = pick_asset(&names, os()).ok_or_else(|| {
-        format!(
-            "No encuentro un paquete VST3 para {} en la versión {} (descárgalo desde https://github.com/{}/releases)",
-            if os() == "windows" { "Windows" } else { "Linux" },
-            rel.tag_name,
-            item.repo
-        )
-    })?;
-    let asset = rel.assets.iter().find(|a| a.name == chosen).ok_or("Paquete no encontrado")?;
+    let m = manifest()?;
+    let entry = m.plugins.get(id).ok_or_else(|| format!("{} aún no está preparado; vuelve a intentarlo más tarde", item.name))?;
+    let file = match os() {
+        "windows" => entry.windows.as_ref(),
+        "linux" => entry.linux.as_ref(),
+        _ => None,
+    }
+    .ok_or_else(|| format!("{} aún no está disponible para este sistema", item.name))?;
+    let version = entry.version.clone();
     let work = data_dir.join("vstpkg-tmp").join(id);
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     // Descarga
     p.phase = "descargando".into();
     emit(app, &p);
-    let resp = agent().get(&asset.browser_download_url).call().map_err(|e| format!("No se pudo descargar: {e}"))?;
-    let total = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(asset.size);
+    let resp = agent().get(&format!("{MIRROR}/{}", file.file)).call().map_err(|e| format!("No se pudo descargar: {e}"))?;
+    let total = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
     let mut reader = resp.into_reader();
-    let file_path = work.join(&asset.name);
+    let file_path = work.join(&file.file);
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
     {
         let mut out = std::fs::File::create(&file_path).map_err(|e| e.to_string())?;
         let mut buf = vec![0u8; 256 * 1024];
@@ -401,6 +364,7 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
                 break;
             }
             std::io::Write::write_all(&mut out, &buf[..n]).map_err(|e| e.to_string())?;
+            sha2::Digest::update(&mut hasher, &buf[..n]);
             got += n as u64;
             if total > 0 && last.elapsed() > Duration::from_millis(300) {
                 last = std::time::Instant::now();
@@ -409,15 +373,19 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
             }
         }
     }
+    if format!("{:x}", sha2::Digest::finalize(hasher)) != file.sha256 {
+        let _ = std::fs::remove_dir_all(&work);
+        return Err("La descarga no coincide con su firma SHA-256: se descarta".into());
+    }
     // Extraccion a una carpeta de preparacion
     p.phase = "instalando".into();
     p.fraction = 1.0;
     emit(app, &p);
     let staged = work.join("vst3");
-    let bundles = extract_vst3(&file_path, &asset.name, &staged)?;
+    let bundles = extract_vst3(&file_path, &file.file, &staged)?;
     let _ = std::fs::remove_file(&file_path);
     if bundles.is_empty() {
-        return Err(format!("El paquete {} no trae plugins VST3", asset.name));
+        return Err(format!("El paquete {} no trae plugins VST3", file.file));
     }
     let dest_root = user_vst3_dir().ok_or("No encuentro la carpeta VST3 del usuario")?;
     std::fs::create_dir_all(&dest_root).map_err(|e| e.to_string())?;
@@ -444,19 +412,19 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
     }
     let entry = st.installed.entry(id.to_string()).or_default();
     entry.files = files;
-    st.latest.insert(id.to_string(), rel.tag_name.clone());
+    st.latest.insert(id.to_string(), version.clone());
     if placed_all {
-        entry.version = rel.tag_name.clone();
+        entry.version = version.clone();
         entry.installed_at = now();
         entry.pending = None;
         write_state(data_dir, &st);
         let _ = std::fs::remove_dir_all(&work);
-        Ok(format!("{} {} instalado", item.name, rel.tag_name))
+        Ok(format!("{} {} instalado", item.name, version))
     } else {
         // En uso: se coloca al reiniciar (queda en vstpkg-tmp/<id>/vst3).
-        entry.pending = Some(rel.tag_name.clone());
+        entry.pending = Some(version.clone());
         write_state(data_dir, &st);
-        Ok(format!("{} {}: está en uso; se actualizará al reiniciar MiRadio", item.name, rel.tag_name))
+        Ok(format!("{} {}: está en uso; se actualizará al reiniciar MiRadio", item.name, version))
     }
 }
 
@@ -519,12 +487,8 @@ fn start(app: AppHandle, id: String) -> Result<(), String> {
 
 /// Busca versiones nuevas de los instalados (y de todo el catalogo).
 fn check(data_dir: &Path) {
-    let mut latest = HashMap::new();
-    for item in CATALOG.iter().filter(|c| !c.repo.is_empty() && c.platforms.contains(&os())) {
-        if let Ok(rel) = latest_release(item.repo) {
-            latest.insert(item.id.to_string(), rel.tag_name);
-        }
-    }
+    let Ok(m) = manifest() else { return };
+    let latest: HashMap<String, String> = m.plugins.into_iter().map(|(k, v)| (k, v.version)).collect();
     let _g = STATE_LOCK.lock();
     let mut st = read_state(data_dir);
     st.latest.extend(latest);
@@ -622,27 +586,6 @@ pub fn vstpkg_remove(app: AppHandle, id: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn picks_platform_asset() {
-        let names = [
-            "lsp-plugins-vst3-1.2.35-Windows-x86_64.zip",
-            "lsp-plugins-lv2-1.2.35-Linux-x86_64.tar.gz",
-            "lsp-plugins-vst3-1.2.35-Linux-x86_64.tar.gz",
-            "lsp-plugins-vst3-1.2.35-Linux-aarch64.tar.gz",
-            "lsp-plugins-src-1.2.35.tar.gz",
-            "lsp-plugins-vst3-1.2.35-MacOS.zip",
-        ];
-        assert_eq!(pick_asset(&names, "windows"), Some("lsp-plugins-vst3-1.2.35-Windows-x86_64.zip"));
-        assert_eq!(pick_asset(&names, "linux"), Some("lsp-plugins-vst3-1.2.35-Linux-x86_64.tar.gz"));
-        let dragon = ["DragonflyReverb-Windows-x64-3.2.10.zip", "DragonflyReverb-Linux-x64-3.2.10.tar.xz", "DragonflyReverb-macOS-3.2.10.zip"];
-        assert_eq!(pick_asset(&dragon, "linux"), Some("DragonflyReverb-Linux-x64-3.2.10.tar.xz"));
-        assert_eq!(pick_asset(&dragon, "windows"), Some("DragonflyReverb-Windows-x64-3.2.10.zip"));
-        // Un instalador .exe no vale
-        assert_eq!(pick_asset(&["Thing-Windows-Installer.exe"], "windows"), None);
-        // «darwin» contiene «win»
-        assert_eq!(pick_asset(&["thing-darwin-vst3.zip"], "windows"), None);
-    }
 
     #[test]
     fn extracts_bundles_from_zip_and_tar() {

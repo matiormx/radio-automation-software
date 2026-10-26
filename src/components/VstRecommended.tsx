@@ -68,8 +68,9 @@ export function VstRecommended({ onInstalled }: { onInstalled: () => void }) {
         </button>
       </div>
       <p className="hint">
-        Gratuitos. Los de código abierto se instalan con un clic desde su página oficial y se actualizan solos cada
-        semana; los demás se descargan en su web y MiRadio los encuentra igual.
+        Gratuitos. Los de código abierto se instalan con un clic (MiRadio los prepara desde su versión oficial y
+        comprueba su firma) y se actualizan solos cada semana; los demás se descargan en su web y MiRadio los
+        encuentra igual.
       </p>
       <div className="vst-reco-list">
         {shown.map((p) => {
