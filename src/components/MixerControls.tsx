@@ -353,8 +353,11 @@ export function PluginSlots({
   owner,
   isNative,
   hidden = [],
+  initialError = "",
   onChange,
 }: {
+  /** Error al abrir directamente desde la ranura */
+  initialError?: string;
   owner: { plugins?: PluginSlot[] };
   isNative: boolean;
   /** Rutas ocultas en Ajustes > Sonido > Plugins VST3 */
@@ -365,7 +368,8 @@ export function PluginSlots({
   const [found, setFound] = useState<{ name: string; vendor: string; path: string }[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
+  useEffect(() => setError(initialError), [initialError]);
   const add = (path: string, name: string) => {
     const id = `vst${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     onChange([...plugins, { id, path, name, enabled: true }]);
@@ -398,7 +402,7 @@ export function PluginSlots({
       {plugins.length === 0 && <p className="mixer-insert-hint">Sin plugins. Se procesan en orden, después del compresor.</p>}
       {plugins.map((p, i) => (
         <div key={p.id} className={`vst-row ${p.enabled ? "" : "vst-off"}`}>
-          <button type="button" className="vst-name" title={`Abrir ${p.name}\n${p.path}`} onClick={() => {
+          <button type="button" className="vst-name" title={`Abrir la ventana de ${p.name}\n${p.path}`} onClick={() => {
               setError("");
               void vstEditor(p).catch((e) => setError(String(e)));
             }}>

@@ -168,6 +168,13 @@ function emissionState(
 ) {
   if (!enabled) return { tone: "idle" as EmissionTone, label: "Inactiva", error: null };
   const out = status?.outputs.find((o) => o.id === id);
+  if (out?.state === "reconnecting") {
+    return {
+      tone: "pending" as EmissionTone,
+      label: "Reconectando",
+      error: status?.lastError ?? out.error ?? null,
+    };
+  }
   if (out?.running) {
     return { tone: "live" as EmissionTone, label: "En vivo", error: out.error ?? null };
   }
@@ -992,9 +999,11 @@ export function StreamingTab({
                           ))}
                         </select>
                         <span className="hint">
-                          Solo actúa si FFmpeg pierde la entrada (desconexión). Para que una capturadora
-                          sin señal pase sola a lo que suena, emite «Pantalla de emisión» y elige la
-                          capturadora y su respaldo en Ajustes &gt; Vídeo (la ventana debe estar abierta).
+                          Si la fuente principal se cae o se congela, la salida pasa sola a este vídeo,
+                          siempre con el audio de la mesa (Encoders). Cambiar de fuente aquí reconecta la
+                          salida: el directo se corta unos segundos. Para cambios <strong>sin cortes</strong>,
+                          emite «Pantalla de emisión»: allí la capturadora o el NDI pasan a lo que suena y
+                          vuelven solos dentro de la ventana, sin tocar la conexión.
                         </span>
                       </label>
                     )}

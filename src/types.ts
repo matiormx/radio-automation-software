@@ -540,7 +540,8 @@ export interface StreamOutputStatus {
   name: string;
   kind: string;
   running: boolean;
-  state: "live" | "stopped" | "error";
+  /** "reconnecting": se cayó y MiRadio la está volviendo a arrancar (o pasando al respaldo) */
+  state: "live" | "stopped" | "error" | "reconnecting";
   error: string | null;
   /** Últimas líneas de FFmpeg para diagnosticar la salida */
   log?: string | null;

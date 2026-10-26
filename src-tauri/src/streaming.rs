@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -33,10 +34,46 @@ struct NdiOut {
     fps: u32,
 }
 
-struct FallbackProcess {
+/// Como arrancar FFmpeg para una salida.
+#[derive(Clone)]
+struct Spec {
     ffmpeg: PathBuf,
     args: Vec<String>,
     wants_audio: bool,
+    ndi_out: Option<NdiOut>,
+}
+
+/// Que hacer si la salida se cae o se cuelga: volver a arrancarla (con
+/// espera creciente) y, si tiene respaldo, alternar entre principal y respaldo.
+struct Restart {
+    primary: Spec,
+    backup: Option<Spec>,
+    on_backup: bool,
+    /// Caidas seguidas sin llegar a aguantar un minuto
+    fails: u32,
+}
+
+impl Restart {
+    fn new(primary: Spec, backup: Option<Spec>) -> Restart {
+        Restart { primary, backup, on_backup: false, fails: 0 }
+    }
+}
+
+/// Segundos sin avanzar para dar por colgada una salida (y margen al arrancar).
+#[cfg(not(test))]
+const STALL_SECS: u64 = 15;
+#[cfg(not(test))]
+const STALL_START_SECS: u64 = 40;
+#[cfg(test)]
+const STALL_SECS: u64 = 3;
+#[cfg(test)]
+const STALL_START_SECS: u64 = 5;
+
+/// Avance de FFmpeg (de -progress): si out_time no sube, esta colgado.
+struct Progress {
+    value: String,
+    at: Instant,
+    seen: bool,
 }
 
 struct StreamProcess {
@@ -52,8 +89,18 @@ struct StreamProcess {
     failed: Arc<AtomicBool>,
     error: Arc<Mutex<Option<String>>>,
     log: Arc<Mutex<Vec<String>>>,
-    fallback: Option<FallbackProcess>,
+    restart: Option<Restart>,
+    /// Compartido con su supervisor; true = la detuvo el usuario
+    cancel: Arc<AtomicBool>,
+    progress: Arc<Mutex<Progress>>,
+    started: Instant,
     warned_full: bool,
+}
+
+impl StreamProcess {
+    fn supervised(&self) -> bool {
+        self.restart.is_some() && !self.cancel.load(Ordering::SeqCst)
+    }
 }
 
 /// Trozos de PCM que puede acumular un encoder antes de descartar (~10 s).
@@ -281,6 +328,7 @@ pub fn stream_start(
         let output_name = name.clone();
         match icecast_args(stream) {
             Ok(args) => {
+                let restart = Restart::new(Spec { ffmpeg: ffmpeg.clone(), args: args.clone(), wants_audio: true, ndi_out: None }, None);
                 if let Err(error) = spawn_process(
                     &mut inner,
                     &shared,
@@ -290,7 +338,7 @@ pub fn stream_start(
                     name,
                     "icecast",
                     true,
-                    None,
+                    Some(restart),
                 ) {
                     errors.push(error.clone());
                     inner.failed_outputs.push(failed_output(
@@ -382,6 +430,11 @@ pub fn stream_start(
                         arg("bgra"),
                         arg("pipe:1"),
                     ]);
+                    let out = NdiOut { name: ndi_name, width: w, height: h, fps };
+                    let restart = Restart::new(
+                        Spec { ffmpeg: ffmpeg.clone(), args: args.clone(), wants_audio: false, ndi_out: Some(out.clone()) },
+                        None,
+                    );
                     spawn_process_ex(
                         &mut inner,
                         &shared,
@@ -391,8 +444,9 @@ pub fn stream_start(
                         name.clone(),
                         &kind,
                         false,
+                        Some(restart),
+                        Some(out),
                         None,
-                        Some(NdiOut { name: ndi_name, width: w, height: h, fps }),
                     )
                 });
                 if let Err(error) = result {
@@ -469,7 +523,10 @@ pub fn stream_start(
             };
             match args {
                 Ok(args) => {
-                    let wants_audio = (kind == "rtmp" || kind == "ndi") && output_audio.is_none();
+                    // La tuberia de audio de la mesa se alimenta siempre (aunque el
+                    // audio elegido sea otro): FFmpeg no se queda esperandola y el
+                    // respaldo tiene sonido desde el primer momento.
+                    let wants_audio = kind == "rtmp" || kind == "ndi";
                     let process_ffmpeg = if kind == "ndi" {
                         ndi_ffmpeg.unwrap_or(&ffmpeg)
                     } else {
@@ -490,7 +547,8 @@ pub fn stream_start(
                                     .iter()
                                     .find(|input| input.id == backup)
                                     .map(|input| input.kind == "ndi")
-                                    .unwrap_or(false);
+                                    .unwrap_or(false)
+                                && crate::ndi::runtime().is_err();
                             let backup_ffmpeg = if backup == "program" || backup_np {
                                 ffmpeg.as_path()
                             } else if backup_is_ndi {
@@ -509,7 +567,9 @@ pub fn stream_start(
                                             output.fps,
                                             output.bitrate_kbps,
                                             2,
-                                            output_audio,
+                                            // El respaldo lleva siempre el audio de la mesa:
+                                            // si cae la fuente, su sonido tambien.
+                                            None,
                                             false,
                                         )
                                     } else {
@@ -527,16 +587,17 @@ pub fn stream_start(
                                     2,
                                     ndi_device,
                                     Some(backup),
-                                    output_audio,
+                                    None,
                                 )
                             } else {
                                 video_output_args(output, &settings.video, ndi_device, Some(backup))
                             };
                             match backup_args {
-                                Ok(args) => Some(FallbackProcess {
+                                Ok(args) => Some(Spec {
                                     ffmpeg: backup_ffmpeg.to_path_buf(),
                                     args,
-                                    wants_audio: kind == "rtmp" && output_audio.is_none(),
+                                    wants_audio: kind == "rtmp",
+                                    ndi_out: None,
                                 }),
                                 Err(error) => {
                                     errors.push(format!("{name} (respaldo): {error}"));
@@ -547,6 +608,10 @@ pub fn stream_start(
                     } else {
                         None
                     };
+                    let restart = Restart::new(
+                        Spec { ffmpeg: process_ffmpeg.to_path_buf(), args: args.clone(), wants_audio, ndi_out: None },
+                        fallback,
+                    );
                     if let Err(error) = spawn_process(
                         &mut inner,
                         &shared,
@@ -556,7 +621,7 @@ pub fn stream_start(
                         name.clone(),
                         &kind,
                         wants_audio,
-                        fallback,
+                        Some(restart),
                     ) {
                         errors.push(error.clone());
                         inner
@@ -671,8 +736,11 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 .ok()
                 .and_then(|slot| Option::clone(&*slot));
             let log = process.log.lock().ok().map(|lines| lines.join(" | "));
+            let reconnecting = !process.alive && process.supervised();
             let state = if process.alive {
                 "live"
+            } else if reconnecting {
+                "reconnecting"
             } else if error.is_some() {
                 "error"
             } else {
@@ -682,7 +750,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
                 id: process.id.clone(),
                 name: process.name.clone(),
                 kind: process.kind.clone(),
-                running: process.alive,
+                running: process.alive || reconnecting,
                 state: state.to_string(),
                 error,
                 log,
@@ -695,7 +763,7 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
         needs_audio: inner
             .processes
             .iter()
-            .any(|process| process.alive && process.wants_audio),
+            .any(|process| (process.alive || process.supervised()) && process.wants_audio),
         ffmpeg: inner.ffmpeg.as_ref().map(|path| path.display().to_string()),
         outputs,
         last_error,
@@ -711,9 +779,9 @@ fn spawn_process(
     name: String,
     kind: &str,
     wants_audio: bool,
-    fallback: Option<FallbackProcess>,
+    restart: Option<Restart>,
 ) -> Result<(), String> {
-    spawn_process_ex(inner, shared, ffmpeg, args, id, name, kind, wants_audio, fallback, None)
+    spawn_process_ex(inner, shared, ffmpeg, args, id, name, kind, wants_audio, restart, None, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -726,8 +794,10 @@ fn spawn_process_ex(
     name: String,
     kind: &str,
     wants_audio: bool,
-    fallback: Option<FallbackProcess>,
+    restart: Option<Restart>,
     ndi_out: Option<NdiOut>,
+    // Al rearrancar se reutiliza el del supervisor (que ya esta en marcha).
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(), String> {
     // Con NDI nativo se crea antes la salida: si falta el Runtime, no se arranca nada.
     let ndi_sender = match &ndi_out {
@@ -736,6 +806,8 @@ fn spawn_process_ex(
     };
     let mut command = Command::new(ffmpeg);
     command
+        // Avance por stderr: el supervisor ve si FFmpeg se queda colgado.
+        .args(["-progress", "pipe:2"])
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(if ndi_out.is_some() { Stdio::piped() } else { Stdio::null() })
@@ -752,6 +824,7 @@ fn spawn_process_ex(
         .spawn()
         .map_err(|error| format!("{name}: no se pudo iniciar FFmpeg ({error})"))?;
 
+    let progress = Arc::new(Mutex::new(Progress { value: String::new(), at: Instant::now(), seen: false }));
     let error_slot = Arc::new(Mutex::new(None));
     let log_slot = Arc::new(Mutex::new(Vec::new()));
     {
@@ -764,6 +837,7 @@ fn spawn_process_ex(
         let shared = shared.clone();
         let slot = error_slot.clone();
         let log = log_slot.clone();
+        let progress = progress.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
@@ -771,6 +845,21 @@ fn spawn_process_ex(
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
+                }
+                // Lineas de -progress (clave=valor, sin espacios): no van al registro.
+                if let Some((key, value)) = line.split_once('=') {
+                    if !key.is_empty() && !line.contains(' ') && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                        if key == "out_time_us" {
+                            if let Ok(mut p) = progress.lock() {
+                                if value != p.value && value != "N/A" {
+                                    p.value = value.to_string();
+                                    p.at = Instant::now();
+                                    p.seen = true;
+                                }
+                            }
+                        }
+                        continue;
+                    }
                 }
                 let clean = sanitize_error(line);
                 if let Ok(mut lines) = log.lock() {
@@ -845,10 +934,9 @@ fn spawn_process_ex(
         }
     }
 
+    let supervise_new = restart.is_some() && cancel.is_none();
+    let cancel = cancel.unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
     let watch_id = id.clone();
-    let watch_name = name.clone();
-    let watch_kind = kind.to_string();
-    let has_fallback = fallback.is_some();
     inner.processes.push(StreamProcess {
         id,
         name,
@@ -860,70 +948,121 @@ fn spawn_process_ex(
         failed,
         error: error_slot,
         log: log_slot,
-        fallback,
+        restart,
+        cancel: cancel.clone(),
+        progress,
+        started: Instant::now(),
         warned_full: false,
     });
-    if has_fallback {
+    if supervise_new {
         let shared = shared.clone();
         std::thread::Builder::new()
-            .name("miradio-stream-fallback".into())
-            .spawn(move || loop {
-                std::thread::sleep(Duration::from_secs(2));
-                let next = {
-                    let mut inner = match shared.lock() {
-                        Ok(inner) => inner,
-                        Err(_) => return,
-                    };
-                    let Some(index) = inner.processes.iter().position(|p| p.id == watch_id) else {
-                        return;
-                    };
-                    let process = &mut inner.processes[index];
-                    let exited = !matches!(process.child.try_wait(), Ok(None));
-                    if !exited {
-                        None
-                    } else {
-                        let fallback = process.fallback.take();
-                        if fallback.is_none() {
-                            return;
-                        }
-                        inner.processes.remove(index);
-                        fallback
-                    }
-                };
-                if let Some(fallback) = next {
-                    if let Ok(mut inner) = shared.lock() {
-                        inner.last_error = Some(format!(
-                            "{watch_name}: entrada principal perdida, usando el respaldo"
-                        ));
-                        if let Err(error) = spawn_process(
-                            &mut inner,
-                            &shared,
-                            &fallback.ffmpeg,
-                            fallback.args,
-                            watch_id.clone(),
-                            watch_name.clone(),
-                            &watch_kind,
-                            fallback.wants_audio,
-                            None,
-                        ) {
-                            inner.failed_outputs.push(failed_output(
-                                &watch_id,
-                                &watch_name,
-                                &watch_kind,
-                                error,
-                            ));
-                        }
-                    }
-                    return;
-                }
-            })
+            .name("miradio-stream-supervisor".into())
+            .spawn(move || supervise(shared, watch_id, cancel))
             .ok();
     }
     Ok(())
 }
 
+/// Vigila una salida: si FFmpeg se cierra o deja de avanzar, la vuelve a
+/// arrancar sin que nadie toque nada. Con respaldo, la primera caida pasa al
+/// respaldo al instante; si el respaldo cae, se prueba otra vez la principal.
+fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool>) {
+    let mine = |inner: &EngineInner| inner.processes.iter().position(|p| p.id == id && Arc::ptr_eq(&p.cancel, &cancel));
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        if cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        // ¿Sigue bien?
+        let (reason, delay) = {
+            let Ok(mut inner) = shared.lock() else { return };
+            let Some(index) = mine(&inner) else { return };
+            let p = &mut inner.processes[index];
+            let exited = !matches!(p.child.try_wait(), Ok(None));
+            let broken = p.failed.load(Ordering::SeqCst);
+            let stalled = p
+                .progress
+                .lock()
+                .map(|pr| {
+                    if pr.seen {
+                        pr.at.elapsed() > Duration::from_secs(STALL_SECS)
+                    } else {
+                        p.started.elapsed() > Duration::from_secs(STALL_START_SECS)
+                    }
+                })
+                .unwrap_or(false);
+            if !(exited || broken || stalled) {
+                continue;
+            }
+            let last = p.error.lock().ok().and_then(|e| e.clone());
+            let reason = if stalled && !exited {
+                "la imagen o el envío se quedó parado".to_string()
+            } else {
+                last.unwrap_or_else(|| "FFmpeg se cerró".to_string())
+            };
+            p.alive = false;
+            let lived = p.started.elapsed();
+            let Some(r) = p.restart.as_mut() else { return };
+            if lived > Duration::from_secs(60) {
+                r.fails = 0;
+            }
+            // La primera caida con respaldo: al momento. Despues, espera creciente.
+            let delay = if r.backup.is_some() && !r.on_backup && r.fails == 0 {
+                0
+            } else {
+                (1u64 << r.fails.min(5)).min(30)
+            };
+            r.fails += 1;
+            (reason, delay)
+        };
+        for _ in 0..delay {
+            std::thread::sleep(Duration::from_secs(1));
+            if cancel.load(Ordering::SeqCst) {
+                return;
+            }
+        }
+        let Ok(mut inner) = shared.lock() else { return };
+        let Some(index) = mine(&inner) else { return };
+        let mut old = inner.processes.remove(index);
+        old.tx.take();
+        let _ = old.child.kill();
+        let _ = old.child.wait();
+        let Some(mut r) = old.restart.take() else { return };
+        let to_backup = r.backup.is_some() && !r.on_backup;
+        r.on_backup = to_backup;
+        let spec = if to_backup { r.backup.clone() } else { Some(r.primary.clone()) };
+        let Some(spec) = spec else { return };
+        let what = if to_backup {
+            "pasa al vídeo de respaldo"
+        } else if r.backup.is_some() {
+            "vuelve a probar la entrada principal"
+        } else {
+            "reconectando"
+        };
+        inner.last_error = Some(sanitize_error(&format!("{}: {reason} — {what}", old.name)));
+        if let Err(error) = spawn_process_ex(
+            &mut inner,
+            &shared,
+            &spec.ffmpeg,
+            spec.args,
+            id.clone(),
+            old.name.clone(),
+            &old.kind,
+            spec.wants_audio,
+            Some(r),
+            spec.ndi_out,
+            Some(cancel.clone()),
+        ) {
+            inner.failed_outputs.push(failed_output(&id, &old.name, &old.kind, error));
+            return;
+        }
+    }
+}
+
 fn stop_all(inner: &mut EngineInner) {
     for mut process in inner.processes.drain(..) {
+        process.cancel.store(true, Ordering::SeqCst);
         process.tx.take();
         if let Some(stdin) = process.child.stdin.take() {
             drop(stdin);
@@ -949,6 +1088,7 @@ fn stop_group(inner: &mut EngineInner, group: &str) {
             keep.push(process);
             continue;
         }
+        process.cancel.store(true, Ordering::SeqCst);
         process.tx.take();
         if let Some(stdin) = process.child.stdin.take() {
             drop(stdin);
@@ -2044,6 +2184,83 @@ mod tests {
         assert!(video_input_args(&input, None).is_err());
         let args = video_input_args(&input, Some("libndi_newtek")).expect("argumentos");
         assert!(args.windows(2).any(|pair| pair == ["-f", "libndi_newtek"]));
+    }
+
+
+    fn lavfi(secs: u32) -> Vec<String> {
+        ["-hide_banner", "-loglevel", "warning", "-re", "-f", "lavfi", "-i", "testsrc=size=64x36:rate=10", "-t", &secs.to_string(), "-f", "null", "-"]
+            .iter()
+            .map(|x| x.to_string())
+            .collect()
+    }
+
+    fn state(shared: &Arc<Mutex<EngineInner>>) -> Option<(bool, bool)> {
+        let inner = shared.lock().unwrap();
+        inner.processes.iter().find(|p| p.id == "v").map(|p| (p.alive, p.restart.as_ref().map(|r| r.on_backup).unwrap_or(false)))
+    }
+
+    /// La principal cae: pasa al respaldo al momento; cae el respaldo: vuelve a la principal.
+    #[test]
+    fn supervisor_switches_to_backup_and_back() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let shared = Arc::new(Mutex::new(EngineInner::default()));
+        let ff = PathBuf::from("ffmpeg");
+        let primary = Spec { ffmpeg: ff.clone(), args: lavfi(2), wants_audio: false, ndi_out: None };
+        let backup = Spec { ffmpeg: ff.clone(), args: lavfi(3), wants_audio: false, ndi_out: None };
+        {
+            let mut inner = shared.lock().unwrap();
+            spawn_process(&mut inner, &shared, &ff, lavfi(2), "v".into(), "Prueba".into(), "rtmp", false, Some(Restart::new(primary, Some(backup))))
+                .unwrap();
+        }
+        let start = Instant::now();
+        let (mut saw_backup, mut back_to_main) = (false, false);
+        while start.elapsed() < Duration::from_secs(20) && !back_to_main {
+            std::thread::sleep(Duration::from_millis(250));
+            match state(&shared) {
+                Some((true, true)) => saw_backup = true,
+                Some((true, false)) if saw_backup => back_to_main = true,
+                _ => {}
+            }
+            // Mientras reconecta sigue contando como en marcha.
+            assert!(status_from(&mut shared.lock().unwrap()).running);
+        }
+        assert!(saw_backup && back_to_main, "respaldo {saw_backup}, vuelta {back_to_main}");
+        stop_all(&mut shared.lock().unwrap());
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(shared.lock().unwrap().processes.is_empty());
+    }
+
+    /// FFmpeg que no se cierra pero deja de avanzar (fuente congelada): se rearranca.
+    #[test]
+    fn supervisor_restarts_stalled() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let shared = Arc::new(Mutex::new(EngineInner::default()));
+        let ff = PathBuf::from("ffmpeg");
+        // Espera audio por la tuberia, que nadie le manda: no avanza nunca.
+        let args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "pipe:0", "-f", "null", "-"]
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+        let spec = Spec { ffmpeg: ff.clone(), args: args.clone(), wants_audio: false, ndi_out: None };
+        let first_pid;
+        {
+            let mut inner = shared.lock().unwrap();
+            spawn_process(&mut inner, &shared, &ff, args, "v".into(), "Prueba".into(), "rtmp", false, Some(Restart::new(spec, None))).unwrap();
+            first_pid = inner.processes[0].child.id();
+        }
+        let start = Instant::now();
+        let mut restarted = false;
+        while start.elapsed() < Duration::from_secs(15) && !restarted {
+            std::thread::sleep(Duration::from_millis(250));
+            let inner = shared.lock().unwrap();
+            restarted = inner.processes.iter().any(|p| p.id == "v" && p.child.id() != first_pid);
+        }
+        assert!(restarted, "no se rearrancó la salida colgada");
+        stop_all(&mut shared.lock().unwrap());
     }
 }
 

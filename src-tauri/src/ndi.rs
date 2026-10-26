@@ -539,6 +539,10 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
 /// Lector que entrega imagen tras imagen en multipart/x-mixed-replace.
 struct MjpegStream {
     r: Arc<Receiver>,
+    /// Para FFmpeg: si la fuente deja de mandar imagen, se corta el flujo
+    /// (asi FFmpeg se entera y la emision pasa al respaldo).
+    strict: bool,
+    opened: Instant,
     seq: u64,
     buf: Vec<u8>,
     pos: usize,
@@ -552,9 +556,20 @@ impl Read for MjpegStream {
                 *self.r.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
                 let (g, t) = self.r.cv.wait_timeout(l, Duration::from_secs(2)).unwrap_or_else(|e| e.into_inner());
                 l = g;
-                if t.timed_out() && l.seq == self.seq && l.seq > 0 {
-                    // Sin imagen nueva: se repite la ultima para mantener viva la conexion.
-                    break;
+                if t.timed_out() && l.seq == self.seq {
+                    if self.strict {
+                        let stale = match l.at {
+                            Some(at) => at.elapsed() > Duration::from_secs(5),
+                            None => self.opened.elapsed() > Duration::from_secs(15),
+                        };
+                        if stale {
+                            return Ok(0);
+                        }
+                    }
+                    if l.seq > 0 {
+                        // Sin imagen nueva: se repite la ultima para mantener viva la conexion.
+                        break;
+                    }
                 }
             }
             self.seq = l.seq;
@@ -648,7 +663,8 @@ fn serve(req: tiny_http::Request) {
     // /ndi?src=… : MJPEG continuo. Se escribe directamente en el socket y se
     // vacia tras cada imagen (con la respuesta normal de tiny_http la imagen se
     // quedaria esperando en un bufer).
-    let mut stream = MjpegStream { r, seq: 0, buf: Vec::new(), pos: 0 };
+    let strict = url.contains("strict=1");
+    let mut stream = MjpegStream { r, strict, opened: Instant::now(), seq: 0, buf: Vec::new(), pos: 0 };
     let mut w = req.into_writer();
     let head = "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\
                 Cache-Control: no-cache, no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
@@ -711,7 +727,7 @@ pub fn ffmpeg_video_input(source: &str) -> Result<Vec<String>, String> {
         "-f".into(),
         "mpjpeg".into(),
         "-i".into(),
-        format!("{base}/ndi?src={src}"),
+        format!("{base}/ndi?src={src}&strict=1"),
     ])
 }
 
@@ -837,5 +853,46 @@ mod tests {
             .output()
             .unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// Si la fuente NDI deja de mandar imagen, FFmpeg recibe fin de flujo y
+    /// se cierra (asi la emision pasa al respaldo en lugar de congelarse).
+    #[test]
+    fn ffmpeg_ends_when_ndi_source_stops() {
+        if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let r = Arc::new(Receiver::new());
+        let mut jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpeg, 80).encode(&[90u8; 64 * 32 * 4], 64, 32, jpeg_encoder::ColorType::Bgra).unwrap();
+        receivers().lock().unwrap().insert("Para Test".into(), r.clone());
+        let rr = r.clone();
+        std::thread::spawn(move || {
+            // 2 s de imagen y luego nada.
+            for i in 0..50u64 {
+                let mut l = rr.latest.lock().unwrap();
+                l.jpeg = Arc::new(jpeg.clone());
+                l.seq = i + 1;
+                l.at = Some(Instant::now());
+                rr.cv.notify_all();
+                drop(l);
+                std::thread::sleep(Duration::from_millis(40));
+            }
+            // Mantiene vivo el receptor para que no lo cierre el temporizador.
+            for _ in 0..40 {
+                *rr.used.lock().unwrap() = Instant::now();
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
+        let base = server_url().unwrap();
+        let t0 = Instant::now();
+        let out = std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-use_wallclock_as_timestamps", "1", "-f", "mpjpeg", "-i"])
+            .arg(format!("{base}/ndi?src=Para+Test&strict=1"))
+            .args(["-t", "60", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        let _ = out;
+        assert!(t0.elapsed() < Duration::from_secs(20), "FFmpeg siguió {:?}", t0.elapsed());
     }
 }
