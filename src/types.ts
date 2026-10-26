@@ -675,6 +675,8 @@ export interface Settings {
   /** El VU de la pantalla principal mide la salida general o la de streaming */
   vuSource: "master" | "streaming";
   videoScreen: VideoScreenSettings;
+  /** Plugins VST3: carpetas extra y plugins ocultos en el selector */
+  vst?: { extraFolders: string[]; hidden: string[] };
   /** Ancho del panel de musica (px); 0 = automatico */
   leftPanelWidth: number;
   chat: ChatSettings;

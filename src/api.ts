@@ -303,13 +303,31 @@ export function probeStreaming(): Promise<StreamProbe> {
 }
 
 /** Plugins VST3 instalados (carpetas estándar). */
-export function vstScan(): Promise<{ name: string; vendor: string; category: string; path: string }[]> {
+export interface VstFound {
+  name: string;
+  vendor: string;
+  category: string;
+  path: string;
+}
+export interface VstScanResult {
+  folders: { path: string; standard: boolean; exists: boolean; count: number }[];
+  plugins: VstFound[];
+}
+
+/** Plugins VST3 del equipo: carpetas habituales y las añadidas en Ajustes. */
+export function vstScan(): Promise<VstScanResult> {
   return invoke("vst_scan");
 }
 
-/** Abre la ventana del plugin de una ranura. */
-export function vstEditor(slot: string): Promise<void> {
-  return invoke("vst_editor", { slot });
+/** Abre la ventana del plugin de una ranura (lo carga si hace falta). */
+export function vstEditor(slot: { id: string; path: string; name: string }): Promise<void> {
+  return invoke("vst_editor", { slot: slot.id, path: slot.path, name: slot.name });
+}
+
+/** Carpeta de plugins VST3 que añadir. */
+export async function pickVstFolder(): Promise<string | null> {
+  const p = await openDialog({ directory: true, multiple: false, title: "Carpeta de plugins VST3" });
+  return typeof p === "string" ? p : null;
 }
 
 export async function pickVstFile(): Promise<string | null> {

@@ -82,11 +82,67 @@ pub struct Found {
     pub path: String,
 }
 
+/// Carpeta donde se buscan plugins.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub path: String,
+    /// Carpeta habitual del sistema (las demas las añadio el usuario)
+    pub standard: bool,
+    pub exists: bool,
+    /// Plugins encontrados dentro
+    pub count: usize,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub folders: Vec<Folder>,
+    pub plugins: Vec<Found>,
+}
+
+/// Carpetas habituales de plugins VST3 del sistema.
+pub fn standard_folders() -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Some(p) = std::env::var_os("CommonProgramFiles") {
+            v.push(PathBuf::from(p).join("VST3"));
+        }
+        if let Some(p) = std::env::var_os("CommonProgramFiles(x86)") {
+            v.push(PathBuf::from(p).join("VST3"));
+        }
+        v.push(PathBuf::from(r"C:\Program Files\Common Files\VST3"));
+        if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+            v.push(PathBuf::from(p).join("Programs").join("Common").join("VST3"));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        v.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
+        if let Some(h) = std::env::var_os("HOME") {
+            v.push(PathBuf::from(h).join("Library/Audio/Plug-Ins/VST3"));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        v.push(PathBuf::from("/usr/lib/vst3"));
+        v.push(PathBuf::from("/usr/local/lib/vst3"));
+        if let Some(h) = std::env::var_os("HOME") {
+            v.push(PathBuf::from(h).join(".vst3"));
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|p| seen.insert(p.to_string_lossy().to_lowercase()));
+    v
+}
+
 enum Cmd {
     /// Deja cargadas exactamente estas ranuras; responde cuando estan listas.
     Ensure(Vec<PluginCfg>, Sender<Vec<String>>),
-    Editor(String, Sender<Result<(), String>>),
-    Scan(Sender<Vec<Found>>),
+    /// Abre el editor; si el plugin aun no esta cargado se carga ahora.
+    Editor(PluginCfg, Sender<Result<(), String>>),
+    Scan(Vec<String>, Sender<ScanResult>),
 }
 
 struct Control {
@@ -129,18 +185,18 @@ pub fn get(id: &str) -> Option<Arc<Host>> {
     control().hosts.lock().ok()?.get(id).cloned()
 }
 
-pub fn open_editor(id: &str) -> Result<(), String> {
+pub fn open_editor(cfg: PluginCfg) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
-    control().tx.send(Cmd::Editor(id.to_string(), tx)).map_err(|_| "Los plugins VST no responden".to_string())?;
+    control().tx.send(Cmd::Editor(cfg, tx)).map_err(|_| "Los plugins VST no responden".to_string())?;
     rx.recv_timeout(Duration::from_secs(15)).unwrap_or_else(|_| Err("El editor del plugin no responde".into()))
 }
 
-pub fn scan() -> Vec<Found> {
+pub fn scan(extra: Vec<String>) -> ScanResult {
     let (tx, rx) = mpsc::channel();
-    if control().tx.send(Cmd::Scan(tx)).is_err() {
-        return Vec::new();
+    if control().tx.send(Cmd::Scan(extra, tx)).is_err() {
+        return ScanResult::default();
     }
-    rx.recv_timeout(Duration::from_secs(60)).unwrap_or_default()
+    rx.recv_timeout(Duration::from_secs(120)).unwrap_or_default()
 }
 
 fn state_file(id: &str) -> Option<PathBuf> {
@@ -217,10 +273,32 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 }
                 let _ = reply.send(errors);
             }
-            Ok(Cmd::Editor(id, reply)) => {
-                let res = match loaded.get_mut(&id) {
-                    None => Err("El plugin no está cargado (¿motor nativo activo?)".to_string()),
-                    Some(l) if l.window.is_some() => Ok(()),
+            Ok(Cmd::Editor(cfg, reply)) => {
+                // Si aun no esta cargado (motor web, o recien añadido) se carga ahora.
+                if !loaded.contains_key(&cfg.id) {
+                    match vst.as_mut() {
+                        None => {
+                            let _ = reply.send(Err("No se pudo iniciar el anfitrión VST3".into()));
+                            continue;
+                        }
+                        Some(host) => match load_one(host, &cfg) {
+                            Ok(h) => {
+                                let h = Arc::new(h);
+                                if let Ok(mut map) = hosts.lock() {
+                                    map.insert(cfg.id.clone(), h.clone());
+                                }
+                                loaded.insert(cfg.id.clone(), Loaded { host: h, window: None });
+                            }
+                            Err(e) => {
+                                let _ = reply.send(Err(format!("No se pudo cargar el plugin: {e}")));
+                                continue;
+                            }
+                        },
+                    }
+                }
+                let res = match loaded.get_mut(&cfg.id) {
+                    None => Err("El plugin no está cargado".to_string()),
+                    Some(l) if l.window.as_ref().map(|w| w.is_open()).unwrap_or(false) => Ok(()),
                     Some(l) => {
                         let mut w = PluginWindow::new(l.host.plugin.clone());
                         w.open().map(|_| l.window = Some(w)).map_err(|e| format!("No se pudo abrir el editor: {e}"))
@@ -228,25 +306,43 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 };
                 let _ = reply.send(res);
             }
-            Ok(Cmd::Scan(reply)) => {
-                let found = vst3_host::simple::discover_plugins()
-                    .map(|list| {
-                        list.into_iter()
-                            .filter(|p| p.audio_outputs > 0)
-                            .map(|p| Found {
-                                name: p.name,
-                                vendor: p.vendor,
-                                category: p.category,
-                                path: p.path.to_string_lossy().into_owned(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let _ = reply.send(found);
+            Ok(Cmd::Scan(extra, reply)) => {
+                let std_dirs = standard_folders();
+                let mut dirs: Vec<(PathBuf, bool)> = std_dirs.iter().map(|p| (p.clone(), true)).collect();
+                for e in extra {
+                    let p = PathBuf::from(e.trim());
+                    if !e.trim().is_empty() && !dirs.iter().any(|(d, _)| d.to_string_lossy().eq_ignore_ascii_case(&p.to_string_lossy())) {
+                        dirs.push((p, false));
+                    }
+                }
+                let mut plugins: Vec<Found> = Vec::new();
+                let mut folders = Vec::new();
+                for (dir, standard) in &dirs {
+                    let exists = dir.is_dir();
+                    let mut count = 0;
+                    if exists {
+                        if let Ok(list) = vst3_host::Vst3Host::builder().add_scan_path(dir).build().and_then(|mut h| h.discover_plugins()) {
+                            for p in list.into_iter().filter(|p| p.audio_outputs > 0) {
+                                let path = p.path.to_string_lossy().into_owned();
+                                if plugins.iter().any(|f| f.path.eq_ignore_ascii_case(&path)) {
+                                    continue;
+                                }
+                                count += 1;
+                                plugins.push(Found { name: p.name, vendor: p.vendor, category: p.category, path });
+                            }
+                        }
+                    }
+                    folders.push(Folder { path: dir.to_string_lossy().into_owned(), standard: *standard, exists, count });
+                }
+                plugins.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                let _ = reply.send(ScanResult { folders, plugins });
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
+        // En Windows las ventanas de los editores viven en este hilo: sin
+        // atender sus mensajes no se pintan ni responden.
+        pump_messages();
         // Ventanas: sus eventos y, al cerrarlas, se guarda el estado.
         for (id, l) in loaded.iter_mut() {
             let closed = match l.window.as_ref() {
@@ -273,6 +369,42 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
         }
     }
 }
+
+#[cfg(windows)]
+fn pump_messages() {
+    #[repr(C)]
+    struct Msg {
+        hwnd: isize,
+        message: u32,
+        wparam: usize,
+        lparam: isize,
+        time: u32,
+        pt_x: i32,
+        pt_y: i32,
+        private: u32,
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn PeekMessageW(msg: *mut Msg, hwnd: isize, min: u32, max: u32, remove: u32) -> i32;
+        fn TranslateMessage(msg: *const Msg) -> i32;
+        fn DispatchMessageW(msg: *const Msg) -> isize;
+    }
+    const PM_REMOVE: u32 = 1;
+    let mut msg: Msg = unsafe { std::mem::zeroed() };
+    // Se limita por vuelta para no monopolizar el hilo.
+    for _ in 0..200 {
+        unsafe {
+            if PeekMessageW(&mut msg, 0, 0, 0, PM_REMOVE) == 0 {
+                break;
+            }
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn pump_messages() {}
 
 fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
     if !Path::new(cfg.path.trim()).exists() {

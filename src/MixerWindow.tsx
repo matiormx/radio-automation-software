@@ -10,6 +10,7 @@ import {
   type Device,
   CompressorControls,
   PluginSlots,
+  setVstHidden,
 } from "./components/MixerControls";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
@@ -574,6 +575,7 @@ function MixerBoard({
 }) {
   const channels = s.mixerChannels ?? [];
   const buses = s.mixerBuses ?? [];
+  setVstHidden(s.vst?.hidden);
   // Todas las tiras con la cabecera igual de alta: los faders quedan alineados
   // aunque una tira tenga mas envios, plugins o ranuras que otra.
   const stripsRef = useRef<HTMLDivElement | null>(null);

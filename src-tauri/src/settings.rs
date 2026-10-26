@@ -79,9 +79,19 @@ impl Default for IntroSettings {
     }
 }
 
+/// Plugins VST3: carpetas extra donde buscar y plugins que no interesan.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VstSettings {
+    pub extra_folders: Vec<String>,
+    /// Rutas de plugins ocultos en el selector
+    pub hidden: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    pub vst: VstSettings,
     pub fade_seconds: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
@@ -801,6 +811,7 @@ impl Default for StreamingSettings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            vst: VstSettings::default(),
             fade_seconds: 6,
             auto_play_on_start: false,
             silence_detection: false,

@@ -16,6 +16,7 @@ import { trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
+import { VstSettings } from "./VstSettings";
 import { AiTab } from "./AiTab";
 import { EventsTab } from "./EventsTab";
 import { VideoTab } from "./VideoTab";
@@ -185,6 +186,7 @@ export type SettingsTab =
   | "events"
   | "programs"
   | "sound"
+  | "plugins"
   | "ai"
   | "video"
   | "streaming"
@@ -273,6 +275,15 @@ export function SettingsPanel({
             >
               Sonido
               <span>Mesa de mezclas y salidas</span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "plugins" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("plugins")}
+              title="Carpetas de plugins VST3 y cuáles mostrar"
+            >
+              Plugins VST
+              <span>Carpetas y plugins visibles en la mesa</span>
             </button>
             <button
               type="button"
@@ -391,6 +402,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "sound" && <MixerEmbedded settings={s} onChange={onChange} />}
+            {tab === "plugins" && <VstSettings settings={s} onChange={onChange} />}
             {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}

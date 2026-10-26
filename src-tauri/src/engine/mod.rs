@@ -480,14 +480,16 @@ pub fn engine_return_pcm(state: State<'_, EngineState>) -> tauri::ipc::Response 
 
 /// Plugins VST3 instalados en el equipo (rutas estandar).
 #[tauri::command]
-pub async fn vst_scan() -> Vec<vst::Found> {
-    tauri::async_runtime::spawn_blocking(vst::scan).await.unwrap_or_default()
+pub async fn vst_scan(state: State<'_, crate::AppState>) -> Result<vst::ScanResult, String> {
+    let extra = crate::settings::read_settings_public(&state.data_dir).vst.extra_folders;
+    tauri::async_runtime::spawn_blocking(move || vst::scan(extra)).await.map_err(|e| e.to_string())
 }
 
-/// Abre la ventana del plugin de una ranura.
+/// Abre la ventana del plugin de una ranura (lo carga si hace falta).
 #[tauri::command]
-pub async fn vst_editor(slot: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || vst::open_editor(&slot)).await.map_err(|e| e.to_string())?
+pub async fn vst_editor(slot: String, path: String, name: String) -> Result<(), String> {
+    let cfg = vst::PluginCfg { id: slot, path, name, enabled: true };
+    tauri::async_runtime::spawn_blocking(move || vst::open_editor(cfg)).await.map_err(|e| e.to_string())?
 }
 
 /// Preescucha y llamadas del WebView hacia el motor nativo.
