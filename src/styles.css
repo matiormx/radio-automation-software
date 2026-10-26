@@ -4516,3 +4516,11 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 
 .btn-danger { background: #5a1f24; border-color: #8a2f36; color: #ffd9dc; }
 .btn-danger:hover { background: #6e252c; }
+
+/* Ventanas de vídeo: fuerza fotogramas nuevos con imagen fija (captura de FFmpeg) */
+.vs-heartbeat {
+  position: fixed; right: 0; bottom: 0; width: 2px; height: 2px;
+  background: #000; pointer-events: none; z-index: 2147483647;
+  animation: vs-heartbeat 1s steps(2) infinite;
+}
+@keyframes vs-heartbeat { from { opacity: 0.02; } to { opacity: 0.04; } }

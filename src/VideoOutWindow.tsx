@@ -52,6 +52,9 @@ export function VideoOutWindow({ programOnly = false }: { programOnly?: boolean 
       }
     >
       <VideoSurface source={source} output />
+      {/* Latido: un punto casi invisible que cambia siempre, para que la
+          ventana pinte fotogramas nuevos aunque la imagen sea fija (portada). */}
+      <div className="vs-heartbeat" aria-hidden="true" />
     </div>
   );
 }
