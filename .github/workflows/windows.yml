@@ -149,18 +149,21 @@ jobs:
         timeout-minutes: 6
         run: |
           set -o pipefail
+          # El espejo de Azure va a veces lentísimo: se usa el oficial de Ubuntu.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           if ! timeout 300 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update >apt.log 2>&1; then
             tail -n 15 apt.log | sed 's/^/::error::/'; exit 1
           fi
 
       - name: Librerías del sistema (Tauri)
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           # man-db reindexa las paginas de manual al instalar: puede tardar minutos
           sudo rm -f /var/lib/man-db/auto-update
-          if ! timeout -k 15 420 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+          if ! timeout -k 15 1080 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
               -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
               install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
               librsvg2-dev patchelf libxdo-dev libasound2-dev libxcb1-dev libx11-xcb-dev libxcb-shm0-dev \
@@ -169,11 +172,11 @@ jobs:
           fi
 
       - name: Librerías del sistema (códecs para el AppImage)
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          if ! timeout -k 15 420 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+          if ! timeout -k 15 1080 sudo -E apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
               -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
               install -y --no-install-recommends gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
               gstreamer1.0-plugins-bad gstreamer1.0-libav </dev/null >apt.log 2>&1; then
