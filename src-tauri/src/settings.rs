@@ -691,6 +691,30 @@ pub struct VideoSettings {
     pub outputs: Vec<VideoOutput>,
     /// FFmpeg compilado con NDI; vacio = usar el FFmpeg normal.
     pub ndi_ffmpeg_path: String,
+    /// Tope de altura para todo el video (720 = 1280x720); 0 = sin tope.
+    /// Las salidas mas grandes se reducen y la imagen NDI recibida tambien.
+    pub max_height: u32,
+    /// Recibir NDI en calidad ligera (la «proxy» del emisor): mucho menos
+    /// trafico de red, a costa de resolucion.
+    pub ndi_low_bandwidth: bool,
+}
+
+impl VideoSettings {
+    /// La salida con el tope de resolucion aplicado (misma proporcion).
+    /// DeckLink no se toca: necesita un modo exacto de la tarjeta.
+    pub fn capped(&self, o: &VideoOutput) -> VideoOutput {
+        let mut o = o.clone();
+        let max = self.max_height;
+        if max >= 144 && o.kind != "decklink" && o.height > max {
+            let ratio = max as f64 / o.height as f64;
+            o.width = ((o.width as f64 * ratio / 2.0).round() as u32 * 2).max(16);
+            o.height = max & !1;
+            // Menos pixeles, menos bitrate (sin bajar de 2500 kbps, lo normal en 720p)
+            let scaled = (o.bitrate_kbps as f64 * ratio * ratio).round() as u32;
+            o.bitrate_kbps = o.bitrate_kbps.min(scaled.max(2500));
+        }
+        o
+    }
 }
 
 impl Default for VideoSettings {
@@ -700,6 +724,8 @@ impl Default for VideoSettings {
             inputs: Vec::new(),
             outputs: Vec::new(),
             ndi_ffmpeg_path: String::new(),
+            max_height: 720,
+            ndi_low_bandwidth: false,
         }
     }
 }
@@ -882,13 +908,16 @@ pub struct HistoryEntry {
 }
 
 fn read_settings(data_dir: &PathBuf) -> Settings {
-    std::fs::read(data_dir.join(SETTINGS_FILE))
+    let s: Settings = std::fs::read(data_dir.join(SETTINGS_FILE))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    crate::ndi::set_limits(s.video.max_height, s.video.ndi_low_bandwidth);
+    s
 }
 
 fn write_settings(data_dir: &PathBuf, s: &Settings) -> Result<(), String> {
+    crate::ndi::set_limits(s.video.max_height, s.video.ndi_low_bandwidth);
     let json = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
     std::fs::write(data_dir.join(SETTINGS_FILE), json).map_err(|e| e.to_string())
 }
@@ -1503,5 +1532,23 @@ mod artist_tests {
         assert_eq!(e.pick_log, vec![PickEntry { slot: "08:15".into(), track_id: "t9".into(), at: 1_761_290_000_000 }]);
         let back: StationEvent = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
         assert_eq!(back.pick_log, e.pick_log);
+    }
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+
+    #[test]
+    fn caps_to_720() {
+        let v = VideoSettings::default();
+        let o = VideoOutput { kind: "rtmp".into(), width: 1920, height: 1080, bitrate_kbps: 6000, ..Default::default() };
+        let c = v.capped(&o);
+        assert_eq!((c.width, c.height), (1280, 720));
+        assert_eq!(c.bitrate_kbps, 2667);
+        let d = VideoOutput { kind: "decklink".into(), ..o.clone() };
+        assert_eq!(v.capped(&d).height, 1080);
+        let off = VideoSettings { max_height: 0, ..Default::default() };
+        assert_eq!(off.capped(&o).height, 1080);
     }
 }

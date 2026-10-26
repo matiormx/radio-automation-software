@@ -360,7 +360,10 @@ pub fn stream_start(
     }
 
     if want_video && settings.video.enabled {
-        for output in settings.video.outputs.iter().filter(|o| o.enabled) {
+        // Tope de resolucion (Ajustes > Video): todas las salidas a 720p, p. ej.
+        let capped: Vec<crate::settings::VideoOutput> =
+            settings.video.outputs.iter().filter(|o| o.enabled).map(|o| settings.video.capped(o)).collect();
+        for output in capped.iter() {
             requested += 1;
             let id = format!("video:{}", output.id);
             let name = if output.name.trim().is_empty() {

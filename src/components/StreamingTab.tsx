@@ -117,8 +117,23 @@ function videoOutputPlaceholder(kind: VideoOutputKind): string {
   return "rtmp://live.restream.io/live/clave";
 }
 
-function videoOutputSummary(output: VideoOutput): string {
-  const format = `${output.width}×${output.height} · ${output.fps} fps`;
+/** Lo que de verdad sale con el tope de resolución (igual que settings.rs). */
+function cappedOutput(output: VideoOutput, maxHeight: number): VideoOutput {
+  if (maxHeight < 144 || output.kind === "decklink" || output.height <= maxHeight) return output;
+  const ratio = maxHeight / output.height;
+  const scaled = Math.round(output.bitrateKbps * ratio * ratio);
+  return {
+    ...output,
+    width: Math.max(16, Math.round((output.width * ratio) / 2) * 2),
+    height: maxHeight - (maxHeight % 2),
+    bitrateKbps: Math.min(output.bitrateKbps, Math.max(2500, scaled)),
+  };
+}
+
+function videoOutputSummary(original: VideoOutput, maxHeight = 0): string {
+  const output = cappedOutput(original, maxHeight);
+  const limited = output !== original ? " (limitado)" : "";
+  const format = `${output.width}×${output.height}${limited} · ${output.fps} fps`;
   if (output.kind === "rtmp") {
     const destination = output.source.trim() || "Sin destino";
     return `${destination} · ${format}${output.bitrateKbps ? ` · ${output.bitrateKbps} kbps` : ""}`;
@@ -379,7 +394,7 @@ export function StreamingTab({
     ...settings.video.outputs.map((output) => ({
       key: `video:${output.id}`,
       name: output.name.trim() || VIDEO_OUTPUT_KIND[output.kind],
-      detail: videoOutputSummary(output),
+      detail: videoOutputSummary(output, settings.video.maxHeight ?? 720),
       enabled: output.enabled,
       configError: output.enabled ? videoOutputConfigError(settings, output) : null,
     })),
@@ -932,8 +947,8 @@ export function StreamingTab({
                     <span className="stream-line-codec">
                       {VIDEO_OUTPUT_KIND[output.kind]}
                     </span>
-                    <span className="stream-line-url" title={videoOutputSummary(output)}>
-                      {videoOutputSummary(output)}
+                    <span className="stream-line-url" title={videoOutputSummary(output, settings.video.maxHeight ?? 720)}>
+                      {videoOutputSummary(output, settings.video.maxHeight ?? 720)}
                     </span>
                     <button
                       type="button"

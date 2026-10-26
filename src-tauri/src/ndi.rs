@@ -82,6 +82,41 @@ const FORMAT_PROGRESSIVE: i32 = 1;
 
 const COLOR_BGRX_BGRA: i32 = 0;
 const BANDWIDTH_HIGHEST: i32 = 100;
+/// La version «proxy» que todo emisor NDI manda a la vez (poca red).
+const BANDWIDTH_LOWEST: i32 = 0;
+
+static MAX_HEIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(720);
+static LOW_BANDWIDTH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Tope de altura de la imagen recibida (0 = sin tope) y recepcion ligera.
+/// La recepcion ligera se aplica al conectar de nuevo con la fuente.
+pub fn set_limits(max_height: u32, low_bandwidth: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    MAX_HEIGHT.store(max_height, Relaxed);
+    LOW_BANDWIDTH.store(low_bandwidth, Relaxed);
+}
+
+/// Reduce una imagen BGRA compacta a `nh` lineas de alto (misma proporcion),
+/// promediando 2x2 pixeles: barato y sin dientes de sierra.
+fn downscale_bgra(src: &[u8], w: usize, h: usize, nh: usize, out: &mut Vec<u8>) -> usize {
+    let nw = ((w * nh + h / 2) / h).max(2) & !1;
+    out.resize(nw * nh * 4, 0);
+    for y in 0..nh {
+        let sy = y * h / nh;
+        let sy2 = (sy + 1).min(h - 1);
+        let (r0, r1) = (&src[sy * w * 4..(sy + 1) * w * 4], &src[sy2 * w * 4..(sy2 + 1) * w * 4]);
+        let row = &mut out[y * nw * 4..(y + 1) * nw * 4];
+        for x in 0..nw {
+            let sx = x * w / nw;
+            let sx2 = (sx + 1).min(w - 1);
+            for c in 0..4 {
+                let s = r0[sx * 4 + c] as u32 + r0[sx2 * 4 + c] as u32 + r1[sx * 4 + c] as u32 + r1[sx2 * 4 + c] as u32;
+                row[x * 4 + c] = ((s + 2) / 4) as u8;
+            }
+        }
+    }
+    nw
+}
 const FRAME_VIDEO: i32 = 1;
 const FRAME_AUDIO: i32 = 2;
 const FRAME_ERROR: i32 = 4;
@@ -466,7 +501,7 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
     let cfg = RecvCreateV3 {
         source: SourceT { name: cname.as_ptr(), url: std::ptr::null() },
         color_format: COLOR_BGRX_BGRA,
-        bandwidth: BANDWIDTH_HIGHEST,
+        bandwidth: if LOW_BANDWIDTH.load(std::sync::atomic::Ordering::Relaxed) { BANDWIDTH_LOWEST } else { BANDWIDTH_HIGHEST },
         allow_video_fields: false,
         recv_name: rname.as_ptr(),
     };
@@ -479,6 +514,7 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
     let min_gap = Duration::from_millis(33); // como mucho ~30 imagenes/s al WebView
     let mut last_sent = Instant::now() - min_gap;
     let mut scratch: Vec<u8> = Vec::new();
+    let mut small: Vec<u8> = Vec::new();
     let mut phase = 0.0f64;
     loop {
         // Nadie la mira desde hace 15 s: se cierra.
@@ -514,9 +550,17 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
                 scratch[y * w * 4..(y + 1) * w * 4].copy_from_slice(src);
             }
             unsafe { (api.recv_free_video)(recv, &frame) };
+            // Tope de resolucion: se reduce antes de comprimir (lo caro es el JPEG).
+            let max_h = MAX_HEIGHT.load(std::sync::atomic::Ordering::Relaxed) as usize;
+            let (img, w, h) = if max_h >= 144 && h > max_h {
+                let nw = downscale_bgra(&scratch, w, h, max_h, &mut small);
+                (&small, nw, max_h)
+            } else {
+                (&scratch, w, h)
+            };
             let mut jpeg = Vec::with_capacity(w * h / 4);
             let enc = jpeg_encoder::Encoder::new(&mut jpeg, 80);
-            if enc.encode(&scratch, w as u16, h as u16, jpeg_encoder::ColorType::Bgra).is_ok() {
+            if enc.encode(img, w as u16, h as u16, jpeg_encoder::ColorType::Bgra).is_ok() {
                 let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
                 l.jpeg = Arc::new(jpeg);
                 l.seq += 1;
@@ -894,5 +938,19 @@ mod tests {
             .unwrap();
         let _ = out;
         assert!(t0.elapsed() < Duration::from_secs(20), "FFmpeg siguió {:?}", t0.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod scale_tests {
+    #[test]
+    fn downscale_keeps_aspect_and_colour() {
+        let (w, h) = (1920usize, 1080usize);
+        let src: Vec<u8> = [10u8, 20, 30, 255].repeat(w * h);
+        let mut out = Vec::new();
+        let nw = super::downscale_bgra(&src, w, h, 720, &mut out);
+        assert_eq!(nw, 1280);
+        assert_eq!(out.len(), 1280 * 720 * 4);
+        assert_eq!(&out[..4], &[10, 20, 30, 255]);
     }
 }

@@ -477,6 +477,10 @@ export interface VideoSettings {
   outputs: VideoOutput[];
   /** FFmpeg compilado con NDI; vacío = usar el FFmpeg normal */
   ndiFfmpegPath?: string;
+  /** Tope de altura de todo el vídeo (720 = 1280×720); 0 = sin tope */
+  maxHeight?: number;
+  /** Recibir NDI en calidad ligera (proxy): mucha menos red */
+  ndiLowBandwidth?: boolean;
 }
 
 /** Ventana de video de la emision (los videos de la lista, en pantalla). */
@@ -802,6 +806,8 @@ export const DEFAULT_SETTINGS: Settings = {
     inputs: [],
     outputs: [],
     ndiFfmpegPath: "",
+    maxHeight: 720,
+    ndiLowBandwidth: false,
   },
   streaming: {
     icecast: [],

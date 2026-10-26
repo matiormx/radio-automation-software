@@ -421,6 +421,43 @@ export function VideoTab({ settings, onChange }: Props) {
       </fieldset>
 
       <fieldset className="fieldset">
+        <legend>Rendimiento</legend>
+        <label className="field">
+          <span className="field-label">Resolución máxima</span>
+          <select
+            value={String(v.maxHeight ?? 720)}
+            onChange={(e) => set({ maxHeight: Number(e.target.value) })}
+          >
+            <option value="480">480p (854×480)</option>
+            <option value="540">540p (960×540)</option>
+            <option value="720">720p (1280×720)</option>
+            <option value="1080">1080p (1920×1080)</option>
+            <option value="0">Sin límite</option>
+          </select>
+        </label>
+        <p className="hint">
+          Todo el vídeo se queda en esta resolución como mucho: las salidas (RTMP, NDI, pantalla) se reducen
+          aunque tengan puesto más, el bitrate de RTMP baja en proporción (mínimo 2500 kbps) y la imagen NDI
+          que llega se achica antes de procesarla. Las salidas DeckLink no se tocan. Se aplica al volver a
+          empezar la emisión.
+        </p>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={v.ndiLowBandwidth ?? false}
+            onChange={(e) => set({ ndiLowBandwidth: e.target.checked })}
+          />
+          Recibir NDI en calidad ligera
+        </label>
+        <p className="hint">
+          Una fuente NDI a 1080p ocupa unos 125–150 Mbps de la red, y eso puede hacer perder paquetes al
+          streaming. En calidad ligera se recibe la versión reducida que todo emisor NDI manda a la vez (suele
+          ser de unos 640×360) y gasta alrededor de una décima parte. Lo ideal es que el equipo que emite el NDI
+          lo mande ya a 720p o en NDI|HX. Se aplica al reconectar con la fuente.
+        </p>
+      </fieldset>
+
+      <fieldset className="fieldset">
         <legend>NDI</legend>
         <p className="hint">
           Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), MiRadio recibe NDI por sí mismo: las
