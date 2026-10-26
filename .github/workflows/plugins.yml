@@ -1,0 +1,45 @@
+name: Plugins recomendados (espejo)
+
+# Baja la última versión de cada plugin recomendado, saca sus VST3 de Windows
+# y de Linux y los publica con nombre fijo en la Release «plugins» de este
+# repositorio, junto a plugins.json (lo que lee MiRadio para instalar y
+# actualizar). Se ejecuta cada semana y a mano desde Actions.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      list_only:
+        description: "Solo listar los archivos de cada proyecto (diagnóstico)"
+        type: boolean
+        default: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Herramientas
+        run: sudo apt-get install -y --no-install-recommends p7zip-full >/dev/null
+
+      - name: Preparar los plugins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIST_ONLY: ${{ inputs.list_only && '1' || '' }}
+        run: python3 scripts/plugins/mirror.py out
+
+      - name: Publicar en la Release «plugins»
+        if: ${{ !inputs.list_only }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view plugins >/dev/null 2>&1; then
+            gh release create plugins --title "Plugins recomendados" --latest=false \
+              --notes "VST3 de código abierto preparados para MiRadio (se actualizan cada semana). No es una versión de MiRadio."
+          fi
+          gh release upload plugins out/* --clobber
