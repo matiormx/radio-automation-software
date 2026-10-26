@@ -3228,6 +3228,31 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [npSize, videoScreen.enabled, videoSource]);
 
+  // FFmpeg descargado/actualizado por MiRadio: avisos al empezar y al terminar.
+  useEffect(() => {
+    let wasBusy = false;
+    let announced = false;
+    const off = listen<{ busy: boolean; phase: string; error: string | null; done: string | null }>(
+      "ffmpeg://progress",
+      (e) => {
+        const p = e.payload;
+        if (p.busy && p.phase === "descargando" && !announced) {
+          announced = true;
+          showToast("Descargando FFmpeg (emisiones y vídeo)…");
+        }
+        if (!p.busy && wasBusy) {
+          announced = false;
+          if (p.error) showToast(`FFmpeg: ${p.error}`);
+          else if (p.done && !p.done.includes("al día")) showToast(p.done);
+        }
+        wasBusy = p.busy;
+      },
+    );
+    return () => {
+      void off.then((f) => f());
+    };
+  }, [showToast]);
+
   // Resultado de una importacion de copia de seguridad aplicada al arrancar.
   useEffect(() => {
     void backupLastImportLog()

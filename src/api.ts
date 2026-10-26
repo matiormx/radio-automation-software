@@ -594,3 +594,29 @@ export function backupImport(path: string, mappings: { from: string; to: string 
 export function backupLastImportLog(): Promise<string | null> {
   return invoke<string | null>("backup_last_import_log");
 }
+
+export interface FfmpegProgress {
+  busy: boolean;
+  phase: string;
+  fraction: number;
+  error: string | null;
+  done: string | null;
+}
+export interface FfmpegInfo {
+  path: string;
+  source: "manual" | "auto" | "system" | "none";
+  version: string;
+  managed: { dir: string; asset: string; sha256: string; installedAt: number; lastCheck: number } | null;
+  canDownload: boolean;
+  progress: FfmpegProgress | null;
+}
+
+/** FFmpeg en uso y estado de su descarga automática. */
+export function ffmpegInfo(): Promise<FfmpegInfo> {
+  return invoke("ffmpeg_info");
+}
+
+/** Busca (y si hay, instala) la última versión de FFmpeg. */
+export function ffmpegUpdate(): Promise<void> {
+  return invoke("ffmpeg_update");
+}

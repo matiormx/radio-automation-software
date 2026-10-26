@@ -204,10 +204,7 @@ pub fn stream_probe(app: AppHandle) -> StreamProbe {
             available: false,
             path: None,
             version: None,
-            error: Some(
-                "No se encontró FFmpeg. Coloca ffmpeg.exe junto a MiRadio.exe o instálalo en PATH."
-                    .to_string(),
-            ),
+            error: Some(crate::ffmpeg_dl::missing_message()),
         },
     }
 }
@@ -252,8 +249,7 @@ pub fn stream_start(
                 .map(|(path, _)| path)
         })
         .ok_or_else(|| {
-            "No se encontró FFmpeg. Coloca ffmpeg.exe junto a MiRadio.exe o instálalo en PATH."
-                .to_string()
+            crate::ffmpeg_dl::missing_message()
         })?;
 
     let mut inner = state
@@ -1122,6 +1118,12 @@ pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
             candidates.push(dir.join("bin").join(ndi_ffmpeg_name()));
         }
     }
+    // El que descarga y mantiene MiRadio (antes que el del PATH, que puede ser viejo).
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        if let Some(p) = crate::ffmpeg_dl::installed(&data_dir) {
+            candidates.push(p);
+        }
+    }
     candidates.push(PathBuf::from(ffmpeg_name()));
     candidates.push(PathBuf::from(ndi_ffmpeg_name()));
 
@@ -1143,6 +1145,11 @@ fn ffmpeg_name() -> &'static str {
     } else {
         "ffmpeg"
     }
+}
+
+/// Primera linea de `ffmpeg -version`.
+pub(crate) fn ffmpeg_version(path: &Path) -> Result<String, String> {
+    probe_ffmpeg(path)
 }
 
 fn probe_ffmpeg(path: &Path) -> Result<String, String> {

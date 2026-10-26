@@ -517,10 +517,8 @@ export function StreamingTab({
       </div>
 
       <p className="hint">
-        El motor busca <code>ffmpeg.exe</code> junto a MiRadio.exe, en una
-        carpeta <code>bin</code>o en PATH. También puedes indicar la ruta con la
-        variable <code>MIRADIO_FFMPEG</code>. El instalador copia{" "}
-        <code>ffmpeg.exe</code> si está junto a <code>instalar.cmd</code>.
+        MiRadio descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Copia y actualizaciones). Si
+        prefieres uno concreto, pon <code>ffmpeg.exe</code> junto a MiRadio.exe y se usará ese.
       </p>
 
       <label className="check-row">

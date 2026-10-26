@@ -47,7 +47,7 @@ pub fn spawn(ffmpeg: &Path, url: &str, rate: u32) -> Result<(Child, ChildStdout)
 
 pub fn ffmpeg_or_err(app: &AppHandle) -> Result<PathBuf, String> {
     crate::streaming::find_ffmpeg(app)
-        .ok_or_else(|| "Hace falta FFmpeg para reproducir audio de internet (pon ffmpeg.exe junto a MiRadio.exe)".to_string())
+        .ok_or_else(|| crate::ffmpeg_dl::missing_message())
 }
 
 // ------------------------------------------------------------ servidor local (motor web)

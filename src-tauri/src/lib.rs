@@ -19,6 +19,7 @@ pub mod video;
 pub mod netstream;
 pub mod ndi;
 pub mod cursor;
+pub mod ffmpeg_dl;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -45,6 +46,8 @@ pub fn run() {
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
             app.manage(notify::NotifyState::default());
+            // FFmpeg: si falta se descarga solo; si es el de MiRadio, se mantiene al dia.
+            ffmpeg_dl::on_startup(app.handle().clone());
             Ok(())
         })
         // Las ventanas de herramientas se ocultan al cerrarse: al cerrar la
@@ -75,6 +78,8 @@ pub fn run() {
             ndi::ndi_native,
             ndi::ndi_server,
             cursor::cursor_wall,
+            ffmpeg_dl::ffmpeg_info,
+            ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,
             library::list_blocks,

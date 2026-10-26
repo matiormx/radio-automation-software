@@ -4424,3 +4424,7 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
 .mx-menu > button:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
 .mx-menu > button:disabled { opacity: .4; cursor: default; }
 .mx-menu-danger { color: #ff8a8a !important; }
+
+/* Descarga de FFmpeg */
+.ff-progress { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; margin: 6px 0; }
+.ff-progress > div { height: 100%; background: var(--accent, #4c8dff); transition: width .3s; }

@@ -24,6 +24,7 @@ import { StreamingTab } from "./StreamingTab";
 import { StudioCallsTab } from "./StudioCallsTab";
 import type { StudioSnapshot } from "../studioCalls";
 import { UpdateSection } from "./UpdateSection";
+import { FfmpegSection } from "./FfmpegSection";
 import { ProgramsTab } from "./ProgramsTab";
 import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
@@ -441,6 +442,7 @@ export function SettingsPanel({
             {tab === "backup" && (
               <>
                 <UpdateSection showToast={showToast} />
+                <FfmpegSection showToast={showToast} />
                 <BackupTab showToast={showToast} />
               </>
             )}

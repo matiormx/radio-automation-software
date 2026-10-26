@@ -325,7 +325,7 @@ pub async fn convert_videos(app: AppHandle, paths: Vec<String>) -> Result<Vec<Co
                 out.push(Converted {
                     source: p,
                     output: None,
-                    error: Some("Hace falta FFmpeg para convertir este formato (pon ffmpeg.exe junto a MiRadio.exe)".into()),
+                    error: Some(crate::ffmpeg_dl::missing_message()),
                 });
                 continue;
             };
