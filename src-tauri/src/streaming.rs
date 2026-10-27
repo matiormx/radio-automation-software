@@ -578,6 +578,8 @@ pub fn stream_start(
                     } else {
                         video_ffmpeg
                     };
+                    // Compresión por hardware (NVENC, Quick Sync, AMF) si la hay
+                    let args = crate::hwenc::apply(args, process_ffmpeg, &settings.video.encoder);
                     // Respaldo automatico cuando la entrada principal se pierde.
                     let fallback = if kind == "rtmp" || kind == "screen" {
                         let backup = output.fallback_video_input_id.trim();
@@ -641,7 +643,7 @@ pub fn stream_start(
                             match backup_args {
                                 Ok(args) => Some(Spec {
                                     ffmpeg: backup_ffmpeg.to_path_buf(),
-                                    args,
+                                    args: crate::hwenc::apply(args, backup_ffmpeg, &settings.video.encoder),
                                     wants_audio: kind == "rtmp",
                                     ndi_out: None,
                                 }),

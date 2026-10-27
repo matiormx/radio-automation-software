@@ -13,6 +13,7 @@ pub mod playlists;
 pub mod settings;
 mod sysmon;
 mod netcfg;
+mod hwenc;
 mod remote;
 pub mod nowplaying;
 pub mod notify;
@@ -105,6 +106,8 @@ pub fn run() {
             remote::on_startup(&settings::read_settings_public(&data_dir));
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
+            // Prueba en segundo plano qué compresor de vídeo por hardware hay
+            hwenc::warm_up(app.handle());
             app.manage(sysmon::SysMon::default());
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
@@ -179,6 +182,7 @@ pub fn run() {
             netcfg::net_revert,
             netcfg::net_share_add,
             netcfg::net_share_remove,
+            hwenc::video_encoders,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,

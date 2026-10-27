@@ -699,6 +699,9 @@ pub struct VideoSettings {
     /// Recibir NDI en calidad ligera (la «proxy» del emisor): mucho menos
     /// trafico de red, a costa de resolucion.
     pub ndi_low_bandwidth: bool,
+    /// Compresión del vídeo emitido: «auto» (hardware si hay), «nvenc»,
+    /// «qsv», «amf» o «x264» (procesador).
+    pub encoder: String,
 }
 
 impl VideoSettings {
@@ -728,6 +731,7 @@ impl Default for VideoSettings {
             ndi_ffmpeg_path: String::new(),
             max_height: 720,
             ndi_low_bandwidth: false,
+            encoder: "auto".into(),
         }
     }
 }
