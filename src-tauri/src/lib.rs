@@ -14,6 +14,7 @@ pub mod settings;
 mod sysmon;
 mod netcfg;
 mod hwenc;
+mod crashlog;
 mod remote;
 mod mobile;
 pub mod nowplaying;
@@ -97,6 +98,8 @@ pub fn run() {
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
             let data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&data_dir)?;
+            // Registro de errores internos y aviso si la vez anterior se cerró mal
+            crashlog::init(data_dir.clone());
             // Importacion preparada desde Ajustes: se aplica antes de leer nada.
             backup::apply_pending(&data_dir);
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;
@@ -188,6 +191,7 @@ pub fn run() {
             netcfg::net_share_add,
             netcfg::net_share_remove,
             hwenc::video_encoders,
+            crashlog::last_crash,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,

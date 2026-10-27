@@ -40,6 +40,7 @@ pub struct PluginCfg {
 pub struct Host {
     pub id: String,
     pub path: String,
+    pub name: String,
     plugin: Arc<Mutex<Plugin>>,
     bufs: Mutex<AudioBuffers>,
     /// Retardo que mete el plugin (muestras), segun el propio plugin
@@ -240,6 +241,20 @@ pub fn scan(extra: Vec<String>) -> ScanResult {
     rx.recv_timeout(Duration::from_secs(120)).unwrap_or_default()
 }
 
+/// Miga para el registro de cierres: qué se hace con qué plugin.
+fn crumb(what: &str, name: &str, path: &str) {
+    let shown = if name.trim().is_empty() {
+        Path::new(split_class(path).0).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string())
+    } else {
+        name.trim().to_string()
+    };
+    crate::crashlog::crumb(Some(&format!("{what} el plugin «{shown}» ({})", split_class(path).0)));
+}
+
+fn crumb_done() {
+    crate::crashlog::crumb(None);
+}
+
 fn state_file(id: &str) -> Option<PathBuf> {
     let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
     if safe.is_empty() {
@@ -251,9 +266,11 @@ fn state_file(id: &str) -> Option<PathBuf> {
 fn save_state(id: &str, plugin: &Arc<Mutex<Plugin>>) {
     let Some(file) = state_file(id) else { return };
     let Ok(p) = plugin.lock() else { return };
+    crate::crashlog::crumb(Some(&format!("guardando el estado de un plugin (ranura {id})")));
     if let Ok(data) = p.save_state() {
         let _ = std::fs::write(file, data);
     }
+    crumb_done();
 }
 
 struct Loaded {
@@ -285,7 +302,9 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 for id in gone {
                     if let Some(mut l) = loaded.remove(&id) {
                         if let Some(mut w) = l.window.take() {
+                            crumb("cerrando la ventana de", &l.host.name, &l.host.path);
                             w.close();
+                            crumb_done();
                         }
                         save_state(&id, &l.host.plugin);
                         if let Ok(mut map) = hosts.lock() {
@@ -345,12 +364,14 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                         Ok(())
                     }
                     Some(l) => {
+                        crumb("abriendo la ventana de", &l.host.name, &l.host.path);
                         let mut w = PluginWindow::new(l.host.plugin.clone());
                         let r = w.open().map(|_| l.window = Some(w)).map_err(|e| format!("No se pudo abrir el editor: {e}"));
                         if r.is_ok() {
                             pump_messages();
                             raise_editor(&l.host);
                         }
+                        crumb_done();
                         r
                     }
                 };
@@ -427,18 +448,37 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
             let closed = match l.window.as_ref() {
                 Some(w) => {
                     let _ = w.service_platform_events();
+                    // Linux: los editores (VSTGUI, LSP…) solo se pintan y
+                    // responden si el anfitrión atiende sus temporizadores y
+                    // eventos de X11 cada poco. Sin esto se quedan colgados.
+                    if let Ok(mut p) = l.host.plugin.try_lock() {
+                        p.service_run_loop();
+                    }
                     !w.is_open() || w.closed_by_user()
                 }
                 None => false,
             };
             if closed {
                 if let Some(mut w) = l.window.take() {
+                    crumb("cerrando la ventana de", &l.host.name, &l.host.path);
                     w.close();
+                    crumb_done();
                 }
                 save_state(id, &l.host.plugin);
             }
         }
-        graveyard.retain(|h| Arc::strong_count(h) > 1);
+        // Se sueltan los que ya nadie usa (descargar el plugin)
+        let mut i = 0;
+        while i < graveyard.len() {
+            if Arc::strong_count(&graveyard[i]) > 1 {
+                i += 1;
+                continue;
+            }
+            let h = graveyard.swap_remove(i);
+            crumb("quitando", &h.name, &h.path);
+            drop(h);
+            crumb_done();
+        }
         // La latencia cambia si se toca algo en el plugin (oversampling, lookahead…).
         if last_latency.elapsed() > Duration::from_secs(2) {
             last_latency = Instant::now();
@@ -538,6 +578,13 @@ pub fn split_class(path: &str) -> (&str, Option<&str>) {
 }
 
 fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
+    crumb("cargando", &cfg.name, &cfg.path);
+    let r = load_one_inner(vst, cfg);
+    crumb_done();
+    r
+}
+
+fn load_one_inner(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
     let (bundle, class) = split_class(cfg.path.trim());
     if !Path::new(bundle).exists() {
         return Err("no se encuentra el archivo del plugin".into());
@@ -561,7 +608,7 @@ fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
         ch.reserve_exact(MAX_BLOCK);
     }
     let latency = AtomicU32::new(plugin.latency_samples());
-    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency })
+    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), name: cfg.name.clone(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency })
 }
 
 #[cfg(test)]

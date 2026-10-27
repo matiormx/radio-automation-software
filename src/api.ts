@@ -1,7 +1,7 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, open as nativeOpen, save as nativeSave } from "@tauri-apps/plugin-dialog";
+import { ask, message, open as nativeOpen, save as nativeSave } from "@tauri-apps/plugin-dialog";
 import { pickOpen, pickSave, type PickOptions } from "./filePicker";
 import type {
   Block,
@@ -496,6 +496,16 @@ export async function confirmAsk(message: string, okLabel = "Aceptar", title = "
     return await ask(message, { title, kind: "warning", okLabel, cancelLabel: "Cancelar" });
   } catch {
     return false;
+  }
+}
+
+/** Si la vez anterior OmniCaster se cerró mal (y con qué plugin), lo avisa una vez. */
+export async function showLastCrash(): Promise<void> {
+  try {
+    const text = await invoke<string | null>("last_crash");
+    if (text) await message(text, { title: "OmniCaster se cerró inesperadamente", kind: "warning" });
+  } catch {
+    /* fuera de Tauri */
   }
 }
 
