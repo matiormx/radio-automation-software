@@ -4560,3 +4560,16 @@ select optgroup {
   background-color: var(--panel-2);
   color: var(--text);
 }
+
+/* Botones de cerrar / reiniciar / apagar: abajo del todo de la lista de Ajustes */
+.settings-nav-power {
+  margin-top: auto;
+  padding: 10px 4px 4px;
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.settings-nav-power .btn { width: 100%; justify-content: center; }
+@media (max-width: 760px) {
+  .settings-nav-power { margin-top: 0; margin-left: auto; border-top: 0; flex-direction: row; padding: 0 4px; }
+  .settings-nav-power .btn { width: auto; }
+}

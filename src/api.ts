@@ -493,22 +493,31 @@ export async function confirmAsk(message: string, okLabel = "Aceptar", title = "
   }
 }
 
-export async function installQuitHandler(getMessage: () => string): Promise<() => void> {
-  return listen("app://quit-request", async () => {
-    const ok = await ask(getMessage(), {
-      title: "Cerrar OmniCaster",
+export type QuitAction = "quit" | "reboot" | "poweroff";
+
+export async function installQuitHandler(getMessage: (action: QuitAction) => string): Promise<() => void> {
+  return listen<QuitAction | null>("app://quit-request", async (e) => {
+    const action: QuitAction = e.payload ?? "quit";
+    const what = action === "reboot" ? "Reiniciar el equipo" : action === "poweroff" ? "Apagar el equipo" : "Cerrar OmniCaster";
+    const ok = await ask(getMessage(action), {
+      title: what,
       kind: "warning",
-      okLabel: "Cerrar OmniCaster",
+      okLabel: what,
       cancelLabel: "Cancelar",
     }).catch(() => false);
-    if (ok) await invoke("app_quit");
+    if (!ok) return;
+    if (action === "quit") await invoke("app_quit");
+    else await invoke("system_power", { action }).catch((err) => window.alert(String(err)));
   });
 }
 
-/** Pide cerrar OmniCaster (desde cualquier ventana; confirma la principal). */
-export function requestQuit(): Promise<void> {
-  return emit("app://quit-request");
+/** Pide cerrar OmniCaster, o reiniciar/apagar el equipo (desde cualquier ventana; confirma la principal). */
+export function requestQuit(action: QuitAction = "quit"): Promise<void> {
+  return emit("app://quit-request", action);
 }
+
+/** Linux (equipo dedicado / quiosco): los botones son reiniciar y apagar el equipo. */
+export const IS_LINUX = typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
 
 
 // ---- API compatible con RadioBOSS ----

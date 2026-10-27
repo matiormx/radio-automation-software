@@ -1124,7 +1124,8 @@ export default function App() {
   useEffect(() => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void installQuitHandler(() => {
+    void installQuitHandler((action) => {
+      const verb = action === "reboot" ? "¿Reiniciar el equipo?" : action === "poweroff" ? "¿Apagar el equipo?" : "¿Cerrar OmniCaster?";
       const i = closeInfoRef.current;
       const extra = [
         i.calls > 0 ? "hay una llamada al aire" : "",
@@ -1132,8 +1133,8 @@ export default function App() {
         i.playing ? "está sonando la emisión" : "",
       ].filter(Boolean);
       return extra.length > 0
-        ? `¿Cerrar OmniCaster? Ahora mismo ${extra.join(", ")} y se cortará.`
-        : "¿Cerrar OmniCaster?";
+        ? `${verb} Ahora mismo ${extra.join(", ")} y se cortará.`
+        : verb;
     }).then((fn) => {
       if (cancelled) fn();
       else off = fn;

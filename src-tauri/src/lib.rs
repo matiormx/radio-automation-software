@@ -37,6 +37,33 @@ fn app_quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Reiniciar o apagar el equipo (Linux, modo quiosco). El usuario de la
+/// sesion local activa puede hacerlo sin contraseña (logind/polkit).
+#[tauri::command]
+fn system_power(action: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let verb = match action.as_str() {
+            "reboot" => "reboot",
+            "poweroff" => "poweroff",
+            _ => return Err("acción desconocida".into()),
+        };
+        for cmd in ["systemctl", "loginctl"] {
+            if let Ok(st) = std::process::Command::new(cmd).arg(verb).status() {
+                if st.success() {
+                    return Ok(());
+                }
+            }
+        }
+        Err("El sistema no ha permitido reiniciar o apagar desde OmniCaster".into())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = action;
+        Err("Solo en Linux".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -99,6 +126,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            system_power,
             ai::ai_models,
             ai::ai_suggest_metadata,
             library::import_files,

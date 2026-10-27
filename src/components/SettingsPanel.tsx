@@ -12,7 +12,7 @@ import type {
   Track,
 } from "../types";
 import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
-import { confirmAsk, trackUrl } from "../api";
+import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
@@ -385,6 +385,29 @@ export function SettingsPanel({
               Copia y actualizaciones
               <span>Copias de seguridad y versiones nuevas</span>
             </button>
+            {/* Abajo del todo: en Linux (equipo dedicado) reiniciar o apagar
+                el equipo; en Windows, cerrar OmniCaster (la X solo lo oculta). */}
+            <div className="settings-nav-power">
+              {IS_LINUX ? (
+                <>
+                  <button type="button" className="btn btn-sm" onClick={() => void requestQuit("reboot")}>
+                    Reiniciar equipo…
+                  </button>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => void requestQuit("poweroff")}>
+                    Apagar equipo…
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  title="La X de la ventana solo la oculta en la barra de tareas"
+                  onClick={() => void requestQuit()}
+                >
+                  Cerrar OmniCaster…
+                </button>
+              )}
+            </div>
           </nav>
 
           <div className="settings-content">
