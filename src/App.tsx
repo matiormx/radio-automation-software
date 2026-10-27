@@ -98,6 +98,7 @@ import { isDragging } from "./dnd";
 import { apiApply, apiPublish, backupLastImportLog, confirmAsk, cursorWall, notifyFire } from "./api";
 import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { PlayerBar } from "./components/PlayerBar";
 import { Clock } from "./components/Clock";
 import { SysMonitor } from "./components/SysMonitor";
@@ -3387,6 +3388,149 @@ export default function App() {
       : playingRow >= 0 && playingRow + 1 < rows.length
         ? rows[playingRow + 1]
         : null;
+
+  // ---- Control desde el móvil ----
+  // El servidor (Rust) sirve la página; aquí se publica el estado y se
+  // ejecutan las órdenes que llegan, con la misma lógica que la pantalla.
+  const mobileCfg = settings.mobile;
+  useEffect(() => {
+    void invoke("mobile_apply", { config: mobileCfg ?? { enabled: false, port: 8080, pin: "" } }).catch(() => undefined);
+  }, [mobileCfg?.enabled, mobileCfg?.port, mobileCfg?.pin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const videoSources = (settings.video?.inputs ?? []).filter(
+    (input) => (input.kind === "capture" || input.kind === "ndi") && input.enabled && input.source.trim() !== "",
+  );
+  const vsNow = settings.videoScreen;
+  const mobileSnapshot = useMemo(() => {
+    if (!mobileCfg?.enabled) return null;
+    const now = deckRow
+      ? { title: deckRow.title, artist: deckRow.artist, cover: deckRow.cover || "", dur: pos.total || deckRow.durationSecs, playing: !paused && playingRow >= 0 }
+      : { title: "", artist: "", cover: "", dur: 0, playing: false };
+    const nextIndex = nextPick ? (nextPick.listId === active?.id ? nextPick.index : -1) : playingRow >= 0 ? playingRow + 1 : -1;
+    return {
+      station: settings.radioName || "OmniCaster",
+      listName: active?.name ?? "",
+      now,
+      next: nextRow ? { title: nextRow.title, artist: nextRow.artist } : null,
+      rows: rows.map((r, i) => ({ i, title: r.title, artist: r.artist, dur: r.durationSecs, auto: autoIds.has(r.id) })),
+      playing: playingRow,
+      nextRow: nextIndex,
+      autopilot: autopilotOn,
+      stream: { audioOn: audioStreamRunning, videoOn: videoStreamRunning, audioReady: audioStreamReady, videoReady: videoStreamReady, busy: streamBusy },
+      video: {
+        sources: [{ key: "program", label: "Programa" }, ...videoSources.map((i) => ({ key: `capture:${i.id}`, label: i.name.trim() || i.source }))],
+        current: vsNow?.source === "capture" ? `capture:${vsNow.captureInputId ?? ""}` : "program",
+        monitor: !!vsNow?.enabled,
+      },
+      mixer: (settings.mixerChannels ?? []).map((c) => ({ id: c.id, name: c.name, gainDb: c.gainDb, muted: c.muted })),
+    };
+    // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName]);
+  const mobileSnapRef = useRef(mobileSnapshot);
+  mobileSnapRef.current = mobileSnapshot;
+  const mobilePosRef = useRef(pos);
+  mobilePosRef.current = pos;
+  useEffect(() => {
+    if (!mobileCfg?.enabled) return;
+    const publish = () => {
+      const snap = mobileSnapRef.current;
+      if (!snap) return;
+      const full = { ...snap, now: { ...snap.now, pos: mobilePosRef.current.cur } };
+      const covers = snap.now.cover ? [snap.now.cover] : [];
+      void invoke("mobile_publish", { snapshot: JSON.stringify(full), covers }).catch(() => undefined);
+    };
+    publish();
+    const t = window.setInterval(publish, 10_000);
+    return () => window.clearInterval(t);
+  }, [mobileCfg?.enabled, mobileSnapshot]);
+
+  const mobileActions = useRef<(c: Record<string, unknown>) => void>(() => undefined);
+  mobileActions.current = (c) => {
+    const num = (k: string) => Number(c[k]);
+    const s = settingsRef.current;
+    switch (c.cmd) {
+      case "toggle":
+        void togglePlay();
+        break;
+      case "next":
+        void next();
+        break;
+      case "prev":
+        void prev();
+        break;
+      case "playRow": {
+        const i = num("i");
+        if (!Number.isInteger(i) || i < 0 || i >= rows.length || !active) return;
+        if (nextPickRef.current) {
+          pendingPlayRef.current = { listId: active.id, row: i };
+          setNextPick(null);
+        } else playRowRef.current(i);
+        break;
+      }
+      case "setNext": {
+        const i = num("i");
+        if (!active || !Number.isInteger(i) || i < 0 || i >= rows.length || i === playingRowRef.current) return;
+        setNextPick(i === playingRowRef.current + 1 ? null : { listId: active.id, index: i });
+        break;
+      }
+      case "remove": {
+        const i = num("i");
+        if (!Number.isInteger(i) || i === playingRowRef.current) return;
+        void mutateList((ids) => ids.filter((_, k) => k !== i));
+        break;
+      }
+      case "move": {
+        const from = num("from");
+        const to = num("to");
+        if (![from, to].every(Number.isInteger)) return;
+        void mutateList((ids) => {
+          if (from < 0 || from >= ids.length) return ids;
+          const copy = [...ids];
+          const [m] = copy.splice(from, 1);
+          copy.splice(Math.max(0, Math.min(copy.length, to)), 0, m);
+          return copy;
+        });
+        break;
+      }
+      case "autopilot":
+        updateSettings({ ...s, autopilotEnabled: !!c.on });
+        break;
+      case "stream":
+        if (c.group === "audio" || c.group === "video") void setStreamGroup(c.group, !!c.on);
+        break;
+      case "video": {
+        const key = String(c.key ?? "");
+        const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+        if (key === "program") updateSettings({ ...s, videoScreen: { ...vs, source: "program", captureInputId: "" } });
+        else if (key.startsWith("capture:")) updateSettings({ ...s, videoScreen: { ...vs, source: "capture", captureInputId: key.slice(8) } });
+        break;
+      }
+      case "monitor": {
+        const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
+        updateSettings({ ...s, videoScreen: { ...vs, enabled: !!c.on } });
+        break;
+      }
+      case "fader":
+      case "mute": {
+        const id = String(c.id ?? "");
+        const db = Math.max(-60, Math.min(12, num("db")));
+        updateSettings({
+          ...s,
+          mixerChannels: s.mixerChannels.map((ch) =>
+            ch.id !== id ? ch : c.cmd === "fader" ? (Number.isFinite(db) ? { ...ch, gainDb: db } : ch) : { ...ch, muted: !!c.on },
+          ),
+        });
+        break;
+      }
+    }
+  };
+  useEffect(() => {
+    const off = listen<Record<string, unknown>>("mobile://cmd", (e) => mobileActions.current(e.payload ?? {}));
+    return () => {
+      void off.then((f) => f());
+    };
+  }, []);
 
   return (
     <div className="app">

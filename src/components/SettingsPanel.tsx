@@ -14,6 +14,7 @@ import type {
 import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
 import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
 import { RemoteTab } from "./RemoteTab";
+import { MobileTab } from "./MobileTab";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
@@ -196,7 +197,8 @@ export type SettingsTab =
   | "api"
   | "notify"
   | "backup"
-  | "remote";
+  | "remote"
+  | "mobile";
 
 export function SettingsPanel({
   settings,
@@ -387,6 +389,15 @@ export function SettingsPanel({
               Copia y actualizaciones
               <span>Copias de seguridad y versiones nuevas</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "mobile" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("mobile")}
+              title="Manejar el directo desde el navegador del móvil"
+            >
+              Control desde el móvil
+              <span>Directo, lista, emisión y mesa</span>
+            </button>
             {IS_LINUX && (
               <button
                 type="button"
@@ -475,6 +486,7 @@ export function SettingsPanel({
                 onToggleStreamGroup={onToggleStreamGroup}
               />
             )}
+            {tab === "mobile" && <MobileTab settings={s} onChange={onChange} />}
             {tab === "remote" && <RemoteTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "backup" && (
               <>

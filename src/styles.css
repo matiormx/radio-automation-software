@@ -4607,3 +4607,7 @@ select optgroup {
 .sm-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .sm-total span { color: var(--text); font-weight: 600; }
 .sm-dim { color: var(--text-faint); }
+
+/* Ajustes › Control desde el móvil */
+.mobile-urls { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.mobile-url { font-size: 17px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; user-select: all; }

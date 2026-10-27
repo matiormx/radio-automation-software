@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>OmniCaster</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1116; --panel: #171b22; --panel2: #1e242d; --line: #2a3140;
+    --text: #e5eaf2; --dim: #8a94a6; --faint: #5d6675;
+    --accent: #4f8cff; --live: #e5484d; --ok: #3ddc84; --warn: #f5b942;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header b { font-size: 16px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conn { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .conn.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px 90px; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr);
+    background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  nav button { background: none; border: 0; color: var(--dim); padding: 10px 2px 9px; font-size: 11.5px; display: flex;
+    flex-direction: column; align-items: center; gap: 3px; }
+  nav button svg { width: 22px; height: 22px; }
+  nav button.on { color: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .now { display: flex; gap: 14px; align-items: center; }
+  .cover { width: 96px; height: 96px; border-radius: 10px; object-fit: cover; background: var(--panel2); flex: none; }
+  .now h2 { margin: 0 0 4px; font-size: 19px; line-height: 1.2; }
+  .now p { margin: 0; color: var(--dim); }
+  .tag { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; padding: 2px 7px; border-radius: 5px; margin-bottom: 6px; }
+  .tag.live { background: rgba(229,72,77,.18); color: #ff8b8e; }
+  .tag.pause { background: var(--panel2); color: var(--dim); }
+  .bar { height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin: 14px 0 4px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .times { display: flex; justify-content: space-between; color: var(--dim); font: 12px ui-monospace, monospace; }
+  .transport { display: flex; justify-content: center; align-items: center; gap: 22px; margin-top: 12px; }
+  .round { width: 58px; height: 58px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    display: grid; place-items: center; }
+  .round.big { width: 74px; height: 74px; background: var(--accent); border-color: var(--accent); }
+  .round svg { width: 26px; height: 26px; }
+  .round.big svg { width: 32px; height: 32px; }
+  .next { color: var(--dim); font-size: 13.5px; }
+  .next b { color: var(--text); font-weight: 600; }
+  h3 { font-size: 12px; letter-spacing: .08em; color: var(--faint); margin: 18px 2px 8px; text-transform: uppercase; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+  .row .n { width: 26px; color: var(--faint); font: 12px ui-monospace, monospace; text-align: right; }
+  .row .t { flex: 1; min-width: 0; }
+  .row .t div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .t small { color: var(--dim); }
+  .row.past { opacity: .45; }
+  .row.cur { background: rgba(229,72,77,.10); border-radius: 8px; }
+  .row.nx .n { color: var(--accent); }
+  .row .d { color: var(--dim); font: 12px ui-monospace, monospace; }
+  .badge { font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 4px; vertical-align: 1px; }
+  .b-live { background: var(--live); color: #fff; }
+  .b-next { background: var(--accent); color: #fff; }
+  .b-auto { background: var(--panel2); color: var(--dim); }
+  .more { background: none; border: 0; color: var(--dim); padding: 8px; font-size: 20px; line-height: 1; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  .btn.on { background: rgba(229,72,77,.16); border-color: var(--live); color: #ffb3b5; }
+  .btn.green.on { background: rgba(61,220,132,.13); border-color: var(--ok); color: #bdf5d4; }
+  .btn:disabled { opacity: .45; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .on .dot { background: var(--live); box-shadow: 0 0 8px var(--live); }
+  .green.on .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid2 .btn { margin: 0; }
+  .src.on { background: var(--live); border-color: var(--live); color: #fff; }
+  .ch { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .ch b { font-weight: 600; }
+  .ch .db { font: 13px ui-monospace, monospace; color: var(--dim); text-align: right; min-width: 64px; }
+  .ch input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); height: 32px; }
+  .ch .mute { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--dim); font-weight: 700; }
+  .ch .mute.on { background: var(--live); border-color: var(--live); color: #fff; }
+  .stat { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; margin: 10px 0; }
+  .stat .bar { margin: 0; }
+  .stat b { font: 13px ui-monospace, monospace; }
+  .line { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; color: var(--dim); }
+  .line b { color: var(--text); font: 13px ui-monospace, monospace; }
+  .login { max-width: 320px; margin: 18vh auto 0; text-align: center; }
+  .login input { width: 100%; font-size: 28px; letter-spacing: .4em; text-align: center; padding: 12px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text); margin: 16px 0; }
+  .err { color: #ff8b8e; min-height: 1.3em; }
+  .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; z-index: 10; }
+  .sheet > div { width: 100%; background: var(--panel); border-radius: 16px 16px 0 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .sheet h4 { margin: 4px 0 12px; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: 84px; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; text-align: center; z-index: 20; }
+  .empty { color: var(--faint); text-align: center; padding: 30px 0; }
+</style>
+</head>
+<body>
+<header><span class="conn" id="conn"></span><b id="station">OmniCaster</b></header>
+<main id="main"></main>
+<nav id="nav"></nav>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const icon = {
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6l8.5 6L6 18zM16 6h2v12h-2z"/></svg>',
+  prev: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 6l-8.5 6L18 18zM6 6h2v12H6z"/></svg>',
+  live: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  air: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
+  mix: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v16M12 4v16M18 4v16"/><rect x="4" y="13" width="4" height="3" fill="currentColor"/><rect x="10" y="7" width="4" height="3" fill="currentColor"/><rect x="16" y="11" width="4" height="3" fill="currentColor"/></svg>',
+  sys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
+};
+const TABS = [["live", "Directo"], ["list", "Lista"], ["air", "Emisión"], ["mix", "Mesa"], ["sys", "Sistema"]];
+
+let token = localStorage.getItem("oc.token") || "";
+let tab = localStorage.getItem("oc.tab") || "live";
+let S = null; // estado publicado
+let gotAt = 0;
+let es = null;
+let sys = null;
+let dragging = false;
+
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+async function cmd(body) {
+  try {
+    const r = await fetch(`/api/cmd?t=${encodeURIComponent(token)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.status === 401) return logout();
+    if (!r.ok) toast("No se pudo");
+  } catch { toast("Sin conexión con el estudio"); }
+}
+
+function logout() {
+  token = "";
+  localStorage.removeItem("oc.token");
+  es?.close();
+  es = null;
+  showLogin();
+}
+
+function showLogin(err = "") {
+  $("#nav").innerHTML = "";
+  $("#conn").className = "conn";
+  $("#main").innerHTML = `<div class="login"><h2>OmniCaster</h2><div style="color:var(--dim)">Escribe el PIN que aparece en Ajustes › Control desde el móvil</div>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" autofocus>
+    <button class="btn" id="go" style="background:var(--accent);border-color:var(--accent)">Entrar</button><div class="err" id="err">${esc(err)}</div></div>`;
+  const go = async () => {
+    const pin = $("#pin").value.trim();
+    if (!pin) return;
+    try {
+      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $("#err").textContent = j.error || "No se pudo entrar"; return; }
+      token = j.token;
+      localStorage.setItem("oc.token", token);
+      start();
+    } catch { $("#err").textContent = "Sin conexión con el estudio"; }
+  };
+  $("#go").onclick = go;
+  $("#pin").onkeydown = (e) => e.key === "Enter" && go();
+}
+
+function start() {
+  renderNav();
+  connect();
+  render();
+}
+
+function connect() {
+  es?.close();
+  es = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
+  es.onopen = () => ($("#conn").className = "conn on");
+  es.onmessage = (e) => {
+    try { S = JSON.parse(e.data); gotAt = Date.now(); } catch { return; }
+    if (!dragging) render();
+  };
+  es.addEventListener("logout", () => logout());
+  es.onerror = async () => {
+    $("#conn").className = "conn";
+    // ¿Token caducado (PIN cambiado o OmniCaster reiniciado)?
+    try { const r = await fetch(`/api/sys?t=${encodeURIComponent(token)}`); if (r.status === 401) logout(); } catch {}
+  };
+}
+
+function renderNav() {
+  $("#nav").innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${icon[k]}<span>${l}</span></button>`).join("");
+  $("#nav").onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    tab = b.dataset.tab;
+    localStorage.setItem("oc.tab", tab);
+    renderNav();
+    render();
+    $("#main").scrollTop = 0;
+  };
+}
+
+const coverUrl = (f) => (f ? `/api/cover?t=${encodeURIComponent(token)}&f=${encodeURIComponent(f)}` : "");
+
+function render() {
+  if (!token) return;
+  if (!S || !S.now) { $("#main").innerHTML = '<div class="empty">Esperando a OmniCaster…</div>'; return; }
+  $("#station").textContent = S.station || "OmniCaster";
+  const view = { live: viewLive, list: viewList, air: viewAir, mix: viewMix, sys: viewSys }[tab] || viewLive;
+  view();
+}
+
+function viewLive() {
+  const n = S.now;
+  const pos = n.playing ? n.pos + (Date.now() - gotAt) / 1000 : n.pos;
+  const pct = n.dur > 0 ? Math.min(100, (pos / n.dur) * 100) : 0;
+  $("#main").innerHTML = `
+    <div class="card">
+      <div class="now">
+        ${n.cover ? `<img class="cover" src="${coverUrl(n.cover)}" alt="">` : '<div class="cover"></div>'}
+        <div style="min-width:0">
+          <span class="tag ${n.playing ? "live" : "pause"}">${n.title ? (n.playing ? "AL AIRE" : "EN PAUSA") : "PARADO"}</span>
+          <h2>${esc(n.title || "Sin emisión")}</h2><p>${esc(n.artist)}</p>
+        </div>
+      </div>
+      <div class="bar"><i id="prog" style="width:${pct}%"></i></div>
+      <div class="times"><span id="cur">${fmt(pos)}</span><span>-${fmt(n.dur - pos)}</span></div>
+      <div class="transport">
+        <button class="round" data-c="prev" aria-label="Anterior">${icon.prev}</button>
+        <button class="round big" data-c="toggle" aria-label="Reproducir o pausar">${n.playing ? icon.pause : icon.play}</button>
+        <button class="round" data-c="next" aria-label="Siguiente">${icon.next}</button>
+      </div>
+    </div>
+    <div class="card next">Siguiente: ${S.next ? `<b>${esc(S.next.title)}</b> — ${esc(S.next.artist)}` : "<b>nada</b>"}</div>
+    <button class="btn green ${S.autopilot ? "on" : ""}" data-c="autopilot"><span class="dot"></span>Piloto automático ${S.autopilot ? "activado" : "apagado"}</button>`;
+  $("#main").onclick = (e) => {
+    const b = e.target.closest("[data-c]");
+    if (!b) return;
+    const c = b.dataset.c;
+    if (c === "autopilot") cmd({ cmd: "autopilot", on: !S.autopilot });
+    else cmd({ cmd: c });
+  };
+}
+
+function viewList() {
+  const rows = S.rows || [];
+  if (!rows.length) { $("#main").innerHTML = '<div class="empty">La lista está vacía</div>'; return; }
+  $("#main").innerHTML = `<h3>${esc(S.listName || "Lista")} · ${rows.length} pistas</h3>` + rows.map((r) => {
+    const cls = r.i === S.playing ? "cur" : r.i < S.playing ? "past" : r.i === S.nextRow ? "nx" : "";
+    const b = r.i === S.playing ? '<span class="badge b-live">AL AIRE</span>' : r.i === S.nextRow ? '<span class="badge b-next">SIGUIENTE</span>' : r.auto ? '<span class="badge b-auto">AUTO</span>' : "";
+    return `<div class="row ${cls}"><span class="n">${r.i + 1}</span><div class="t"><div>${esc(r.title)}${b}</div><small>${esc(r.artist)}</small></div>
+      <span class="d">${fmt(r.dur)}</span><button class="more" data-i="${r.i}" aria-label="Opciones">⋯</button></div>`;
+  }).join("");
+  $("#main").onclick = (e) => {
+    const b = e.target.closest("[data-i]");
+    if (b) sheet(Number(b.dataset.i));
+  };
+}
+
+function sheet(i) {
+  const r = (S.rows || []).find((x) => x.i === i);
+  if (!r) return;
+  const playing = i === S.playing;
+  const el = document.createElement("div");
+  el.className = "sheet";
+  el.innerHTML = `<div><h4>${esc(r.title)} — ${esc(r.artist)}</h4>
+    ${playing ? "" : `<button class="btn" data-a="play">Emitir ahora</button><button class="btn" data-a="next">Marcar como siguiente</button>`}
+    <div class="grid2"><button class="btn" data-a="up" ${i === 0 ? "disabled" : ""}>Subir</button><button class="btn" data-a="down" ${i >= S.rows.length - 1 ? "disabled" : ""}>Bajar</button></div>
+    <div style="height:10px"></div>
+    ${playing ? "" : '<button class="btn" data-a="remove" style="color:#ff8b8e">Quitar de la lista</button>'}
+    <button class="btn" data-a="close">Cerrar</button></div>`;
+  el.onclick = (e) => {
+    const a = e.target.closest("[data-a]")?.dataset.a;
+    if (e.target === el || a === "close") return el.remove();
+    if (!a) return;
+    if (a === "play") cmd({ cmd: "playRow", i });
+    if (a === "next") cmd({ cmd: "setNext", i });
+    if (a === "up") cmd({ cmd: "move", from: i, to: i - 1 });
+    if (a === "down") cmd({ cmd: "move", from: i, to: i + 1 });
+    if (a === "remove") cmd({ cmd: "remove", i });
+    el.remove();
+  };
+  document.body.appendChild(el);
+}
+
+function viewAir() {
+  const st = S.stream || {};
+  const v = S.video || {};
+  $("#main").innerHTML = `
+    <h3>Emisión</h3>
+    <button class="btn ${st.audioOn ? "on" : ""}" data-c="audio" ${!st.audioReady || st.busy ? "disabled" : ""}><span class="dot"></span>${st.audioOn ? "AUDIO · EN VIVO" : "EMITIR AUDIO"}</button>
+    <button class="btn ${st.videoOn ? "on" : ""}" data-c="vid" ${!st.videoReady || st.busy ? "disabled" : ""}><span class="dot"></span>${st.videoOn ? "VÍDEO · EN VIVO" : "EMITIR VÍDEO"}</button>
+    ${(v.sources || []).length ? `<h3>Vídeo al aire</h3><div class="grid2">${v.sources.map((s) => `<button class="btn src ${s.key === v.current ? "on" : ""}" data-src="${esc(s.key)}">${esc(s.label)}</button>`).join("")}</div>
+    <div style="height:10px"></div>
+    <button class="btn green ${v.monitor ? "on" : ""}" data-c="monitor"><span class="dot"></span>Monitor de presentadores ${v.monitor ? "encendido" : "apagado"}</button>` : ""}`;
+  $("#main").onclick = (e) => {
+    const s = e.target.closest("[data-src]");
+    if (s) return cmd({ cmd: "video", key: s.dataset.src });
+    const c = e.target.closest("[data-c]")?.dataset.c;
+    if (c === "audio") cmd({ cmd: "stream", group: "audio", on: !st.audioOn });
+    if (c === "vid") cmd({ cmd: "stream", group: "video", on: !st.videoOn });
+    if (c === "monitor") cmd({ cmd: "monitor", on: !v.monitor });
+  };
+}
+
+// Fader: 0..1000 -> dB (curva como una mesa: más recorrido cerca de 0 dB)
+const toDb = (x) => (x <= 0 ? -60 : x >= 1000 ? 12 : x <= 750 ? -60 + (x / 750) * 60 : ((x - 750) / 250) * 12);
+const fromDb = (db) => (db <= -60 ? 0 : db <= 0 ? ((db + 60) / 60) * 750 : 750 + (Math.min(12, db) / 12) * 250);
+const dbText = (db) => (db <= -60 ? "−∞" : `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`);
+
+function viewMix() {
+  const chans = S.mixer || [];
+  $("#main").innerHTML = `<h3>Canales</h3>` + (chans.length ? chans.map((c) => `
+    <div class="ch" data-id="${esc(c.id)}"><b>${esc(c.name)}</b><span class="db">${dbText(c.gainDb)}</span>
+      <input type="range" min="0" max="1000" step="1" value="${Math.round(fromDb(c.gainDb))}" aria-label="Volumen de ${esc(c.name)}">
+      <button class="mute ${c.muted ? "on" : ""}" style="grid-column:1/-1;justify-self:start">${c.muted ? "SILENCIADO" : "SILENCIAR"}</button></div>`).join("") : '<div class="empty">Sin canales</div>');
+  let timer = 0;
+  $("#main").oninput = (e) => {
+    const r = e.target.closest("input[type=range]");
+    if (!r) return;
+    dragging = true;
+    const id = r.closest(".ch").dataset.id;
+    const db = Math.round(toDb(Number(r.value)) * 10) / 10;
+    r.closest(".ch").querySelector(".db").textContent = dbText(db);
+    clearTimeout(timer);
+    timer = setTimeout(() => cmd({ cmd: "fader", id, db }), 60);
+  };
+  $("#main").onchange = () => setTimeout(() => (dragging = false), 400);
+  $("#main").onclick = (e) => {
+    const m = e.target.closest(".mute");
+    if (!m) return;
+    const id = m.closest(".ch").dataset.id;
+    const c = chans.find((x) => x.id === id);
+    cmd({ cmd: "mute", id, on: !c?.muted });
+  };
+}
+
+async function loadSys() {
+  try {
+    const r = await fetch(`/api/sys?t=${encodeURIComponent(token)}`);
+    if (r.status === 401) return logout();
+    sys = await r.json();
+    if (tab === "sys") viewSys();
+  } catch {}
+}
+setInterval(() => tab === "sys" && token && !document.hidden && loadSys(), 3000);
+
+function viewSys() {
+  if (!sys) { $("#main").innerHTML = '<div class="empty">Cargando…</div>'; loadSys(); return; }
+  const ram = sys.memTotal ? (sys.memUsed / sys.memTotal) * 100 : 0;
+  const gb = (b) => `${(b / 1024 ** 3).toFixed(1)} GB`;
+  const mbps = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)} Mb/s` : `${Math.round(v / 1e3)} kb/s`);
+  const col = (p) => (p >= 85 ? "var(--live)" : p >= 65 ? "var(--warn)" : "var(--ok)");
+  const bar = (p) => `<span class="bar"><i style="width:${Math.min(100, p)}%;background:${col(p)}"></i></span>`;
+  $("#main").innerHTML = `<div class="card">
+    <div class="stat"><span>Procesador</span>${bar(sys.cpu)}<b>${Math.round(sys.cpu)}%</b></div>
+    <div class="stat"><span>Memoria</span>${bar(ram)}<b>${gb(sys.memUsed)}</b></div>
+    <div class="stat"><span>Motor de audio</span>${bar(sys.audioLoad)}<b>${sys.audioLoad.toFixed(1)}%</b></div></div>
+    <h3>Red</h3><div class="card">${(sys.nets || []).slice(0, 4).map((n) => `<div class="line"><span>${esc(n.name)}</span><b>↓${mbps(n.rxBps)} ↑${mbps(n.txBps)}</b></div>`).join("") || '<div class="line">Sin tráfico</div>'}</div>
+    <h3>OmniCaster</h3><div class="card">${(sys.procs || []).map((p) => `<div class="line"><span>${esc(p.name)}</span><b>${p.cpu.toFixed(1)}% · ${Math.round(p.mem / 1024 ** 2)} MB</b></div>`).join("")}
+    ${sys.diskTotal ? `<div class="line"><span>Disco libre</span><b>${gb(sys.diskFree)}</b></div>` : ""}</div>`;
+}
+
+// La barra de progreso avanza sola entre mensajes.
+setInterval(() => {
+  if (tab !== "live" || !S?.now?.playing) return;
+  const p = $("#prog"), c = $("#cur");
+  if (!p || !c) return;
+  const pos = S.now.pos + (Date.now() - gotAt) / 1000;
+  p.style.width = `${S.now.dur > 0 ? Math.min(100, (pos / S.now.dur) * 100) : 0}%`;
+  c.textContent = fmt(pos);
+}, 500);
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden && token && (!es || es.readyState === 2)) connect(); });
+
+if (token) start(); else showLogin();
+</script>
+</body>
+</html>

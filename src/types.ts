@@ -679,8 +679,16 @@ export interface RemoteSettings {
   vncOnlyWg: boolean;
 }
 
+/** Control desde el móvil (página web en la red del estudio) */
+export interface MobileSettings {
+  enabled: boolean;
+  port: number;
+  pin: string;
+}
+
 export interface Settings {
   remote?: RemoteSettings;
+  mobile?: MobileSettings;
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
   autoPlayOnStart: boolean;

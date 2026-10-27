@@ -94,6 +94,8 @@ pub struct Settings {
     pub vst: VstSettings,
     /// Linux (quiosco): control remoto por VNC
     pub remote: RemoteSettings,
+    /// Control desde el móvil (página web en la red del estudio)
+    pub mobile: crate::mobile::MobileConfig,
     pub fade_seconds: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
@@ -858,6 +860,7 @@ impl Default for Settings {
         Self {
             vst: VstSettings::default(),
             remote: RemoteSettings::default(),
+            mobile: crate::mobile::MobileConfig::default(),
             fade_seconds: 6,
             auto_play_on_start: false,
             silence_detection: false,

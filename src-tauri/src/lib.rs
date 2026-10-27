@@ -13,6 +13,7 @@ pub mod playlists;
 pub mod settings;
 mod sysmon;
 mod remote;
+mod mobile;
 pub mod nowplaying;
 pub mod notify;
 pub mod streaming;
@@ -105,6 +106,7 @@ pub fn run() {
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             app.manage(sysmon::SysMon::default());
+            app.manage(mobile::MobileState::default());
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
             app.manage(notify::NotifyState::default());
@@ -134,6 +136,9 @@ pub fn run() {
             system_power,
             sysmon::sys_stats,
             remote::remote_status,
+            mobile::mobile_apply,
+            mobile::mobile_status,
+            mobile::mobile_publish,
             remote::remote_vnc,
             remote::remote_wg,
             remote::remote_smb,

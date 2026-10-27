@@ -87,6 +87,11 @@ fn group_of(name: &str) -> &'static str {
 
 #[tauri::command]
 pub fn sys_stats(app: tauri::AppHandle, mon: State<'_, SysMon>, detail: bool) -> Stats {
+    compute(&app, &mon, detail)
+}
+
+/// Lo mismo, para otros módulos (el control desde el móvil).
+pub fn compute(app: &tauri::AppHandle, mon: &SysMon, detail: bool) -> Stats {
     let mut g = mon.inner.lock().unwrap_or_else(|e| e.into_inner());
     let Inner { sys, nets, last_net } = &mut *g;
     sys.refresh_cpu_usage();
