@@ -219,7 +219,8 @@ jobs:
 
   publish:
     needs: [create-release, build-windows, build-linux]
-    if: ${{ needs.create-release.result == 'success' && needs.build-windows.result == 'success' && !cancelled() }}
+    # Con «linux» no se compila Windows: basta con que salga bien Linux.
+    if: ${{ needs.create-release.result == 'success' && !cancelled() && (needs.build-windows.result == 'success' || (inputs.platform == 'linux' && needs.build-linux.result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
