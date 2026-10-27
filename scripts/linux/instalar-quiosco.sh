@@ -253,7 +253,8 @@ say "Arranque con el logo de OmniCaster (sin letras en pantalla)"
 SPLASH_URL="https://raw.githubusercontent.com/$REPO/main/scripts/linux/splash"
 THEME_DIR=/usr/share/plymouth/themes/omnicaster
 install -d "$THEME_DIR" /usr/share/omnicaster
-for f in omnicaster.plymouth omnicaster.script logo.png wordmark.png iniciando.png dot.png fondo.png; do
+for f in omnicaster.plymouth omnicaster.script logo.png wordmark.png iniciando.png dot.png fondo.png \
+  $(seq -f "logo-%02g.png" 0 29); do
   curl -fsSL "$SPLASH_URL/$f" -o "$THEME_DIR/$f" || die "No pude descargar la pantalla de arranque ($f)"
 done
 mv -f "$THEME_DIR/fondo.png" /usr/share/omnicaster/fondo.png
