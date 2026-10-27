@@ -12,3 +12,4 @@ src-tauri/gen
 .build/
 src-tauri/bin/*
 !src-tauri/bin/.gitkeep
+__pycache__/

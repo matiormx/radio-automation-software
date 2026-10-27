@@ -4708,3 +4708,15 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 }
 .fp-filename { flex: 1; }
 .fp-sel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Ajustes › Red (Linux) ---------- */
+.net-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: #f59e0b1a;
+}
+.net-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

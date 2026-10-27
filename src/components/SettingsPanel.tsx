@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types
 import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
 import { RemoteTab } from "./RemoteTab";
 import { MobileTab } from "./MobileTab";
+import { NetworkTab } from "./NetworkTab";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
@@ -198,7 +199,8 @@ export type SettingsTab =
   | "notify"
   | "backup"
   | "remote"
-  | "mobile";
+  | "mobile"
+  | "network";
 
 export function SettingsPanel({
   settings,
@@ -409,6 +411,17 @@ export function SettingsPanel({
                 <span>VNC, WireGuard y carpeta compartida</span>
               </button>
             )}
+            {IS_LINUX && (
+              <button
+                type="button"
+                className={`settings-nav-btn ${tab === "network" ? "settings-nav-on" : ""}`}
+                onClick={() => onTabChange("network")}
+                title="IP, puerta de enlace, DNS, Wi-Fi y nombre del equipo"
+              >
+                Red
+                <span>IP, DNS, Wi-Fi y nombre del equipo</span>
+              </button>
+            )}
             {/* Abajo del todo: en Linux (equipo dedicado) reiniciar o apagar
                 el equipo; en Windows, cerrar OmniCaster (la X solo lo oculta). */}
             <div className="settings-nav-power">
@@ -488,6 +501,7 @@ export function SettingsPanel({
             )}
             {tab === "mobile" && <MobileTab settings={s} onChange={onChange} />}
             {tab === "remote" && <RemoteTab settings={s} onChange={onChange} showToast={showToast} />}
+            {tab === "network" && <NetworkTab showToast={showToast} />}
             {tab === "backup" && (
               <>
                 <UpdateSection showToast={showToast} />

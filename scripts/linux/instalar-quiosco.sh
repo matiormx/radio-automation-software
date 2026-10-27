@@ -44,7 +44,7 @@ apt-get install -y --no-install-recommends \
   xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 dbus-user-session \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
   ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
-  x11vnc wireguard-tools iproute2 samba \
+  x11vnc wireguard-tools iproute2 samba python3 wpasupplicant iw \
   plymouth plymouth-themes feh \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav \
@@ -244,7 +244,11 @@ esac
 HELPER
 sed -i "s/__KIOSK_USER__/$KIOSK_USER/" /usr/local/bin/omnicaster-remote
 chmod 755 /usr/local/bin/omnicaster-remote
-echo "$KIOSK_USER ALL=(root) NOPASSWD: /usr/local/bin/omnicaster-remote" > /etc/sudoers.d/omnicaster
+# Red (Ajustes › Red): el ayudante pide la contraseña de un administrador.
+curl -fsSL "https://raw.githubusercontent.com/$REPO/main/scripts/linux/omnicaster-net" -o /usr/local/bin/omnicaster-net \
+  || die "No pude descargar el ayudante de red"
+chmod 755 /usr/local/bin/omnicaster-net
+echo "$KIOSK_USER ALL=(root) NOPASSWD: /usr/local/bin/omnicaster-remote, /usr/local/bin/omnicaster-net" > /etc/sudoers.d/omnicaster
 chmod 440 /etc/sudoers.d/omnicaster
 visudo -cf /etc/sudoers.d/omnicaster >/dev/null || { rm -f /etc/sudoers.d/omnicaster; die "No se pudo preparar el permiso del ayudante (sudoers)"; }
 # Samba instalado pero sin compartir nada hasta que se active en Ajustes.
