@@ -116,6 +116,13 @@ pub fn crumb(what: Option<&str>) {
     }
 }
 
+/// Apunta un aviso en errores.log (diagnóstico, no es un cierre).
+pub fn note(text: &str) {
+    if let Some(dir) = DIR.get() {
+        append_log(dir, &format!("AVISO {text}"));
+    }
+}
+
 /// Aviso del cierre anterior (una sola vez).
 #[tauri::command]
 pub fn last_crash() -> Option<String> {
