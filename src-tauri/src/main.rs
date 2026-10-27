@@ -15,5 +15,11 @@ fn main() {
              --disable-background-timer-throttling --autoplay-policy=no-user-gesture-required",
         );
     }
+    // Linux: tema GTK oscuro para lo que pinta el sistema (la lista que se
+    // abre en los desplegables, dialogos), a juego con la app.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GTK_THEME").is_none() {
+        std::env::set_var("GTK_THEME", "Adwaita:dark");
+    }
     miradio_lib::run();
 }
