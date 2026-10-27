@@ -4573,3 +4573,37 @@ select optgroup {
   .settings-nav-power { margin-top: 0; margin-left: auto; border-top: 0; flex-direction: row; padding: 0 4px; }
   .settings-nav-power .btn { width: auto; }
 }
+
+/* Monitor del sistema (barra superior) */
+.sm { position: relative; }
+.sm-pill {
+  display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-dim); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px;
+  background: transparent; cursor: pointer; white-space: nowrap;
+}
+.sm-pill:hover { border-color: var(--accent); color: var(--text); }
+.sm-dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; }
+.sm-p-warn .sm-dot { background: #f5b942; }
+.sm-p-bad .sm-dot { background: #ff5c5c; box-shadow: 0 0 6px #ff5c5c; }
+.sm-net { opacity: .8; }
+@media (max-width: 1400px) { .sm-net { display: none; } }
+.sm-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: 330px;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 12px; font-size: 12px; color: var(--text);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sm-row { display: grid; grid-template-columns: 100px 1fr auto; align-items: center; gap: 8px; }
+.sm-row b, .sm-line b { font-family: var(--mono); font-weight: 600; font-size: 11.5px; }
+.sm-bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.sm-bar i { display: block; height: 100%; border-radius: 3px; }
+.sm-ok { background: #3ddc84; }
+.sm-warn { background: #f5b942; }
+.sm-bad { background: #ff5c5c; }
+.sm-cores { display: flex; align-items: flex-end; gap: 2px; height: 26px; padding: 2px 0 2px 108px; }
+.sm-cores i { flex: 1; min-width: 3px; border-radius: 1px; opacity: .85; }
+.sm-head { margin-top: 6px; font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--text-faint); text-transform: uppercase; }
+.sm-line { display: flex; justify-content: space-between; gap: 10px; }
+.sm-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.sm-total span { color: var(--text); font-weight: 600; }
+.sm-dim { color: var(--text-faint); }

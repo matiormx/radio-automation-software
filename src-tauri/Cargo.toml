@@ -46,6 +46,8 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "4", default-features = false, features = ["deflate"] }
 libloading = "0.8"
 jpeg-encoder = "0.6"
+# Monitor del sistema (CPU, memoria, red, procesos): solo lo que se pide
+sysinfo = { version = "0.33", default-features = false, features = ["system", "network", "disk"] }
 # Plugins VST3 en canales y buses (en el propio proceso, sin el ayudante aislado)
 vst3-host = { version = "0.10", default-features = false }
 

@@ -11,6 +11,7 @@ pub mod rbapi;
 pub mod library;
 pub mod playlists;
 pub mod settings;
+mod sysmon;
 pub mod nowplaying;
 pub mod notify;
 pub mod streaming;
@@ -100,6 +101,7 @@ pub fn run() {
             vstpkg::apply_pending(&data_dir);
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
+            app.manage(sysmon::SysMon::default());
             app.manage(engine::EngineState::default());
             app.manage(rbapi::ApiState::default());
             app.manage(notify::NotifyState::default());
@@ -127,6 +129,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system_power,
+            sysmon::sys_stats,
             ai::ai_models,
             ai::ai_suggest_metadata,
             library::import_files,

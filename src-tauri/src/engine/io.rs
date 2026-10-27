@@ -397,12 +397,46 @@ fn put_sel(out: &mut [f32], channels: usize, k: usize, off: usize, mono: bool, l
     }
 }
 
+/// Al salir del callback, anota cuánto ha tardado (media suave).
+struct LoadGuard<'a> {
+    started: Instant,
+    budget: f64,
+    load: &'a mut f64,
+}
+
+impl Drop for LoadGuard<'_> {
+    fn drop(&mut self) {
+        if self.budget > 0.0 {
+            let now = self.started.elapsed().as_secs_f64() / self.budget;
+            *self.load = *self.load * 0.95 + now * 0.05;
+            AUDIO_LOAD.store((*self.load * 1000.0).min(100_000.0) as u32, Ordering::Relaxed);
+        }
+    }
+}
+
+fn scopeguard_load(started: Instant, budget: f64, load: &mut f64) -> LoadGuard<'_> {
+    LoadGuard { started, budget, load }
+}
+
+/// Carga del motor de audio (milésimas del tiempo de cada bloque).
+static AUDIO_LOAD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// % del tiempo de cada bloque que tarda el motor en mezclarlo (100 = al límite:
+/// por encima se oirían cortes).
+pub fn audio_load() -> f32 {
+    AUDIO_LOAD.load(Ordering::Relaxed) as f32 / 10.0
+}
+
 /// Callback de la tarjeta reloj: mezcla el motor y reparte.
 fn master_fill(shared: SharedRef, dev_rate: u32) -> impl FnMut(&mut [f32], usize) + Send + 'static {
     let mut stretch = Stretch::new();
     let ratio = ENGINE_RATE as f64 / dev_rate.max(1) as f64;
+    let mut load = 0.0f64;
     move |out: &mut [f32], channels: usize| {
+        let started = Instant::now();
         let frames = out.len() / channels;
+        let budget = frames as f64 / dev_rate.max(1) as f64;
+        let _measure = scopeguard_load(started, budget, &mut load);
         let mut g = lock(&shared);
         let Shared { core, sinks, stream_tap, ret_tap, insert_sinks, returns, apps } = &mut *g;
         stretch.process(

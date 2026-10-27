@@ -100,6 +100,7 @@ import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
 import { Clock } from "./components/Clock";
+import { SysMonitor } from "./components/SysMonitor";
 import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
@@ -3481,6 +3482,7 @@ export default function App() {
             <span className="top-live-dot" />
             <span>{videoStreamRunning ? "VÍDEO · EN VIVO" : "EMITIR VÍDEO"}</span>
           </button>
+          <SysMonitor />
           <Clock />
           <button
             type="button"
