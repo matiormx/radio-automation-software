@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -77,20 +77,25 @@ function Picker({ mode, opts, done }: { mode: Mode; opts: PickOptions; done: (v:
   const [newFolder, setNewFolder] = useState<string | null>(null);
 
   const filters = opts.filters ?? [];
-  const exts = useMemo(
-    () => (opts.directory ? ["/"] : filters[filter]?.extensions ?? []),
-    [opts.directory, filters, filter],
-  );
+  // Clave estable: si dependiera del array, cada pintado volvería a leer la
+  // carpeta y pisaría la que se acaba de abrir.
+  const extKey = opts.directory ? "/" : (filters[filter]?.extensions ?? []).join(",");
+  const reqId = useRef(0);
 
   const go = (path: string) => {
     setError("");
     setSelected([]);
+    const id = ++reqId.current;
+    const exts = extKey ? extKey.split(",") : [];
     invoke<Listing>("picker_list", { path, exts })
       .then((l) => {
+        if (id !== reqId.current) return; // llegó tarde: ya se pidió otra
         setListing(l);
         lastDir = l.path;
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (id === reqId.current) setError(String(e));
+      });
   };
 
   useEffect(() => {
@@ -104,10 +109,13 @@ function Picker({ mode, opts, done }: { mode: Mode; opts: PickOptions; done: (v:
   }, []);
 
   // Cambiar el filtro vuelve a leer la carpeta actual
+  const firstKey = useRef(extKey);
   useEffect(() => {
+    if (extKey === firstKey.current) return;
+    firstKey.current = extKey;
     if (listing) go(listing.path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exts]);
+  }, [extKey]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
