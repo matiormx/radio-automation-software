@@ -492,6 +492,12 @@ pub fn vst_latencies() -> std::collections::HashMap<String, u32> {
 }
 
 /// Abre la ventana del plugin de una ranura (lo carga si hace falta).
+/// Copia los ajustes de un plugin a otra ranura (al copiar un FX en la mesa).
+#[tauri::command]
+pub async fn vst_copy_state(from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || vst::copy_state(&from, &to)).await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn vst_editor(slot: String, path: String, name: String) -> Result<(), String> {
     let cfg = vst::PluginCfg { id: slot, path, name, enabled: true, off: false };

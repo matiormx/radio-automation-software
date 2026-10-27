@@ -166,6 +166,8 @@ enum Cmd {
     /// Abre el editor; si el plugin aun no esta cargado se carga ahora.
     Editor(PluginCfg, Sender<Result<(), String>>),
     Scan(Vec<String>, Sender<ScanResult>),
+    /// Copia los ajustes de una ranura a otra (al copiar un plugin)
+    CopyState(String, String, Sender<()>),
 }
 
 struct Control {
@@ -217,6 +219,15 @@ pub fn open_editor(cfg: PluginCfg) -> Result<(), String> {
     let (tx, rx) = mpsc::channel();
     control().tx.send(Cmd::Editor(cfg, tx)).map_err(|_| "Los plugins VST no responden".to_string())?;
     rx.recv_timeout(Duration::from_secs(15)).unwrap_or_else(|_| Err("El editor del plugin no responde".into()))
+}
+
+/// Copia los ajustes (estado) del plugin de una ranura a otra: del plugin
+/// cargado si lo está, si no del archivo guardado.
+pub fn copy_state(from: &str, to: &str) {
+    let (tx, rx) = mpsc::channel();
+    if control().tx.send(Cmd::CopyState(from.to_string(), to.to_string(), tx)).is_ok() {
+        let _ = rx.recv_timeout(Duration::from_secs(10));
+    }
 }
 
 pub fn scan(extra: Vec<String>) -> ScanResult {
@@ -342,6 +353,17 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                     }
                 };
                 let _ = reply.send(res);
+            }
+            Ok(Cmd::CopyState(from, to, reply)) => {
+                match loaded.get(&from) {
+                    Some(l) => save_state(&to, &l.host.plugin),
+                    None => {
+                        if let (Some(a), Some(b)) = (state_file(&from), state_file(&to)) {
+                            let _ = std::fs::copy(a, b);
+                        }
+                    }
+                }
+                let _ = reply.send(());
             }
             Ok(Cmd::Scan(extra, reply)) => {
                 let std_dirs = standard_folders();

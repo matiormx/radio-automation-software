@@ -4611,3 +4611,14 @@ select optgroup {
 /* Ajustes › Control desde el móvil */
 .mobile-urls { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .mobile-url { font-size: 17px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; user-select: all; }
+
+/* Mesa: asa para arrastrar canales y buses; destino al arrastrar */
+.mx-grip {
+  height: 12px; margin: -4px -4px 4px; border-radius: 6px 6px 0 0; cursor: grab;
+  display: flex; align-items: center; justify-content: center; touch-action: none;
+}
+.mx-grip span { width: 28px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.mx-grip:hover span { background: var(--accent); }
+body[data-dnd="strip"] .mx-strip.dnd-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-slot { box-shadow: 0 -2px 0 var(--accent); }
+body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-color: var(--accent); color: var(--accent); }
