@@ -215,7 +215,7 @@ interface PendingInsert {
   playlistId: string;
   trackId: string;
   deadline: number;
-  onTimeout: "force" | "cancel";
+  onTimeout: "force" | "cancel" | "next";
 }
 
 function pad2(n: number): string {
@@ -2802,7 +2802,8 @@ export default function App() {
         const index = rowsNow.findIndex((row) => row.id === item.trackId);
         if (index < 0) continue;
         if (playing >= 0 && index <= playing) continue;
-        if (now < item.deadline) {
+        // «Siguiente canción»: espera lo que haga falta, sin cortar ni quitar.
+        if (now < item.deadline || item.onTimeout === "next") {
           keep.push(item);
           continue;
         }

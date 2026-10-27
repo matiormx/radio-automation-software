@@ -236,7 +236,8 @@ export interface StreamMeta {
   cover: string;
 }
 export type StationEventSource = "block" | "library";
-export type StationEventTimeout = "force" | "cancel";
+/** Al pasar la espera máxima: forzar, cancelar, o «next» = se queda como siguiente sin límite */
+export type StationEventTimeout = "force" | "cancel" | "next";
 
 export interface StationEvent {
   id: string;
