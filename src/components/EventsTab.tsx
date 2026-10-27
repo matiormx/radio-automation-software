@@ -137,11 +137,13 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
         ? `Biblioteca: ${track.title} · ${track.artist}`
         : "Pista no disponible",
     ...(custom ? [`Al aire: ${custom}`] : []),
-    event.maxWaitSecs > 0
-      ? `Máx. ${event.maxWaitSecs} s · ${event.onTimeout === "force" ? "forzar" : "cancelar"}`
-      : event.onTimeout === "force"
-        ? "Inmediato · forzar"
-        : "Inmediato · cancelar",
+    event.onTimeout === "next"
+      ? "Siguiente canción, sin cortar"
+      : event.maxWaitSecs > 0
+        ? `Máx. ${event.maxWaitSecs} s · ${event.onTimeout === "force" ? "forzar" : "cancelar"}`
+        : event.onTimeout === "force"
+          ? "Inmediato · forzar"
+          : "Inmediato · cancelar",
   ];
 }
 
@@ -162,7 +164,7 @@ function newEvent(): StationEvent {
     noRepeatEventDays: DEFAULT_EVENT_DAYS,
     noRepeatAirMins: DEFAULT_AIR_MINS,
     maxWaitSecs: 60,
-    onTimeout: "cancel",
+    onTimeout: "next",
     lastFired: "",
   };
 }
@@ -710,42 +712,47 @@ function EventEditor({
           <>
             <div className="field-row">
               <label className="field">
-                <span className="field-label">Espera máxima</span>
-                <span className="field-unit">
-                  <input
-                    type="number"
-                    min={0}
-                    max={3600}
-                    value={draft.maxWaitSecs}
-                    onChange={(e) =>
-                      set({
-                        maxWaitSecs: Math.max(
-                          0,
-                          Math.min(3600, Number(e.target.value) || 0),
-                        ),
-                      })
-                    }
-                  />
-                  s
-                </span>
-              </label>
-              <label className="field">
-                <span className="field-label">Si no llega a tiempo</span>
+                <span className="field-label">Cuándo suena</span>
                 <select
                   value={draft.onTimeout}
                   onChange={(e) =>
                     set({ onTimeout: e.target.value as StationEventTimeout })
                   }
                 >
-                  <option value="cancel">Cancelar y quitarlo de la lista</option>
-                  <option value="force">Forzarlo al aire (corta el tema actual)</option>
+                  <option value="next">Como siguiente canción (sin cortar la que suena)</option>
+                  <option value="force">Esperar como mucho… y luego forzarlo (corta el tema)</option>
+                  <option value="cancel">Esperar como mucho… y si no, cancelarlo</option>
                 </select>
               </label>
+              {draft.onTimeout !== "next" && (
+                <label className="field">
+                  <span className="field-label">Espera máxima</span>
+                  <span className="field-unit">
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={draft.maxWaitSecs}
+                      onChange={(e) =>
+                        set({
+                          maxWaitSecs: Math.max(
+                            0,
+                            Math.min(3600, Number(e.target.value) || 0),
+                          ),
+                        })
+                      }
+                    />
+                    s
+                  </span>
+                </label>
+              )}
             </div>
             <p className="hint">
               {random ? "Una pista elegida al azar" : "El sonido"} se coloca justo después del tema que esté sonando en cada una de las horas
-              indicadas. Si el tema actual dura más que la espera, el evento se fuerza con el
-              fundido de salida o se descarta.
+              indicadas.{" "}
+              {draft.onTimeout === "next"
+                ? "Suena cuando termine ese tema, dure lo que dure."
+                : "Si el tema actual dura más que la espera, el evento se fuerza con el fundido de salida o se descarta."}
             </p>
           </>
         )}
