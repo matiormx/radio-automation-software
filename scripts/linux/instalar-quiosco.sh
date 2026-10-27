@@ -44,6 +44,7 @@ apt-get install -y --no-install-recommends \
   xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 dbus-user-session \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
   ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
+  x11vnc wireguard-tools iproute2 samba \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav \
   fonts-dejavu fonts-noto-color-emoji libwebkit2gtk-4.1-0 libgtk-3-0
@@ -148,6 +149,96 @@ if [ -n "$PLUGINS" ]; then
   chown "$KIOSK_USER:$KIOSK_USER" "$DATA_DIR/vst-preinstall"
 fi
 
+say "Acceso remoto: VNC, WireGuard y carpeta de música compartida (se activan en Ajustes › Acceso remoto)"
+# Ayudante con las únicas acciones de sistema que OmniCaster puede pedir
+# (WireGuard y Samba). El usuario del quiosco lo ejecuta con sudo sin
+# contraseña, y nada más.
+cat > /usr/local/bin/omnicaster-remote <<'HELPER'
+#!/usr/bin/env bash
+# Ayudante de OmniCaster para el acceso remoto. Solo hace estas acciones.
+set -euo pipefail
+KUSER="__KIOSK_USER__"
+CONF=/etc/wireguard/wg0.conf
+SMB_CONF=/etc/samba/omnicaster.conf
+case "${1:-}" in
+  wg-import)
+    src="${2:?falta el archivo}"
+    [ -f "$src" ] || { echo "No existe $src" >&2; exit 1; }
+    if ! grep -qE '^[[:space:]]*\[Interface\]' "$src" || ! grep -qiE '^[[:space:]]*PrivateKey' "$src"; then
+      echo "No parece una configuración de WireGuard (.conf con [Interface] y PrivateKey)" >&2; exit 1
+    fi
+    # Sin órdenes: PreUp/PostUp… se ejecutarían como administrador.
+    if grep -qiE '^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|SaveConfig)[[:space:]]*=' "$src"; then
+      echo "La configuración trae órdenes (PostUp, PreUp…): quítalas e impórtala otra vez" >&2; exit 1
+    fi
+    install -d -m 700 /etc/wireguard
+    install -m 600 -o root -g root "$src" "$CONF"
+    systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
+    systemctl restart wg-quick@wg0 ;;
+  wg-up) systemctl start wg-quick@wg0 ;;
+  wg-down) systemctl stop wg-quick@wg0 ;;
+  wg-remove)
+    systemctl disable --now wg-quick@wg0 >/dev/null 2>&1 || true
+    rm -f "$CONF" ;;
+  wg-status|status)
+    echo "configured=$([ -f "$CONF" ] && echo 1 || echo 0)"
+    if ip link show wg0 >/dev/null 2>&1; then
+      echo "up=1"
+      wg show wg0 dump 2>/dev/null | awk 'NR==2{print "endpoint="$3; print "handshake="$5}'
+    else
+      echo "up=0"
+    fi
+    echo "smb_installed=$(command -v smbd >/dev/null 2>&1 && echo 1 || echo 0)"
+    if [ -f "$SMB_CONF" ] && grep -q '^\[Musica\]' "$SMB_CONF" && systemctl is-active --quiet smbd; then
+      echo "smb_enabled=1"
+      sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | head -n1 | sed 's/^/smb_path=/'
+    else
+      echo "smb_enabled=0"
+    fi ;;
+  smb-password)
+    IFS= read -r pass
+    [ "${#pass}" -ge 6 ] || { echo "La contraseña debe tener al menos 6 caracteres" >&2; exit 1; }
+    printf '%s\n%s\n' "$pass" "$pass" | smbpasswd -s -a "$KUSER" >/dev/null
+    smbpasswd -e "$KUSER" >/dev/null ;;
+  smb-enable)
+    dir="${2:?falta la carpeta}"
+    real="$(realpath -e "$dir")"
+    home="$(getent passwd "$KUSER" | cut -d: -f6)"
+    case "$real" in
+      "$home"/*|/srv/*|/media/*|/mnt/*) ;;
+      *) echo "Solo se comparten carpetas del usuario, /srv, /media o /mnt" >&2; exit 1 ;;
+    esac
+    if ! pdbedit -L 2>/dev/null | grep -q "^$KUSER:"; then
+      echo "Pon primero una contraseña para la carpeta compartida" >&2; exit 1
+    fi
+    cat > "$SMB_CONF" <<EOF
+[Musica]
+   path = $real
+   valid users = $KUSER
+   force user = $KUSER
+   read only = no
+   browseable = yes
+   create mask = 0664
+   directory mask = 0775
+EOF
+    grep -q "include = $SMB_CONF" /etc/samba/smb.conf || printf '\n[global]\n   include = %s\n' "$SMB_CONF" >> /etc/samba/smb.conf
+    systemctl enable smbd >/dev/null 2>&1 || true
+    systemctl restart smbd ;;
+  smb-disable)
+    : > "$SMB_CONF"
+    systemctl restart smbd 2>/dev/null || true ;;
+  *) echo "Uso: omnicaster-remote wg-import|wg-up|wg-down|wg-remove|status|smb-password|smb-enable|smb-disable" >&2; exit 2 ;;
+esac
+HELPER
+sed -i "s/__KIOSK_USER__/$KIOSK_USER/" /usr/local/bin/omnicaster-remote
+chmod 755 /usr/local/bin/omnicaster-remote
+echo "$KIOSK_USER ALL=(root) NOPASSWD: /usr/local/bin/omnicaster-remote" > /etc/sudoers.d/omnicaster
+chmod 440 /etc/sudoers.d/omnicaster
+visudo -cf /etc/sudoers.d/omnicaster >/dev/null || { rm -f /etc/sudoers.d/omnicaster; die "No se pudo preparar el permiso del ayudante (sudoers)"; }
+# Samba instalado pero sin compartir nada hasta que se active en Ajustes.
+touch /etc/samba/omnicaster.conf
+systemctl disable --now nmbd >/dev/null 2>&1 || true
+
 say "Arranque automático en OmniCaster"
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/miradio-autologin.conf <<EOF
@@ -207,4 +298,7 @@ Reinicia el equipo (sudo reboot): arrancará directamente en OmniCaster.
 
 Audio: las tarjetas aparecen en la mesa con su nombre (hw:…) y hay $CABLES
 cables virtuales «OmniCaster Cable N» de 8 canales.
+
+Acceso remoto (VNC, WireGuard y la carpeta de música por la red): se activa
+en OmniCaster › Ajustes › Acceso remoto.
 EOF

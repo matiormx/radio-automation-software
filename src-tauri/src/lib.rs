@@ -12,6 +12,7 @@ pub mod library;
 pub mod playlists;
 pub mod settings;
 mod sysmon;
+mod remote;
 pub mod nowplaying;
 pub mod notify;
 pub mod streaming;
@@ -99,6 +100,8 @@ pub fn run() {
             fs::create_dir_all(data_dir.join(playlists::PLAYLISTS_DIR))?;
             // Plugins actualizados que estaban en uso: se colocan antes de cargar la mesa.
             vstpkg::apply_pending(&data_dir);
+            // Linux: si VNC estaba activado, se enciende otra vez.
+            remote::on_startup(&settings::read_settings_public(&data_dir));
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             app.manage(sysmon::SysMon::default());
@@ -130,6 +133,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             system_power,
             sysmon::sys_stats,
+            remote::remote_status,
+            remote::remote_vnc,
+            remote::remote_wg,
+            remote::remote_smb,
             ai::ai_models,
             ai::ai_suggest_metadata,
             library::import_files,
@@ -230,6 +237,7 @@ pub fn run() {
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
                 cursor::release();
+                remote::shutdown();
                 if let Some(st) = _app.try_state::<streaming::StreamingState>() {
                     streaming::shutdown(&st);
                 }

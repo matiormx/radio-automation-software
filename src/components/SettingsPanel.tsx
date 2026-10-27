@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
 import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
+import { RemoteTab } from "./RemoteTab";
 import { LANGUAGE_CATALOG, languageFlag, languageName } from "../languages";
 import { IconFolder, IconPlus, IconTrash, LogoRadio } from "../icons";
 import { MixerEmbedded } from "../MixerWindow";
@@ -194,7 +195,8 @@ export type SettingsTab =
   | "calls"
   | "api"
   | "notify"
-  | "backup";
+  | "backup"
+  | "remote";
 
 export function SettingsPanel({
   settings,
@@ -385,6 +387,17 @@ export function SettingsPanel({
               Copia y actualizaciones
               <span>Copias de seguridad y versiones nuevas</span>
             </button>
+            {IS_LINUX && (
+              <button
+                type="button"
+                className={`settings-nav-btn ${tab === "remote" ? "settings-nav-on" : ""}`}
+                onClick={() => onTabChange("remote")}
+                title="VNC, WireGuard y carpeta de música en la red"
+              >
+                Acceso remoto
+                <span>VNC, WireGuard y carpeta compartida</span>
+              </button>
+            )}
             {/* Abajo del todo: en Linux (equipo dedicado) reiniciar o apagar
                 el equipo; en Windows, cerrar OmniCaster (la X solo lo oculta). */}
             <div className="settings-nav-power">
@@ -462,6 +475,7 @@ export function SettingsPanel({
                 onToggleStreamGroup={onToggleStreamGroup}
               />
             )}
+            {tab === "remote" && <RemoteTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "backup" && (
               <>
                 <UpdateSection showToast={showToast} />

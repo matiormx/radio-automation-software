@@ -50,3 +50,18 @@ Registro de OmniCaster: `~radio/miradio.log`. Quitar el arranque automático:
   tapadas u ocultas.
 - FFmpeg viene del sistema (se actualiza con `apt`).
 - NDI: instala el NDI Runtime para Linux si lo usas.
+
+## Acceso remoto
+
+El instalador deja preparados (apagados) tres servicios que se manejan desde
+OmniCaster › Ajustes › **Acceso remoto**, sin terminal:
+
+- **VNC** (x11vnc): ver y manejar la pantalla del equipo desde otro ordenador.
+  Con contraseña; opcionalmente, solo a través de WireGuard.
+- **WireGuard**: se importa el `.conf` que da el servidor (sin órdenes
+  PostUp/PreUp, por seguridad) y se conecta o desconecta desde ahí.
+- **Samba**: comparte la carpeta de música como `\\IP\Musica` (usuario del
+  quiosco y la contraseña que se ponga ahí).
+
+Las acciones de sistema las hace `/usr/local/bin/omnicaster-remote`, el único
+programa que el usuario del quiosco puede ejecutar como administrador.

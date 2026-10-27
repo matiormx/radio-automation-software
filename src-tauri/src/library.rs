@@ -431,9 +431,14 @@ fn cleanup_covers(data_dir: &Path, tracks: &[Track]) {
 }
 
 fn music_dir(state: &AppState) -> PathBuf {
-    let configured = read_settings_public(&state.data_dir).music_path;
+    music_dir_of(&state.data_dir)
+}
+
+/// Carpeta de música: la elegida en Ajustes o la de la app.
+pub fn music_dir_of(data_dir: &PathBuf) -> PathBuf {
+    let configured = read_settings_public(data_dir).music_path;
     if configured.trim().is_empty() {
-        state.data_dir.join(LEGACY_MUSIC_DIR)
+        data_dir.join(LEGACY_MUSIC_DIR)
     } else {
         PathBuf::from(configured.trim())
     }

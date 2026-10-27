@@ -672,7 +672,15 @@ export interface IntroSettings {
   gainDb: number;
 }
 
+/** Linux (quiosco): control remoto por VNC */
+export interface RemoteSettings {
+  vnc: boolean;
+  /** Solo por la red de WireGuard */
+  vncOnlyWg: boolean;
+}
+
 export interface Settings {
+  remote?: RemoteSettings;
   fadeSeconds: number;
   /** Reproducir la lista automaticamente al abrir la app */
   autoPlayOnStart: boolean;

@@ -92,6 +92,8 @@ pub struct VstSettings {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub vst: VstSettings,
+    /// Linux (quiosco): control remoto por VNC
+    pub remote: RemoteSettings,
     pub fade_seconds: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
@@ -841,10 +843,21 @@ impl Default for StreamingSettings {
     }
 }
 
+/// Acceso remoto en Linux. La contraseña de VNC no se guarda aqui (va en
+/// ~/.vnc/passwd, cifrada a la manera de VNC).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RemoteSettings {
+    pub vnc: bool,
+    /// Solo se acepta VNC por la red de WireGuard
+    pub vnc_only_wg: bool,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             vst: VstSettings::default(),
+            remote: RemoteSettings::default(),
             fade_seconds: 6,
             auto_play_on_start: false,
             silence_detection: false,
