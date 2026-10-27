@@ -151,6 +151,8 @@ impl Engine {
     fn start(app: AppHandle) -> Engine {
         if let Ok(dir) = app.path().app_data_dir() {
             vst::set_state_dir(dir.join("vst"));
+            // Margen de las tarjetas (antes de abrir ninguna)
+            io::set_buffer_ms(crate::settings::read_settings_public(&dir).audio_buffer_ms);
         }
         let shared = io::new_shared();
         let (ret_prod, ret_cons) = rtrb::RingBuffer::<f32>::new(ENGINE_RATE as usize * 2);

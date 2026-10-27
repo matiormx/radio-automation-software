@@ -95,6 +95,9 @@ pub struct Settings {
     /// Linux (quiosco): control remoto por VNC
     pub remote: RemoteSettings,
     pub fade_seconds: u32,
+    /// Margen de las tarjetas de sonido (ms): búfer de la tarjeta y colchón de
+    /// las secundarias. Más = menos cortes con el equipo cargado, más retardo.
+    pub audio_buffer_ms: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
     /// Pasar a la siguiente pista (o reanudar) si hay silencio.
@@ -863,6 +866,7 @@ impl Default for Settings {
             vst: VstSettings::default(),
             remote: RemoteSettings::default(),
             fade_seconds: 6,
+            audio_buffer_ms: 40,
             auto_play_on_start: false,
             silence_detection: false,
             silence_threshold_db: -55.0,
