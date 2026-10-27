@@ -15,6 +15,7 @@ mod sysmon;
 mod netcfg;
 mod hwenc;
 mod crashlog;
+mod rt;
 mod remote;
 mod mobile;
 pub mod nowplaying;
@@ -100,6 +101,8 @@ pub fn run() {
             fs::create_dir_all(&data_dir)?;
             // Registro de errores internos y aviso si la vez anterior se cerró mal
             crashlog::init(data_dir.clone());
+            // El sonido por delante de todo lo demás del equipo
+            rt::boost_process();
             // Importacion preparada desde Ajustes: se aplica antes de leer nada.
             backup::apply_pending(&data_dir);
             fs::create_dir_all(data_dir.join(library::LEGACY_MUSIC_DIR))?;

@@ -164,7 +164,10 @@ impl Engine {
             let (shared, ctl, io, stop, meters, app) = (shared.clone(), ctl.clone(), io.clone(), stop.clone(), meters.clone(), app.clone());
             std::thread::Builder::new()
                 .name("miradio-engine".into())
-                .spawn(move || control_loop(app, shared, ctl, io, stop, meters))
+                .spawn(move || {
+                    crate::rt::boost_thread();
+                    control_loop(app, shared, ctl, io, stop, meters)
+                })
                 .ok()
         };
         Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons), vst_used: AtomicBool::new(false) }

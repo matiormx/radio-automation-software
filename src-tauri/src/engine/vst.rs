@@ -193,7 +193,10 @@ fn control() -> &'static Control {
         let (tx, rx) = mpsc::channel();
         let hosts = Arc::new(Mutex::new(HashMap::new()));
         let h = hosts.clone();
-        let _ = std::thread::Builder::new().name("miradio-vst".into()).spawn(move || control_loop(rx, h));
+        let _ = std::thread::Builder::new().name("miradio-vst".into()).spawn(move || {
+            crate::rt::boost_thread();
+            control_loop(rx, h)
+        });
         Control { tx, hosts }
     })
 }

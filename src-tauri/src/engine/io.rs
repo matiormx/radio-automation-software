@@ -625,6 +625,7 @@ impl Io {
         let feeder = std::thread::Builder::new()
             .name("miradio-stream-feed".into())
             .spawn(move || {
+                crate::rt::boost_thread();
                 let mut bytes: Vec<u8> = Vec::with_capacity(16384);
                 // Cadencia fija por reloj (no `sleep` encadenado): en Windows
                 // el sleep de 20 ms puede durar 31 ms y el audio sale a ráfagas.
@@ -653,7 +654,10 @@ impl Io {
         let errs = errors.clone();
         let thread = std::thread::Builder::new()
             .name("miradio-audio-io".into())
-            .spawn(move || io_thread(shared, rx, errs))
+            .spawn(move || {
+                crate::rt::boost_thread();
+                io_thread(shared, rx, errs)
+            })
             .ok();
         Io { tx, thread, feeder, feeder_stop, errors }
     }
