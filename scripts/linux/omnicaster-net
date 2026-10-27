@@ -155,6 +155,8 @@ def status():
         "dns": dns,
         "config": saved,
         "pending": pending,
+        "shares": shares_status(),
+        "cifsSupport": bool(shutil.which("mount.cifs")),
         "wifiSupport": bool(shutil.which("wpa_supplicant")),
         "admins": admins(),
     }))
@@ -317,9 +319,155 @@ def revert():
     run("netplan", "apply", check=False)
 
 
+# ---------- discos de red (carpetas compartidas SMB, como M: o R: en Windows) ----------
+
+SHARES = os.path.join(STATE, "shares.json")
+MNT = "/mnt/red"
+CREDS = "/etc/omnicaster"
+TAG = "# omnicaster-share:"
+
+
+def load_shares():
+    try:
+        with open(SHARES) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def save_shares(v):
+    os.makedirs(STATE, exist_ok=True)
+    with open(SHARES, "w") as f:
+        json.dump(v, f)
+
+
+def is_mounted(path):
+    real = os.path.realpath(path)
+    for line in read("/proc/mounts").splitlines():
+        parts = line.split()
+        if len(parts) > 1 and parts[1].replace("\\040", " ") == real:
+            return True
+    return False
+
+
+def shares_status():
+    out = []
+    for sh in load_shares():
+        path = os.path.join(MNT, sh["name"])
+        out.append({"name": sh["name"], "unc": sh["unc"], "user": sh.get("user", ""), "path": path, "mounted": is_mounted(path)})
+    return out
+
+
+def fstab_without(name):
+    lines = read("/etc/fstab").splitlines()
+    return [l for l in lines if not l.endswith(TAG + name)]
+
+
+def write_fstab(lines):
+    tmp = "/etc/fstab.omnicaster"
+    with open(tmp, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace(tmp, "/etc/fstab")
+
+
+def share_add():
+    try:
+        req = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        fail("Petición no válida")
+    check_password(req.get("password", ""))
+    sh = req.get("share") or {}
+    name = sh.get("name", "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+        fail("Nombre no válido: usa letras, números, guiones (por ejemplo M o Musica)")
+    unc = sh.get("unc", "").strip().replace("\\", "/")
+    m = re.fullmatch(r"/*([^/\s]+)/([^/]+(?:/[^/]+)*)/?", unc)
+    if not m:
+        fail("Ruta no válida: escribe \\\\servidor\\carpeta (como en Windows)")
+    src = f"//{m.group(1)}/{m.group(2)}"
+    if any(c in src for c in ",#\n"):
+        fail("La ruta no puede llevar comas ni #")
+    user = sh.get("user", "").strip()
+    domain = ""
+    if "\\" in user:
+        domain, user = user.split("\\", 1)
+    if not shutil.which("mount.cifs"):
+        fail("Falta cifs-utils: vuelve a ejecutar el instalador del quiosco")
+    kuser = os.environ.get("SUDO_USER") or "radio"
+    uid = run("id", "-u", kuser).strip()
+    gid = run("id", "-g", kuser).strip()
+    path = os.path.join(MNT, name)
+    if is_mounted(path):
+        run("umount", "-l", path, check=False)
+    os.makedirs(path, exist_ok=True)
+    opts = [f"uid={uid}", f"gid={gid}", "file_mode=0664", "dir_mode=0775", "iocharset=utf8",
+            "_netdev", "nofail", "x-systemd.automount", "x-systemd.mount-timeout=20", "x-systemd.idle-timeout=0"]
+    if user:
+        os.makedirs(CREDS, mode=0o700, exist_ok=True)
+        cred = os.path.join(CREDS, f"smb-{name}.cred")
+        fd = os.open(cred, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(f"username={user}\npassword={sh.get('sharePassword', '')}\n")
+            if domain:
+                f.write(f"domain={domain}\n")
+        opts.append(f"credentials={cred}")
+    else:
+        opts.append("guest")
+    # Primero se prueba a mano: si no conecta, no se guarda nada
+    test = [o for o in opts if not o.startswith("x-systemd") and o not in ("_netdev", "nofail")]
+    p = subprocess.run(["mount", "-t", "cifs", src, path, "-o", ",".join(test)], capture_output=True, text=True)
+    if p.returncode != 0:
+        err = (p.stderr or p.stdout).strip()
+        hint = ""
+        if "13" in err or "Permission denied" in err:
+            hint = " (usuario o contraseña incorrectos)"
+        elif "112" in err or "Host is down" in err or "No route" in err or "could not resolve" in err.lower():
+            hint = " (no se encuentra el servidor: prueba con su IP)"
+        elif "No such file" in err or "2" == err[-1:]:
+            hint = " (esa carpeta compartida no existe)"
+        fail(f"No se pudo conectar con {src}{hint}: {err}")
+    run("umount", path, check=False)
+    lines = fstab_without(name)
+    lines.append(f"{src.replace(' ', chr(92) + '040')} {path} cifs {','.join(opts)} 0 0 {TAG}{name}")
+    write_fstab(lines)
+    shares = [x for x in load_shares() if x["name"] != name]
+    shares.append({"name": name, "unc": "\\\\" + src[2:].replace("/", "\\"), "user": (domain + "\\" if domain else "") + user})
+    save_shares(shares)
+    run("systemctl", "daemon-reload", check=False)
+    run("systemctl", "restart", "remote-fs.target", check=False)
+    run("mount", path, check=False)
+    print(json.dumps({"path": path}))
+
+
+def share_remove():
+    try:
+        req = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        fail("Petición no válida")
+    check_password(req.get("password", ""))
+    name = req.get("name", "")
+    if not any(x["name"] == name for x in load_shares()):
+        fail("Ese disco de red no existe")
+    path = os.path.join(MNT, name)
+    unit = run("systemd-escape", "-p", "--suffix=automount", path, check=False).strip()
+    if unit:
+        run("systemctl", "stop", unit, check=False)
+    run("umount", "-l", path, check=False)
+    write_fstab(fstab_without(name))
+    run("systemctl", "daemon-reload", check=False)
+    try:
+        os.rmdir(path)
+    except OSError:
+        pass
+    cred = os.path.join(CREDS, f"smb-{name}.cred")
+    if os.path.exists(cred):
+        os.remove(cred)
+    save_shares([x for x in load_shares() if x["name"] != name])
+
+
 if __name__ == "__main__":
     if os.geteuid() != 0:
         fail("Hay que ejecutarlo como administrador")
     action = sys.argv[1] if len(sys.argv) > 1 else ""
-    {"status": status, "apply": apply_, "confirm": confirm, "revert": revert}.get(
-        action, lambda: fail("Uso: omnicaster-net status|apply|confirm|revert", 2))()
+    {"status": status, "apply": apply_, "confirm": confirm, "revert": revert, "share-add": share_add, "share-remove": share_remove}.get(
+        action, lambda: fail("Uso: omnicaster-net status|apply|confirm|revert|share-add|share-remove", 2))()

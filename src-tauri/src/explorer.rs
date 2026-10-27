@@ -187,6 +187,15 @@ pub fn kiosk_roots(app: &AppHandle) -> Vec<Place> {
             let _ = std::fs::create_dir_all(&d);
             out.push(folder(name, &d));
         }
+        // Discos de red (Ajustes › Red), como M: o R: en Windows
+        if let Ok(rd) = std::fs::read_dir("/mnt/red") {
+            let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+            v.sort();
+            for d in v {
+                let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                out.push(Place { label: format!("Red · {name}"), path: d.to_string_lossy().into_owned(), kind: "drive".into() });
+            }
+        }
         // Memorias USB y discos externos (los monta udisks en /media/<usuario>)
         let user = home.file_name().map(|n| n.to_owned()).unwrap_or_default();
         for base in [Path::new("/media").join(&user), Path::new("/run/media").join(&user)] {
