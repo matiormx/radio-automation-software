@@ -173,6 +173,8 @@ pub fn run() {
             netcfg::net_apply,
             netcfg::net_confirm,
             netcfg::net_revert,
+            netcfg::net_share_add,
+            netcfg::net_share_remove,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,

@@ -68,3 +68,27 @@ pub async fn net_confirm() -> Result<(), String> {
 pub async fn net_revert() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(|| helper(&["revert"], None).map(|_| ())).await.map_err(|e| e.to_string())?
 }
+
+/// Conecta una carpeta compartida de otro ordenador (\\\\servidor\\carpeta) en
+/// /mnt/red/<nombre>; queda puesta en cada arranque.
+#[tauri::command]
+pub async fn net_share_add(share: serde_json::Value, password: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let req = serde_json::json!({ "password": password, "share": share }).to_string();
+        let out = helper(&["share-add"], Some(&req))?;
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap_or_default();
+        Ok(v["path"].as_str().unwrap_or_default().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn net_share_remove(name: String, password: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let req = serde_json::json!({ "password": password, "name": name }).to_string();
+        helper(&["share-remove"], Some(&req)).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

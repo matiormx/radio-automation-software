@@ -20,6 +20,13 @@ interface IfaceCfg {
   wifiPassword?: string;
   hasWifiPassword?: boolean;
 }
+interface NetShare {
+  name: string;
+  unc: string;
+  user: string;
+  path: string;
+  mounted: boolean;
+}
 interface NetStatus {
   supported: boolean;
   hostname?: string;
@@ -29,6 +36,8 @@ interface NetStatus {
   pending?: boolean;
   wifiSupport?: boolean;
   admins?: string[];
+  shares?: NetShare[];
+  cifsSupport?: boolean;
 }
 
 /** Formulario de una interfaz (la máscara se escribe aparte). */
@@ -95,6 +104,7 @@ export function NetworkTab({ showToast }: Props) {
   const [hostname, setHostname] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [share, setShare] = useState({ name: "", unc: "", user: "", sharePassword: "" });
   const [countdown, setCountdown] = useState(0);
   const loaded = useRef(false);
 
@@ -179,6 +189,33 @@ export function NetworkTab({ showToast }: Props) {
       refresh();
     } catch (e) {
       showToast(String(e));
+    }
+  };
+
+  const addShare = async () => {
+    setBusy(true);
+    try {
+      const path = await invoke<string>("net_share_add", { share, password });
+      showToast(`Disco de red conectado en ${path}`);
+      setShare({ name: "", unc: "", user: "", sharePassword: "" });
+      refresh();
+    } catch (e) {
+      showToast(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeShare = async (name: string) => {
+    if (!password) return showToast("Escribe primero la contraseña de administrador");
+    setBusy(true);
+    try {
+      await invoke("net_share_remove", { name, password });
+      showToast(`Disco de red ${name} quitado`);
+      refresh();
+    } catch (e) {
+      showToast(String(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -304,6 +341,63 @@ export function NetworkTab({ showToast }: Props) {
           </button>
         </div>
         {error && <p className="hint update-error">{error}</p>}
+      </fieldset>
+      <fieldset className="fieldset">
+        <legend>Discos de red</legend>
+        <p className="hint">
+          Carpetas compartidas de otros ordenadores, como las unidades M: o R: que tienes en Windows. Se conectan en{" "}
+          <code>/mnt/red/NOMBRE</code>, vuelven a conectarse en cada arranque y salen en los selectores de archivos como
+          «Red · NOMBRE». Al importar una copia de Windows, cambia por ejemplo <code>M:\</code> por{" "}
+          <code>/mnt/red/M</code>.
+        </p>
+        {!st.cifsSupport && <p className="hint update-error">Falta cifs-utils: vuelve a ejecutar el instalador del quiosco.</p>}
+        {(st.shares ?? []).map((sh) => (
+          <div key={sh.name} className="net-share">
+            <span className={`net-dot${sh.mounted ? " on" : ""}`} title={sh.mounted ? "Conectado" : "Sin conectar (se conecta al usarlo)"} />
+            <strong>{sh.name}</strong>
+            <span className="net-share-unc">{sh.unc}</span>
+            <span className="hint">{sh.path}{sh.user ? ` · ${sh.user}` : " · invitado"}</span>
+            <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => void removeShare(sh.name)}>
+              Quitar
+            </button>
+          </div>
+        ))}
+        <div className="net-grid">
+          <label className="field">
+            <span className="field-label">Nombre</span>
+            <input value={share.name} onChange={(e) => setShare({ ...share, name: e.target.value })} placeholder="M" />
+          </label>
+          <label className="field" style={{ gridColumn: "span 2" }}>
+            <span className="field-label">Carpeta compartida</span>
+            <input value={share.unc} onChange={(e) => setShare({ ...share, unc: e.target.value })} placeholder="\\192.168.1.10\Musica" />
+          </label>
+          <label className="field">
+            <span className="field-label">Usuario</span>
+            <input value={share.user} onChange={(e) => setShare({ ...share, user: e.target.value })} placeholder="Vacío = invitado" />
+          </label>
+          <label className="field" style={{ gridColumn: "span 2" }}>
+            <span className="field-label">Contraseña de esa carpeta</span>
+            <input type="password" value={share.sharePassword} onChange={(e) => setShare({ ...share, sharePassword: e.target.value })} />
+          </label>
+        </div>
+        <label className="field">
+          <span className="field-label">Contraseña de administrador</span>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </label>
+        <div className="update-actions">
+          <button
+            type="button"
+            className="btn btn-sm btn-accent"
+            disabled={busy || !password || !share.name.trim() || !share.unc.trim()}
+            onClick={() => void addShare()}
+          >
+            {busy ? "Conectando…" : "Conectar disco de red"}
+          </button>
+        </div>
+        <p className="hint">
+          Si la ruta es la de un PC con Windows, usa mejor su IP que su nombre (<code>\\192.168.1.10\Musica</code>). En
+          el usuario puedes poner <code>EQUIPO\usuario</code> si Windows lo pide así.
+        </p>
       </fieldset>
     </>
   );

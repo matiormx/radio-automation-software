@@ -44,7 +44,7 @@ apt-get install -y --no-install-recommends \
   xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 dbus-user-session \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
   ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
-  x11vnc wireguard-tools iproute2 samba python3 wpasupplicant iw \
+  x11vnc wireguard-tools iproute2 samba python3 wpasupplicant iw cifs-utils \
   plymouth plymouth-themes feh \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav \
