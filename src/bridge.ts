@@ -41,6 +41,30 @@ export async function listMonitors(): Promise<MonitorInfo[]> {
 let videoOutWatch: number | undefined;
 let npWatch: number | undefined;
 
+/**
+ * Vigila que una ventana escondida siga fuera de la vista. Solo la vuelve a
+ * mover (sin tocar su orden ni el foco: hacerlo cada 2 s en Linux traia la
+ * ventana principal al frente y tapaba Ajustes). Si el sistema no la deja
+ * fuera de la pantalla, deja de insistir tras unos intentos.
+ */
+function watchParked(win: WebviewWindow): number {
+  let misses = 0;
+  const id = window.setInterval(async () => {
+    const p = await win.outerPosition().catch(() => null);
+    if (!p || p.x <= -10000) {
+      misses = 0;
+      return;
+    }
+    misses += 1;
+    if (misses > 3) {
+      window.clearInterval(id);
+      return;
+    }
+    await win.setPosition(new PhysicalPosition(-32000, -32000)).catch(() => undefined);
+  }, 2000);
+  return id;
+}
+
 /** Esconde una ventana: fuera de todos los monitores, al fondo, sin clics ni foco. */
 async function parkWindow(win: WebviewWindow) {
   await win.setFullscreen(false).catch(() => undefined);
@@ -98,11 +122,7 @@ export async function openVideoOut(monitor: number): Promise<boolean | "hidden">
     if (hidden) {
       await parkWindow(win);
       // Windows la recoloca a veces: se vigila que siga fuera de la vista.
-      const target = win;
-      videoOutWatch = window.setInterval(async () => {
-        const p = await target.outerPosition().catch(() => null);
-        if (p && p.x > -10000) await parkWindow(target);
-      }, 2000);
+      videoOutWatch = watchParked(win);
       return "hidden";
     }
     const place = async (full: boolean) => {
@@ -182,11 +202,7 @@ export async function openNowPlayingOut(width: number, height: number): Promise<
     // todos los monitores, al fondo y sin recibir clics ni foco.
     await parkWindow(win);
     window.clearInterval(npWatch);
-    const target = win;
-    npWatch = window.setInterval(async () => {
-      const p = await target.outerPosition().catch(() => null);
-      if (p && p.x > -10000) await parkWindow(target);
-    }, 2000);
+    npWatch = watchParked(win);
     return true;
   } catch {
     return false;
