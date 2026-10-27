@@ -481,6 +481,8 @@ export interface VideoSettings {
   maxHeight?: number;
   /** Recibir NDI en calidad ligera (proxy): mucha menos red */
   ndiLowBandwidth?: boolean;
+  /** Compresión del vídeo emitido: auto | nvenc | qsv | amf | x264 */
+  encoder?: string;
 }
 
 /** Ventana de video de la emision (los videos de la lista, en pantalla). */
@@ -829,6 +831,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ndiFfmpegPath: "",
     maxHeight: 720,
     ndiLowBandwidth: false,
+    encoder: "auto",
   },
   streaming: {
     icecast: [],

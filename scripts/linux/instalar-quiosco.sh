@@ -43,12 +43,35 @@ apt-cache show libfuse2t64 >/dev/null 2>&1 && FUSE=libfuse2t64
 apt-get install -y --no-install-recommends \
   xserver-xorg xinit x11-xserver-utils xterm openbox picom dbus-x11 dbus-user-session \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
-  ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
+  ffmpeg v4l-utils "$FUSE" curl jq ca-certificates pciutils \
   x11vnc wireguard-tools iproute2 samba python3 wpasupplicant iw cifs-utils \
   plymouth plymouth-themes feh \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav \
   fonts-dejavu fonts-noto-color-emoji libwebkit2gtk-4.1-0 libgtk-3-0
+
+say "Tarjeta gráfica: compresión de vídeo por hardware (como OBS)"
+# El driver que trae Ubuntu de serie no sabe usar el compresor de NVIDIA
+# (NVENC): se instala el oficial recomendado para la tarjeta. En Intel, el
+# driver de vídeo que da Quick Sync. NVIDIA_DRIVER=0 para no tocar nada.
+GPUS=$(lspci 2>/dev/null | grep -Ei 'vga|3d|display' || true)
+if [ "${NVIDIA_DRIVER:-1}" != 0 ] && echo "$GPUS" | grep -qi nvidia; then
+  if lsmod | grep -q '^nvidia '; then
+    echo "Driver de NVIDIA ya en uso."
+  else
+    apt-get install -y --no-install-recommends ubuntu-drivers-common pciutils >/dev/null
+    if ubuntu-drivers install >/dev/null 2>&1 || ubuntu-drivers autoinstall >/dev/null 2>&1; then
+      echo "Driver de NVIDIA instalado: se usará al reiniciar."
+    else
+      echo "No pude instalar el driver de NVIDIA: el vídeo se comprimirá con el procesador."
+    fi
+  fi
+fi
+if echo "$GPUS" | grep -qi intel; then
+  apt-get install -y --no-install-recommends intel-media-va-driver-non-free >/dev/null 2>&1 || true
+  apt-get install -y --no-install-recommends libmfx-gen1.2 >/dev/null 2>&1 \
+    || apt-get install -y --no-install-recommends libmfx1 >/dev/null 2>&1 || true
+fi
 
 say "Usuario del quiosco: $KIOSK_USER"
 if ! id "$KIOSK_USER" >/dev/null 2>&1; then

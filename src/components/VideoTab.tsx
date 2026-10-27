@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { IconPlus, IconTrash } from "../icons";
 import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listMonitors, type MonitorInfo } from "../bridge";
 import { listVideoCaptureDevices, pickFfmpegFile, ndiNative, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
@@ -446,6 +447,7 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
 
       <fieldset className="fieldset">
         <legend>Rendimiento</legend>
+        <EncoderField value={v.encoder ?? "auto"} onChange={(encoder) => set({ encoder })} />
         <label className="field">
           <span className="field-label">Resolución máxima</span>
           <select
@@ -533,6 +535,45 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
       <p className="hint">
         La tarjeta SDI requiere el SDK DeckLink instalado en el equipo. NDI usa FFmpeg con soporte
         NDI; el audio de NDI sale de la salida «Streaming» de la mesa.
+      </p>
+    </>
+  );
+}
+
+interface EncoderInfo {
+  available: [string, string][];
+  autoId: string;
+  autoLabel: string;
+}
+
+/** Compresión del vídeo emitido (RTMP): por hardware si el equipo puede. */
+function EncoderField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [info, setInfo] = useState<EncoderInfo | null>(null);
+  useEffect(() => {
+    void invoke<EncoderInfo>("video_encoders").then(setInfo).catch(() => undefined);
+  }, []);
+  const forcedMissing = value !== "auto" && value !== "x264" && info && !info.available.some(([id]) => id === value);
+  return (
+    <>
+      <label className="field">
+        <span className="field-label">Compresión del vídeo</span>
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="auto">Automática{info ? ` (${info.autoLabel})` : " (comprobando…)"}</option>
+          {info?.available.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+          {forcedMissing && <option value={value}>{value} (no disponible en este equipo)</option>}
+          <option value="x264">Procesador (x264)</option>
+        </select>
+      </label>
+      <p className={`hint${forcedMissing ? " update-error" : ""}`}>
+        {forcedMissing
+          ? "Este compresor no funciona en este equipo: se emite con el procesador."
+          : info && info.available.length === 0
+            ? "No se ha encontrado compresión por hardware (tarjeta NVIDIA GTX 600 o posterior, Intel con Quick Sync o AMD con su driver): el vídeo se comprime con el procesador, que es lo que más gasta."
+            : "Comprimir con la tarjeta gráfica (como hace OBS) deja el procesador casi libre. Se aplica al volver a empezar la emisión de vídeo."}
       </p>
     </>
   );
