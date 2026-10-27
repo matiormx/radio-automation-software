@@ -95,7 +95,7 @@ import {
 } from "./bridge";
 import type { VideoState } from "./videoSurface";
 import { isDragging } from "./dnd";
-import { apiApply, apiPublish, backupLastImportLog, confirmAsk, cursorWall, notifyFire } from "./api";
+import { apiApply, apiPublish, backupLastImportLog, confirmAsk, cursorWall, notifyFire, showLastCrash } from "./api";
 import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
 import { emit as emitEvent, listen } from "@tauri-apps/api/event";
 import { PlayerBar } from "./components/PlayerBar";
@@ -421,6 +421,11 @@ export default function App() {
         : null,
     [liveRun],
   );
+  // Aviso si la vez anterior se cerró mal (por ejemplo, un plugin)
+  useEffect(() => {
+    const t = window.setTimeout(() => void showLastCrash(), 2500);
+    return () => window.clearTimeout(t);
+  }, []);
   const [liveClock, setLiveClock] = useState(() => Date.now());
   useEffect(() => {
     if (!liveRun) return;
