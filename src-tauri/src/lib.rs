@@ -124,7 +124,11 @@ pub fn run() {
                     // cerrar de verdad: Ajustes › Copia y actualizaciones.
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = window.minimize();
+                        // En el quiosco Linux no hay barra de tareas: una
+                        // ventana minimizada se perdería. Se queda donde está.
+                        if !cfg!(target_os = "linux") {
+                            let _ = window.minimize();
+                        }
                     }
                     tauri::WindowEvent::Destroyed => window.app_handle().exit(0),
                     _ => {}
