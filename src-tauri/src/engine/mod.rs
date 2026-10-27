@@ -38,6 +38,7 @@ struct Ctl {
     loader: DecodeCache,
 }
 
+#[allow(dead_code)] // io y vst_used se guardan para que vivan lo mismo que el motor
 pub struct Engine {
     shared: SharedRef,
     ctl: Arc<Mutex<Ctl>>,
@@ -53,7 +54,10 @@ pub struct Engine {
     /// Lector del retorno a los oyentes (mix-minus)
     ret_cons: Mutex<rtrb::Consumer<f32>>,
     /// Ya se han usado plugins VST (para descargarlos si se quitan todos)
-    vst_used: AtomicBool,
+    vst_used: Arc<AtomicBool>,
+    /// Ultima configuracion de la mesa pendiente de aplicar (la aplica un
+    /// hilo aparte: cargar plugins puede tardar y nada debe esperarlo).
+    mixer_next: Arc<(Mutex<Option<MixConfig>>, std::sync::Condvar)>,
 }
 
 impl Drop for Engine {
@@ -62,6 +66,7 @@ impl Drop for Engine {
             s.store(true, Ordering::SeqCst);
         }
         self.stop.store(true, Ordering::SeqCst);
+        self.mixer_next.1.notify_all();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -172,39 +177,46 @@ impl Engine {
                 })
                 .ok()
         };
-        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons), vst_used: AtomicBool::new(false) }
+        let vst_used = Arc::new(AtomicBool::new(false));
+        let mixer_next: Arc<(Mutex<Option<MixConfig>>, std::sync::Condvar)> = Arc::new((Mutex::new(None), std::sync::Condvar::new()));
+        {
+            let (shared, io, stop, vst_used, next) = (shared.clone(), io.clone(), stop.clone(), vst_used.clone(), mixer_next.clone());
+            let _ = std::thread::Builder::new().name("miradio-mixer-apply".into()).spawn(move || {
+                crate::rt::boost_thread();
+                loop {
+                    let config = {
+                        let (m, cv) = &*next;
+                        let mut g = m.lock().unwrap_or_else(|e| e.into_inner());
+                        loop {
+                            if stop.load(Ordering::SeqCst) {
+                                return;
+                            }
+                            if let Some(c) = g.take() {
+                                break c;
+                            }
+                            g = cv.wait_timeout(g, Duration::from_millis(500)).unwrap_or_else(|e| e.into_inner()).0;
+                        }
+                    };
+                    apply_mixer(&shared, &io, &vst_used, config);
+                }
+            });
+        }
+        Engine { shared, ctl, io, stop, meters, thread, app, live_stop: Mutex::new(None), app_feeds: Mutex::new(Default::default()), ret_cons: Mutex::new(ret_cons), vst_used, mixer_next }
     }
 
     fn apply(&self, op: Op) {
+        // La mesa se aplica en su propio hilo: quien la manda (la ventana)
+        // no espera, y si llegan varias seguidas solo cuenta la ultima.
+        if let Op::Mixer { config } = op {
+            let (m, cv) = &*self.mixer_next;
+            *m.lock().unwrap_or_else(|e| e.into_inner()) = Some(config);
+            cv.notify_one();
+            return;
+        }
         let mut ctl = lock_ctl(&self.ctl);
         let Ctl { player, loader } = &mut *ctl;
         match op {
-            Op::Mixer { config } => {
-                // Los plugins VST se cargan antes, fuera del candado del audio.
-                let slots: Vec<vst::PluginCfg> = config
-                    .mixer_channels
-                    .iter()
-                    .flat_map(|c| c.plugins.iter())
-                    .chain(config.mixer_buses.iter().flat_map(|b| b.plugins.iter()))
-                    .filter(|p| !p.id.is_empty())
-                    .cloned()
-                    .collect();
-                if !slots.is_empty() || self.vst_used.swap(!slots.is_empty(), Ordering::SeqCst) {
-                    for e in vst::ensure(slots) {
-                        self.io.errors.lock().unwrap_or_else(|x| x.into_inner()).push(format!("VST: {e}"));
-                    }
-                }
-                let old = {
-                    let mut g = lock(&self.shared);
-                    let vol = g.core.volume();
-                    let plan = Plan::build(&config, vol, Some(&g.core.plan));
-                    let devices: Vec<String> = plan.outs.iter().filter(|o| o.device != graph::NONE_DEVICE).map(|o| o.device.clone()).collect();
-                    let (sends, returns) = plan.insert_devices();
-                    self.io.set_route(devices, sends, returns);
-                    g.core.swap_plan(plan)
-                };
-                drop(old);
-            }
+            Op::Mixer { .. } => {}
             Op::Volume { value } => lock(&self.shared).core.set_volume(value),
             Op::Meters { on } => self.meters.store(on, Ordering::SeqCst),
             Op::LiveGain { key, db } => lock(&self.shared).core.plan.live_gain(&key, db),
@@ -242,6 +254,34 @@ impl Engine {
             }
         }
     }
+}
+
+/// Aplica una configuracion de la mesa: primero los plugins (sin ningun
+/// candado: pueden tardar), luego el cambio de plan, que es instantaneo.
+fn apply_mixer(shared: &SharedRef, io: &Arc<Io>, vst_used: &AtomicBool, config: MixConfig) {
+    let slots: Vec<vst::PluginCfg> = config
+        .mixer_channels
+        .iter()
+        .flat_map(|c| c.plugins.iter())
+        .chain(config.mixer_buses.iter().flat_map(|b| b.plugins.iter()))
+        .filter(|p| !p.id.is_empty())
+        .cloned()
+        .collect();
+    if !slots.is_empty() || vst_used.swap(!slots.is_empty(), Ordering::SeqCst) {
+        for e in vst::ensure(slots) {
+            io.errors.lock().unwrap_or_else(|x| x.into_inner()).push(format!("VST: {e}"));
+        }
+    }
+    let old = {
+        let mut g = lock(shared);
+        let vol = g.core.volume();
+        let plan = Plan::build(&config, vol, Some(&g.core.plan));
+        let devices: Vec<String> = plan.outs.iter().filter(|o| o.device != graph::NONE_DEVICE).map(|o| o.device.clone()).collect();
+        let (sends, returns) = plan.insert_devices();
+        io.set_route(devices, sends, returns);
+        g.core.swap_plan(plan)
+    };
+    drop(old);
 }
 
 impl Engine {

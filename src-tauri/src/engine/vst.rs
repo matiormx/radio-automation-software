@@ -411,15 +411,30 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                                 let bundle = p.path.to_string_lossy().into_owned();
                                 // Un .vst3 puede traer muchos plugins (LSP trae ~200 en
                                 // uno): se ofrece cada uno, con su clase en la ruta.
-                                let classes: Vec<(String, String)> = vst3_host::discovery::get_detailed_plugin_info(&p.path)
-                                    .map(|d| {
-                                        d.classes
-                                            .into_iter()
-                                            .filter(|c| c.category.contains("Audio Module Class"))
-                                            .map(|c| (c.name, c.class_id))
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
+                                let classes: Vec<(String, String)> = match vst3_host::discovery::get_detailed_plugin_info(&p.path) {
+                                    Ok(d) => d
+                                        .classes
+                                        .into_iter()
+                                        .filter(|c| c.category.contains("Audio Module Class"))
+                                        .map(|c| (c.name, c.class_id))
+                                        .collect(),
+                                    Err(e) => {
+                                        // Sin poder abrir la fábrica: la lista que el propio
+                                        // paquete declara (moduleinfo.json), si la trae.
+                                        crate::crashlog::note(&format!("VST: no se pudieron leer las clases de {bundle}: {e}"));
+                                        vst3_host::discovery::read_module_info(&p.path)
+                                            .ok()
+                                            .flatten()
+                                            .map(|m| {
+                                                m.classes
+                                                    .into_iter()
+                                                    .filter(|c| c.category.contains("Audio Module Class"))
+                                                    .map(|c| (c.name, c.class_id))
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default()
+                                    }
+                                };
                                 let entries: Vec<(String, String)> = if classes.len() > 1 {
                                     classes.into_iter().map(|(name, cid)| (name, format!("{bundle}#{cid}"))).collect()
                                 } else {
