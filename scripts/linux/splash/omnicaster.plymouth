@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=OmniCaster
+Description=Arranque de OmniCaster Studio
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/omnicaster
+ScriptFile=/usr/share/plymouth/themes/omnicaster/omnicaster.script

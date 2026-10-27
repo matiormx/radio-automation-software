@@ -45,6 +45,7 @@ apt-get install -y --no-install-recommends \
   pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
   ffmpeg v4l-utils "$FUSE" curl jq ca-certificates \
   x11vnc wireguard-tools iproute2 samba \
+  plymouth plymouth-themes feh \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-plugins-ugly gstreamer1.0-libav \
   fonts-dejavu fonts-noto-color-emoji libwebkit2gtk-4.1-0 libgtk-3-0
@@ -248,12 +249,47 @@ visudo -cf /etc/sudoers.d/omnicaster >/dev/null || { rm -f /etc/sudoers.d/omnica
 touch /etc/samba/omnicaster.conf
 systemctl disable --now nmbd >/dev/null 2>&1 || true
 
+say "Arranque con el logo de OmniCaster (sin letras en pantalla)"
+SPLASH_URL="https://raw.githubusercontent.com/$REPO/main/scripts/linux/splash"
+THEME_DIR=/usr/share/plymouth/themes/omnicaster
+install -d "$THEME_DIR" /usr/share/omnicaster
+for f in omnicaster.plymouth omnicaster.script logo.png wordmark.png iniciando.png dot.png fondo.png; do
+  curl -fsSL "$SPLASH_URL/$f" -o "$THEME_DIR/$f" || die "No pude descargar la pantalla de arranque ($f)"
+done
+mv -f "$THEME_DIR/fondo.png" /usr/share/omnicaster/fondo.png
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+  plymouth-set-default-theme omnicaster
+else
+  update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth "$THEME_DIR/omnicaster.plymouth" 200 >/dev/null
+  update-alternatives --set default.plymouth "$THEME_DIR/omnicaster.plymouth" >/dev/null
+fi
+if [ -f /etc/default/grub ]; then
+  # Sin menú de GRUB, sin mensajes del sistema y con la animación.
+  set_grub() {
+    if grep -q "^$1=" /etc/default/grub; then
+      sed -i "s|^$1=.*|$1=$2|" /etc/default/grub
+    else
+      echo "$1=$2" >> /etc/default/grub
+    fi
+  }
+  set_grub GRUB_TIMEOUT_STYLE hidden
+  set_grub GRUB_TIMEOUT 0
+  set_grub GRUB_RECORDFAIL_TIMEOUT 0
+  set_grub GRUB_GFXPAYLOAD_LINUX keep
+  set_grub GRUB_CMDLINE_LINUX_DEFAULT '"quiet splash loglevel=3 rd.udev.log_level=3 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0"'
+  update-grub >/dev/null 2>&1 || grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true
+fi
+update-initramfs -u >/dev/null 2>&1 || true
+# Mientras OmniCaster abre, la pantalla gráfica muestra el mismo logo.
+touch "$HOME_DIR/.hushlogin"
+chown "$KIOSK_USER:$KIOSK_USER" "$HOME_DIR/.hushlogin"
+
 say "Arranque automático en OmniCaster"
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/miradio-autologin.conf <<EOF
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin $KIOSK_USER --noclear %I \$TERM
+ExecStart=-/sbin/agetty --autologin $KIOSK_USER --noclear --skip-login --noissue --nonewline %I \$TERM
 EOF
 systemctl daemon-reload
 systemctl set-default multi-user.target >/dev/null
@@ -264,7 +300,8 @@ install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$HOME_DIR/.config/openbox" "$HOME_
 cat > "$HOME_DIR/.bash_profile" <<'EOF'
 [ -f ~/.bashrc ] && . ~/.bashrc
 if [ -z "${DISPLAY:-}" ] && [ "$(tty)" = /dev/tty1 ]; then
-  exec startx -- -nolisten tcp vt1 >~/.xsession.log 2>&1
+  clear
+  exec startx -- -nolisten tcp vt1 -quiet >~/.xsession.log 2>&1
 fi
 EOF
 echo 'exec openbox-session' > "$HOME_DIR/.xinitrc"
@@ -280,6 +317,9 @@ EOF
 chmod +x "$HOME_DIR/.local/bin/miradio-quiosco"
 
 cat > "$HOME_DIR/.config/openbox/autostart" <<'EOF'
+# Fondo con el logo mientras abre OmniCaster (y detrás de sus ventanas)
+xsetroot -solid "#1c222e" -cursor_name left_ptr
+feh --no-fehbg --bg-center --image-bg "#1c222e" /usr/share/omnicaster/fondo.png 2>/dev/null || true
 # Pantalla siempre encendida
 xset s off; xset s noblank; xset -dpms
 # Compositor: deja capturar las ventanas de OmniCaster aunque estén tapadas

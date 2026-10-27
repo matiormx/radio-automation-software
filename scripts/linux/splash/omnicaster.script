@@ -1,0 +1,41 @@
+# OmniCaster Studio: logo, nombre y «Iniciando» con tres puntos que laten.
+Window.SetBackgroundTopColor(0.110, 0.133, 0.180);
+Window.SetBackgroundBottomColor(0.110, 0.133, 0.180);
+
+cx = Window.GetX() + Window.GetWidth() / 2;
+cy = Window.GetY() + Window.GetHeight() / 2 - 60;
+
+logo.image = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+logo.sprite.SetPosition(cx - logo.image.GetWidth() / 2, cy - logo.image.GetHeight() / 2 - 40, 1);
+
+word.image = Image("wordmark.png");
+word.sprite = Sprite(word.image);
+word.sprite.SetPosition(cx - word.image.GetWidth() / 2, cy + logo.image.GetHeight() / 2, 1);
+
+msg.image = Image("iniciando.png");
+msg.sprite = Sprite(msg.image);
+msgy = cy + logo.image.GetHeight() / 2 + word.image.GetHeight() + 40;
+msg.sprite.SetPosition(cx - (msg.image.GetWidth() + 60) / 2, msgy, 1);
+
+dot = Image("dot.png");
+for (i = 0; i < 3; i++) {
+  dots[i] = Sprite(dot);
+  dots[i].SetPosition(cx - (msg.image.GetWidth() + 60) / 2 + msg.image.GetWidth() + 10 + i * 18, msgy + msg.image.GetHeight() / 2 - 5, 1);
+}
+
+t = 0;
+fun refresh() {
+  t++;
+  for (i = 0; i < 3; i++) {
+    phase = t / 9 - i * 0.7;
+    dots[i].SetOpacity(0.2 + 0.8 * Math.Abs(Math.Sin(phase)));
+  }
+  # El logo entra suave al principio
+  if (t < 40) logo.sprite.SetOpacity(t / 40); else logo.sprite.SetOpacity(1);
+}
+Plymouth.SetRefreshFunction(refresh);
+
+# Mensajes y contraseñas (si los hubiera): sin texto en pantalla.
+fun message_callback(text) { }
+Plymouth.SetMessageFunction(message_callback);
