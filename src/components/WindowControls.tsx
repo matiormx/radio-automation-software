@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { IS_LINUX } from "../api";
 
 /**
  * Botones de ventana propios (la barra de Windows esta oculta): minimizar,
  * maximizar/restaurar y cerrar, al estilo de las apps de Windows 11.
  * En la ventana principal la X minimiza (no se puede cerrar la emisora por
  * descuido); se cierra de verdad desde Ajustes › Copia y actualizaciones.
+ * En Linux (quiosco, sin barra de tareas) una ventana minimizada no se puede
+ * recuperar: la principal no lleva botones y las demás solo cerrar/maximizar.
  */
 export function WindowControls() {
   const [maximized, setMaximized] = useState(false);
@@ -46,21 +49,32 @@ export function WindowControls() {
     };
   }, []);
 
-  const act = (fn: (w: ReturnType<typeof getCurrentWindow>) => Promise<void>) => () => {
-    try {
-      void fn(getCurrentWindow()).catch(() => undefined);
-    } catch {
-      /* fuera de Tauri */
-    }
-  };
+  const act =
+    (fn: (w: ReturnType<typeof getCurrentWindow>) => Promise<void>) => () => {
+      try {
+        void fn(getCurrentWindow()).catch(() => undefined);
+      } catch {
+        /* fuera de Tauri */
+      }
+    };
+
+  if (IS_LINUX && isMain) return null;
 
   return (
     <div className="win-controls">
-      <button type="button" className="win-btn" title="Minimizar" aria-label="Minimizar" onClick={act((w) => w.minimize())}>
-        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
-        </svg>
-      </button>
+      {!IS_LINUX && (
+        <button
+          type="button"
+          className="win-btn"
+          title="Minimizar"
+          aria-label="Minimizar"
+          onClick={act((w) => w.minimize())}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
+          </svg>
+        </button>
+      )}
       <button
         type="button"
         className="win-btn"
@@ -70,23 +84,44 @@ export function WindowControls() {
       >
         {maximized ? (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <path d="M2.5 0.5h7v7M0.5 2.5h7v7h-7z" fill="none" stroke="currentColor" strokeWidth="1" />
+            <path
+              d="M2.5 0.5h7v7M0.5 2.5h7v7h-7z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1"
+            />
           </svg>
         ) : (
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
+            <rect
+              x="0.5"
+              y="0.5"
+              width="9"
+              height="9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1"
+            />
           </svg>
         )}
       </button>
       <button
         type="button"
         className="win-btn win-close"
-        title={isMain ? "Ocultar en la barra de tareas (para cerrar OmniCaster: Ajustes › Copia y actualizaciones)" : "Cerrar"}
+        title={
+          isMain
+            ? "Ocultar en la barra de tareas (para cerrar OmniCaster: Ajustes › Copia y actualizaciones)"
+            : "Cerrar"
+        }
         aria-label={isMain ? "Ocultar en la barra de tareas" : "Cerrar"}
         onClick={act((w) => w.close())}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
+          <path
+            d="M0 0l10 10M10 0L0 10"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
         </svg>
       </button>
     </div>
