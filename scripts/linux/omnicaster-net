@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""Ayudante de red de OmniCaster (quiosco Linux). Lo ejecuta el usuario del
+quiosco con sudo, pero cambiar la red exige la contraseña de un usuario
+administrador (grupo sudo/admin), que se comprueba aquí.
+
+  omnicaster-net status            estado (JSON)
+  omnicaster-net apply  < JSON     {"password": ..., "config": {...}}
+  omnicaster-net confirm           mantiene la configuración nueva
+  omnicaster-net revert            vuelve a la anterior (lo lanza el temporizador)
+
+Al aplicar se guarda la configuración anterior y, si no se confirma en
+REVERT_SECS segundos, se restaura sola: así no se pierde el equipo si la
+nueva red deja sin conexión.
+"""
+import ctypes
+import glob
+import grp
+import hmac
+import ipaddress
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+NETPLAN = "/etc/netplan"
+OURS = os.path.join(NETPLAN, "90-omnicaster.yaml")
+STATE = "/var/lib/omnicaster"
+SAVED = os.path.join(STATE, "net.json")
+BACKUP = os.path.join(STATE, "net-prev")
+UNIT = "omnicaster-net-revert"
+REVERT_SECS = 120
+CLOUD_OFF = "/etc/cloud/cloud.cfg.d/99-omnicaster-network.cfg"
+
+
+def fail(msg, code=1):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def run(*args, check=True):
+    try:
+        p = subprocess.run(args, capture_output=True, text=True)
+    except FileNotFoundError:
+        if check:
+            fail(f"Falta el programa {args[0]}")
+        return ""
+    if check and p.returncode != 0:
+        fail((p.stderr or p.stdout).strip() or f"falló {' '.join(args)}")
+    return p.stdout
+
+
+# ---------- contraseña de administrador ----------
+
+def admins():
+    names = set()
+    for g in ("sudo", "admin", "wheel"):
+        try:
+            names.update(grp.getgrnam(g).gr_mem)
+        except KeyError:
+            pass
+    return sorted(names)
+
+
+def check_password(password):
+    if not password:
+        fail("Escribe la contraseña de administrador")
+    lib = ctypes.CDLL("libcrypt.so.1")
+    lib.crypt.restype = ctypes.c_char_p
+    lib.crypt.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    allowed = set(admins())
+    with open("/etc/shadow") as f:
+        for line in f:
+            parts = line.split(":")
+            if len(parts) < 2 or parts[0] not in allowed:
+                continue
+            h = parts[1]
+            if not h or h[0] in "!*":
+                continue
+            out = lib.crypt(password.encode(), h.encode())
+            if out and hmac.compare_digest(out.decode(), h):
+                return parts[0]
+    time.sleep(2)
+    fail("Contraseña de administrador incorrecta")
+
+
+# ---------- estado ----------
+
+def iface_kind(name):
+    if os.path.isdir(f"/sys/class/net/{name}/wireless"):
+        return "wifi"
+    if not os.path.exists(f"/sys/class/net/{name}/device"):
+        return None  # virtual (lo, wg0, docker…)
+    return "ethernet"
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def status():
+    addrs = {}
+    try:
+        for i in json.loads(run("ip", "-j", "addr", check=False) or "[]"):
+            addrs[i["ifname"]] = [f'{a["local"]}/{a["prefixlen"]}' for a in i.get("addr_info", []) if a.get("family") == "inet"]
+    except ValueError:
+        pass
+    gws = {}
+    try:
+        for r in json.loads(run("ip", "-j", "-4", "route", "show", "default", check=False) or "[]"):
+            gws.setdefault(r.get("dev", ""), r.get("gateway", ""))
+    except ValueError:
+        pass
+    dns = []
+    for line in read("/run/systemd/resolve/resolv.conf").splitlines():
+        if line.startswith("nameserver "):
+            dns.append(line.split()[1])
+    ifaces = []
+    for name in sorted(os.listdir("/sys/class/net")):
+        kind = iface_kind(name)
+        if not kind:
+            continue
+        ssid = ""
+        if kind == "wifi" and shutil.which("iw"):
+            m = re.search(r"SSID: (.+)", run("iw", "dev", name, "link", check=False))
+            ssid = m.group(1).strip() if m else ""
+        ifaces.append({
+            "name": name,
+            "kind": kind,
+            "mac": read(f"/sys/class/net/{name}/address"),
+            "up": read(f"/sys/class/net/{name}/operstate") == "up",
+            "addresses": addrs.get(name, []),
+            "gateway": gws.get(name, ""),
+            "ssid": ssid,
+        })
+    saved = None
+    try:
+        with open(SAVED) as f:
+            saved = json.load(f)
+        for i in saved.get("interfaces", []):
+            i["hasWifiPassword"] = bool(i.pop("wifiPassword", ""))
+    except (OSError, ValueError):
+        pass
+    pending = subprocess.run(["systemctl", "is-active", "--quiet", f"{UNIT}.timer"], capture_output=True).returncode == 0
+    print(json.dumps({
+        "supported": True,
+        "hostname": read("/etc/hostname") or os.uname().nodename,
+        "interfaces": ifaces,
+        "dns": dns,
+        "config": saved,
+        "pending": pending,
+        "wifiSupport": bool(shutil.which("wpa_supplicant")),
+        "admins": admins(),
+    }))
+
+
+# ---------- aplicar ----------
+
+def q(s):
+    return json.dumps(str(s))  # una cadena JSON es YAML válido
+
+
+def valid_ip(s, what):
+    try:
+        return str(ipaddress.IPv4Address(s.strip()))
+    except ValueError:
+        fail(f"{what} no válida: {s}")
+
+
+def build_yaml(cfg):
+    eth, wifi = [], []
+    names = set(os.listdir("/sys/class/net"))
+    for i in cfg.get("interfaces", []):
+        name = i.get("name", "")
+        if name not in names or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,15}", name):
+            fail(f"Interfaz desconocida: {name}")
+        lines = [f"    {q(name)}:", "      optional: true"]
+        mode = i.get("mode", "dhcp")
+        dns = [valid_ip(d, "DNS") for d in i.get("dns", []) if d.strip()]
+        if mode == "static":
+            try:
+                net = ipaddress.IPv4Interface(i.get("address", "").strip())
+            except ValueError:
+                fail(f"Dirección no válida en {name}: {i.get('address')}")
+            if net.network.prefixlen in (0, 32):
+                fail(f"Máscara no válida en {name}")
+            lines += ["      dhcp4: false", f"      addresses: [{q(net.with_prefixlen)}]"]
+            gw = i.get("gateway", "").strip()
+            if gw:
+                gw = valid_ip(gw, "Puerta de enlace")
+                if ipaddress.IPv4Address(gw) not in net.network:
+                    fail(f"La puerta de enlace {gw} no está en la red {net.network}")
+                lines.append(f"      routes: [{{to: default, via: {q(gw)}}}]")
+        elif mode == "dhcp":
+            lines.append("      dhcp4: true")
+            if dns:
+                lines.append("      dhcp4-overrides: {use-dns: false}")
+        else:
+            fail(f"Modo desconocido: {mode}")
+        if dns:
+            lines.append(f"      nameservers: {{addresses: [{', '.join(q(d) for d in dns)}]}}")
+        if iface_kind(name) == "wifi":
+            ssid = i.get("ssid", "").strip()
+            if not ssid:
+                continue  # Wi-Fi sin red elegida: no se configura
+            pw = i.get("wifiPassword", "")
+            ap = f"        {q(ssid)}: {{}}" if not pw else f"        {q(ssid)}: {{password: {q(pw)}}}"
+            lines += ["      access-points:", ap]
+            wifi.append(lines)
+        else:
+            eth.append(lines)
+    out = ["# Generado por OmniCaster (Ajustes › Red)", "network:", "  version: 2", "  renderer: networkd"]
+    if eth:
+        out.append("  ethernets:")
+        out += [l for b in eth for l in b]
+    if wifi:
+        out.append("  wifis:")
+        out += [l for b in wifi for l in b]
+    return "\n".join(out) + "\n"
+
+
+def set_hostname(name):
+    name = name.strip().lower()
+    if not name or name == read("/etc/hostname"):
+        return
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", name):
+        fail("Nombre del equipo no válido (letras, números y guiones)")
+    run("hostnamectl", "set-hostname", name)
+    hosts = read("/etc/hosts")
+    lines = [l for l in hosts.splitlines() if not l.startswith("127.0.1.1")]
+    lines.insert(1, f"127.0.1.1\t{name}")
+    with open("/etc/hosts", "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def restore_backup():
+    for f in glob.glob(os.path.join(NETPLAN, "*.yaml")):
+        os.remove(f)
+    for f in glob.glob(os.path.join(BACKUP, "*.yaml")):
+        shutil.copy2(f, NETPLAN)
+    prev = os.path.join(BACKUP, "net.json")
+    if os.path.exists(prev):
+        shutil.copy2(prev, SAVED)
+    elif os.path.exists(SAVED):
+        os.remove(SAVED)
+
+
+def apply_():
+    try:
+        req = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        fail("Petición no válida")
+    check_password(req.get("password", ""))
+    cfg = req.get("config") or {}
+    # Contraseñas Wi-Fi que no se cambian: se conservan las guardadas
+    try:
+        with open(SAVED) as f:
+            old = {i["name"]: i for i in json.load(f).get("interfaces", [])}
+    except (OSError, ValueError):
+        old = {}
+    for i in cfg.get("interfaces", []):
+        o = old.get(i.get("name"), {})
+        if not i.get("wifiPassword") and o.get("ssid") == i.get("ssid"):
+            i["wifiPassword"] = o.get("wifiPassword", "")
+    yaml = build_yaml(cfg)
+
+    subprocess.run(["systemctl", "stop", f"{UNIT}.timer", f"{UNIT}.service"], capture_output=True)
+    os.makedirs(STATE, exist_ok=True)
+    # Copia de lo que hay ahora (solo si no queda otra pendiente de confirmar)
+    if not os.path.isdir(BACKUP):
+        os.makedirs(BACKUP, mode=0o700)
+        for f in glob.glob(os.path.join(NETPLAN, "*.yaml")):
+            shutil.copy2(f, BACKUP)
+        if os.path.exists(SAVED):
+            shutil.copy2(SAVED, os.path.join(BACKUP, "net.json"))
+    for f in glob.glob(os.path.join(NETPLAN, "*.yaml")):
+        os.remove(f)
+    fd = os.open(OURS, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(yaml)
+    gen = subprocess.run(["netplan", "generate"], capture_output=True, text=True)
+    if gen.returncode != 0:
+        restore_backup()
+        shutil.rmtree(BACKUP, ignore_errors=True)
+        fail("Configuración rechazada: " + (gen.stderr.strip() or "netplan generate"))
+    fd = os.open(SAVED, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f)
+    # Que cloud-init no vuelva a escribir la red al arrancar
+    if os.path.isdir("/etc/cloud/cloud.cfg.d"):
+        with open(CLOUD_OFF, "w") as f:
+            f.write("network: {config: disabled}\n")
+    set_hostname(cfg.get("hostname", ""))
+    # Si no se confirma, se vuelve atrás sola
+    run("systemd-run", f"--unit={UNIT}", f"--on-active={REVERT_SECS}", "--timer-property=AccuracySec=1s",
+        os.path.abspath(sys.argv[0]), "revert")
+    subprocess.Popen(["netplan", "apply"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    print(json.dumps({"revertSecs": REVERT_SECS}))
+
+
+def confirm():
+    subprocess.run(["systemctl", "stop", f"{UNIT}.timer"], capture_output=True)
+    shutil.rmtree(BACKUP, ignore_errors=True)
+
+
+def revert():
+    if not os.path.isdir(BACKUP):
+        return
+    restore_backup()
+    shutil.rmtree(BACKUP, ignore_errors=True)
+    run("netplan", "apply", check=False)
+
+
+if __name__ == "__main__":
+    if os.geteuid() != 0:
+        fail("Hay que ejecutarlo como administrador")
+    action = sys.argv[1] if len(sys.argv) > 1 else ""
+    {"status": status, "apply": apply_, "confirm": confirm, "revert": revert}.get(
+        action, lambda: fail("Uso: omnicaster-net status|apply|confirm|revert", 2))()

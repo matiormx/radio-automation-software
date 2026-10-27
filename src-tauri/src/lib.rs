@@ -12,6 +12,7 @@ pub mod library;
 pub mod playlists;
 pub mod settings;
 mod sysmon;
+mod netcfg;
 mod remote;
 pub mod nowplaying;
 pub mod notify;
@@ -168,6 +169,10 @@ pub fn run() {
             explorer::picker_roots,
             explorer::picker_list,
             explorer::picker_mkdir,
+            netcfg::net_status,
+            netcfg::net_apply,
+            netcfg::net_confirm,
+            netcfg::net_revert,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,
