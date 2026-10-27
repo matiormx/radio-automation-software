@@ -193,7 +193,7 @@ case "${1:-}" in
     if [ -f "$SMB_CONF" ] && grep -q '^\[Musica\]' "$SMB_CONF" && systemctl is-active --quiet smbd; then
       echo "smb_enabled=1"
       sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | head -n1 | sed 's/^/smb_path=/'
-      sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | sed -n 2p | sed 's/^/smb_downloads=/'
+      sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | tail -n1 | sed 's/^/smb_downloads=/'
     else
       echo "smb_enabled=0"
     fi ;;
@@ -213,11 +213,13 @@ case "${1:-}" in
     if ! pdbedit -L 2>/dev/null | grep -q "^$KUSER:"; then
       echo "Pon primero una contraseña para la carpeta compartida" >&2; exit 1
     fi
-    # Descargas: carpeta aparte para dejar plugins, programas, zips…
+    # Plugins (VST3 para Linux) y Descargas (programas, zips…). «Personal»
+    # se queda solo en el equipo, sin compartir.
     downloads="$home/Descargas"
-    install -d -o "$KUSER" -g "$KUSER" "$downloads"
+    plugins="$home/Plugins"
+    install -d -o "$KUSER" -g "$KUSER" "$downloads" "$plugins" "$home/Personal"
     {
-      for share in "Musica|$real" "Descargas|$downloads"; do
+      for share in "Musica|$real" "Plugins|$plugins" "Descargas|$downloads"; do
         cat <<EOF
 [${share%%|*}]
    path = ${share#*|}
@@ -296,6 +298,9 @@ systemctl daemon-reload
 systemctl set-default multi-user.target >/dev/null
 
 install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$HOME_DIR/.config/openbox" "$HOME_DIR/.local/bin"
+# Carpetas de trabajo (los selectores de archivos de OmniCaster solo llegan a
+# estas, a la música y a las memorias USB).
+install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$HOME_DIR/Plugins" "$HOME_DIR/Descargas" "$HOME_DIR/Personal"
 
 # Al entrar en tty1 se abre la pantalla gráfica
 cat > "$HOME_DIR/.bash_profile" <<'EOF'

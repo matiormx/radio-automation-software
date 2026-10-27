@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body style="background:#0f1217">
+<script>
+window.__TAURI_INTERNALS__ = { invoke: async (cmd, a) => {
+  const roots=[{label:"Música",path:"/home/radio/.local/share/com.miradio.app/Musica",kind:"folder"},{label:"Plugins",path:"/home/radio/Plugins",kind:"folder"},{label:"Descargas",path:"/home/radio/Descargas",kind:"folder"},{label:"Personal",path:"/home/radio/Personal",kind:"folder"},{label:"USB · KINGSTON",path:"/media/radio/KINGSTON",kind:"drive"}];
+  if(cmd==="picker_roots") return {restricted:true,roots};
+  if(cmd==="picker_list") return {path:"/home/radio/Descargas/Logos",parent:"/home/radio/Descargas",entries:[{name:"Antiguos",path:"/x/a",dir:true,size:0,modified:1761580000},{name:"logo-radio.png",path:"/x/b.png",dir:false,size:245000,modified:1761580000},{name:"logo-blanco.png",path:"/x/c.png",dir:false,size:98000,modified:1761500000}]};
+}, transformCallback: () => 0 };
+</script>
+<script type="module">
+import { pickOpen } from "/src/filePicker.tsx"; import "/src/styles.css";
+pickOpen({title:"Logo de la emisora",filters:[{name:"Imagen",extensions:["png","jpg"]}]});
+</script></body></html>
