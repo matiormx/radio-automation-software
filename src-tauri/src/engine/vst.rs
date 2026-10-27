@@ -355,12 +355,30 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                     if exists {
                         if let Ok(list) = vst3_host::Vst3Host::builder().add_scan_path(dir).build().and_then(|mut h| h.discover_plugins()) {
                             for p in list.into_iter().filter(|p| p.audio_outputs > 0) {
-                                let path = p.path.to_string_lossy().into_owned();
-                                if plugins.iter().any(|f| f.path.eq_ignore_ascii_case(&path)) {
-                                    continue;
+                                let bundle = p.path.to_string_lossy().into_owned();
+                                // Un .vst3 puede traer muchos plugins (LSP trae ~200 en
+                                // uno): se ofrece cada uno, con su clase en la ruta.
+                                let classes: Vec<(String, String)> = vst3_host::discovery::get_detailed_plugin_info(&p.path)
+                                    .map(|d| {
+                                        d.classes
+                                            .into_iter()
+                                            .filter(|c| c.category.contains("Audio Module Class"))
+                                            .map(|c| (c.name, c.class_id))
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                let entries: Vec<(String, String)> = if classes.len() > 1 {
+                                    classes.into_iter().map(|(name, cid)| (name, format!("{bundle}#{cid}"))).collect()
+                                } else {
+                                    vec![(p.name.clone(), bundle.clone())]
+                                };
+                                for (name, path) in entries {
+                                    if plugins.iter().any(|f| f.path.eq_ignore_ascii_case(&path)) {
+                                        continue;
+                                    }
+                                    count += 1;
+                                    plugins.push(Found { name, vendor: p.vendor.clone(), category: p.category.clone(), path });
                                 }
-                                count += 1;
-                                plugins.push(Found { name: p.name, vendor: p.vendor, category: p.category, path });
                             }
                         }
                     }
@@ -480,11 +498,26 @@ fn pump_messages() {
 #[cfg(not(windows))]
 fn pump_messages() {}
 
+/// "ruta.vst3#<clase>" -> (ruta, clase): un plugin concreto de un .vst3 que trae varios.
+pub fn split_class(path: &str) -> (&str, Option<&str>) {
+    if let Some((bundle, cid)) = path.rsplit_once('#') {
+        if cid.len() == 32 && cid.chars().all(|c| c.is_ascii_hexdigit()) {
+            return (bundle, Some(cid));
+        }
+    }
+    (path, None)
+}
+
 fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
-    if !Path::new(cfg.path.trim()).exists() {
+    let (bundle, class) = split_class(cfg.path.trim());
+    if !Path::new(bundle).exists() {
         return Err("no se encuentra el archivo del plugin".into());
     }
-    let mut plugin = vst.load_plugin(cfg.path.trim()).map_err(|e| e.to_string())?;
+    let mut plugin = match class {
+        Some(cid) => vst.load_plugin_class(bundle, cid),
+        None => vst.load_plugin(bundle),
+    }
+    .map_err(|e| e.to_string())?;
     if let Some(file) = state_file(&cfg.id) {
         if let Ok(data) = std::fs::read(file) {
             let _ = plugin.load_state(&data);
@@ -500,4 +533,15 @@ fn load_one(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
     }
     let latency = AtomicU32::new(plugin.latency_samples());
     Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency })
+}
+
+#[cfg(test)]
+mod class_tests {
+    #[test]
+    fn split_class_path() {
+        let cid = "0123456789ABCDEF0123456789abcdef";
+        assert_eq!(super::split_class(&format!("/usr/lib/vst3/lsp-plugins.vst3#{cid}")), ("/usr/lib/vst3/lsp-plugins.vst3", Some(cid)));
+        assert_eq!(super::split_class("C:\\VST3\\Dragonfly.vst3"), ("C:\\VST3\\Dragonfly.vst3", None));
+        assert_eq!(super::split_class("/x/a#b.vst3"), ("/x/a#b.vst3", None));
+    }
 }
