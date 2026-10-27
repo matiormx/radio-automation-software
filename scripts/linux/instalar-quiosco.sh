@@ -192,6 +192,7 @@ case "${1:-}" in
     if [ -f "$SMB_CONF" ] && grep -q '^\[Musica\]' "$SMB_CONF" && systemctl is-active --quiet smbd; then
       echo "smb_enabled=1"
       sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | head -n1 | sed 's/^/smb_path=/'
+      sed -n 's/^[[:space:]]*path = //p' "$SMB_CONF" | sed -n 2p | sed 's/^/smb_downloads=/'
     else
       echo "smb_enabled=0"
     fi ;;
@@ -211,16 +212,24 @@ case "${1:-}" in
     if ! pdbedit -L 2>/dev/null | grep -q "^$KUSER:"; then
       echo "Pon primero una contraseña para la carpeta compartida" >&2; exit 1
     fi
-    cat > "$SMB_CONF" <<EOF
-[Musica]
-   path = $real
+    # Descargas: carpeta aparte para dejar plugins, programas, zips…
+    downloads="$home/Descargas"
+    install -d -o "$KUSER" -g "$KUSER" "$downloads"
+    {
+      for share in "Musica|$real" "Descargas|$downloads"; do
+        cat <<EOF
+[${share%%|*}]
+   path = ${share#*|}
    valid users = $KUSER
    force user = $KUSER
    read only = no
    browseable = yes
    create mask = 0664
    directory mask = 0775
+
 EOF
+      done
+    } > "$SMB_CONF"
     grep -q "include = $SMB_CONF" /etc/samba/smb.conf || printf '\n[global]\n   include = %s\n' "$SMB_CONF" >> /etc/samba/smb.conf
     systemctl enable smbd >/dev/null 2>&1 || true
     systemctl restart smbd ;;

@@ -128,7 +128,8 @@ pub fn fs_places(app: AppHandle) -> Vec<Place> {
         ("Música", p.audio_dir().ok()),
         ("Vídeos", p.video_dir().ok()),
         ("Escritorio", p.desktop_dir().ok()),
-        ("Descargas", p.download_dir().ok()),
+        // Quiosco Linux: la carpeta compartida «Descargas» (~/Descargas)
+        ("Descargas", p.home_dir().ok().map(|h| h.join("Descargas")).filter(|d| d.is_dir()).or_else(|| p.download_dir().ok())),
         ("Inicio", p.home_dir().ok()),
     ];
     for (label, dir) in folders {

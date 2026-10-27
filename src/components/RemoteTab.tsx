@@ -19,6 +19,7 @@ interface RemoteStatus {
   smbInstalled: boolean;
   smbEnabled: boolean;
   smbPath: string;
+  smbDownloads: string;
   smbShare: string;
   error: string;
 }
@@ -202,10 +203,13 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
       </fieldset>
 
       <fieldset className="fieldset">
-        <legend>Carpeta de música en la red (Samba)</legend>
+        <legend>Carpetas en la red (Samba)</legend>
         <p className="hint">
-          Comparte la carpeta de música para copiar canciones desde Windows (Explorador › <code>\\IP\Musica</code>) o
-          desde un Mac. El usuario es <strong>radio</strong> (o el del quiosco) con la contraseña que pongas aquí.
+          Comparte dos carpetas para usarlas desde Windows (Explorador › <code>\\IP</code>) o desde un Mac:{" "}
+          <strong>Musica</strong> (la de OmniCaster, para copiar canciones) y <strong>Descargas</strong> (para dejar
+          plugins y otros archivos: los plugins .vst3 para Linux que pongas ahí aparecen en la mesa al pulsar «Volver a
+          buscar» en Plugins VST). El usuario es <strong>radio</strong> (o el del quiosco) con la contraseña que pongas
+          aquí.
         </p>
         {!st.smbInstalled ? (
           <p className="hint update-error">Falta Samba. {INSTALL_HINT}</p>
@@ -228,7 +232,7 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
                       Guardar contraseña
                     </button>
                   )}
-                  <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => void run(() => invoke("remote_smb", { enabled: false }), "Carpeta compartida apagada")}>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => void run(() => invoke("remote_smb", { enabled: false }), "Carpetas compartidas apagadas")}>
                     Dejar de compartir
                   </button>
                 </>
@@ -237,16 +241,19 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
                   type="button"
                   className="btn btn-sm btn-primary"
                   disabled={busy}
-                  onClick={() => void run(() => invoke("remote_smb", { enabled: true, password: smbPass || null }).then(() => setSmbPass("")), "Carpeta de música compartida")}
+                  onClick={() => void run(() => invoke("remote_smb", { enabled: true, password: smbPass || null }).then(() => setSmbPass("")), "Carpetas compartidas")}
                 >
-                  Compartir carpeta de música
+                  Compartir carpetas
                 </button>
               )}
             </div>
             <p className="hint">
               {st.smbEnabled
-                ? `Compartida: ${[...lan, st.wgAddress].filter(Boolean).map((a) => `\\\\${a}\\${st.smbShare}`).join(" · ")} (${st.smbPath})`
-                : "No compartida."}
+                ? `Compartidas: ${[...lan, st.wgAddress]
+                    .filter(Boolean)
+                    .map((a) => `\\\\${a}\\${st.smbShare} y \\\\${a}\\Descargas`)
+                    .join(" · ")}`
+                : "No compartidas."}
             </p>
           </>
         )}

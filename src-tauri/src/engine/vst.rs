@@ -147,7 +147,12 @@ pub fn standard_folders() -> Vec<PathBuf> {
         v.push(PathBuf::from("/usr/lib/vst3"));
         v.push(PathBuf::from("/usr/local/lib/vst3"));
         if let Some(h) = std::env::var_os("HOME") {
-            v.push(PathBuf::from(h).join(".vst3"));
+            v.push(PathBuf::from(&h).join(".vst3"));
+            // Quiosco: lo que se deja en la carpeta compartida «Descargas»
+            let d = PathBuf::from(&h).join("Descargas");
+            if d.is_dir() {
+                v.push(d);
+            }
         }
     }
     let mut seen = std::collections::HashSet::new();

@@ -33,6 +33,8 @@ pub struct RemoteStatus {
     pub smb_installed: bool,
     pub smb_enabled: bool,
     pub smb_path: String,
+    /// Carpeta «Descargas» compartida (plugins, programas…)
+    pub smb_downloads: String,
     /// Nombre del recurso: \\IP\Musica
     pub smb_share: String,
     pub error: String,
@@ -136,6 +138,7 @@ mod imp {
                             "smb_installed" => s.smb_installed = v == "1",
                             "smb_enabled" => s.smb_enabled = v == "1",
                             "smb_path" => s.smb_path = v.to_string(),
+                            "smb_downloads" => s.smb_downloads = v.to_string(),
                             "handshake" => {
                                 let t: i64 = v.parse().unwrap_or(0);
                                 let now = std::time::SystemTime::now()
