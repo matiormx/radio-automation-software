@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openDialog } from "../api";
 import type { Settings } from "../types";
 
 interface RemoteStatus {
@@ -205,11 +205,11 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
       <fieldset className="fieldset">
         <legend>Carpetas en la red (Samba)</legend>
         <p className="hint">
-          Comparte dos carpetas para usarlas desde Windows (Explorador › <code>\\IP</code>) o desde un Mac:{" "}
-          <strong>Musica</strong> (la de OmniCaster, para copiar canciones) y <strong>Descargas</strong> (para dejar
-          plugins y otros archivos: los plugins .vst3 para Linux que pongas ahí aparecen en la mesa al pulsar «Volver a
-          buscar» en Plugins VST). El usuario es <strong>radio</strong> (o el del quiosco) con la contraseña que pongas
-          aquí.
+          Comparte tres carpetas para usarlas desde Windows (Explorador › <code>\\IP</code>) o desde un Mac:{" "}
+          <strong>Musica</strong> (la de OmniCaster, para copiar canciones), <strong>Plugins</strong> (los plugins
+          .vst3 para Linux que pongas ahí aparecen en la mesa al pulsar «Volver a buscar» en Plugins VST) y{" "}
+          <strong>Descargas</strong> (otros archivos). La carpeta <strong>Personal</strong> no se comparte. El usuario
+          es <strong>radio</strong> (o el del quiosco) con la contraseña que pongas aquí.
         </p>
         {!st.smbInstalled ? (
           <p className="hint update-error">Falta Samba. {INSTALL_HINT}</p>
@@ -251,7 +251,7 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
               {st.smbEnabled
                 ? `Compartidas: ${[...lan, st.wgAddress]
                     .filter(Boolean)
-                    .map((a) => `\\\\${a}\\${st.smbShare} y \\\\${a}\\Descargas`)
+                    .map((a) => `\\\\${a}\\${st.smbShare}, Plugins y Descargas`)
                     .join(" · ")}`
                 : "No compartidas."}
             </p>

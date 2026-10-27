@@ -1,7 +1,8 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { ask, open as nativeOpen, save as nativeSave } from "@tauri-apps/plugin-dialog";
+import { pickOpen, pickSave, type PickOptions } from "./filePicker";
 import type {
   Block,
   Playlist,
@@ -523,6 +524,22 @@ export function requestQuit(action: QuitAction = "quit"): Promise<void> {
 
 /** Linux (equipo dedicado / quiosco): los botones son reiniciar y apagar el equipo. */
 export const IS_LINUX = typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
+
+/**
+ * Diálogo de abrir archivo/carpeta. En Linux (quiosco) usa el selector propio,
+ * limitado a Música, Plugins, Descargas, Personal y memorias USB.
+ */
+export function openDialog(o: PickOptions & { multiple: true }): Promise<string[] | null>;
+export function openDialog(o: PickOptions): Promise<string | null>;
+export async function openDialog(o: PickOptions): Promise<string | string[] | null> {
+  if (IS_LINUX) return pickOpen(o);
+  return (await nativeOpen(o)) as string | string[] | null;
+}
+
+export async function saveDialog(o: PickOptions): Promise<string | null> {
+  if (IS_LINUX) return pickSave(o);
+  return nativeSave(o);
+}
 
 
 // ---- API compatible con RadioBOSS ----
