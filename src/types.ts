@@ -801,7 +801,7 @@ export const DEFAULT_SETTINGS: Settings = {
   liveTemplate: "{artist} - {title}",
   targetLufs: -9,
   truePeakDb: -1,
-  radioName: "OmniCaster",
+  radioName: "",
   slogan: "Estudio de automatización",
   logoPath: "",
   campaigns: [],

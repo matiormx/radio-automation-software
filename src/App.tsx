@@ -369,6 +369,12 @@ function migrateLegacyRtmp(settings: Settings): Settings {
   };
 }
 
+/** Nombre de la emisora; los nombres de serie antiguos cuentan como vacío. */
+function stationName(name: string | undefined): string {
+  const n = (name ?? "").trim();
+  return ["MiRadio", "Mi radio", "OmniCaster"].includes(n) ? "" : n;
+}
+
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -3405,7 +3411,7 @@ export default function App() {
             <LogoRadio size={32} />
           )}
           <div className="brand-txt" data-tauri-drag-region>
-            <span className="brand-name" data-tauri-drag-region>{settings.radioName.trim() || "OmniCaster"}</span>
+            <span className="brand-name" data-tauri-drag-region>{stationName(settings.radioName) || "OmniCaster Studio"}</span>
             <span className="brand-sub" data-tauri-drag-region>
               {settings.slogan.trim() || "Estudio de automatización"}
             </span>

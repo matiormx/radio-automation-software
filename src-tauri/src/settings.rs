@@ -893,7 +893,7 @@ impl Default for Settings {
             live_template: "{artist} - {title}".to_string(),
             target_lufs: -9.0,
             true_peak_db: -1.0,
-            radio_name: "Mi radio".to_string(),
+            radio_name: String::new(),
             slogan: "Estudio de automatización".to_string(),
             logo_path: String::new(),
             campaigns: Vec::new(),
