@@ -693,6 +693,8 @@ export interface Settings {
   remote?: RemoteSettings;
   mobile?: MobileSettings;
   fadeSeconds: number;
+  /** Margen de las tarjetas de sonido (ms); más = menos cortes, más retardo */
+  audioBufferMs?: number;
   /** Reproducir la lista automaticamente al abrir la app */
   autoPlayOnStart: boolean;
   /** Pasar a la siguiente pista (o reanudar) si hay silencio */
@@ -778,6 +780,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   fadeSeconds: 6,
+  audioBufferMs: 40,
   autoPlayOnStart: false,
   silenceDetection: false,
   silenceThresholdDb: -55,

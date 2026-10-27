@@ -97,6 +97,9 @@ pub struct Settings {
     /// Control desde el móvil (página web en la red del estudio)
     pub mobile: crate::mobile::MobileConfig,
     pub fade_seconds: u32,
+    /// Margen de las tarjetas de sonido (ms): búfer de la tarjeta y colchón de
+    /// las secundarias. Más = menos cortes con el equipo cargado, más retardo.
+    pub audio_buffer_ms: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
     /// Pasar a la siguiente pista (o reanudar) si hay silencio.
@@ -866,6 +869,7 @@ impl Default for Settings {
             remote: RemoteSettings::default(),
             mobile: crate::mobile::MobileConfig::default(),
             fade_seconds: 6,
+            audio_buffer_ms: 40,
             auto_play_on_start: false,
             silence_detection: false,
             silence_threshold_db: -55.0,

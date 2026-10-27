@@ -55,7 +55,7 @@ impl InsertReturn {
             drift: Drift::default(),
             buf: vec![0.0; 4096 * 2],
             dev_rate,
-            min_secs: 0.03,
+            min_secs: cushion_secs(),
             primed: false,
             active: false,
         }
@@ -254,6 +254,19 @@ fn find_input(id: &str) -> Option<cpal::Device> {
     host.input_devices().ok()?.find(|d| d.name().map(|n| n == id).unwrap_or(false))
 }
 
+/// Margen de las tarjetas (ms). Se lee al abrir cada tarjeta.
+static BUFFER_MS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(40);
+
+/// Margen de las tarjetas de sonido (de los ajustes). 0 = el mínimo de Windows.
+pub fn set_buffer_ms(ms: u32) {
+    BUFFER_MS.store(ms.min(200), Ordering::Relaxed);
+}
+
+/// Colchón mínimo de las tarjetas secundarias y retornos (s).
+fn cushion_secs() -> f64 {
+    (BUFFER_MS.load(Ordering::Relaxed) as f64 * 1.5 / 1000.0).max(0.03)
+}
+
 /// Abre una salida; `fill(buf, channels)` rellena f32 entrelazado.
 fn open_output<F>(device: &cpal::Device, fill: F, failed: Arc<AtomicBool>) -> Result<(cpal::Stream, u32, usize), String>
 where
@@ -264,14 +277,39 @@ where
         .map_err(|e| format!("La tarjeta no da su formato: {e}"))?;
     let rate = supported.sample_rate().0;
     let format = supported.sample_format();
-    let config: cpal::StreamConfig = supported.into();
+    let mut config: cpal::StreamConfig = supported.into();
     let channels = config.channels.max(1) as usize;
-    let stream = match format {
-        SampleFormat::F32 => build::<f32, F>(device, &config, fill, failed),
-        SampleFormat::I16 => build::<i16, F>(device, &config, fill, failed),
-        SampleFormat::I32 => build::<i32, F>(device, &config, fill, failed),
-        SampleFormat::U16 => build::<u16, F>(device, &config, fill, failed),
-        other => return Err(format!("Formato de tarjeta no soportado: {other}")),
+    // Búfer de la tarjeta con margen: si el equipo va cargado y el audio se
+    // retrasa un momento, la tarjeta sigue sonando con lo que tiene guardado
+    // en vez de cortarse. Si la tarjeta no lo acepta, el de siempre.
+    let ms = BUFFER_MS.load(Ordering::Relaxed);
+    if ms > 0 {
+        config.buffer_size = cpal::BufferSize::Fixed((rate as u64 * ms as u64 / 1000) as u32);
+    }
+    // `fill` solo se puede usar una vez: se envuelve para el segundo intento.
+    let fill = Arc::new(Mutex::new(fill));
+    let make = |cfg: &cpal::StreamConfig| {
+        let f = fill.clone();
+        let cb = move |buf: &mut [f32], ch: usize| {
+            if let Ok(mut g) = f.try_lock() {
+                (g)(buf, ch)
+            }
+        };
+        match format {
+            SampleFormat::F32 => build::<f32, _>(device, cfg, cb, failed.clone()),
+            SampleFormat::I16 => build::<i16, _>(device, cfg, cb, failed.clone()),
+            SampleFormat::I32 => build::<i32, _>(device, cfg, cb, failed.clone()),
+            SampleFormat::U16 => build::<u16, _>(device, cfg, cb, failed.clone()),
+            other => Err(format!("Formato de tarjeta no soportado: {other}")),
+        }
+    };
+    let stream = match make(&config) {
+        Ok(s) => Ok(s),
+        Err(_) if ms > 0 => {
+            config.buffer_size = cpal::BufferSize::Default;
+            make(&config)
+        }
+        Err(e) => Err(e),
     }?;
     stream.play().map_err(|e| format!("No se pudo arrancar la tarjeta: {e}"))?;
     Ok((stream, rate, channels))
@@ -530,7 +568,7 @@ impl PairFeed {
 
     fn fill(&mut self, out: &mut [f32], channels: usize, base: f64) {
         let frames = out.len() / channels;
-        let target = (frames as f64 * base * 3.0).max(ENGINE_RATE as f64 * 0.03);
+        let target = (frames as f64 * base * 3.0).max(ENGINE_RATE as f64 * cushion_secs());
         let mut fill = self.cons.slots() as f64 / 2.0 + self.stretch.pending();
         // Colchon excesivo (tarjeta recien abierta o atascada): se recorta.
         if fill > target * 4.0 {

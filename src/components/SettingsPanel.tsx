@@ -611,6 +611,28 @@ function GeneralTab({
             </fieldset>
 
       <fieldset className="fieldset">
+        <legend>Tarjetas de sonido</legend>
+        <label className="field">
+          <span className="field-label">Margen contra cortes</span>
+          <select
+            value={String(s.audioBufferMs ?? 40)}
+            onChange={(e) => onChange({ ...s, audioBufferMs: Number(e.target.value) })}
+          >
+            <option value="0">Mínimo (10 ms, el de Windows)</option>
+            <option value="20">20 ms</option>
+            <option value="40">40 ms (recomendado)</option>
+            <option value="80">80 ms (equipo muy cargado)</option>
+            <option value="150">150 ms (máximo)</option>
+          </select>
+          <span className="hint">
+            Sonido que la tarjeta tiene guardado por adelantado. Si el audio se entrecorta cuando el equipo va
+            cargado (vídeo, NDI, plugins), sube el margen. A cambio, lo que pasa por la mesa sale un poco más tarde.
+            Se aplica al reiniciar OmniCaster.
+          </span>
+        </label>
+      </fieldset>
+
+      <fieldset className="fieldset">
         <legend>Inicio y automatización</legend>
         <label className="check-field">
           <input
