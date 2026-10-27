@@ -31,11 +31,17 @@ fn variants(kind: &str) -> Vec<Vec<&'static str>> {
     match kind {
         "nvenc" => vec![
             vec!["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll", "-rc", "cbr", "-bf", "0", "-pix_fmt", "yuv420p"],
-            // FFmpeg anterior a 4.3
-            vec!["-c:v", "h264_nvenc", "-preset", "llhq", "-rc", "cbr", "-bf", "0", "-pix_fmt", "yuv420p"],
+            // Sin opciones especiales (tarjetas o drivers que no aceptan alguna)
+            vec!["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"],
         ],
-        "qsv" => vec![vec!["-c:v", "h264_qsv", "-preset", "veryfast", "-look_ahead", "0", "-pix_fmt", "nv12"]],
-        "amf" => vec![vec!["-c:v", "h264_amf", "-usage", "lowlatency", "-quality", "speed", "-rc", "cbr", "-pix_fmt", "yuv420p"]],
+        "qsv" => vec![
+            vec!["-c:v", "h264_qsv", "-preset", "veryfast", "-look_ahead", "0", "-pix_fmt", "nv12"],
+            vec!["-c:v", "h264_qsv", "-pix_fmt", "nv12"],
+        ],
+        "amf" => vec![
+            vec!["-c:v", "h264_amf", "-usage", "lowlatency", "-quality", "speed", "-rc", "cbr", "-pix_fmt", "yuv420p"],
+            vec!["-c:v", "h264_amf", "-pix_fmt", "yuv420p"],
+        ],
         _ => vec![],
     }
 }
@@ -132,7 +138,13 @@ fn detect(ffmpeg: &Path) -> Vec<(&'static str, Vec<&'static str>)> {
                     ok = Some(v);
                     break;
                 }
-                Err(e) => last_err = e,
+                // Se guarda el motivo de la primera prueba (la completa): la
+                // mínima casi siempre falla por lo mismo.
+                Err(e) => {
+                    if last_err.is_empty() {
+                        last_err = e;
+                    }
+                }
             }
         }
         match ok {
