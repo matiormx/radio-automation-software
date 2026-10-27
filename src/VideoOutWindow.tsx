@@ -6,8 +6,10 @@ import { VideoSurface, canvasUrl, type VideoState } from "./videoSurface";
 
 /**
  * «Lo que suena»: dibuja en un lienzo lo mismo que se ve (el video o la
- * portada con titulo y artista) y lo manda a OmniCaster como JPEG 25 veces por
- * segundo. Las salidas lo leen de ahi: no dependen de capturar esta ventana
+ * portada con titulo y artista) y lo manda a OmniCaster como JPEG: 25 veces por
+ * segundo si es un video; si es una imagen fija (portada), solo cuando cambia
+ * y una vez por segundo para mantenerla viva (antes se redibujaba y comprimía
+ * 25 veces por segundo sin cambiar nada: mucho procesador para nada). Las salidas lo leen de ahi: no dependen de capturar esta ventana
  * escondida, que Windows dejaba de actualizar con una imagen fija.
  */
 function useNowPlayingFeed(source: () => VideoState | null, enabled: boolean) {
@@ -43,11 +45,59 @@ function useNowPlayingFeed(source: () => VideoState | null, enabled: boolean) {
       if (s !== t) s = `${s.slice(0, -1)}…`;
       ctx.fillText(s, x, y);
     };
+    // Fondo difuminado de la portada: se calcula una vez por portada y tamaño
+    // (el desenfoque de 40 px sobre toda la imagen es lo más caro de dibujar).
+    let blurKey = "";
+    const blurred = document.createElement("canvas");
+    const blurredBg = (cover: HTMLImageElement, file: string, w: number, h: number) => {
+      const key = `${file}|${w}x${h}`;
+      if (key !== blurKey) {
+        blurred.width = w;
+        blurred.height = h;
+        const b = blurred.getContext("2d");
+        if (b) {
+          b.fillStyle = "#0b0d12";
+          b.fillRect(0, 0, w, h);
+          b.filter = "blur(40px) brightness(0.35)";
+          b.drawImage(cover, ...fit(cover.naturalWidth, cover.naturalHeight, w, h, true));
+          b.filter = "none";
+        }
+        blurKey = key;
+      }
+      return blurred;
+    };
     let busy = false;
+    let lastKey = "";
+    let lastSent = 0;
     const draw = () => {
       if (busy) return;
-      const w = Math.max(320, Math.round(window.innerWidth)) & ~1;
-      const h = Math.max(180, Math.round(window.innerHeight)) & ~1;
+      // Como mucho 1280×720: es lo que sale (tope de resolución) y la
+      // ventana escondida puede ser mucho más grande.
+      const k = Math.min(1, 1280 / Math.max(1, window.innerWidth), 720 / Math.max(1, window.innerHeight));
+      const w = Math.max(320, Math.round(window.innerWidth * k)) & ~1;
+      const h = Math.max(180, Math.round(window.innerHeight * k)) & ~1;
+      const s = source();
+      const video = document.querySelector<HTMLVideoElement>("video.vs-video");
+      // Imagen fija: solo se vuelve a dibujar si cambia algo (o cada segundo)
+      if (!s?.isVideo) {
+        const key = [
+          w,
+          h,
+          s?.audioMode ?? "",
+          s?.cover ?? "",
+          img(s?.cover ?? "") ? 1 : 0,
+          s?.logo ?? "",
+          img(s?.logo ?? "") ? 1 : 0,
+          s?.title ?? "",
+          s?.artist ?? "",
+          s?.stationName ?? "",
+        ].join("|");
+        if (key === lastKey && performance.now() - lastSent < 1000) return;
+        lastKey = key;
+      } else {
+        lastKey = "";
+      }
+      lastSent = performance.now();
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -55,8 +105,6 @@ function useNowPlayingFeed(source: () => VideoState | null, enabled: boolean) {
       ctx.filter = "none";
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, w, h);
-      const s = source();
-      const video = document.querySelector<HTMLVideoElement>("video.vs-video");
       if (s?.isVideo) {
         if (video && video.readyState >= 2 && video.videoWidth > 0) {
           ctx.drawImage(video, ...fit(video.videoWidth, video.videoHeight, w, h, false));
@@ -75,11 +123,7 @@ function useNowPlayingFeed(source: () => VideoState | null, enabled: boolean) {
         ctx.fillStyle = "#0b0d12";
         ctx.fillRect(0, 0, w, h);
         const cover = img(s.cover);
-        if (cover) {
-          ctx.filter = "blur(40px) brightness(0.35)";
-          ctx.drawImage(cover, ...fit(cover.naturalWidth, cover.naturalHeight, w, h, true));
-          ctx.filter = "none";
-        }
+        if (cover) ctx.drawImage(blurredBg(cover, s.cover, w, h), 0, 0);
         const side = Math.round(h * 0.42);
         const x0 = Math.round(w * 0.12);
         const y0 = Math.round((h - side) / 2);

@@ -544,6 +544,8 @@ interface EncoderInfo {
   available: [string, string][];
   autoId: string;
   autoLabel: string;
+  /** Tarjetas que hay pero cuyo compresor no funcionó: [nombre, motivo] */
+  failed?: [string, string][];
 }
 
 /** Compresión del vídeo emitido (RTMP): por hardware si el equipo puede. */
@@ -575,6 +577,15 @@ function EncoderField({ value, onChange }: { value: string; onChange: (v: string
             ? "No se ha encontrado compresión por hardware (tarjeta NVIDIA GTX 600 o posterior, Intel con Quick Sync o AMD con su driver): el vídeo se comprime con el procesador, que es lo que más gasta."
             : "Comprimir con la tarjeta gráfica (como hace OBS) deja el procesador casi libre. Se aplica al volver a empezar la emisión de vídeo."}
       </p>
+      {info?.failed?.map(([name, why]) => (
+        <p key={name} className="hint update-error">
+          {name}: la tarjeta está, pero su compresor no funcionó.{" "}
+          {/driver|api version|nvenc api|cuda/i.test(why)
+            ? "Suele ser el driver: instala el más reciente de la web del fabricante (para NVIDIA, nvidia.com › Drivers) y reinicia OmniCaster."
+            : "Prueba a instalar el driver más reciente del fabricante y reinicia OmniCaster."}{" "}
+          <span className="mono">({why})</span>
+        </p>
+      ))}
     </>
   );
 }

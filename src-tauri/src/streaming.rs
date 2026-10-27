@@ -988,6 +988,7 @@ fn spawn_process_ex(
             std::thread::Builder::new()
                 .name("miradio-encoder-write".into())
                 .spawn(move || {
+                    crate::rt::boost_thread();
                     while let Ok(chunk) = receiver.recv() {
                         if stdin.write_all(&chunk).and_then(|_| stdin.flush()).is_err() {
                             failed.store(true, Ordering::SeqCst);
