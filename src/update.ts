@@ -32,6 +32,11 @@ export async function checkForUpdate(): Promise<AppUpdateInfo> {
     update = await check();
   } catch (error) {
     pending = null;
+    // Versión publicada solo para el otro sistema (p. ej. solo Linux): para
+    // este equipo no hay nada nuevo.
+    if (/platform.*not found|not found.*platform/i.test(error instanceof Error ? error.message : String(error))) {
+      return { current, latest: current, available: false, notes: "" };
+    }
     throw new Error(describeError(error));
   }
   pending = update;
