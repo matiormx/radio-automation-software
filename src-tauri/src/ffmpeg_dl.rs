@@ -92,10 +92,34 @@ pub fn supported() -> bool {
     cfg!(windows)
 }
 
-/// Elige, de checksums.sha256, la ultima version estable para Windows:
-/// `ffmpeg-nX.Y-latest-win64-gpl-X.Y.zip` con la X.Y mas alta. Si no hay
-/// ninguna estable, la de desarrollo (master).
+/// Version mas alta que se instala. Las compilaciones de BtbN de FFmpeg 9.0
+/// en adelante piden la API 13.1 de NVENC, que NVIDIA ya no da a las
+/// gráficas GTX 900/1000 (su último driver, serie 580, llega a la 13.0): con
+/// ellas no se podría comprimir el vídeo con la tarjeta. Hasta la 8.1 basta
+/// la 13.0.
+const MAX_VERSION: (u32, u32) = (8, 1);
+
+/// Version X.Y de un nombre `ffmpeg-nX.Y-latest-…`.
+fn asset_version(name: &str) -> Option<(u32, u32)> {
+    let rest = name.strip_prefix("ffmpeg-n")?;
+    let (ver, _) = rest.split_once("-latest-")?;
+    let mut it = ver.split('.').map(|x| x.parse::<u32>().ok());
+    match (it.next(), it.next()) {
+        (Some(Some(a)), Some(Some(b))) => Some((a, b)),
+        _ => None,
+    }
+}
+
+/// El FFmpeg instalado es más nuevo que el tope (hay que cambiarlo).
+fn above_cap(asset: &str) -> bool {
+    asset.contains("master-latest") || asset_version(asset).map(|v| v > MAX_VERSION).unwrap_or(false)
+}
+
+/// Elige, de checksums.sha256, la version estable para Windows mas alta que
+/// no pase de MAX_VERSION (`ffmpeg-nX.Y-latest-win64-gpl-X.Y.zip`). Si no
+/// hay ninguna así, la estable más alta; y si no hay estables, master.
 pub fn choose_asset(checksums: &str, flavor: &str) -> Option<(String, String)> {
+    let mut capped: Option<((u32, u32), String, String)> = None;
     let mut best: Option<((u32, u32), String, String)> = None;
     let mut master: Option<(String, String)> = None;
     for line in checksums.lines() {
@@ -120,8 +144,11 @@ pub fn choose_asset(checksums: &str, flavor: &str) -> Option<(String, String)> {
         if best.as_ref().map(|(v, _, _)| (major, minor) > *v).unwrap_or(true) {
             best = Some(((major, minor), name.to_string(), sha.to_lowercase()));
         }
+        if (major, minor) <= MAX_VERSION && capped.as_ref().map(|(v, _, _)| (major, minor) > *v).unwrap_or(true) {
+            capped = Some(((major, minor), name.to_string(), sha.to_lowercase()));
+        }
     }
-    best.map(|(_, n, s)| (n, s)).or(master)
+    capped.or(best).map(|(_, n, s)| (n, s)).or(master)
 }
 
 fn set_progress(app: &AppHandle, p: Progress) {
@@ -294,6 +321,11 @@ pub fn on_startup(app: AppHandle) {
             return;
         }
         if let (Some(_), Some(st)) = (installed(&data_dir), read_state(&data_dir)) {
+            // Uno demasiado nuevo (sin NVENC para gráficas GTX 900/1000): se cambia ya.
+            if above_cap(&st.asset) {
+                start(app, true);
+                return;
+            }
             if now().saturating_sub(st.last_check) > CHECK_EVERY.as_secs() {
                 start(app, false);
             }
@@ -388,8 +420,11 @@ mod tests {
     #[test]
     fn picks_highest_stable_windows_gpl() {
         let (name, sha) = choose_asset(SUMS, "win64-gpl").unwrap();
-        assert_eq!(name, "ffmpeg-n9.0-latest-win64-gpl-9.0.zip");
-        assert!(sha.starts_with("2222"));
+        // 9.0 pasa del tope (NVENC 13.1): se queda en la 8.1
+        assert_eq!(name, "ffmpeg-n8.1-latest-win64-gpl-8.1.zip");
+        assert!(sha.starts_with("4444"));
+        assert!(above_cap("ffmpeg-n9.0-latest-win64-gpl-9.0.zip"));
+        assert!(!above_cap("ffmpeg-n8.1-latest-win64-gpl-8.1.zip"));
     }
 
     #[test]
