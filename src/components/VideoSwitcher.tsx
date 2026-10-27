@@ -8,7 +8,8 @@ interface Props {
 /**
  * Botonera de vídeo en directo: qué sale en la pantalla de emisión (y en las
  * salidas que emiten esa pantalla). Programa = lo que suena; cada capturadora
- * activa tiene su botón. La que está al aire va en rojo.
+ * activa tiene su botón. La que está al aire va en rojo. A la derecha,
+ * encender o apagar la ventana (el monitor de los presentadores).
  */
 export function VideoSwitcher({ settings, onChange }: Props) {
   const vs = settings.videoScreen;
@@ -39,7 +40,20 @@ export function VideoSwitcher({ settings, onChange }: Props) {
           captureInputId: input.id,
         }),
       )}
-      {!vs?.enabled && <span className="vsw-note">Ventana de vídeo apagada (Ajustes → Vídeo)</span>}
+      <button
+        type="button"
+        className={`vsw-power ${vs?.enabled ? "vsw-power-on" : ""}`}
+        aria-pressed={!!vs?.enabled}
+        title={
+          vs?.enabled
+            ? "Apagar el monitor de los presentadores: libera CPU y red (deja de recibir el NDI si nadie más lo usa)"
+            : "Encender el monitor de los presentadores en su pantalla"
+        }
+        onClick={() => onChange({ enabled: !vs?.enabled })}
+      >
+        <span className="vsw-power-dot" aria-hidden="true" />
+        {vs?.enabled ? "Monitor encendido" : "Monitor apagado"}
+      </button>
     </div>
   );
 }

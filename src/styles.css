@@ -4527,3 +4527,14 @@ body[data-dnd="blockItem"] .block-sep.dnd-over-after { box-shadow: inset 0 -2px 
   animation: vs-heartbeat 0.4s linear infinite alternate;
 }
 @keyframes vs-heartbeat { from { opacity: 0.02; } to { opacity: 0.05; } }
+
+/* Encender/apagar el monitor de los presentadores (botonera VÍDEO) */
+.vsw-power {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--border, #2a3142); background: transparent; color: var(--text-faint); cursor: pointer;
+}
+.vsw-power:hover { border-color: var(--accent, #4f8cff); color: var(--text, #e6e9ef); }
+.vsw-power-dot { width: 8px; height: 8px; border-radius: 50%; background: #5b6275; }
+.vsw-power-on { color: #c8f7d4; border-color: #2f9e57; background: rgba(47,158,87,.15); }
+.vsw-power-on .vsw-power-dot { background: #3ddc84; box-shadow: 0 0 6px #3ddc84; }
