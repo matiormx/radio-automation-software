@@ -323,6 +323,11 @@ export function vstScan(): Promise<VstScanResult> {
 }
 
 /** Abre la ventana del plugin de una ranura (lo carga si hace falta). */
+/** Copia los ajustes guardados de un plugin a otra ranura (al copiar un FX). */
+export function vstCopyState(from: string, to: string): Promise<void> {
+  return invoke("vst_copy_state", { from, to });
+}
+
 export function vstEditor(slot: { id: string; path: string; name: string }): Promise<void> {
   return invoke("vst_editor", { slot: slot.id, path: slot.path, name: slot.name });
 }

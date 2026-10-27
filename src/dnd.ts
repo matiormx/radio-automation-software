@@ -17,12 +17,17 @@ export type DragPayload =
   /** Bloque o separador de la lista de bloques */
   | { kind: "blockItem"; key: string; blockId: string; label: string }
   /** Archivos del Explorador (pueden no estar en la biblioteca) */
-  | { kind: "files"; paths: string[]; label: string };
+  | { kind: "files"; paths: string[]; label: string }
+  /** Canal o bus de la mesa (para ordenarlos) */
+  | { kind: "strip"; id: string; group: "chan" | "bus"; label: string }
+  /** Plugin de una ranura FX (mover a otro sitio; con Ctrl o Alt, copiar) */
+  | { kind: "fx"; owner: string; slotId: string; label: string };
 
 export interface DropZone {
   /** ¿Acepta esto aqui? (si no, no se resalta ni se suelta) */
   accepts: (payload: DragPayload, el: HTMLElement) => boolean;
-  drop: (payload: DragPayload, el: HTMLElement, pos: { x: number; y: number; after: boolean }) => void;
+  /** `copy`: se soltó con Ctrl, Alt o Cmd pulsado */
+  drop: (payload: DragPayload, el: HTMLElement, pos: { x: number; y: number; after: boolean; copy: boolean }) => void;
 }
 
 const zones = new Map<string, DropZone>();
@@ -133,7 +138,12 @@ export function beginDrag(e: React.PointerEvent, payload: DragPayload | (() => D
       if (el) {
         const r = el.getBoundingClientRect();
         const zone = zones.get(el.dataset.dropZone ?? "");
-        zone?.drop(data, el, { x: ev.clientX, y: ev.clientY, after: ev.clientY > r.top + r.height / 2 });
+        zone?.drop(data, el, {
+          x: ev.clientX,
+          y: ev.clientY,
+          after: ev.clientY > r.top + r.height / 2,
+          copy: ev.ctrlKey || ev.altKey || ev.metaKey,
+        });
       }
       // El clic que sigue al soltar no debe activar el boton de debajo.
       const swallow = (c: MouseEvent) => {

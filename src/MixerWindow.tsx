@@ -12,7 +12,8 @@ import {
   PluginPicker,
   setVstHidden,
 } from "./components/MixerControls";
-import { confirmAsk, vstEditor, vstLatencies } from "./api";
+import { confirmAsk, vstCopyState, vstEditor, vstLatencies } from "./api";
+import { beginDrag, registerDropZone, type DragPayload } from "./dnd";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
@@ -109,10 +110,13 @@ function latencyAdvice(ch: MixerChannel, all: MixerChannel[], lat: Record<string
  * «+ FX» del final añade otro.
  */
 function FxSlots({
+  owner,
   plugins,
   isNative,
   onChange,
 }: {
+  /** "ch:<id>" o "bus:<id>": para arrastrar plugins entre canales */
+  owner: string;
   plugins: PluginSlot[];
   isNative: boolean;
   onChange: (plugins: PluginSlot[]) => void;
@@ -146,11 +150,12 @@ function FxSlots({
       {plugins.map((p, i) => {
         const state = p.off ? "desactivado" : !p.enabled ? "bypass" : "activo";
         return (
-          <div key={p.id} className="mx-fx-cell">
+          <div key={p.id} className="mx-fx-cell" data-drop-zone="mixer-fx" data-owner={owner} data-index={i}>
             <button
               type="button"
               className={`mx-slot ${p.off ? "mx-fx-off" : !p.enabled ? "mx-fx-bypass" : "mx-slot-on"}`}
-              title={`${p.name} (${state})\nDoble clic: abrir · Clic derecho: opciones`}
+              title={`${p.name} (${state})\nDoble clic: abrir · Clic derecho: opciones\nArrastrar: mover a otro canal (con Ctrl o Alt: copiar)`}
+              onPointerDown={(e) => beginDrag(e, { kind: "fx", owner, slotId: p.id, label: p.name || "Plugin" })}
               onDoubleClick={() => open(p)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -188,7 +193,7 @@ function FxSlots({
           </div>
         );
       })}
-      <div className="mx-fx-cell">
+      <div className="mx-fx-cell" data-drop-zone="mixer-fx" data-owner={owner} data-index={plugins.length}>
         <button
           type="button"
           className="mx-slot mx-fx-add"
@@ -209,6 +214,15 @@ function FxSlots({
         </Pop>
       </div>
     </>
+  );
+}
+
+/** Asa para arrastrar un canal o bus y cambiarlo de sitio. */
+function Grip({ label, onPointerDown }: { label: string; onPointerDown: (e: React.PointerEvent) => void }) {
+  return (
+    <div className="mx-grip" title={`Arrastrar para mover «${label}»`} aria-label={`Mover ${label}`} onPointerDown={onPointerDown}>
+      <span />
+    </div>
   );
 }
 
@@ -805,6 +819,86 @@ function MixerBoard({
       ],
     });
   const removeChannel = (id: string) => commit({ ...s, mixerChannels: channels.filter((c) => c.id !== id) });
+
+  // Arrastrar: canales y buses para ordenarlos; plugins entre canales/buses
+  // (mover, o copiar con Ctrl/Alt: la copia lleva los mismos ajustes).
+  const dndRef = useRef({ s, channels, buses, commit });
+  dndRef.current = { s, channels, buses, commit };
+  useEffect(() => {
+    const strips = registerDropZone("mixer-strip", {
+      accepts: (p: DragPayload, el) => p.kind === "strip" && p.group === el.dataset.group && p.id !== el.dataset.stripId,
+      drop: (p, el, pos) => {
+        if (p.kind !== "strip") return;
+        const { s, channels, buses, commit } = dndRef.current;
+        const r = el.getBoundingClientRect();
+        const after = pos.x > r.left + r.width / 2;
+        const reorder = <T extends { id: string }>(list: T[]): T[] => {
+          const from = list.findIndex((x) => x.id === p.id);
+          if (from < 0) return list;
+          const copy = list.slice();
+          const [item] = copy.splice(from, 1);
+          let to = copy.findIndex((x) => x.id === el.dataset.stripId);
+          if (to < 0) return list;
+          if (after) to += 1;
+          copy.splice(to, 0, item);
+          return copy;
+        };
+        if (p.group === "chan") commit({ ...s, mixerChannels: reorder(channels) });
+        else commit({ ...s, mixerBuses: reorder(buses) });
+      },
+    });
+    const fx = registerDropZone("mixer-fx", {
+      accepts: (p: DragPayload) => p.kind === "fx",
+      drop: (p, el, pos) => {
+        if (p.kind !== "fx") return;
+        const { s, channels, buses, commit } = dndRef.current;
+        const target = el.dataset.owner ?? "";
+        let at = Number(el.dataset.index ?? 0);
+        const listOf = (owner: string): PluginSlot[] => {
+          const [kind, id] = [owner.slice(0, owner.indexOf(":")), owner.slice(owner.indexOf(":") + 1)];
+          return ((kind === "ch" ? channels.find((c) => c.id === id) : buses.find((b) => b.id === id))?.plugins ?? []).slice();
+        };
+        const src = listOf(p.owner);
+        const from = src.findIndex((x) => x.id === p.slotId);
+        if (from < 0) return;
+        const slot = src[from];
+        const lists = new Map<string, PluginSlot[]>();
+        let copied: Promise<void> = Promise.resolve();
+        if (pos.copy) {
+          const id = `vst${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          // Los ajustes se copian antes de que la mesa cargue la copia.
+          copied = vstCopyState(slot.id, id).catch(() => undefined);
+          const dst = target === p.owner ? src : listOf(target);
+          dst.splice(Math.min(at, dst.length), 0, { ...slot, id });
+          lists.set(target, dst);
+        } else if (target === p.owner) {
+          if (at === from || at === from + 1) return;
+          src.splice(from, 1);
+          if (at > from) at -= 1;
+          src.splice(at, 0, slot);
+          lists.set(target, src);
+        } else {
+          src.splice(from, 1);
+          const dst = listOf(target);
+          dst.splice(Math.min(at, dst.length), 0, slot);
+          lists.set(p.owner, src);
+          lists.set(target, dst);
+        }
+        const forOwner = (kind: string, id: string) => lists.get(`${kind}:${id}`);
+        void copied.then(() =>
+          commit({
+            ...s,
+            mixerChannels: channels.map((c) => (forOwner("ch", c.id) ? { ...c, plugins: forOwner("ch", c.id) } : c)),
+            mixerBuses: buses.map((b) => (forOwner("bus", b.id) ? { ...b, plugins: forOwner("bus", b.id) } : b)),
+          }),
+        );
+      },
+    });
+    return () => {
+      strips();
+      fx();
+    };
+  }, []);
   const removeBus = (id: string) =>
     commit({
       ...s,
@@ -1071,7 +1165,8 @@ function ChannelStrip({
   const key = `ch:${ch.id}`;
 
   return (
-    <section className="mx-strip" aria-label={ch.name}>
+    <section className="mx-strip" aria-label={ch.name} data-drop-zone="mixer-strip" data-strip-id={ch.id} data-group="chan">
+      <Grip label={ch.name} onPointerDown={(e) => beginDrag(e, { kind: "strip", id: ch.id, group: "chan", label: ch.name })} />
       <div className="mx-top">
       <div className="mx-section">
         <span className="mx-label">ENTRADA</span>
@@ -1210,7 +1305,7 @@ function ChannelStrip({
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={ch} label={ch.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
-        <FxSlots plugins={ch.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
+        <FxSlots owner={`ch:${ch.id}`} plugins={ch.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         {isNative && latency.show && (
           <div className={`mx-lat mx-lat-${latency.level}`} title={`${latency.why}${latency.wait > 0 ? `\nSincronizado: espera ${ms(latency.wait)} para ir a la par del más lento.` : ""}`}>
             <span className="mx-lat-val">
@@ -1447,7 +1542,8 @@ function BusStrip({
     out === "none" ? "Ninguna" : out === "streaming" ? "Streaming" : out === "default" ? "Predeterminada" : outputs.find((d) => d.id === out)?.label ?? "Salida";
   const key = `bus:${bus.id}`;
   return (
-    <section className="mx-strip mx-bus" aria-label={bus.name}>
+    <section className="mx-strip mx-bus" aria-label={bus.name} data-drop-zone="mixer-strip" data-strip-id={bus.id} data-group="bus">
+      <Grip label={bus.name} onPointerDown={(e) => beginDrag(e, { kind: "strip", id: bus.id, group: "bus", label: bus.name })} />
       <div className="mx-top">
       <div className="mx-section">
         <span className="mx-label">ENTRADA{isMonitor ? " · VU" : ""}</span>
@@ -1486,7 +1582,7 @@ function BusStrip({
         <Pop open={pop === "comp"} onClose={close}>
           <CompressorControls owner={bus} label={bus.name} onChange={(compressor) => onPatch({ compressor })} />
         </Pop>
-        <FxSlots plugins={bus.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
+        <FxSlots owner={`bus:${bus.id}`} plugins={bus.plugins ?? []} isNative={isNative} onChange={(plugins) => onPatch({ plugins })} />
         {isNative && latency > 0 && (
           <div className="mx-lat mx-lat-libre" title="Latencia de los plugins de este bus: retrasa por igual todo lo que pasa por él.">
             <span className="mx-lat-val">{ms(latency)}</span>
