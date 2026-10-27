@@ -1,11 +1,16 @@
-# OmniCaster Studio: logo, nombre y «Iniciando» con tres puntos que laten.
+# OmniCaster Studio: logo con sus colores en movimiento, nombre e «Iniciando» con tres puntos que laten.
 Window.SetBackgroundTopColor(0.110, 0.133, 0.180);
 Window.SetBackgroundBottomColor(0.110, 0.133, 0.180);
 
 cx = Window.GetX() + Window.GetWidth() / 2;
 cy = Window.GetY() + Window.GetHeight() / 2 - 60;
 
-logo.image = Image("logo.png");
+# 30 fotogramas con el degradado del logo desplazándose (colores que fluyen)
+for (f = 0; f < 30; f++) {
+  if (f < 10) name = "logo-0" + f + ".png"; else name = "logo-" + f + ".png";
+  frames[f] = Image(name);
+}
+logo.image = frames[0];
 logo.sprite = Sprite(logo.image);
 logo.sprite.SetPosition(cx - logo.image.GetWidth() / 2, cy - logo.image.GetHeight() / 2 - 40, 1);
 
@@ -31,6 +36,7 @@ fun refresh() {
     phase = t / 9 - i * 0.7;
     dots[i].SetOpacity(0.2 + 0.8 * Math.Abs(Math.Sin(phase)));
   }
+  logo.sprite.SetImage(frames[Math.Int(t / 3) % 30]);
   # El logo entra suave al principio
   if (t < 40) logo.sprite.SetOpacity(t / 40); else logo.sprite.SetOpacity(1);
 }
