@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { appVersion } from "./api";
@@ -64,7 +65,7 @@ export async function installUpdate(
   }
   let downloaded = 0;
   let total: number | null = null;
-  await pending.downloadAndInstall((event) => {
+  await pending.download((event) => {
     if (event.event === "Started") {
       total = event.data.contentLength ?? null;
       onProgress?.(0, total);
@@ -75,6 +76,15 @@ export async function installUpdate(
       onProgress?.(total ?? downloaded, total);
     }
   });
-  pending = null;
-  await relaunch();
+  // Antes de instalar se para el sonido y se descargan los plugins: así
+  // OmniCaster se cierra al momento y el instalador no se queda atascado.
+  await invoke("prepare_for_update").catch(() => undefined);
+  try {
+    await pending.install();
+  } finally {
+    // Si la instalación falla, el sonido ya estaba parado: se reinicia
+    // OmniCaster para que vuelva todo.
+    pending = null;
+    await relaunch();
+  }
 }

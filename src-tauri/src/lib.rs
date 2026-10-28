@@ -39,6 +39,22 @@ pub struct AppState {
 
 /// Cierra OmniCaster de verdad (la X solo minimiza). La confirmacion la pide la
 /// ventana principal antes de llamar aqui.
+/// Se llama justo antes de instalar una actualización (ver update.ts).
+#[tauri::command]
+async fn prepare_for_update(app: tauri::AppHandle) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        cursor::release();
+        remote::shutdown();
+        if let Some(st) = app.try_state::<streaming::StreamingState>() {
+            streaming::shutdown(&st);
+        }
+        if let Some(st) = app.try_state::<engine::EngineState>() {
+            engine::shutdown_for_update(&st);
+        }
+    })
+    .await;
+}
+
 #[tauri::command]
 fn app_quit(app: tauri::AppHandle) {
     app.exit(0);
@@ -195,6 +211,7 @@ pub fn run() {
             netcfg::net_share_remove,
             hwenc::video_encoders,
             crashlog::last_crash,
+            prepare_for_update,
             ffmpeg_dl::ffmpeg_update,
             library::relink_track,
             library::delete_track,
