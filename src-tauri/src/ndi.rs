@@ -799,6 +799,30 @@ fn push_np(jpeg: Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+/// Última imagen (JPEG) de lo que se emite, para el monitor del móvil:
+/// «np» = «Lo que suena»; «ndi:NOMBRE» = una fuente NDI que ya se esté
+/// recibiendo (no se abre ninguna nueva desde el móvil).
+pub fn snapshot_jpeg(src: &str) -> Option<Vec<u8>> {
+    if src == "np" {
+        let r = np_receiver();
+        let l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+        let fresh = l.at.map(|t| t.elapsed() < Duration::from_secs(10)).unwrap_or(false);
+        return (l.seq > 0 && fresh).then(|| l.jpeg.as_ref().clone());
+    }
+    let name = src.strip_prefix("ndi:")?;
+    let r = receivers().lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()?;
+    // El JPEG solo se hace si alguien mira: se mira un momento y se espera
+    // a la siguiente imagen (como mucho 1,5 s).
+    let _reader = ReaderGuard::new(r.clone());
+    let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+    let start_seq = l.seq;
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    while l.seq == start_seq && Instant::now() < deadline {
+        l = r.cv.wait_timeout(l, Duration::from_millis(100)).unwrap_or_else(|e| e.into_inner()).0;
+    }
+    (l.seq > 0 && !l.jpeg.is_empty()).then(|| l.jpeg.as_ref().clone())
+}
+
 /// Entrada de FFmpeg con la imagen de «Lo que suena».
 pub fn ffmpeg_np_input() -> Result<Vec<String>, String> {
     let base = server_url()?;

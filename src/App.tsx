@@ -44,6 +44,8 @@ import {
   stopStreaming,
 } from "./api";
 import type {
+  Program,
+  ScheduleBlock,
   HistoryEntry,
   SessionState,
   Track,
@@ -217,6 +219,82 @@ interface PendingInsert {
   trackId: string;
   deadline: number;
   onTimeout: "force" | "cancel" | "next";
+}
+
+/** Hora «HH:MM» válida (o null). */
+function mobileTime(v: string): string | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  return h < 24 && mi < 60 ? `${String(h).padStart(2, "0")}:${m[2]}` : null;
+}
+
+/** Franjas de un evento tal como las ve el móvil (las clásicas se convierten). */
+function mobileSchedules(
+  schedules: ScheduleBlock[] | undefined,
+  days: number[],
+  times: string[],
+  start: string,
+  end: string | undefined,
+): ScheduleBlock[] {
+  if (schedules?.length) return schedules;
+  return [{ id: "s0", days, times: times.filter(Boolean), start, end }];
+}
+
+/** Cambios que el móvil puede hacer en un evento, campaña o programa (validados). */
+function mobileAgendaPatch(kind: string, p: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  if (typeof p.name === "string") out.name = p.name.trim().slice(0, 120);
+  if (typeof p.enabled === "boolean") out.enabled = p.enabled;
+  const scheds = Array.isArray(p.schedules) ? (p.schedules as Record<string, unknown>[]) : null;
+  if (scheds && kind !== "program") {
+    const clean: ScheduleBlock[] = scheds.slice(0, 20).map((b, i) => {
+      const days = Array.isArray(b.days) ? (b.days as unknown[]).map(Number).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7) : [];
+      const times = Array.isArray(b.times) ? (b.times as unknown[]).map((t) => mobileTime(String(t))).filter((t): t is string => !!t) : [];
+      const blk: ScheduleBlock = { id: String(b.id ?? `s${i}`), days: Array.from(new Set(days)).sort(), times: Array.from(new Set(times)).sort() };
+      if (kind === "campaign") {
+        blk.hourly = !!b.hourly;
+        blk.minute = Math.max(0, Math.min(59, Math.round(Number(b.minute) || 0)));
+      }
+      const st = mobileTime(String(b.start ?? ""));
+      const en = mobileTime(String(b.end ?? ""));
+      if (st) blk.start = st;
+      if (en) blk.end = en;
+      return blk;
+    });
+    out.schedules = clean;
+    // Los campos clásicos siguen a la primera franja (por si algo los lee)
+    const first = clean[0];
+    if (first) {
+      out.days = first.days;
+      if (kind === "event") {
+        const st = first.start ?? first.times[0];
+        if (st) out.start = st;
+        if (first.end) out.end = first.end;
+        out.times = first.times.filter((t) => t !== st);
+      } else {
+        out.times = first.times;
+        out.hourly = !!first.hourly;
+        out.minute = first.minute ?? 0;
+      }
+    }
+  }
+  if (kind === "event") {
+    if (p.onTimeout === "next" || p.onTimeout === "force" || p.onTimeout === "cancel") out.onTimeout = p.onTimeout;
+    if (p.maxWaitSecs !== undefined) out.maxWaitSecs = Math.max(0, Math.min(3600, Math.round(Number(p.maxWaitSecs) || 0)));
+  }
+  if (kind === "campaign") {
+    const dt = (v: unknown) => (typeof v === "string" && (v === "" || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) ? v : undefined);
+    if (dt(p.startAt) !== undefined) out.startAt = dt(p.startAt);
+    if (dt(p.endAt) !== undefined) out.endAt = dt(p.endAt);
+  }
+  if (kind === "program") {
+    if (typeof p.subtitle === "string") out.subtitle = p.subtitle.slice(0, 200);
+    if (typeof p.startsAt === "string") out.startsAt = p.startsAt.trim() === "" ? "" : mobileTime(p.startsAt) ?? undefined;
+    if (out.startsAt === undefined) delete out.startsAt;
+  }
+  return out;
 }
 
 function pad2(n: number): string {
@@ -3435,10 +3513,44 @@ export default function App() {
         monitor: !!vsNow?.enabled,
       },
       mixer: (settings.mixerChannels ?? []).map((c) => ({ id: c.id, name: c.name, gainDb: c.gainDb, muted: c.muted })),
+      // Imagen para el monitor de vídeo del móvil: la fuente NDI al aire o «Lo que suena»
+      snap: (() => {
+        if (vsNow?.source === "capture") {
+          const input = videoSources.find((i) => i.id === vsNow.captureInputId);
+          if (input?.kind === "ndi") return `ndi:${input.source.trim()}`;
+        }
+        return "np";
+      })(),
+      // Agenda: eventos, campañas y programas (para verlos y cambiarlos)
+      agenda: {
+        events: (settings.events ?? []).map((e) => ({
+          id: e.id,
+          name: e.name,
+          enabled: e.enabled,
+          kind: e.kind,
+          schedules: mobileSchedules(e.schedules, e.days, [e.start, ...(e.times ?? [])], e.start, e.end),
+          onTimeout: e.onTimeout,
+          maxWaitSecs: e.maxWaitSecs,
+          random: e.trackMode === "random",
+        })),
+        campaigns: (settings.campaigns ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          enabled: c.enabled,
+          kind: c.kind,
+          schedules: c.schedules?.length
+            ? c.schedules
+            : [{ id: "s0", days: c.days, times: c.times, hourly: c.hourly, minute: c.minute }],
+          startAt: c.startAt,
+          endAt: c.endAt,
+          spots: c.trackIds.length,
+        })),
+        programs: (settings.programs ?? []).map((p) => ({ id: p.id, name: p.name, subtitle: p.subtitle, startsAt: p.startsAt, enabled: p.enabled })),
+      },
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs]);
   const mobileSnapRef = useRef(mobileSnapshot);
   mobileSnapRef.current = mobileSnapshot;
   const mobilePosRef = useRef(pos);
@@ -3521,6 +3633,40 @@ export default function App() {
       case "monitor": {
         const vs = s.videoScreen ?? DEFAULT_SETTINGS.videoScreen;
         updateSettings({ ...s, videoScreen: { ...vs, enabled: !!c.on } });
+        break;
+      }
+      // ---- Agenda (eventos, campañas, programas) ----
+      case "cfgToggle":
+      case "cfgSave":
+      case "cfgDelete":
+      case "cfgDuplicate": {
+        const kind = String(c.kind ?? "");
+        const id = String(c.id ?? "");
+        const key = kind === "event" ? "events" : kind === "campaign" ? "campaigns" : kind === "program" ? "programs" : null;
+        if (!key) return;
+        const list = (s[key] ?? []) as { id: string; name: string; enabled: boolean }[];
+        const item = list.find((x) => x.id === id);
+        if (!item) return;
+        let next = list;
+        if (c.cmd === "cfgToggle") next = list.map((x) => (x.id === id ? { ...x, enabled: !!c.on } : x));
+        else if (c.cmd === "cfgDelete") next = list.filter((x) => x.id !== id);
+        else if (c.cmd === "cfgDuplicate") {
+          const copy = { ...item, id: `${kind[0]}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `${item.name} (copia)`, enabled: false };
+          next = [...list, copy];
+        } else {
+          const patch = mobileAgendaPatch(kind, (c.patch ?? {}) as Record<string, unknown>);
+          if (!patch) return;
+          next = list.map((x) => (x.id === id ? { ...x, ...patch } : x));
+        }
+        updateSettings({ ...s, [key]: next });
+        showToast(`Agenda cambiada desde el móvil: ${item.name || "sin nombre"}`);
+        break;
+      }
+      case "cfgNewProgram": {
+        const name = String(c.name ?? "").trim().slice(0, 120);
+        if (!name) return;
+        const p: Program = { id: `p${Date.now().toString(36)}`, name, subtitle: String(c.subtitle ?? "").slice(0, 200), cover: "", startsAt: mobileTime(String(c.startsAt ?? "")) ?? "", enabled: true };
+        updateSettings({ ...s, programs: [...(s.programs ?? []), p] });
         break;
       }
       case "fader":

@@ -8,6 +8,7 @@
 //!   GET  /api/events?t=    estado en directo (text/event-stream)
 //!   POST /api/cmd?t=       {"cmd": …} -> evento «mobile://cmd» a la ventana principal
 //!   GET  /api/cover?t=&f=  portada (solo las del estado publicado)
+//!   GET  /api/snap?t=&src= imagen de lo que se emite (np | ndi:NOMBRE)
 //!   GET  /api/sys?t=       monitor del sistema
 
 use std::collections::HashSet;
@@ -351,6 +352,13 @@ fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicB
             }
             _ => json(req, 400, serde_json::json!({"error": "orden no válida"})),
         },
+        ("GET", "/api/snap") => {
+            let src = query(&url, "src").unwrap_or_default();
+            match crate::ndi::snapshot_jpeg(&src) {
+                Some(jpeg) => reply(req, 200, "image/jpeg", jpeg),
+                None => reply(req, 204, "image/jpeg", Vec::new()),
+            }
+        }
         ("GET", "/api/cover") => {
             let f = query(&url, "f").unwrap_or_default();
             let allowed = shared.0.lock().map(|sh| sh.covers.contains(&f)).unwrap_or(false);
