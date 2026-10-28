@@ -96,6 +96,8 @@ import {
   serveMain,
 } from "./bridge";
 import type { VideoState } from "./videoSurface";
+import { checkForUpdate, installUpdate } from "./update";
+import { appVersion } from "./api";
 import { isDragging } from "./dnd";
 import { apiApply, apiPublish, backupLastImportLog, confirmAsk, cursorWall, notifyFire, showLastCrash } from "./api";
 import { availableMonitors, currentMonitor } from "@tauri-apps/api/window";
@@ -3491,6 +3493,17 @@ export default function App() {
     (input) => (input.kind === "capture" || input.kind === "ndi") && input.enabled && input.source.trim() !== "",
   );
   const vsNow = settings.videoScreen;
+  // Versión y actualización (para verlas y lanzarlas desde el móvil)
+  const [mobileUpd, setMobileUpd] = useState<{ version: string; latest: string; available: boolean; busy: string; error: string }>({
+    version: "",
+    latest: "",
+    available: false,
+    busy: "",
+    error: "",
+  });
+  useEffect(() => {
+    void appVersion().then((v) => setMobileUpd((u) => ({ ...u, version: v }))).catch(() => undefined);
+  }, []);
   const mobileSnapshot = useMemo(() => {
     if (!mobileCfg?.enabled) return null;
     const now = deckRow
@@ -3521,6 +3534,8 @@ export default function App() {
         }
         return "np";
       })(),
+      app: mobileUpd,
+      pastVisible: settings.pastVisible ?? 5,
       // Agenda: eventos, campañas y programas (para verlos y cambiarlos)
       agenda: {
         events: (settings.events ?? []).map((e) => ({
@@ -3550,7 +3565,9 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible]);
+  const mobileUpdRef = useRef(mobileUpd);
+  mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
   mobileSnapRef.current = mobileSnapshot;
   const mobilePosRef = useRef(pos);
@@ -3660,6 +3677,22 @@ export default function App() {
         }
         updateSettings({ ...s, [key]: next });
         showToast(`Agenda cambiada desde el móvil: ${item.name || "sin nombre"}`);
+        break;
+      }
+      case "updCheck": {
+        setMobileUpd((u) => ({ ...u, busy: "Buscando…", error: "" }));
+        void checkForUpdate()
+          .then((r) => setMobileUpd((u) => ({ ...u, busy: "", latest: r.latest, available: r.available })))
+          .catch((e) => setMobileUpd((u) => ({ ...u, busy: "", error: String(e instanceof Error ? e.message : e) })));
+        break;
+      }
+      case "updInstall": {
+        if (!mobileUpdRef.current.available) return;
+        showToast("Instalando la actualización pedida desde el móvil…");
+        setMobileUpd((u) => ({ ...u, busy: "Descargando…", error: "" }));
+        void installUpdate((done, total) =>
+          setMobileUpd((u) => ({ ...u, busy: total ? `Descargando ${Math.round((done / total) * 100)} %` : "Descargando…" })),
+        ).catch((e) => setMobileUpd((u) => ({ ...u, busy: "", error: String(e instanceof Error ? e.message : e) })));
         break;
       }
       case "cfgNewProgram": {
