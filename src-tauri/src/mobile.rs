@@ -259,6 +259,18 @@ fn same(a: &str, b: &str) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Logo de OmniCaster (si la emisora no tiene el suyo).
+const APP_LOGO: &[u8] = include_bytes!("../../src/assets/logo.png");
+
+/// Nombre (o «OmniCaster Studio») y ruta del logo de la emisora.
+fn brand(app: &AppHandle) -> (String, String) {
+    use tauri::Manager;
+    let Ok(dir) = app.path().app_data_dir() else { return ("OmniCaster Studio".into(), String::new()) };
+    let s = crate::settings::read_settings_public(&dir);
+    let name = if s.radio_name.trim().is_empty() { "OmniCaster Studio".to_string() } else { s.radio_name.trim().to_string() };
+    (name, s.logo_path.trim().to_string())
+}
+
 fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicBool, mut req: tiny_http::Request) {
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or("/").to_string();
@@ -267,8 +279,35 @@ fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicB
         return reply(req, 200, "text/html; charset=utf-8", PAGE.as_bytes().to_vec());
     }
     if method == "GET" && path == "/manifest.webmanifest" {
-        let m = r##"{"name":"OmniCaster","short_name":"OmniCaster","start_url":"/","display":"standalone","background_color":"#0e1116","theme_color":"#0e1116"}"##;
-        return reply(req, 200, "application/manifest+json", m.as_bytes().to_vec());
+        let (name, _) = brand(app);
+        let m = serde_json::json!({
+            "name": name, "short_name": name, "start_url": "/", "display": "standalone",
+            "background_color": "#0e1116", "theme_color": "#0e1116",
+            "icons": [{"src": "/logo", "sizes": "512x512", "type": "image/png"}]
+        });
+        return reply(req, 200, "application/manifest+json", m.to_string().into_bytes());
+    }
+    // Nombre y logo de la emisora (públicos: se ven antes de entrar)
+    if method == "GET" && path == "/api/brand" {
+        let (name, _) = brand(app);
+        return json(req, 200, serde_json::json!({ "name": name }));
+    }
+    if method == "GET" && (path == "/logo" || path == "/apple-touch-icon.png") {
+        let (_, logo) = brand(app);
+        let custom = (!logo.is_empty()).then(|| std::fs::read(&logo).ok()).flatten();
+        return match custom {
+            Some(bytes) => {
+                let ct = match logo.rsplit('.').next().map(|e| e.to_ascii_lowercase()).as_deref() {
+                    Some("jpg") | Some("jpeg") => "image/jpeg",
+                    Some("webp") => "image/webp",
+                    Some("gif") => "image/gif",
+                    Some("svg") => "image/svg+xml",
+                    _ => "image/png",
+                };
+                reply(req, 200, ct, bytes)
+            }
+            None => reply(req, 200, "image/png", APP_LOGO.to_vec()),
+        };
     }
     if method == "POST" && path == "/api/login" {
         let pin = body_of(&mut req).and_then(|v| v.get("pin").and_then(|p| p.as_str()).map(String::from)).unwrap_or_default();
