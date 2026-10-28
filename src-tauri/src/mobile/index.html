@@ -138,6 +138,7 @@
 <nav id="nav"></nav>
 <script>
 "use strict";
+const PAGE_VERSION = "__OC_VERSION__";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (s) => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -232,6 +233,11 @@ function connect() {
   es.onopen = () => ($("#conn").className = "conn on");
   es.onmessage = (e) => {
     try { S = JSON.parse(e.data); gotAt = Date.now(); } catch { return; }
+    // OmniCaster se ha actualizado: página nueva (la app del móvil no se recarga sola)
+    if (S.app && S.app.version && PAGE_VERSION !== "__OC_" + "VERSION__" && S.app.version !== PAGE_VERSION && !editing) {
+      location.reload();
+      return;
+    }
     if (!dragging) render();
   };
   es.addEventListener("logout", () => logout());

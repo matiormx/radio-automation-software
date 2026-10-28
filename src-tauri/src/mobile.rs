@@ -277,7 +277,10 @@ fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicB
     let path = url.split('?').next().unwrap_or("/").to_string();
     let method = req.method().as_str().to_ascii_uppercase();
     if method == "GET" && (path == "/" || path == "/index.html") {
-        return reply(req, 200, "text/html; charset=utf-8", PAGE.as_bytes().to_vec());
+        // La página lleva la versión: si OmniCaster se actualiza, el móvil
+        // (también instalado como app) se recarga solo.
+        let page = PAGE.replace("__OC_VERSION__", &app.package_info().version.to_string());
+        return reply(req, 200, "text/html; charset=utf-8", page.into_bytes());
     }
     if method == "GET" && path == "/manifest.webmanifest" {
         let (name, _) = brand(app);
