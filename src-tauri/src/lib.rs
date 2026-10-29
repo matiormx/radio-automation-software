@@ -216,6 +216,7 @@ pub fn run() {
             prepare_for_update,
             ffmpeg_dl::ffmpeg_update,
             monitor::monitor_server,
+            monitor::monitor_thumbnail,
             library::relink_track,
             library::delete_track,
             library::list_blocks,

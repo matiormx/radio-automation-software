@@ -211,6 +211,24 @@ pub fn latest_jpeg(id: &str) -> Option<Vec<u8>> {
     (fresh && !latest.jpeg.is_empty()).then(|| latest.jpeg.clone())
 }
 
+/// Ultima miniatura en base64, para el <img> de la app (mismo camino que el
+/// móvil: directo del registro, sin servidor HTTP de por medio).
+#[tauri::command]
+pub fn monitor_thumbnail(id: String) -> Option<String> {
+    use base64::Engine as _;
+    let id = format!("monitor:{id}");
+    let jpeg = frames()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .and_then(|slot| {
+            let latest = slot.lock().unwrap_or_else(|e| e.into_inner());
+            let fresh = latest.at.map(|t| t.elapsed() < Duration::from_secs(15)).unwrap_or(false);
+            (fresh && !latest.jpeg.is_empty()).then(|| latest.jpeg.clone())
+        })?;
+    Some(base64::engine::general_purpose::STANDARD.encode(jpeg))
+}
+
 // ------------------------------------------------------------ servidor local
 
 /// Direccion del servidor de miniaturas (lo arranca la primera vez).

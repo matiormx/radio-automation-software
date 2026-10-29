@@ -376,6 +376,11 @@ export function monitorServer(): Promise<string> {
   return invoke<string>("monitor_server");
 }
 
+/** Ultima miniatura de una salida monitorizada en base64 (como en el móvil). */
+export function monitorThumbnail(id: string): Promise<string | null> {
+  return invoke<string | null>("monitor_thumbnail", { id });
+}
+
 export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
   return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
 }
