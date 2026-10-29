@@ -401,7 +401,12 @@ async function loadSnap() {
       const url = URL.createObjectURL(await r.blob());
       if (snapUrl) URL.revokeObjectURL(snapUrl);
       snapUrl = url;
-      snapNote = `Actualizado ${new Date().toLocaleTimeString("es-ES")} · ${S.snap && S.snap.startsWith("ndi:") ? esc(S.snap.slice(4)) : "Lo que suena"}`;
+      const label = S.snap && S.snap.startsWith("out:")
+        ? "Lo que sale"
+        : S.snap && S.snap.startsWith("ndi:")
+          ? esc(S.snap.slice(4))
+          : "Lo que suena";
+      snapNote = `Actualizado ${new Date().toLocaleTimeString("es-ES")} · ${label}`;
     }
     const img = document.getElementById("snap");
     if (img && snapUrl && img.src !== snapUrl) img.src = snapUrl;

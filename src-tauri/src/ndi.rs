@@ -831,6 +831,11 @@ pub fn snapshot_jpeg(src: &str) -> Option<Vec<u8>> {
         let fresh = l.at.map(|t| t.elapsed() < Duration::from_secs(10)).unwrap_or(false);
         return (l.seq > 0 && fresh).then(|| l.jpeg.as_ref().clone());
     }
+    // Miniatura de una salida de vídeo monitorizada (la misma que se ve en
+    // la pestaña Streaming): un solo FFmpeg sirve a los dos.
+    if let Some(id) = src.strip_prefix("out:") {
+        return crate::monitor::latest_jpeg(&format!("monitor:{id}"));
+    }
     let name = src.strip_prefix("ndi:")?;
     let r = receivers().lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()?;
     // El JPEG solo se hace si alguien mira: se mira un momento y se espera

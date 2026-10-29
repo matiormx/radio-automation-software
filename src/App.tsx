@@ -3548,8 +3548,15 @@ export default function App() {
         monitor: !!vsNow?.enabled,
       },
       mixer: (settings.mixerChannels ?? []).map((c) => ({ id: c.id, name: c.name, gainDb: c.gainDb, muted: c.muted })),
-      // Imagen para el monitor de vídeo del móvil: la fuente NDI al aire o «Lo que suena»
+      // Imagen para el monitor de vídeo del móvil. Primero lo que de verdad
+      // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
+      // ve en Ajustes > Streaming (el móvil no abre ningún FFmpeg de más).
+      // Si no la hay, la fuente NDI al aire o «Lo que suena».
       snap: (() => {
+        const monitored = (settings.video?.outputs ?? []).find(
+          (o) => o.monitor && o.enabled && streamStatus?.outputs.some((s) => s.id === `video:${o.id}` && s.running),
+        );
+        if (monitored) return `out:${monitored.id}`;
         if (vsNow?.source === "capture") {
           const input = videoSources.find((i) => i.id === vsNow.captureInputId);
           if (input?.kind === "ndi") return `ndi:${input.source.trim()}`;
@@ -3587,7 +3594,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);

@@ -8,7 +8,7 @@
 //!   GET  /api/events?t=    estado en directo (text/event-stream)
 //!   POST /api/cmd?t=       {"cmd": …} -> evento «mobile://cmd» a la ventana principal
 //!   GET  /api/cover?t=&f=  portada (solo las del estado publicado)
-//!   GET  /api/snap?t=&src= imagen de lo que se emite (np | ndi:NOMBRE)
+//!   GET  /api/snap?t=&src= imagen de lo que se emite (np | ndi:NOMBRE | out:SALIDA)
 //!   GET  /api/sys?t=       monitor del sistema
 
 use std::collections::HashSet;

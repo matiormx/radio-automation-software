@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const WIDTH: u32 = 320;
 
@@ -35,6 +35,7 @@ fn live() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
 #[derive(Default)]
 struct Latest {
     jpeg: Vec<u8>,
+    at: Option<Instant>,
 }
 
 fn clear(id: &str) {
@@ -155,6 +156,17 @@ fn update(id: &str, jpeg: Vec<u8>) {
     let slot = slots.entry(id.to_string()).or_default();
     let mut latest = slot.lock().unwrap_or_else(|e| e.into_inner());
     latest.jpeg = jpeg;
+    latest.at = Some(Instant::now());
+}
+
+/// Ultima miniatura de un monitor si es fresca (para el acceso remoto, que
+/// consulta poco a poco: usa el mismo FFmpeg que la pestaña Streaming).
+pub fn latest_jpeg(id: &str) -> Option<Vec<u8>> {
+    let slots = frames().lock().unwrap_or_else(|e| e.into_inner());
+    let slot = slots.get(id)?;
+    let latest = slot.lock().unwrap_or_else(|e| e.into_inner());
+    let fresh = latest.at.map(|t| t.elapsed() < Duration::from_secs(10)).unwrap_or(false);
+    (fresh && !latest.jpeg.is_empty()).then(|| latest.jpeg.clone())
 }
 
 // ------------------------------------------------------------ servidor local

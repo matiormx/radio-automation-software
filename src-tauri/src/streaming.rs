@@ -445,13 +445,14 @@ pub fn stream_start(
                 input_audio.as_deref()
             };
             // Miniatura monitorizada: la misma fuente que se emite, leida con
-            // un FFmpeg liviano a 1 fps (solo si la salida esta marcada).
+            // un FFmpeg liviano a 1 fps (solo si la salida esta marcada). En
+            // NDI pide el crudo del servidor ya reducido: menos datos y CPU.
             let monitor_input = if output.monitor {
                 Some(if use_program {
                     program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np)
                 } else {
                     match settings.video.inputs.iter().find(|i| i.id == video_choice) {
-                        Some(input) => video_input_args(input, ndi_device),
+                        Some(input) => video_input_args(input, ndi_device, (480, 270, output.fps)),
                         None => Err("la entrada de vídeo elegida no existe".to_string()),
                     }
                 })
