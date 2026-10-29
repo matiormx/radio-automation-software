@@ -664,6 +664,8 @@ pub struct VideoOutput {
     /// Dispositivo de audio de captura.
     pub audio_source_id: String,
     pub enabled: bool,
+    /// Miniatura del vídeo que sale (1 fps) en la pestaña Streaming.
+    pub monitor: bool,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -682,6 +684,7 @@ impl Default for VideoOutput {
             audio_source: "mixer".to_string(),
             audio_source_id: String::new(),
             enabled: true,
+            monitor: false,
             width: 1920,
             height: 1080,
             fps: 25,

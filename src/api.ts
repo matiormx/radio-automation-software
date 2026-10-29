@@ -358,6 +358,11 @@ export function ndiServer(): Promise<string> {
   return invoke<string>("ndi_server");
 }
 
+/** Direccion del servidor local de las miniaturas monitorizadas. */
+export function monitorServer(): Promise<string> {
+  return invoke<string>("monitor_server");
+}
+
 export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
   return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
 }

@@ -11,7 +11,7 @@ import type {
   VideoOutputKind,
 } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
-import { listVideoCaptureDevices } from "../api";
+import { listVideoCaptureDevices, monitorServer } from "../api";
 
 interface Props {
   settings: Settings;
@@ -103,6 +103,7 @@ function newVideoOutput(): VideoOutput {
     audioSource: "mixer",
     audioSourceId: "",
     enabled: true,
+    monitor: false,
     width: 1920,
     height: 1080,
     fps: 25,
@@ -128,6 +129,37 @@ function cappedOutput(output: VideoOutput, maxHeight: number): VideoOutput {
     height: maxHeight - (maxHeight % 2),
     bitrateKbps: Math.min(output.bitrateKbps, Math.max(2500, scaled)),
   };
+}
+
+/** Miniatura de lo que sale por una emisión monitorizada (1 fps, barata). */
+function MonitorThumb({ id, active }: { id: string; active: boolean }) {
+  const [base, setBase] = useState("");
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    void monitorServer()
+      .then((url) => setBase(url))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!active || !base) return;
+    const t = window.setInterval(() => setTick((v) => v + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [active, base]);
+  if (!active || !base) return null;
+  return (
+    <img
+      className="stream-thumb"
+      alt=""
+      title="Miniatura de lo que sale (actualizada cada segundo)"
+      onError={(e) => {
+        e.currentTarget.style.visibility = "hidden";
+      }}
+      onLoad={(e) => {
+        e.currentTarget.style.visibility = "visible";
+      }}
+      src={`${base}/m/monitor:${id}.jpg?${tick}`}
+    />
+  );
 }
 
 function videoOutputSummary(original: VideoOutput, maxHeight = 0): string {
@@ -977,6 +1009,7 @@ export function VideoOutputsEditor({
                       title={status?.label ?? "Sin iniciar"}
                       aria-label={status?.label ?? "Sin iniciar"}
                     />
+                    <MonitorThumb id={output.id} active={status?.tone === "live" && !!output.monitor} />
                     <strong className="stream-line-name">
                       {output.name || "Sin nombre"}
                     </strong>
@@ -1099,26 +1132,36 @@ export function VideoOutputsEditor({
                           }
                         />
                       </label>
-                      {output.kind !== "ndi" && (
-                        <label className="field">
-                          <span className="field-label">Bitrate</span>
-                          <span className="field-unit">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100000}
-                              value={output.bitrateKbps}
-                              onChange={(e) =>
-                                updateVideoOutput(output.id, {
-                                  bitrateKbps: Math.max(0, Number(e.target.value) || 0),
-                                })
-                              }
-                            />
-                            kbps
-                          </span>
-                        </label>
-                      )}
-                    </div>
+                       {output.kind !== "ndi" && (
+                         <label className="field">
+                           <span className="field-label">Bitrate</span>
+                           <span className="field-unit">
+                             <input
+                               type="number"
+                               min={0}
+                               max={100000}
+                               value={output.bitrateKbps}
+                               onChange={(e) =>
+                                 updateVideoOutput(output.id, {
+                                   bitrateKbps: Math.max(0, Number(e.target.value) || 0),
+                                 })
+                               }
+                             />
+                             kbps
+                           </span>
+                         </label>
+                       )}
+                     </div>
+                     <label className="check-field">
+                       <input
+                         type="checkbox"
+                         checked={!!output.monitor}
+                         onChange={(e) =>
+                           updateVideoOutput(output.id, { monitor: e.target.checked })
+                         }
+                       />
+                       Monitorizar (miniatura de lo que sale, cada segundo)
+                     </label>
                     {output.kind === "ndi" && (
                       <p className="hint">
                         Sale por NDI con el NDI Runtime (sin FFmpeg especial): la imagen de la fuente

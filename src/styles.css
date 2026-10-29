@@ -3506,6 +3506,7 @@ body.is-reordering { cursor: grabbing; user-select: none; }
 .device-name { flex: 0 1 220px; min-width: 110px; }
 .device-del-space { flex: 0 0 22px; }
 .stream-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.stream-thumb { flex: none; width: 64px; height: 36px; object-fit: contain; background: #000; border-radius: 4px; border: 1px solid rgba(255,255,255,.14); }
 .stream-line-name { flex: 0 1 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stream-line-codec { flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-2, rgba(255,255,255,.08)); color: var(--text-faint); }
 .stream-line-url { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }

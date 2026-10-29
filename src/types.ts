@@ -465,6 +465,8 @@ export interface VideoOutput {
   audioSource?: VideoAudioSource;
   /** Dispositivo de audio de captura cuando audioSource = "device" */
   audioSourceId?: string;
+  /** Miniatura en la pestaña Streaming de lo que sale por esta emisión (1 fps) */
+  monitor?: boolean;
   enabled: boolean;
   width: number;
   height: number;

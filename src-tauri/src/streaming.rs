@@ -444,6 +444,28 @@ pub fn stream_start(
             } else {
                 input_audio.as_deref()
             };
+            // Miniatura monitorizada: la misma fuente que se emite, leida con
+            // un FFmpeg liviano a 1 fps (solo si la salida esta marcada).
+            let monitor_input = if output.monitor {
+                Some(if use_program {
+                    program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np)
+                } else {
+                    match settings.video.inputs.iter().find(|i| i.id == video_choice) {
+                        Some(input) => video_input_args(input, ndi_device),
+                        None => Err("la entrada de vídeo elegida no existe".to_string()),
+                    }
+                })
+            } else {
+                None
+            };
+            let monitor_ndi = !use_program
+                && settings
+                    .video
+                    .inputs
+                    .iter()
+                    .find(|i| i.id == video_choice)
+                    .map(|i| i.kind == "ndi")
+                    .unwrap_or(false);
             // Salida NDI con el NDI Runtime (sin FFmpeg con NDI): FFmpeg solo
             // captura la imagen y OmniCaster la envia por NDI con el audio de la mesa.
             if kind == "ndi" && crate::ndi::runtime().is_ok() {
@@ -499,6 +521,16 @@ pub fn stream_start(
                     let message = format!("{name}: {error}");
                     errors.push(message.clone());
                     inner.failed_outputs.push(failed_output(&id, &name, &kind, message));
+                } else {
+                    start_monitor(
+                        &mut errors,
+                        &name,
+                        monitor_input,
+                        monitor_ndi,
+                        &ffmpeg,
+                        ndi.as_ref().map(|(path, _)| path.as_path()),
+                        &output.id,
+                    );
                 }
                 continue;
             }
@@ -675,6 +707,16 @@ pub fn stream_start(
                         inner
                             .failed_outputs
                             .push(failed_output(&id, &name, &kind, error));
+                    } else {
+                        start_monitor(
+                            &mut errors,
+                            &name,
+                            monitor_input,
+                            monitor_ndi,
+                            &ffmpeg,
+                            ndi.as_ref().map(|(path, _)| path.as_path()),
+                            &output.id,
+                        );
                     }
                 }
                 Err(error) => {
@@ -820,6 +862,44 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
         outputs,
         last_error,
     }
+}
+
+/// Arranca la miniatura monitorizada de una salida (o anota el error).
+fn start_monitor(
+    errors: &mut Vec<String>,
+    name: &str,
+    video_args: Option<Result<Vec<String>, String>>,
+    input_is_ndi: bool,
+    ffmpeg: &Path,
+    ndi_ffmpeg: Option<&Path>,
+    output_id: &str,
+) {
+    let Some(video_args) = video_args else {
+        return;
+    };
+    let video_args = match video_args {
+        Ok(args) => args,
+        Err(error) => {
+            errors.push(format!("{name} (miniatura): {error}"));
+            return;
+        }
+    };
+    // Con el NDI Runtime la imagen llega por el servidor local y sirve el
+    // FFmpeg normal; sin Runtime hace falta el FFmpeg con soporte NDI.
+    let chosen = if input_is_ndi && crate::ndi::runtime().is_err() {
+        match ndi_ffmpeg {
+            Some(path) => path,
+            None => {
+                errors.push(format!(
+                    "{name} (miniatura): NDI no disponible: indica un FFmpeg con soporte NDI en Ajustes > Vídeo > NDI"
+                ));
+                return;
+            }
+        }
+    } else {
+        ffmpeg
+    };
+    crate::monitor::start(chosen, video_args, format!("monitor:{output_id}"));
 }
 
 fn spawn_process(
@@ -1141,6 +1221,7 @@ fn stop_all(inner: &mut EngineInner) {
         let _ = process.child.wait();
     }
     inner.failed_outputs.clear();
+    crate::monitor::stop_all();
 }
 
 /// Salidas del estudio (pantalla/HDMI, NDI, SDI): funcionan siempre que el
@@ -1185,6 +1266,10 @@ fn stop_group(inner: &mut EngineInner, group: &str) {
     }
     inner.processes = keep;
     inner.failed_outputs.retain(|output| !in_group(&output.kind, group));
+    // Las miniaturas son de vídeo: se paran con el grupo de vídeo o con todo.
+    if group != "audio" {
+        crate::monitor::stop_all();
+    }
 }
 
 pub(crate) fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {

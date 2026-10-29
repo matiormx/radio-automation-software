@@ -32,6 +32,7 @@ pub mod ffmpeg_dl;
 pub mod media;
 pub mod explorer;
 pub mod vstpkg;
+pub mod monitor;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -213,6 +214,7 @@ pub fn run() {
             crashlog::last_crash,
             prepare_for_update,
             ffmpeg_dl::ffmpeg_update,
+            monitor::monitor_server,
             library::relink_track,
             library::delete_track,
             library::list_blocks,
