@@ -697,16 +697,30 @@ function EventEditor({
           </label>
         )}
 
-        {draft.kind === "stream" ? (
+        {draft.kind === "auto" ? (
+          <>
+            <p className="hint">
+              La franja se activa a cada uno de los horarios indicados y se mantiene hasta que
+              empiece otro evento. Las próximas canciones que elija el AutoDJ saldrán de la fuente
+              indicada; la cola que ya está cargada no se toca.
+            </p>
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={!!draft.clearList}
+                onChange={(e) => set({ clearList: e.target.checked })}
+              />
+              Limpiar la lista al asignar la fuente
+            </label>
+            <p className="hint">
+              Al entrar la franja quita lo que queda por sonar de la lista (se respeta la canción
+              que ya está en antena) y el AutoDJ rellena desde el principio con la fuente nueva.
+            </p>
+          </>
+        ) : draft.kind === "stream" ? (
           <p className="hint">
             A la hora de inicio la música se funde y entra el audio de internet; a la hora de fin se funde y la lista
             sigue con la siguiente canción. Si la hora de fin es menor que la de inicio, termina al día siguiente.
-          </p>
-        ) : draft.kind === "auto" ? (
-          <p className="hint">
-            La franja se activa a cada uno de los horarios indicados y se mantiene hasta que
-            empiece otro evento. Las próximas canciones que elija el AutoDJ saldrán de la fuente
-            indicada; la cola que ya está cargada no se toca.
           </p>
         ) : (
           <>

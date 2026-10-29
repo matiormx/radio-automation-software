@@ -271,6 +271,8 @@ export interface StationEvent {
   meta?: StreamMeta;
   /** insert: "fixed" = una pista concreta; "random" = una al azar de sourceKind/sourceId */
   trackMode?: "fixed" | "random";
+  /** auto: al asignar la fuente se limpia la lista (quedándose solo con lo que suena) */
+  clearList?: boolean;
   /** random: no repetir la misma pista a la misma hora durante tantos días (0 = sin regla) */
   noRepeatSlotDays?: number;
   /** random: no repetir la misma pista en este evento (a cualquier hora) durante tantos días */

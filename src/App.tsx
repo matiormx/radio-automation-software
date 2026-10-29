@@ -866,6 +866,8 @@ export default function App() {
   const autoScopeKey = autoScope ? `${autoScope.kind}|${autoScope.id}` : "";
   const autoScopeRef = useRef(autoScope);
   autoScopeRef.current = autoScope;
+  const activeAutoEventRef = useRef(activeAutoEvent);
+  activeAutoEventRef.current = activeAutoEvent;
 
   // Filas resueltas con datos de la biblioteca (lista activa: la que suena)
   const rows: PlaylistRow[] = useMemo(() => rowsOf(active, tracks), [active, tracks]);
@@ -2935,6 +2937,26 @@ export default function App() {
     (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
     [settings, updateSettings],
   );
+
+  // Evento «Franja AutoDJ» con limpiar: al asignarse la fuente (cambia el
+  // alcance del AutoDJ, incluido el arranque manual) se quita lo que queda
+  // por sonar de la lista activa; la canción en antena se respeta y el
+  // relleno de abajo entra enseguida con la fuente nueva.
+  const lastAutoScope = useRef<string | null>(null);
+  useEffect(() => {
+    const changed = lastAutoScope.current !== null && lastAutoScope.current !== autoScopeKey;
+    lastAutoScope.current = autoScopeKey;
+    if (!changed) return;
+    const event = activeAutoEventRef.current;
+    if (!event?.clearList) return;
+    const playing = playingRowRef.current;
+    const keep = playing >= 0 ? rowsRef.current[playing]?.id : undefined;
+    if (nextPickRef.current && nextPickRef.current.listId === activeIdRef.current) {
+      // La fila elegida a mano deja de existir; lo nuevo manda.
+      setNextPick(null);
+    }
+    void mutateListRef.current((ids) => (keep ? ids.filter((id) => id === keep) : []));
+  }, [autoScopeKey]);
 
   useEffect(() => {
     if (!autopilotOn || !active) return;
