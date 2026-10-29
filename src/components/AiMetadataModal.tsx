@@ -87,7 +87,14 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
         ),
       );
       try {
-        const suggestion = await aiSuggestMetadata(id, ai.url, ai.model, styles);
+        const suggestion = await aiSuggestMetadata(
+          id,
+          ai.provider ?? "ollama",
+          ai.url,
+          ai.model,
+          ai.opencodePath ?? "",
+          styles,
+        );
         setRows((prev) =>
           prev.map((row) =>
             row.track.id === id

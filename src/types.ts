@@ -101,12 +101,16 @@ export interface TrackPatch {
   language?: string;
 }
 
-/** Configuracion del analisis de metadatos con Ollama local. */
+/** Configuracion del analisis de metadatos con IA local (Ollama u OpenCode). */
 export interface AiSettings {
+  /** Motor: "ollama" (servidor local) o "opencode" (CLI con opencode run) */
+  provider?: "ollama" | "opencode";
   /** Direccion del servidor Ollama (por defecto http://127.0.0.1:11434) */
   url: string;
-  /** Modelo de Ollama que se usara para clasificar */
+  /** Modelo: ollama "llama3.1:8b"; opencode "proveedor/modelo" (vacio = el de OpenCode) */
   model: string;
+  /** Orden para invocar OpenCode; vacio = "opencode" */
+  opencodePath?: string;
 }
 
 /** Propuesta de metadatos generada por la IA para una cancion. */

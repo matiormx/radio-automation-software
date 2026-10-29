@@ -233,17 +233,24 @@ pub struct AudioDeviceSetting {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AiSettings {
+    /// Motor de analisis: "ollama" (servidor local) o "opencode" (CLI local).
+    pub provider: String,
     /// Direccion del servidor Ollama.
     pub url: String,
-    /// Modelo que se usara para clasificar.
+    /// Modelo que se usara para clasificar (ollama: "llama3.1:8b";
+    /// opencode: "proveedor/modelo"; vacio = el que tenga OpenCode por defecto).
     pub model: String,
+    /// Orden para invocar OpenCode; vacio = "opencode".
+    pub opencode_path: String,
 }
 
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
+            provider: "ollama".to_string(),
             url: "http://127.0.0.1:11434".to_string(),
             model: "llama3.1:8b".to_string(),
+            opencode_path: String::new(),
         }
     }
 }

@@ -77,6 +77,105 @@ fn json_body(text: &str) -> &str {
     body
 }
 
+/// Primer objeto JSON equilibrado del texto (OpenCode puede rodear el JSON
+/// con frases). Cuenta llaves sin meterse dentro de las comillas.
+fn json_object(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut start: Option<usize> = None;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_string = false;
+            }
+        } else if c == b'"' {
+            in_string = true;
+        } else if c == b'{' {
+            if depth == 0 {
+                start = Some(i);
+            }
+            depth += 1;
+        } else if c == b'}' {
+            if depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(s) = start {
+                        return Some(&text[s..i + 1]);
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn extract_json(content: &str) -> Result<Value, String> {
+    let cleaned = json_body(content);
+    serde_json::from_str::<Value>(cleaned).or_else(|e| match json_object(cleaned) {
+        Some(obj) => serde_json::from_str::<Value>(obj)
+            .map_err(|e2| format!("La IA devolvio un JSON no valido: {e} / {e2}")),
+        None => Err(format!("La IA devolvio un JSON no valido: {e}")),
+    })
+}
+
+fn parse_suggestion(parsed: Value) -> AiSuggestion {
+    let language = normalize_language(parsed.get("language").and_then(Value::as_str).unwrap_or(""));
+    let genre = parsed
+        .get("genre")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(80)
+        .collect::<String>();
+    let tags = clean_tags(
+        parsed
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    );
+    let confidence = parsed
+        .get("confidence")
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        })
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let reason = parsed
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .take(300)
+        .collect::<String>();
+
+    AiSuggestion {
+        language,
+        genre,
+        tags,
+        confidence,
+        reason,
+    }
+}
+
 fn normalize_language(value: &str) -> String {
     let lower = value.trim().to_ascii_lowercase();
     let primary = lower.split(|c| c == '-' || c == '_').next().unwrap_or("");
@@ -161,17 +260,108 @@ fn list_models(url: &str) -> Result<Vec<String>, String> {
     Ok(models)
 }
 
+fn opencode_command(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        "opencode".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Ejecuta `opencode run` con limite de tiempo (el proceso se matara si se
+/// cuelga esperando permisos u otro bloqueo). Devuelve el texto de respuesta.
+fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, String> {
+    use std::io::Read;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let mut cmd = Command::new(command);
+    cmd.arg("run");
+    if !model.trim().is_empty() {
+        cmd.arg("--model").arg(model.trim());
+    }
+    cmd.arg(prompt)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::streaming::configure_no_window(&mut cmd);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("No se pudo ejecutar OpenCode («{command}»): {e}"))?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    // El hijo queda compartido: un hilo lo mata si supera el limite y el
+    // principal lo espera al terminar de leer.
+    let shared: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
+    let stop = Arc::new(AtomicBool::new(false));
+    let killer = {
+        let shared = shared.clone();
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            while !stop.load(Ordering::SeqCst) {
+                if start.elapsed() > Duration::from_secs(240) {
+                    if let Ok(mut guard) = shared.lock() {
+                        if let Some(child) = guard.as_mut() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                        }
+                    }
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        })
+    };
+    let stderr_text = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stderr {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+    let mut out = String::new();
+    if let Some(mut s) = stdout {
+        let _ = s.read_to_string(&mut out);
+    }
+    let joined = {
+        let mut guard = shared.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_mut() {
+            Some(child) => child.wait().map_err(|e| e.to_string()),
+            None => Err("OpenCode terminó de forma inesperada".to_string()),
+        }
+    };
+    stop.store(true, Ordering::SeqCst);
+    let _ = killer.join();
+    let err = stderr_text.join().unwrap_or_default();
+    match joined {
+        Ok(status) if status.success() => Ok(out.trim().to_string()),
+        Ok(status) => {
+            let mut last: Vec<&str> = err.lines().filter(|l| !l.trim().is_empty()).collect();
+            if last.len() > 3 {
+                last = last.split_off(last.len() - 3);
+            }
+            let tail = last.join(" | ");
+            Err(format!(
+                "OpenCode termino con error ({status}){}",
+                if tail.is_empty() { String::new() } else { format!(": {}", tail.chars().take(300).collect::<String>()) }
+            ))
+        }
+        Err(e) => Err(format!("No se pudo ejecutar OpenCode: {e}")),
+    }
+}
+
 fn suggest(
     data_dir: &Path,
     id: &str,
+    provider: &str,
     url: &str,
     model: &str,
+    opencode_path: &str,
     styles: &[String],
 ) -> Result<AiSuggestion, String> {
-    let model = model.trim();
-    if model.is_empty() {
-        return Err("Elige un modelo de Ollama en Ajustes > IA".to_string());
-    }
     let tracks = read_library_internal(data_dir);
     let track = tracks
         .iter()
@@ -202,6 +392,18 @@ fn suggest(
         styles_text
     );
 
+    if provider.trim() == "opencode" {
+        let message = format!("{SYSTEM_PROMPT}\n\n{user_prompt}\n\nRecuerda: responde SOLO el objeto JSON y no uses herramientas.");
+        let content = run_opencode(&opencode_command(opencode_path), model, &message)?;
+        let parsed = extract_json(&content)?;
+        return Ok(parse_suggestion(parsed));
+    }
+
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("Elige un modelo de Ollama en Ajustes > IA".to_string());
+    }
+
     let request = json!({
         "model": model,
         "stream": false,
@@ -228,78 +430,134 @@ fn suggest(
         .and_then(Value::as_str)
         .or_else(|| value.get("response").and_then(Value::as_str))
         .ok_or_else(|| "Ollama no devolvio contenido".to_string())?;
-    let parsed: Value = serde_json::from_str(json_body(content))
-        .map_err(|e| format!("La IA devolvio un JSON no valido: {e}"))?;
-
-    let language = normalize_language(parsed.get("language").and_then(Value::as_str).unwrap_or(""));
-    let genre = parsed
-        .get("genre")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .chars()
-        .take(80)
-        .collect::<String>();
-    let tags = clean_tags(
-        parsed
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default(),
-    );
-    let confidence = parsed
-        .get("confidence")
-        .and_then(|v| {
-            v.as_f64()
-                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
-        })
-        .unwrap_or(0.0)
-        .clamp(0.0, 1.0);
-    let reason = parsed
-        .get("reason")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .chars()
-        .take(300)
-        .collect::<String>();
-
-    Ok(AiSuggestion {
-        language,
-        genre,
-        tags,
-        confidence,
-        reason,
-    })
+    let parsed = extract_json(content)?;
+    Ok(parse_suggestion(parsed))
 }
 
-/// Devuelve los modelos instalados en el Ollama configurado.
+/// Modelos disponibles segun el proveedor: Ollama lista su servidor; OpenCode
+/// ejecuta `opencode models` y devuelve las lineas "proveedor/modelo".
 #[tauri::command]
-pub async fn ai_models(url: String) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_models(&url))
-        .await
-        .map_err(|e| format!("No se pudo consultar Ollama: {e}"))?
+pub async fn ai_models(
+    provider: Option<String>,
+    url: String,
+    opencode_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let provider = provider.unwrap_or_default();
+        if provider.trim() == "opencode" {
+            return opencode_models(&opencode_command(&opencode_path.unwrap_or_default()));
+        }
+        list_models(&url)
+    })
+    .await
+    .map_err(|e| format!("No se pudo consultar el proveedor de IA: {e}"))?
 }
 
-/// Pide a Ollama una propuesta de idioma, estilo y etiquetas para una pista.
+/// Lista de modelos del catalogo de OpenCode (una por linea, "proveedor/modelo").
+fn opencode_models(command: &str) -> Result<Vec<String>, String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(command);
+    cmd.arg("models").stdout(Stdio::piped()).stderr(Stdio::null());
+    crate::streaming::configure_no_window(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("No se pudo ejecutar OpenCode («{command}»): {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut models: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains('/') && line.chars().all(|c| c.is_alphanumeric() || "/.-_ :".contains(c)))
+        .map(str::to_string)
+        .collect();
+    models.sort();
+    models.dedup();
+    if models.is_empty() {
+        return Err("OpenCode no devolvio modelos (¿hay proveedores configurados con «opencode auth login»?)".to_string());
+    }
+    Ok(models)
+}
+
+/// Pide al proveedor configurado una propuesta de idioma, estilo y etiquetas.
 #[tauri::command]
 pub async fn ai_suggest_metadata(
     state: State<'_, AppState>,
     id: String,
+    provider: Option<String>,
     url: String,
     model: String,
+    opencode_path: Option<String>,
     styles: Vec<String>,
 ) -> Result<AiSuggestion, String> {
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        suggest(&data_dir, &id, &url, &model, &styles)
+        suggest(
+            &data_dir,
+            &id,
+            provider.as_deref().unwrap_or("ollama"),
+            &url,
+            &model,
+            &opencode_path.unwrap_or_default(),
+            &styles,
+        )
     })
     .await
     .map_err(|e| format!("La IA se detuvo: {e}"))?
+}
+
+/// ¿Responde el orden de OpenCode? Devuelve su version.
+#[tauri::command]
+pub async fn ai_opencode_version(opencode_path: Option<String>) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let command = opencode_command(&opencode_path.unwrap_or_default());
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = Command::new(&command);
+        cmd.arg("--version").stdout(Stdio::piped()).stderr(Stdio::null());
+        crate::streaming::configure_no_window(&mut cmd);
+        let out = cmd
+            .output()
+            .map_err(|e| format!("No se encontro OpenCode («{command}»): {e}"))?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() || text.is_empty() {
+            return Err("OpenCode no respondió a --version (¿instalado y con proveedor configurado?)".to_string());
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|e| format!("No se pudo comprobar OpenCode: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// JSON limpio y JSON con charlas al rededor (OpenCode puede decir mas).
+    #[test]
+    fn json_extracts_from_noise() {
+        let s = r#"{"language":"es","genre":"Pop","tags":["bailable"],"confidence":0.9,"reason":"claro"}"#;
+        assert!(extract_json(s).is_ok());
+        assert_eq!(json_object(s), Some(s), "con JSON puro se ve todo el objeto");
+        let noisy = format!("Vale, te lo lleno:\n```json\n{s}\n```\nY fuera un saludo");
+        let parsed = extract_json(&noisy).unwrap();
+        assert_eq!(parsed["language"], "es");
+        assert_eq!(parsed["tags"][0], "bailable");
+        // Los llaves anidadas no despistan al scanner.
+        let nested = "op he: {\"reason\": \"precio {1} del disco\"} queda a tu cargo";
+        assert_eq!(json_object(nested).unwrap(), r#"{"reason": "precio {1} del disco"}"#);
+    }
+
+    /// El idioma se normaliza y la sugerencia sale limpia igual con cualquier proveedor.
+    #[test]
+    fn language_and_suggestion() {
+        let v = serde_json::json!({
+            "language": "SPANISH",
+            "genre": "Pop",
+            "tags": ["bailable", "", "BAILABLE"],
+            "confidence": "0.75",
+            "reason": "ritmo alto"
+        });
+        let s = parse_suggestion(v);
+        assert_eq!(s.language, "es");
+        assert_eq!(s.tags, vec!["bailable".to_string()]);
+        assert!((s.confidence - 0.75).abs() < 1e-9);
+    }
 }

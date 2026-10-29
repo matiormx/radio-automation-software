@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { aiModels } from "../api";
+import { aiModels, aiOpencodeVersion } from "../api";
 import { DEFAULT_SETTINGS, type Settings } from "../types";
 
 interface Props {
@@ -9,11 +9,12 @@ interface Props {
 }
 
 /**
- * Ajustes > IA: conexion con un Ollama local. El analisis solo envia los
- * metadatos de la ficha; el audio no sale del equipo.
+ * Ajustes > IA: motor de analisis local (Ollama u OpenCode). El analisis solo
+ * envia los metadatos de la ficha; el audio no sale del equipo.
  */
 export function AiTab({ settings, onChange, showToast }: Props) {
   const ai = settings.ai ?? DEFAULT_SETTINGS.ai;
+  const provider = ai.provider === "opencode" ? "opencode" : "ollama";
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -22,11 +23,11 @@ export function AiTab({ settings, onChange, showToast }: Props) {
     onChange({ ...settings, ai: { ...ai, ...patch } });
   };
 
-  const test = async () => {
+  const testOllama = async () => {
     setBusy(true);
     setError("");
     try {
-      const list = await aiModels(ai.url);
+      const list = await aiModels("ollama", ai.url, ai.opencodePath ?? "");
       setModels(list);
       if (list.length === 0) {
         setError("Ollama responde, pero no tiene modelos instalados. Prueba con: ollama pull llama3.1:8b");
@@ -42,75 +43,182 @@ export function AiTab({ settings, onChange, showToast }: Props) {
     }
   };
 
+  const testOpencode = async () => {
+    setBusy(true);
+    setError("");
+    setModels([]);
+    try {
+      const version = await aiOpencodeVersion(ai.opencodePath ?? "");
+      const list = await aiModels("opencode", ai.url, ai.opencodePath ?? "");
+      setModels(list);
+      showToast(
+        `OpenCode ${version} · ${list.length} modelo${list.length === 1 ? "" : "s"}`,
+      );
+    } catch (e) {
+      setModels([]);
+      setError(String(e));
+      showToast("No se pudo comprobar OpenCode");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <fieldset className="fieldset">
         <legend>Análisis de metadatos con IA local</legend>
-        <p className="hint">
-          Usa un servidor <strong>Ollama</strong> en tu equipo para proponer idioma, estilo y
-          etiquetas a partir de los metadatos de cada canción. No se sube el audio: solo se envían
-          título, artista, álbum, año, estilo, etiquetas y nombre del archivo. Las propuestas se
-          revisan y se aceptan una a una antes de guardarlas.
-        </p>
-        <div className="field-row">
-          <label className="field">
-            <span className="field-label">Dirección de Ollama</span>
-            <input
-              type="text"
-              value={ai.url}
-              spellCheck={false}
-              placeholder="http://127.0.0.1:11434"
-              onChange={(e) => setAi({ url: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Modelo</span>
-            <input
-              type="text"
-              value={ai.model}
-              spellCheck={false}
-              list="ai-models"
-              placeholder="llama3.1:8b"
-              onChange={(e) => setAi({ model: e.target.value })}
-            />
-            <datalist id="ai-models">
-              {models.map((model) => (
-                <option key={model} value={model} />
-              ))}
-            </datalist>
-          </label>
-        </div>
-        <div className="update-actions">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void test()}
-            disabled={busy || !ai.url.trim()}
+        <label className="field">
+          <span className="field-label">Motor</span>
+          <select
+            value={provider}
+            onChange={(e) => {
+              setModels([]);
+              setError("");
+              setAi({ provider: e.target.value === "opencode" ? "opencode" : "ollama" });
+            }}
           >
-            {busy ? "Probando…" : "Probar conexión"}
-          </button>
-          {models.length > 0 && (
-            <span className="hint">
-              {models.length} modelo{models.length === 1 ? "" : "s"} disponible
-              {models.length === 1 ? "" : "s"}: {models.slice(0, 4).join(", ")}
-              {models.length > 4 ? "…" : ""}
-            </span>
-          )}
-        </div>
-        {error && <div className="form-error">{error}</div>}
+            <option value="ollama">Ollama (servidor local)</option>
+            <option value="opencode">OpenCode (CLI opencode run)</option>
+          </select>
+        </label>
+        {provider === "ollama" ? (
+          <>
+            <p className="hint">
+              Usa un servidor <strong>Ollama</strong> en tu equipo para proponer idioma, estilo y
+              etiquetas a partir de los metadatos de cada canción. No se sube el audio: solo se
+              envían título, artista, álbum, año, estilo, etiquetas y nombre del archivo. Las
+              propuestas se revisan y se aceptan una a una antes de guardarlas.
+            </p>
+            <div className="field-row">
+              <label className="field">
+                <span className="field-label">Dirección de Ollama</span>
+                <input
+                  type="text"
+                  value={ai.url}
+                  spellCheck={false}
+                  placeholder="http://127.0.0.1:11434"
+                  onChange={(e) => setAi({ url: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Modelo</span>
+                <input
+                  type="text"
+                  value={ai.model}
+                  spellCheck={false}
+                  list="ai-models"
+                  placeholder="llama3.1:8b"
+                  onChange={(e) => setAi({ model: e.target.value })}
+                />
+                <datalist id="ai-models">
+                  {models.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </label>
+            </div>
+            <div className="update-actions">
+              <button type="button" className="btn btn-sm" onClick={() => void testOllama()} disabled={busy}>
+                {busy ? "Probando…" : "Probar conexión"}
+              </button>
+              {models.length > 0 && (
+                <span className="hint">
+                  {models.length} modelo{models.length === 1 ? "" : "s"} disponible
+                  {models.length === 1 ? "" : "s"}: {models.slice(0, 4).join(", ")}
+                  {models.length > 4 ? "…" : ""}
+                </span>
+              )}
+            </div>
+            {error && <div className="form-error">{error}</div>}
+          </>
+        ) : (
+          <>
+            <p className="hint">
+              Usa <strong>OpenCode</strong> instalado en tu equipo: cada análisis lanza
+              <code> opencode run</code> con una orden breve. No se sube el audio: solo se envían
+              título, artista, álbum, año, estilo, etiquetas y nombre del archivo. Las propuestas
+              se revisan y se aceptan una a una antes de guardarlas. Configura primero tu
+              proveedor con <code>opencode auth login</code>.
+            </p>
+            <div className="field-row">
+              <label className="field">
+                <span className="field-label">Comando OpenCode</span>
+                <input
+                  type="text"
+                  value={ai.opencodePath ?? ""}
+                  spellCheck={false}
+                  placeholder="opencode"
+                  onChange={(e) => setAi({ opencodePath: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Modelo (proveedor/modelo)</span>
+                <input
+                  type="text"
+                  value={ai.model}
+                  spellCheck={false}
+                  list="ai-models"
+                  placeholder="(el que tenga OpenCode por defecto)"
+                  onChange={(e) => setAi({ model: e.target.value })}
+                />
+                <datalist id="ai-models">
+                  {models.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </label>
+            </div>
+            <div className="update-actions">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => void testOpencode()}
+                disabled={busy}
+              >
+                {busy ? "Probando…" : "Probar OpenCode"}
+              </button>
+              {models.length > 0 && (
+                <span className="hint">
+                  {models.length} modelo{models.length === 1 ? "" : "s"} disponible
+                  {models.length === 1 ? "" : "s"}: {models.slice(0, 4).join(", ")}
+                  {models.length > 4 ? "…" : ""}
+                </span>
+              )}
+            </div>
+            {error && <div className="form-error">{error}</div>}
+          </>
+        )}
       </fieldset>
 
-      <fieldset className="fieldset">
-        <legend>Cómo preparar Ollama</legend>
-        <p className="hint">
-          Instala Ollama desde <strong>ollama.com</strong> y descarga un modelo, por ejemplo:
-        </p>
-        <pre className="ai-command">ollama pull llama3.1:8b</pre>
-        <p className="hint">
-          Si Ollama está en otro equipo o usa otro puerto, cambia la dirección. El análisis puede
-          tardar unos segundos por canción según el modelo y el hardware.
-        </p>
-      </fieldset>
+      {provider === "ollama" ? (
+        <fieldset className="fieldset">
+          <legend>Cómo preparar Ollama</legend>
+          <p className="hint">
+            Instala Ollama desde <strong>ollama.com</strong> y descarga un modelo, por ejemplo:
+          </p>
+          <pre className="ai-command">ollama pull llama3.1:8b</pre>
+          <p className="hint">
+            Si Ollama está en otro equipo o usa otro puerto, cambia la dirección. El análisis
+            puede tardar unos segundos por canción según el modelo y el hardware.
+          </p>
+        </fieldset>
+      ) : (
+        <fieldset className="fieldset">
+          <legend>Cómo preparar OpenCode</legend>
+          <p className="hint">
+            Instala OpenCode (<strong>curl -fsSL https://opencode.ai/install | bash</strong> o
+            npm) y entra a tu proveedor una sola vez:
+          </p>
+          <pre className="ai-command">opencode auth login</pre>
+          <p className="hint">
+            El modelo se escribe como <strong>proveedor/modelo</strong> (con <code>opencode
+            models</code> ves la lista: por ejemplo <code>openai/gpt-5.2</code>). Vacío usa el
+            modelo por defecto de tu OpenCode. Cada análisis es un <code>opencode run</code>
+            corto: el resultado llega con el JSON que la app espera; si el modelo se demora más
+            de 4 minutos se cancela.
+          </p>
+        </fieldset>
+      )}
     </>
   );
 }

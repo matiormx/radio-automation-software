@@ -175,6 +175,7 @@ pub fn run() {
             remote::remote_smb,
             ai::ai_models,
             ai::ai_suggest_metadata,
+            ai::ai_opencode_version,
             library::import_files,
             deezer::deezer_search,
             deezer::deezer_track,

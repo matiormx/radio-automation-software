@@ -106,17 +106,30 @@ export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
 }
 
-export function aiModels(url: string): Promise<string[]> {
-  return invoke<string[]>("ai_models", { url });
+export function aiModels(provider: string, url: string, opencodePath = ""): Promise<string[]> {
+  return invoke<string[]>("ai_models", { provider, url, opencodePath });
+}
+
+export function aiOpencodeVersion(opencodePath = ""): Promise<string> {
+  return invoke<string>("ai_opencode_version", { opencodePath });
 }
 
 export function aiSuggestMetadata(
   id: string,
+  provider: string,
   url: string,
   model: string,
+  opencodePath: string,
   styles: string[],
 ): Promise<AiSuggestion> {
-  return invoke<AiSuggestion>("ai_suggest_metadata", { id, url, model, styles });
+  return invoke<AiSuggestion>("ai_suggest_metadata", {
+    id,
+    provider,
+    url,
+    model,
+    opencodePath,
+    styles,
+  });
 }
 
 export function notifyFire(event: string, vars: Record<string, string>): Promise<void> {
