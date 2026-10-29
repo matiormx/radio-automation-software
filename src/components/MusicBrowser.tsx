@@ -68,6 +68,7 @@ import { AiMetadataModal } from "./AiMetadataModal";
 import {
   IconPlus,
   IconX,
+  IconPlay,
   IconSearch,
   IconTrash,
   IconImport,
@@ -1440,6 +1441,17 @@ function MusicBrowserBase({
               }}
             >
               <IconPlus size={13} /> Añadir a la lista
+            </button>
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                // Preescucha a peticion (funciona con la automatica apagada).
+                onPreviewNow?.(ctx.track);
+                closeCtx();
+              }}
+            >
+              <IconPlay size={13} /> Preescucha
             </button>
             <div className="ctx-title">Añadir a una lista</div>
             <div className="ctx-blocks">

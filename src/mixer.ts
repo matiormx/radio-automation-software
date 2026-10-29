@@ -530,8 +530,14 @@ export class SoundMixer {
     // Una fuente de la app sin canal no sale por ningun sitio (nada oculto):
     // la mesa muestra el aviso y permite crear el canal.
     this.musicRouted = musicUsed;
-    void callUsed;
-    void previewUsed;
+    // Capturas del motor nativo (preescucha y llamadas): apply() barre el
+    // cableado de los buses, asi que se vuelven a enchufar a mano — si el
+    // canal web del mismo bus existe, el tap queda fuera y no se duplica.
+    for (const tap of this.cueTaps) {
+      const used = tap.input === "preview" ? previewUsed : callUsed;
+      if (used) continue;
+      (tap.input === "preview" ? this.previewInput : this.callInput).connect(tap.node);
+    }
 
     // Liberar entradas fisicas que ya no usa ningun canal.
     for (const [id, src] of this.inputSources) {
@@ -616,6 +622,34 @@ export class SoundMixer {
   /** Suma un nodo al retorno de los oyentes (motor nativo: su mix-minus). */
   connectToReturn(node: AudioNode) {
     node.connect(this.returnMix);
+  }
+
+  /** Capturas externas (motor nativo: preescucha y llamadas) que estan
+   *  enchufadas a los buses; apply() las vuelve a conectar tras reconstruir
+   *  la mesa. */
+  private cueTaps: Array<{ input: "preview" | "call"; node: AudioNode }> = [];
+
+  /** Enchufa un nodo a la captura de preescucha o de llamadas sin pasar por
+   *  un canal de la mesa (el motor nativo lo loleva al motor como fuente). */
+  addCueTap(input: "preview" | "call", node: AudioNode) {
+    this.removeCueTap(node);
+    this.cueTaps.push({ input, node });
+    (input === "preview" ? this.previewInput : this.callInput).connect(node);
+  }
+
+  /** Desenchufa y despide un nodo de captura. */
+  removeCueTap(node: AudioNode) {
+    this.cueTaps = this.cueTaps.filter((tap) => tap.node !== node);
+    try {
+      this.previewInput.disconnect(node);
+    } catch {
+      /* no estaba conectado */
+    }
+    try {
+      this.callInput.disconnect(node);
+    } catch {
+      /* no estaba conectado */
+    }
   }
 
   /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la mesa. */

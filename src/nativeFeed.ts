@@ -24,11 +24,7 @@ export class NativeAppFeed {
     sink.connect(ctx.destination);
     this.sink = sink;
     const rate = Math.round(ctx.sampleRate);
-    const sources: Array<["preview" | "call", AudioNode]> = [
-      ["preview", this.mixer.previewInput],
-      ["call", this.mixer.callInput],
-    ];
-    for (const [src, input] of sources) {
+    for (const src of ["preview", "call"] as const) {
       const node = new AudioWorkletNode(ctx, "pcm-capture", {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -59,7 +55,9 @@ export class NativeAppFeed {
             busy -= 1;
           });
       };
-      input.connect(node);
+      // Registro en la mesa: cada apply() volvera a enchufar la captura.
+      // Conectarse a mano dejaria la captura muerta tras reconstruir la mesa.
+      this.mixer.addCueTap(src, node);
       node.connect(sink);
       this.nodes.push(node);
     }
@@ -128,12 +126,7 @@ export class NativeAppFeed {
       } catch {
         /* ya desconectado */
       }
-      try {
-        this.mixer.previewInput.disconnect(n);
-        this.mixer.callInput.disconnect(n);
-      } catch {
-        /* ya desconectado */
-      }
+      this.mixer.removeCueTap(n);
     }
     this.nodes = [];
     this.sink?.disconnect();
