@@ -334,6 +334,20 @@ export function VideoSurface({ source, output, canvasSafe = false }: Props) {
           onError={() => setFailed(shown.file)}
         />
         {failed === shown.file && <div className="vs-error">No se puede mostrar la imagen de este vídeo (el audio sigue sonando)</div>}
+        {/* Tercio inferior izquierdo: caratula con titulo y artista */}
+        <div className="vs-ov">
+          {shown.cover ? (
+            <img className="vs-ov-cover" src={trackUrl({ file: shown.cover })} alt="" />
+          ) : (
+            <span className="vs-ov-cover vs-cover-empty" />
+          )}
+          <div className="vs-ov-text">
+            <span className="vs-ov-title">{shown.title}</span>
+            <span className="vs-ov-artist">{shown.artist || "Artista desconocido"}</span>
+          </div>
+        </div>
+        {/* Logo de la emisora en una esquina */}
+        {shown.logo && <img className="vs-ov-logo" src={trackUrl({ file: shown.logo })} alt="" />}
       </div>
     );
   }
