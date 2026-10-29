@@ -343,7 +343,7 @@ pub fn stream_start(
     };
     let needs_program = settings.video.outputs.iter().any(|output| {
         output.enabled
-            && (output.kind == "rtmp" || output.kind == "screen")
+            && (output.kind == "rtmp" || output.kind == "whip" || output.kind == "screen")
             && (output.fallback_video_input_id == "program"
                 || output.fallback_video_input_id == "nowplaying"
                 || output.video_input_id.trim() == "nowplaying"
@@ -548,6 +548,23 @@ pub fn stream_start(
                         output_audio,
                         false,
                         output.video_delay_ms,
+                        false,
+                    )
+                })
+            } else if use_program && kind == "whip" {
+                program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np).and_then(|video_args| {
+                    rtmp_args_for_video(
+                        video_args,
+                        &output.source,
+                        output.width,
+                        output.height,
+                        output.fps,
+                        output.bitrate_kbps,
+                        2,
+                        output_audio,
+                        false,
+                        output.video_delay_ms,
+                        true,
                     )
                 })
             } else if use_program && kind == "screen" {
@@ -571,6 +588,29 @@ pub fn stream_start(
                     output_audio,
                     output.video_delay_ms,
                 ),
+                "whip" => {
+                    // El muxer WHIP llegó a FFmpeg en 2025: si el elegido no
+                    // lo trae, aviso claro en vez de un error de FFmpeg.
+                    if !has_muxer(&ffmpeg, "whip") {
+                        Err(format!(
+                            "este FFmpeg no sabe emitir WHIP (necesita FFmpeg con el muxer «whip», 2025 o más nuevo): {}",
+                            ffmpeg.display()
+                        ))
+                    } else {
+                        whip_args(
+                            &settings.video,
+                            &output.source,
+                            output.width,
+                            output.height,
+                            output.fps,
+                            output.bitrate_kbps,
+                            ndi_device,
+                            output_video,
+                            output_audio,
+                            output.video_delay_ms,
+                        )
+                    }
+                }
                 "ndi" => match ndi.as_ref() {
                     Some((_, device)) => {
                         let source = if output.source.trim().is_empty() {
@@ -607,7 +647,7 @@ pub fn stream_start(
                     // La tuberia de audio de la mesa se alimenta siempre (aunque el
                     // audio elegido sea otro): FFmpeg no se queda esperandola y el
                     // respaldo tiene sonido desde el primer momento.
-                    let wants_audio = kind == "rtmp" || kind == "ndi";
+                    let wants_audio = kind == "rtmp" || kind == "whip" || kind == "ndi";
                     let process_ffmpeg = if kind == "ndi" {
                         ndi_ffmpeg.unwrap_or(&ffmpeg)
                     } else {
@@ -616,7 +656,7 @@ pub fn stream_start(
                     // Compresión por hardware (NVENC, Quick Sync, AMF) si la hay
                     let args = crate::hwenc::apply(args, process_ffmpeg, &settings.video.encoder);
                     // Respaldo automatico cuando la entrada principal se pierde.
-                    let fallback = if kind == "rtmp" || kind == "screen" {
+                    let fallback = if kind == "rtmp" || kind == "whip" || kind == "screen" {
                         let backup = output.fallback_video_input_id.trim();
                         if backup.is_empty() {
                             None
@@ -641,7 +681,7 @@ pub fn stream_start(
                             };
                             let backup_args = if backup == "program" || backup_np {
                                 program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, backup_np).and_then(|video_args| {
-                                    if kind == "rtmp" {
+                                    if kind == "rtmp" || kind == "whip" {
                                         rtmp_args_for_video(
                                             video_args,
                                             &output.source,
@@ -655,6 +695,7 @@ pub fn stream_start(
                                             None,
                                             false,
                                             output.video_delay_ms,
+                                            kind == "whip",
                                         )
                                     } else {
                                         video_output_args_for_source(output, video_args)
@@ -674,6 +715,19 @@ pub fn stream_start(
                                     None,
                                     output.video_delay_ms,
                                 )
+                            } else if kind == "whip" {
+                                whip_args(
+                                    &settings.video,
+                                    &output.source,
+                                    output.width,
+                                    output.height,
+                                    output.fps,
+                                    output.bitrate_kbps,
+                                    ndi_device,
+                                    Some(backup),
+                                    None,
+                                    output.video_delay_ms,
+                                )
                             } else {
                                 video_output_args(output, &settings.video, ndi_device, Some(backup))
                             };
@@ -681,7 +735,7 @@ pub fn stream_start(
                                 Ok(args) => Some(Spec {
                                     ffmpeg: backup_ffmpeg.to_path_buf(),
                                     args: crate::hwenc::apply(args, backup_ffmpeg, &settings.video.encoder),
-                                    wants_audio: kind == "rtmp",
+                                    wants_audio: kind == "rtmp" || kind == "whip",
                                     ndi_out: None,
                                 }),
                                 Err(error) => {
@@ -1596,6 +1650,7 @@ fn icecast_args(stream: &IcecastStream) -> Result<Vec<String>, String> {
     Ok(args)
 }
 
+/// Entrada de la salida RTMP y swapper al generador común de argumentos.
 fn rtmp_args(
     video: &VideoSettings,
     url: &str,
@@ -1634,6 +1689,51 @@ fn rtmp_args(
         if audio_in_video { None } else { audio_device },
         audio_in_video,
         video_delay_ms,
+        false,
+    )
+}
+
+/// Salida WHIP (WebRTC-HTTP ingestion): Restream y servicios de latencia
+/// sub-segundo. Usa el muxer «whip» de FFmpeg (desde mediados de 2025, el
+/// ffmpeg bajado por OmniCaster lo lleva): H.264 baseline y Opus obligatorio.
+fn whip_args(
+    video: &VideoSettings,
+    url: &str,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bitrate_kbps: u32,
+    ndi_device: Option<&str>,
+    preferred_input: Option<&str>,
+    audio_device: Option<&str>,
+    video_delay_ms: i32,
+) -> Result<Vec<String>, String> {
+    if !video.enabled {
+        return Err("activa el motor de vídeo para emitir por WHIP".to_string());
+    }
+    let input = pick_video_input(video, preferred_input)?;
+    let audio_in_video = cfg!(windows)
+        && input.kind == "capture"
+        && audio_device
+            .map(|audio| same_capture_name(audio, &input.source))
+            .unwrap_or(false);
+    let video_args = if audio_in_video {
+        capture_input_args_with_audio(&input.source)?
+    } else {
+        video_input_args(input, ndi_device, (width, height, fps))?
+    };
+    rtmp_args_for_video(
+        video_args,
+        url,
+        width,
+        height,
+        fps,
+        bitrate_kbps,
+        2,
+        if audio_in_video { None } else { audio_device },
+        audio_in_video,
+        video_delay_ms,
+        true,
     )
 }
 
@@ -1651,14 +1751,25 @@ fn rtmp_args_for_video(
     audio_device: Option<&str>,
     audio_in_video: bool,
     video_delay_ms: i32,
+    whip: bool,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("falta la URL RTMP".to_string());
     }
     let lower = url.to_ascii_lowercase();
-    if !lower.starts_with("rtmp://") && !lower.starts_with("rtmps://") {
-        return Err("la URL RTMP debe empezar por rtmp:// o rtmps://".to_string());
+    let scheme_ok = if whip {
+        lower.starts_with("http://") || lower.starts_with("https://")
+    } else {
+        lower.starts_with("rtmp://") || lower.starts_with("rtmps://")
+    };
+    if !scheme_ok {
+        return Err(if whip {
+            "la URL WHIP debe empezar por http:// o https:// (Restream da la URL en su panel)"
+        } else {
+            "la URL RTMP debe empezar por rtmp:// o rtmps://"
+        }
+        .to_string());
     }
     let mut args = base_input_args();
     args.extend(video_args);
@@ -1683,6 +1794,11 @@ fn rtmp_args_for_video(
     args.extend([arg("-c:v"), arg("libx264")]);
     args.extend([arg("-preset"), arg("veryfast")]);
     args.extend([arg("-tune"), arg("zerolatency")]);
+    // WHIP (WebRTC) pide H.264 sin B-frames y perfil baseline.
+    if whip {
+        args.extend([arg("-profile:v"), arg("baseline")]);
+        args.extend([arg("-bf"), arg("0")]);
+    }
     args.extend([arg("-pix_fmt"), arg("yuv420p")]);
     args.extend([arg("-flags"), arg("+global_header")]);
     args.extend([arg("-r"), fps.to_string()]);
@@ -1693,7 +1809,12 @@ fn rtmp_args_for_video(
     args.extend([arg("-g"), gop.to_string()]);
     args.extend([arg("-keyint_min"), gop.to_string()]);
     args.extend([arg("-sc_threshold"), arg("0")]);
-    args.extend([arg("-c:a"), arg("aac")]);
+    // El muxer WHIP solo acepta Opus como audio.
+    if whip {
+        args.extend([arg("-c:a"), arg("libopus")]);
+    } else {
+        args.extend([arg("-c:a"), arg("aac")]);
+    }
     args.extend([arg("-b:a"), arg("128k")]);
     args.extend([arg("-ar"), arg("48000")]);
     args.extend([arg("-ac"), arg("2")]);
@@ -1706,8 +1827,12 @@ fn rtmp_args_for_video(
     } else if video_delay_ms < 0 {
         args.extend([arg("-af"), format!("adelay={}:all=1", (-video_delay_ms).abs())]);
     }
-    args.extend([arg("-f"), arg("flv")]);
-    args.extend([arg("-flvflags"), arg("no_duration_filesize")]);
+    if whip {
+        args.extend([arg("-f"), arg("whip")]);
+    } else {
+        args.extend([arg("-f"), arg("flv")]);
+        args.extend([arg("-flvflags"), arg("no_duration_filesize")]);
+    }
     args.push(url.to_string());
     Ok(args)
 }
@@ -1876,6 +2001,23 @@ fn has_filter(ffmpeg: &Path, name: &str) -> bool {
     configure_no_window(&mut cmd);
     cmd.output()
         .map(|out| String::from_utf8_lossy(&out.stdout).contains(name))
+        .unwrap_or(false)
+}
+
+/// Comprueba si el FFmpeg instalado sabe emitir un muxer (p. ej. «whip»).
+fn has_muxer(ffmpeg: &Path, name: &str) -> bool {
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-muxers"]).stdout(Stdio::piped()).stderr(Stdio::null());
+    configure_no_window(&mut cmd);
+    cmd.output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|line| {
+                    let cols: Vec<&str> = line.split_whitespace().collect();
+                    cols.iter().any(|c| c == &name)
+                })
+        })
         .unwrap_or(false)
 }
 
@@ -2273,6 +2415,16 @@ fn sanitize_error(line: &str) -> String {
         } else if let Some(at) = url.find('@') {
             out.push_str("***");
             out.push_str(&url[at..]);
+        } else if let Some(query) = url.find('?').filter(|_| {
+            let lower_url = url.to_ascii_lowercase();
+            ["token=", "auth=", "pass=", "key=", "secret=", "clave="]
+                .iter()
+                .any(|needle| lower_url.contains(needle))
+        }) {
+            // URL con credenciales en la consulta (p. ej. WHIP de Restream):
+            // el host y la ruta quedan visibles, la query no.
+            out.push_str(&url[..query]);
+            out.push_str("?***");
         } else {
             out.push_str(url);
         }
@@ -2391,6 +2543,7 @@ mod tests {
                 None,
                 false,
                 delay,
+                false,
             )
             .expect("argumentos")
         };
@@ -2405,6 +2558,51 @@ mod tests {
         // Fragmentos: milisegundos con decimales limpios.
         let odd = base(120);
         assert!(odd.iter().any(|a| a == "setpts=PTS+0.12/TB"));
+    }
+
+    /// La salida WHIP: muxer propio, H.264 vado/estándar (sin B-frames) y Opus
+    /// como audio (el muxer no acepta AAC). El URL queda en http(s).
+    #[test]
+    fn whip_args_runtime() {
+        let out = rtmp_args_for_video(
+            vec![arg("-i"), arg("/video/cam.mjpeg")],
+            "https://webrtc-ingest.restream.io/whip/re_clave_1",
+            1280,
+            720,
+            25,
+            6000,
+            2,
+            None,
+            false,
+            0,
+            true,
+        )
+        .expect("argumentos");
+        assert!(out.windows(2).any(|pair| pair == ["-f", "whip"]));
+        assert!(out.windows(2).any(|pair| pair == ["-c:a", "libopus"]));
+        assert!(out.windows(2).any(|pair| pair == ["-profile:v", "baseline"]));
+        assert!(out.windows(2).any(|pair| pair == ["-bf", "0"]));
+        assert!(!out.iter().any(|a| a.starts_with("-flvflags")));
+        assert!(!out.iter().any(|a| a == "aac"));
+        // La validacion por esquema NO la Florida RTMP.
+        assert!(rtmp_args_for_video(
+            vec![arg("-i"), arg("cam")],
+            "rtmp://live.example.com",
+            640,
+            360,
+            25,
+            3000,
+            2,
+            None,
+            false,
+            0,
+            true,
+        )
+        .is_err());
+        // Y la URL con clase de credenciales queda sin query para el log.
+        let sanitized = sanitize_error("WHIP timeout https://algo.restream.io/whip?token=re_secreto123");
+        assert!(!sanitized.contains("re_secreto123"), "{sanitized}");
+        assert!(sanitized.contains("https://algo.restream.io/whip?***"), "{sanitized}");
     }
 
     #[test]

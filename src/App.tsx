@@ -536,16 +536,16 @@ export default function App() {
   const hasStreamOutputs = useMemo(
     () =>
       settings.streaming.icecast.some((stream) => stream.enabled) ||
-      (settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp")),
+      (settings.video.enabled && settings.video.outputs.some((output) => output.enabled && (output.kind === "rtmp" || output.kind === "whip"))),
     [settings.streaming.icecast, settings.video.enabled, settings.video.outputs],
   );
   const audioStreamRunning =
     streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
   const videoStreamRunning =
-    streamStatus?.outputs.some((output) => output.running && output.kind === "rtmp") ?? false;
+    streamStatus?.outputs.some((output) => output.running && (output.kind === "rtmp" || output.kind === "whip")) ?? false;
   const audioStreamReady = settings.streaming.icecast.some((stream) => stream.enabled);
   const videoStreamReady =
-    settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp");
+    settings.video.enabled && settings.video.outputs.some((output) => output.enabled && (output.kind === "rtmp" || output.kind === "whip"));
 
   const playerRef = useRef<RadioPlayer | NativePlayer | null>(null);
   const [native, setNative] = useState<NativePlayer | null>(null);
@@ -2142,7 +2142,7 @@ export default function App() {
       // Solo se rearranca lo que estaba en marcha (el vídeo no se enciende solo).
       const outs = streamStatusRef.current?.outputs ?? [];
       const audioOn = outs.some((o) => o.running && o.kind === "icecast");
-      const videoOn = outs.some((o) => o.running && o.kind === "rtmp");
+      const videoOn = outs.some((o) => o.running && (o.kind === "rtmp" || o.kind === "whip"));
       const group = audioOn && videoOn ? "all" : videoOn ? "video" : "audio";
       await streamEncoderRef.current?.stop();
       streamEncoderRef.current = null;

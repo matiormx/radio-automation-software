@@ -68,6 +68,15 @@ function rtmpUrlError(url: string): string | null {
   return null;
 }
 
+function whipUrlError(url: string): string | null {
+  const target = url.trim().toLowerCase();
+  if (!target) return "Falta la URL WHIP.";
+  if (!target.startsWith("http://") && !target.startsWith("https://")) {
+    return "La URL WHIP debe empezar por http:// o https:// (cópiala tal cual del panel de Restream).";
+  }
+  return null;
+}
+
 function videoRoutingError(
   settings: Settings,
   videoInputId: string | undefined,
@@ -91,6 +100,7 @@ const VIDEO_OUTPUT_KIND: Record<VideoOutputKind, string> = {
   decklink: "Tarjeta SDI",
   ndi: "NDI",
   rtmp: "RTMP",
+  whip: "WHIP (Restream)",
 };
 
 function newVideoOutput(): VideoOutput {
@@ -117,6 +127,7 @@ function videoOutputPlaceholder(kind: VideoOutputKind): string {
   if (kind === "screen") return "0 = monitor principal";
   if (kind === "decklink") return "0, 1…";
   if (kind === "ndi") return "OmniCaster Programa";
+  if (kind === "whip") return "URL WHIP que te da Restream (pega tal cual)";
   return "rtmp://live.restream.io/live/clave";
 }
 
@@ -137,7 +148,7 @@ function videoOutputSummary(original: VideoOutput, maxHeight = 0): string {
   const output = cappedOutput(original, maxHeight);
   const limited = output !== original ? " (limitado)" : "";
   const format = `${output.width}×${output.height}${limited} · ${output.fps} fps`;
-  if (output.kind === "rtmp") {
+  if (output.kind === "rtmp" || output.kind === "whip") {
     const destination = output.source.trim() || "Sin destino";
     return `${destination} · ${format}${output.bitrateKbps ? ` · ${output.bitrateKbps} kbps` : ""}`;
   }
@@ -171,6 +182,7 @@ function videoOutputConfigError(settings: Settings, output: VideoOutput): string
   );
   if (routing) return routing;
   if (output.kind === "rtmp") return rtmpUrlError(output.source);
+  if (output.kind === "whip") return whipUrlError(output.source);
   if ((output.kind === "screen" || output.kind === "decklink") && !output.source.trim()) {
     return "Indica el dispositivo de salida.";
   }
@@ -416,9 +428,9 @@ export function StreamingTab({
         ? "CONECTANDO"
         : "DETENIDA";
   const audioRunning = streamStatus?.outputs.some((output) => output.running && output.kind === "icecast") ?? false;
-  const videoRunning = streamStatus?.outputs.some((output) => output.running && output.kind === "rtmp") ?? false;
+  const videoRunning = streamStatus?.outputs.some((output) => output.running && (output.kind === "rtmp" || output.kind === "whip")) ?? false;
   const audioReady = st.icecast.some((stream) => stream.enabled);
-  const videoReady = settings.video.enabled && settings.video.outputs.some((output) => output.enabled && output.kind === "rtmp");
+  const videoReady = settings.video.enabled && settings.video.outputs.some((output) => output.enabled && (output.kind === "rtmp" || output.kind === "whip"));
 
   return (
     <>
@@ -830,9 +842,9 @@ export function StreamingTab({
         settings={settings}
         onChange={onChange}
         statusByKey={statusByKey}
-        kinds={["rtmp"]}
-        title="Salidas de vídeo por internet (RTMP)"
-        hint="YouTube, Facebook, Twitch, Restream… Cada salida elige su vídeo y su audio (la salida Encoders de la mesa o el de una capturadora). Las salidas locales (pantalla/HDMI, NDI, tarjeta SDI) se configuran en Ajustes › Vídeo. Si cambias salidas con la emisión en marcha, pulsa «Aplicar cambios»."
+        kinds={["rtmp", "whip"]}
+        title="Salidas de vídeo por internet (RTMP / WHIP)"
+        hint="YouTube, Facebook, Twitch, Restream… Cada salida elige su vídeo y su audio (la salida Encoders de la mesa o el de una capturadora). WHIP (Restream) da latencia sub-segundo: pega la «URL WHIP» que te da Restream. Las salidas locales (pantalla/HDMI, NDI, tarjeta SDI) se configuran en Ajustes › Vídeo. Si cambias salidas con la emisión en marcha, pulsa «Aplicar cambios»."
       />
     </>
   );
@@ -1122,7 +1134,7 @@ export function VideoOutputsEditor({
                            </span>
                          </label>
                        )}
-                       {output.kind === "rtmp" && (
+                       {(output.kind === "rtmp" || output.kind === "whip") && (
                          <label className="field">
                            <span className="field-label">Retardo vídeo (ms)</span>
                            <input
@@ -1141,7 +1153,7 @@ export function VideoOutputsEditor({
                          </label>
                        )}
                      </div>
-                     {output.kind === "rtmp" && (
+                     {(output.kind === "rtmp" || output.kind === "whip") && (
                        <p className="hint">
                          Retardo del vídeo respecto al audio (solo en esta emisión): positivo atrasa la imagen
                          con «setpts»; negativo atrasa el audio con «adelay». Se aplica al reiniciar la emisión.

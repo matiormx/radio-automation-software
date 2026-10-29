@@ -431,7 +431,7 @@ export interface MixerBus {
 }
 
 export type VideoInputKind = "file" | "rtmp" | "ndi" | "capture";
-export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtmp";
+export type VideoOutputKind = "screen" | "decklink" | "ndi" | "rtmp" | "whip";
 
 export interface VideoInput {
   id: string;
