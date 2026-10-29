@@ -180,6 +180,10 @@ export function VideoSurface({ source, output, canvasSafe = false }: Props) {
   // dice cuanto hace de la ultima imagen; sin imagen 3 s, respaldo.
   const [ndiBase, setNdiBase] = useState("");
   const [ndiDown, setNdiDown] = useState(false);
+  // Clave del <img>: cuando vuelve la señal se pide otra vez el MJPEG,
+  // porque si la conexion actual se quedo colgada no se reengancha sola.
+  const [ndiKey, setNdiKey] = useState(0);
+  const ndiWasDown = useRef(false);
   useEffect(() => {
     if (!ndiName || !output) return;
     let alive = true;
@@ -201,7 +205,10 @@ export function VideoSurface({ source, output, canvasSafe = false }: Props) {
         .then((st) => {
           if (!alive) return;
           const waiting = st.ageMs < 0 && performance.now() - started < 4000;
-          setNdiDown(!waiting && (st.ageMs < 0 || st.ageMs > 3000));
+          const down = !waiting && (st.ageMs < 0 || st.ageMs > 3000);
+          if (ndiWasDown.current && !down) setNdiKey((k) => k + 1);
+          ndiWasDown.current = down;
+          setNdiDown(down);
         })
         .catch(() => alive && setNdiDown(true));
     }, 1000);
@@ -265,6 +272,7 @@ export function VideoSurface({ source, output, canvasSafe = false }: Props) {
     const useFallback = ndiDown || !ndiBase;
     const img = ndiBase ? (
       <img
+        key={ndiKey}
         className="vs-video"
         alt=""
         src={`${ndiBase}/ndi?src=${encodeURIComponent(shown.capture.ndi)}`}

@@ -120,6 +120,8 @@ fn downscale_bgra(src: &[u8], w: usize, h: usize, nh: usize, out: &mut Vec<u8>) 
 const FRAME_VIDEO: i32 = 1;
 const FRAME_AUDIO: i32 = 2;
 const FRAME_ERROR: i32 = 4;
+/// Sin nada nuevo por tanto tiempo, el watcher recrea el receptor de NDI.
+const RECONNECT_AFTER: Duration = Duration::from_secs(10);
 
 type FnInit = unsafe extern "C" fn() -> bool;
 type FnFindCreate = unsafe extern "C" fn(*const FindCreate) -> *mut c_void;
@@ -594,7 +596,7 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         allow_video_fields: false,
         recv_name: rname.as_ptr(),
     };
-    let recv = unsafe { (api.recv_create)(&cfg) };
+    let mut recv = unsafe { (api.recv_create)(&cfg) };
     if recv.is_null() {
         set_error(&r, format!("No se pudo conectar con la fuente NDI «{source}»"));
         receivers().lock().unwrap_or_else(|e| e.into_inner()).remove(source);
@@ -605,6 +607,8 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
     // ultima y, con una fuente a 30/29,97, cualquier imagen que llegaba un
     // pelin antes de 33 ms se saltaba: el video iba a tirones.)
     let mut frame_no: u64 = 0;
+    // Ultima vez que NDI entrego algo (video o audio): lo vigila el watcher.
+    let mut last_data = Instant::now();
     let mut scratch: Vec<u8> = Vec::new();
     let mut small: Vec<u8> = Vec::new();
     let mut phase = 0.0f64;
@@ -617,6 +621,7 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         let mut audio: AudioFrameV2 = unsafe { std::mem::zeroed() };
         let kind = unsafe { (api.recv_capture)(recv, &mut frame, &mut audio, std::ptr::null_mut(), 500) };
         if kind == FRAME_AUDIO {
+            last_data = Instant::now();
             let pcm = audio_to_s16(&audio, &mut phase);
             unsafe { (api.recv_free_audio)(recv, &audio) };
             if !pcm.is_empty() {
@@ -627,11 +632,28 @@ fn run_receiver(source: &str, r: Arc<Receiver>) {
         if kind == FRAME_ERROR {
             set_error(&r, "La fuente NDI se ha perdido".into());
             thread::sleep(Duration::from_millis(500));
+        }
+        // Watchdog: la reconexion interna de NDI no siempre basta (la fuente
+        // puede estar apagada toda la noche y el receptor viejo no vuelve a
+        // enlazarse). Sin nada nuevo durante RECONNECT_AFTER se tira el
+        // receptor y se crea otro: al reaparecer la fuente vuelve solo.
+        if last_data.elapsed() >= RECONNECT_AFTER {
+            unsafe { (api.recv_destroy)(recv) };
+            recv = unsafe { (api.recv_create)(&cfg) };
+            last_data = Instant::now();
+            if recv.is_null() {
+                set_error(&r, format!("No se pudo reconectar con la fuente NDI «{source}»"));
+            } else {
+                set_error(&r, format!("Reconectando con la fuente NDI «{source}»…"));
+            }
+        }
+        if kind == FRAME_ERROR {
             continue;
         }
         if kind != FRAME_VIDEO {
             continue;
         }
+        last_data = Instant::now();
         let src_fps = if frame.frame_rate_d > 0 { frame.frame_rate_n as f64 / frame.frame_rate_d as f64 } else { 30.0 };
         let every = ((src_fps / 30.0).round() as u64).max(1);
         let keep = frame_no % every == 0;
