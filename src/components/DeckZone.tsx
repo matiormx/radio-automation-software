@@ -151,28 +151,32 @@ export function DeckZone({
       </div>
 
       <div className={`deck-next ${monitorId ? "has-monitor" : ""}`}>
-        <div className="deck-next-head">
-          <span className="deck-next-label">A CONTINUACIÓN</span>
-          {monitorId && (
+        {monitorId ? (
+          <div className="deck-monitor-only">
+            <span className="deck-next-label">LO QUE SALE · STREAMING</span>
             <MonitorThumb
               id={monitorId}
               active
-              className="deck-monitor"
-              title="Monitor de lo que sale por streaming (salida monitorizada)"
+              className="deck-monitor-big"
+              title="Miniatura de lo que sale por streaming (1 imagen por segundo)"
             />
-          )}
-        </div>
-        {next ? (
-          <div className="deck-next-body">
-            <Cover src={nextCover} className="deck-next-cover" />
-            <div className="deck-next-meta">
-              <span className="deck-next-val" title={next}>{next}</span>
-              <span className="deck-next-artist">{nextArtist || "Artista desconocido"}</span>
-              {nextSub && <span className="deck-next-sub">{nextSub}</span>}
-            </div>
           </div>
         ) : (
-          <span className="deck-next-empty">—</span>
+          <>
+            <span className="deck-next-label">A CONTINUACIÓN</span>
+            {next ? (
+              <div className="deck-next-body">
+                <Cover src={nextCover} className="deck-next-cover" />
+                <div className="deck-next-meta">
+                  <span className="deck-next-val" title={next}>{next}</span>
+                  <span className="deck-next-artist">{nextArtist || "Artista desconocido"}</span>
+                  {nextSub && <span className="deck-next-sub">{nextSub}</span>}
+                </div>
+              </div>
+            ) : (
+              <span className="deck-next-empty">—</span>
+            )}
+          </>
         )}
       </div>
     </section>

@@ -541,23 +541,17 @@ body.is-reordering { cursor: grabbing; user-select: none; }
   gap: 8px;
   min-width: 0;
 }
-.deck-monitor {
-  flex: none;
-  width: 64px;
-  height: 36px;
+/* Con salida monitorizada en vivo: el bloque entero es el mini monitor */
+.deck-monitor-only { display: flex; flex-direction: column; gap: 6px; height: 100%; justify-content: center; }
+.deck-monitor-big {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 100%;
   object-fit: contain;
   background: #000;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid var(--line);
-  margin-left: auto;
-}
-/* Espacio corto y salida monitorizada en vivo: la miniatura toma el lugar
-   de la info de lo que sigue (sin monitor, el bloque queda como siempre). */
-@media (max-width: 1200px) {
-  .deck-next { width: min(210px, 34%); }
-  .deck-next.has-monitor .deck-next-body,
-  .deck-next.has-monitor .deck-next-empty { display: none; }
-  .deck-next.has-monitor .deck-monitor { width: 104px; height: 58px; margin: 4px auto 0; }
 }
 .deck-next-label {
   font-size: 9.5px;
