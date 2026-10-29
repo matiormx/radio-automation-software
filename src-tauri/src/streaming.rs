@@ -547,6 +547,7 @@ pub fn stream_start(
                         2,
                         output_audio,
                         false,
+                        output.video_delay_ms,
                     )
                 })
             } else if use_program && kind == "screen" {
@@ -568,6 +569,7 @@ pub fn stream_start(
                     ndi_device,
                     output_video,
                     output_audio,
+                    output.video_delay_ms,
                 ),
                 "ndi" => match ndi.as_ref() {
                     Some((_, device)) => {
@@ -652,6 +654,7 @@ pub fn stream_start(
                                             // si cae la fuente, su sonido tambien.
                                             None,
                                             false,
+                                            output.video_delay_ms,
                                         )
                                     } else {
                                         video_output_args_for_source(output, video_args)
@@ -669,6 +672,7 @@ pub fn stream_start(
                                     ndi_device,
                                     Some(backup),
                                     None,
+                                    output.video_delay_ms,
                                 )
                             } else {
                                 video_output_args(output, &settings.video, ndi_device, Some(backup))
@@ -1603,6 +1607,7 @@ fn rtmp_args(
     ndi_device: Option<&str>,
     preferred_input: Option<&str>,
     audio_device: Option<&str>,
+    video_delay_ms: i32,
 ) -> Result<Vec<String>, String> {
     if !video.enabled {
         return Err("activa el motor de vídeo para emitir por RTMP".to_string());
@@ -1628,6 +1633,7 @@ fn rtmp_args(
         keyframe_secs,
         if audio_in_video { None } else { audio_device },
         audio_in_video,
+        video_delay_ms,
     )
 }
 
@@ -1644,6 +1650,7 @@ fn rtmp_args_for_video(
     keyframe_secs: u32,
     audio_device: Option<&str>,
     audio_in_video: bool,
+    video_delay_ms: i32,
 ) -> Result<Vec<String>, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -1690,10 +1697,27 @@ fn rtmp_args_for_video(
     args.extend([arg("-b:a"), arg("128k")]);
     args.extend([arg("-ar"), arg("48000")]);
     args.extend([arg("-ac"), arg("2")]);
+    // Retardo del video con respecto al audio (el ajuste por salida, en ms):
+    // positivo atrasa el video (setpts); negativo atrasa el audio (adelay),
+    // para corregir sincronia de camara/encoders del otro lado sin tocar el
+    // resto de emisiones.
+    if video_delay_ms > 0 {
+        args.extend([arg("-vf"), format!("setpts=PTS+{}/TB", as_secs_filter(video_delay_ms))]);
+    } else if video_delay_ms < 0 {
+        args.extend([arg("-af"), format!("adelay={}:all=1", (-video_delay_ms).abs())]);
+    }
     args.extend([arg("-f"), arg("flv")]);
     args.extend([arg("-flvflags"), arg("no_duration_filesize")]);
     args.push(url.to_string());
     Ok(args)
+}
+
+/// Segundos con decimales razonables para un filtro de FFmpeg.
+fn as_secs_filter(delay_ms: i32) -> String {
+    let secs = delay_ms as f64 / 1000.0;
+    // f64 impide un bucle: se imprime con tres decimales y sin ceros finales.
+    let text = format!("{secs:.3}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 fn ndi_args(
@@ -2348,6 +2372,39 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["-f", "ogg"]));
         assert!(args.windows(2).any(|pair| pair == ["-f", "s16le"]));
         assert!(args.iter().any(|arg| arg.ends_with("?tls=1")));
+    }
+
+    /// El retardo de video con respecto al audio solo sale en la salida RTMP:
+    /// positivo atrasa la imagen (setpts), negativo atrasa el audio (adelay).
+    #[test]
+    fn rtmp_video_delay_ms() {
+        let url = "rtmp://live.restream.io/live/key";
+        let base = |delay: i32| {
+            rtmp_args_for_video(
+                vec![arg("-i"), arg("/video/cam.mjpeg")],
+                url,
+                1280,
+                720,
+                25,
+                3000,
+                2,
+                None,
+                false,
+                delay,
+            )
+            .expect("argumentos")
+        };
+        let none = base(0);
+        assert!(!none.iter().any(|a| a.starts_with("setpts") || a.starts_with("adelay") || a.starts_with("-vf") || a.starts_with("-af")));
+        let late_video = base(1250);
+        assert!(late_video.windows(2).any(|pair| pair == ["-vf", "setpts=PTS+1.25/TB"]));
+        assert!(!late_video.iter().any(|a| a.starts_with("adelay")));
+        let late_audio = base(-500);
+        assert!(late_audio.windows(2).any(|pair| pair == ["-af", "adelay=500:all=1"]));
+        assert!(!late_audio.iter().any(|a| a.starts_with("setpts")));
+        // Fragmentos: milisegundos con decimales limpios.
+        let odd = base(120);
+        assert!(odd.iter().any(|a| a == "setpts=PTS+0.12/TB"));
     }
 
     #[test]

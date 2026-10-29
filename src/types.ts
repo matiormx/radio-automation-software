@@ -478,6 +478,8 @@ export interface VideoOutput {
   height: number;
   fps: number;
   bitrateKbps: number;
+  /** Retardo del vídeo respecto al audio en la salida RTMP, ms (negativo = atrasa el audio) */
+  videoDelayMs?: number;
 }
 
 export interface VideoSettings {

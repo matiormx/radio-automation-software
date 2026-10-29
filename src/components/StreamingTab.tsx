@@ -109,6 +109,7 @@ function newVideoOutput(): VideoOutput {
     height: 1080,
     fps: 25,
     bitrateKbps: 6000,
+    videoDelayMs: 0,
   };
 }
 
@@ -1121,7 +1122,31 @@ export function VideoOutputsEditor({
                            </span>
                          </label>
                        )}
+                       {output.kind === "rtmp" && (
+                         <label className="field">
+                           <span className="field-label">Retardo vídeo (ms)</span>
+                           <input
+                             type="number"
+                             min={-20000}
+                             max={20000}
+                             step={50}
+                             value={output.videoDelayMs ?? 0}
+                             onChange={(e) =>
+                               updateVideoOutput(output.id, {
+                                 videoDelayMs: Math.max(-20000, Math.min(20000, Math.round(Number(e.target.value) || 0))),
+                               })
+                             }
+                             title="Atrasa el vídeo respecto al audio en esta salida (para encajar cámara y encoders). Negativo: atrasa el audio."
+                           />
+                         </label>
+                       )}
                      </div>
+                     {output.kind === "rtmp" && (
+                       <p className="hint">
+                         Retardo del vídeo respecto al audio (solo en esta emisión): positivo atrasa la imagen
+                         con «setpts»; negativo atrasa el audio con «adelay». Se aplica al reiniciar la emisión.
+                       </p>
+                     )}
                      <label className="check-field">
                        <input
                          type="checkbox"

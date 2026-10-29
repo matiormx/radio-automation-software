@@ -677,6 +677,9 @@ pub struct VideoOutput {
     pub height: u32,
     pub fps: u32,
     pub bitrate_kbps: u32,
+    /// Retardo del video con respecto al audio en la salida (RTMP), ms
+    /// (positivo atrasa el video; negativo atrasa el audio).
+    pub video_delay_ms: i32,
 }
 
 impl Default for VideoOutput {
@@ -696,6 +699,7 @@ impl Default for VideoOutput {
             height: 1080,
             fps: 25,
             bitrate_kbps: 6000,
+            video_delay_ms: 0,
         }
     }
 }
