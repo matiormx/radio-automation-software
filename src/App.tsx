@@ -3495,6 +3495,14 @@ export default function App() {
   }, []);
 
   const deckRow = rows[playingRow] ?? null;
+  // Miniatura del streaming en el panel: la primera salida monitorizada que
+  // este en vivo (la misma que se ve en Ajustes > Streaming y en el móvil).
+  const streamMonitorId = useMemo(() => {
+    const monitored = (settings.video?.outputs ?? []).find(
+      (o) => o.monitor && o.enabled && streamStatus?.outputs.some((s) => s.id === `video:${o.id}` && s.running),
+    );
+    return monitored?.id ?? null;
+  }, [settings.video, streamStatus]);
   // A continuacion: la elegida a mano (de cualquier lista) o la de debajo.
   const nextRow =
     nextPick && pickRows
@@ -3550,13 +3558,10 @@ export default function App() {
       mixer: (settings.mixerChannels ?? []).map((c) => ({ id: c.id, name: c.name, gainDb: c.gainDb, muted: c.muted })),
       // Imagen para el monitor de vídeo del móvil. Primero lo que de verdad
       // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
-      // ve en Ajustes > Streaming (el móvil no abre ningún FFmpeg de más).
+      // ve en Ajustes > Streaming y en el deck (el móvil no abre FFmpeg extra).
       // Si no la hay, la fuente NDI al aire o «Lo que suena».
       snap: (() => {
-        const monitored = (settings.video?.outputs ?? []).find(
-          (o) => o.monitor && o.enabled && streamStatus?.outputs.some((s) => s.id === `video:${o.id}` && s.running),
-        );
-        if (monitored) return `out:${monitored.id}`;
+        if (streamMonitorId) return `out:${streamMonitorId}`;
         if (vsNow?.source === "capture") {
           const input = videoSources.find((i) => i.id === vsNow.captureInputId);
           if (input?.kind === "ndi") return `ndi:${input.source.trim()}`;
@@ -4004,6 +4009,7 @@ export default function App() {
                   nextAlbum={nextRow?.album ?? ""}
                   nextCover={nextRow?.cover ?? ""}
                   nextDuration={nextRow?.durationSecs ?? 0}
+                  monitorId={streamMonitorId}
                   onSeek={seek}
                   isVideo={
                     !liveRun &&

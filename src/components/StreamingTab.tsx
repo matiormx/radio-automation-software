@@ -11,7 +11,8 @@ import type {
   VideoOutputKind,
 } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
-import { listVideoCaptureDevices, monitorServer } from "../api";
+import { listVideoCaptureDevices } from "../api";
+import { MonitorThumb } from "./MonitorThumb";
 
 interface Props {
   settings: Settings;
@@ -129,37 +130,6 @@ function cappedOutput(output: VideoOutput, maxHeight: number): VideoOutput {
     height: maxHeight - (maxHeight % 2),
     bitrateKbps: Math.min(output.bitrateKbps, Math.max(2500, scaled)),
   };
-}
-
-/** Miniatura de lo que sale por una emisión monitorizada (1 fps, barata). */
-function MonitorThumb({ id, active }: { id: string; active: boolean }) {
-  const [base, setBase] = useState("");
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    void monitorServer()
-      .then((url) => setBase(url))
-      .catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    if (!active || !base) return;
-    const t = window.setInterval(() => setTick((v) => v + 1), 1000);
-    return () => window.clearInterval(t);
-  }, [active, base]);
-  if (!active || !base) return null;
-  return (
-    <img
-      className="stream-thumb"
-      alt=""
-      title="Miniatura de lo que sale (actualizada cada segundo)"
-      onError={(e) => {
-        e.currentTarget.style.visibility = "hidden";
-      }}
-      onLoad={(e) => {
-        e.currentTarget.style.visibility = "visible";
-      }}
-      src={`${base}/m/monitor:${id}.jpg?${tick}`}
-    />
-  );
 }
 
 function videoOutputSummary(original: VideoOutput, maxHeight = 0): string {

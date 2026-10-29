@@ -2,6 +2,7 @@ import { VideoSurface, type VideoState } from "../videoSurface";
 import { useEffect, useRef, useState } from "react";
 import { trackUrl } from "../api";
 import { IconNote } from "../icons";
+import { MonitorThumb } from "./MonitorThumb";
 
 interface DeckZoneProps {
   title: string;
@@ -20,6 +21,8 @@ interface DeckZoneProps {
   /** La pista que suena es un video: se ve en lugar de la portada */
   isVideo?: boolean;
   videoSource?: () => VideoState | null;
+  /** Miniatura de lo que sale por streaming (salida monitorizada y en vivo) */
+  monitorId?: string | null;
 }
 
 function fmtTime(secs: number): string {
@@ -63,6 +66,7 @@ export function DeckZone({
   onSeek,
   isVideo,
   videoSource,
+  monitorId,
 }: DeckZoneProps) {
   // Posicion que el operador esta arrastrando (aun sin soltar).
   const [scrub, setScrub] = useState<number | null>(null);
@@ -146,8 +150,18 @@ export function DeckZone({
         </div>
       </div>
 
-      <div className="deck-next">
-        <span className="deck-next-label">A CONTINUACIÓN</span>
+      <div className={`deck-next ${monitorId ? "has-monitor" : ""}`}>
+        <div className="deck-next-head">
+          <span className="deck-next-label">A CONTINUACIÓN</span>
+          {monitorId && (
+            <MonitorThumb
+              id={monitorId}
+              active
+              className="deck-monitor"
+              title="Monitor de lo que sale por streaming (salida monitorizada)"
+            />
+          )}
+        </div>
         {next ? (
           <div className="deck-next-body">
             <Cover src={nextCover} className="deck-next-cover" />
