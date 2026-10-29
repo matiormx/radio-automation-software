@@ -447,26 +447,8 @@ pub fn stream_start(
             // Miniatura monitorizada: la misma fuente que se emite, leida con
             // un FFmpeg liviano a 1 fps (solo si la salida esta marcada). En
             // NDI pide el crudo del servidor ya reducido: menos datos y CPU.
-            let monitor_input = if output.monitor {
-                Some(if use_program {
-                    program_args(output.fps, settings.video_screen.monitor, gfxcapture, ddagrab, use_np)
-                } else {
-                    match settings.video.inputs.iter().find(|i| i.id == video_choice) {
-                        Some(input) => video_input_args(input, ndi_device, (480, 270, output.fps)),
-                        None => Err("la entrada de vídeo elegida no existe".to_string()),
-                    }
-                })
-            } else {
-                None
-            };
-            let monitor_ndi = !use_program
-                && settings
-                    .video
-                    .inputs
-                    .iter()
-                    .find(|i| i.id == video_choice)
-                    .map(|i| i.kind == "ndi")
-                    .unwrap_or(false);
+            let monitor_input = monitor_input_for(output, &settings.video, settings.video_screen.monitor, gfxcapture, ddagrab, ndi_device);
+            let monitor_ndi = monitor_input_is_ndi(output, &settings.video);
             // Salida NDI con el NDI Runtime (sin FFmpeg con NDI): FFmpeg solo
             // captura la imagen y OmniCaster la envia por NDI con el audio de la mesa.
             if kind == "ndi" && crate::ndi::runtime().is_ok() {
@@ -829,6 +811,118 @@ pub async fn stream_push_pcm(
     .map_err(|error| format!("No se pudo enviar el audio: {error}"))?
 }
 
+/// Sincroniza las miniaturas monitorizadas SIN reiniciar la emision: arranca
+/// el FFmpeg de miniatura de las salidas monitorizadas que estan en vivo (por
+/// ejemplo, al marcar «Monitorizar» con la emision ya empezada) y para el de
+/// las que ya no. Lo llama la interfaz cuando cambia el ajuste.
+#[tauri::command]
+pub fn stream_monitor_sync(
+    app: AppHandle,
+    state: State<StreamingState>,
+    settings: Settings,
+) -> Result<(), String> {
+    let mut inner = state
+        .inner
+        .lock()
+        .map_err(|_| "El motor de emisión no responde".to_string())?;
+    monitor_sync(&app, &mut inner, &settings)
+}
+
+fn monitor_sync(
+    app: &AppHandle,
+    inner: &mut EngineInner,
+    settings: &Settings,
+) -> Result<(), String> {
+    if inner.ffmpeg.is_none() {
+        inner.ffmpeg = find_ffmpeg(app);
+    }
+    let Some(ffmpeg) = inner.ffmpeg.clone() else {
+        return Ok(());
+    };
+    // Salidas de vídeo en vivo (el id del proceso es "video:<salida>").
+    let alive: Vec<String> = {
+        let mut out: Vec<String> = Vec::new();
+        for p in inner.processes.iter_mut() {
+            if !p.alive || !p.id.starts_with("video:") {
+                continue;
+            }
+            if matches!(p.child.try_wait(), Ok(None)) {
+                out.push(p.id.trim_start_matches("video:").to_string());
+            }
+        }
+        out
+    };
+    // Solo las marcadas como monitorizadas y activas interesan.
+    let wanted: Vec<&VideoOutput> = alive
+        .iter()
+        .filter_map(|id| {
+            settings
+                .video
+                .outputs
+                .iter()
+                .find(|o| o.id == *id && o.enabled && o.monitor)
+        })
+        .collect();
+    // Necesidad de captura de ventana y de FFmpeg con NDI (como en stream_start).
+    let needs_program = wanted.iter().any(|o| {
+        let choice = o.video_input_id.trim();
+        choice.is_empty() || choice == "program" || choice == "nowplaying"
+    });
+    let (gfxcapture, ddagrab) = if cfg!(windows) && needs_program {
+        (
+            has_filter(&ffmpeg, "gfxcapture"),
+            !has_filter(&ffmpeg, "gfxcapture") && has_filter(&ffmpeg, "ddagrab"),
+        )
+    } else {
+        (false, false)
+    };
+    let needs_ndi = wanted.iter().any(|o| monitor_input_is_ndi(o, &settings.video)) && crate::ndi::runtime().is_err();
+    let ndi = if needs_ndi {
+        find_ndi_ffmpeg(app, &settings.video.ndi_ffmpeg_path).ok()
+    } else {
+        None
+    };
+    let ndi_ffmpeg = ndi.as_ref().map(|(path, _)| path.as_path());
+    let ndi_device = ndi.as_ref().map(|(_, d)| d.as_str());
+
+    let wanted_ids: Vec<String> = wanted.iter().map(|o| format!("monitor:{}", o.id)).collect();
+    for output in wanted {
+        let key = format!("monitor:{}", output.id);
+        if crate::monitor::live_ids().contains(&key) {
+            continue;
+        }
+        let input = monitor_input_for(
+            output,
+            &settings.video,
+            settings.video_screen.monitor,
+            gfxcapture,
+            ddagrab,
+            ndi_device,
+        );
+        let is_ndi = monitor_input_is_ndi(output, &settings.video);
+        let name = if output.name.trim().is_empty() {
+            output.kind.clone()
+        } else {
+            output.name.clone()
+        };
+        let mut errors: Vec<String> = Vec::new();
+        start_monitor(&mut errors, &name, input, is_ndi, &ffmpeg, ndi_ffmpeg, &output.id);
+        if !errors.is_empty() && inner.last_error.is_none() {
+            inner.last_error = Some(errors.join(" · "));
+        }
+    }
+    // Monitores que ya nadie pide (salida apagada, dejo de monitorizar,
+    // fuente muerta): fuera.
+    let wanted_lookup: std::collections::HashSet<String> = wanted_ids.into_iter().collect();
+    for id in crate::monitor::live_ids() {
+        if !wanted_lookup.contains(&id) && id.starts_with("monitor:") {
+            crate::monitor::stop_id(&id);
+        }
+    }
+    Ok(())
+}
+
+
 fn empty_status(ffmpeg: Option<String>, error: Option<String>) -> StreamStatus {
     StreamStatus {
         running: false,
@@ -924,6 +1018,44 @@ fn status_from(inner: &mut EngineInner) -> StreamStatus {
 }
 
 /// Arranca la miniatura monitorizada de una salida (o anota el error).
+/// Fuente para la miniatura de una salida monitorizada (None = no monitoriza).
+fn monitor_input_for(
+    output: &VideoOutput,
+    video: &VideoSettings,
+    screen_monitor: u32,
+    gfxcapture: bool,
+    ddagrab: bool,
+    ndi_device: Option<&str>,
+) -> Option<Result<Vec<String>, String>> {
+    if !output.monitor {
+        return None;
+    }
+    let choice = output.video_input_id.trim();
+    let use_np = choice == "nowplaying";
+    let use_program = choice.is_empty() || choice == "program" || use_np;
+    Some(if use_program {
+        program_args(output.fps, screen_monitor, gfxcapture, ddagrab, use_np)
+    } else {
+        match video.inputs.iter().find(|i| i.id == choice) {
+            Some(input) => video_input_args(input, ndi_device, (480, 270, output.fps)),
+            None => Err("la entrada de vídeo elegida no existe".to_string()),
+        }
+    })
+}
+
+/// ¿La fuente de la miniatura es una entrada NDI (sirve un FFmpeg especial)?
+fn monitor_input_is_ndi(output: &VideoOutput, video: &VideoSettings) -> bool {
+    let choice = output.video_input_id.trim();
+    let use_program = choice.is_empty() || choice == "program" || choice == "nowplaying";
+    !use_program
+        && video
+            .inputs
+            .iter()
+            .find(|i| i.id == choice)
+            .map(|i| i.kind == "ndi")
+            .unwrap_or(false)
+}
+
 fn start_monitor(
     errors: &mut Vec<String>,
     name: &str,

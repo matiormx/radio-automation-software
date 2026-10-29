@@ -75,6 +75,23 @@ pub fn stop_all() {
     frames().lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
+/// Ids de los monitores vivos ("monitor:<salida>").
+pub fn live_ids() -> Vec<String> {
+    live().lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect()
+}
+
+/// Para un monitor concreto (y borra su ultima imagen).
+pub fn stop_id(id: &str) {
+    if let Some(stop) = live().lock().unwrap_or_else(|e| e.into_inner()).remove(id) {
+        stop.store(true, Ordering::SeqCst);
+    }
+    frames().lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+}
+
 /// Lanza un FFmpeg de miniatura y va dejando los JPEG que suelta. Termina
 /// cuando FFmpeg se corta (y el llamador lo relanza) o cuando llega la señal
 /// de paro (con la que además mata al FFmpeg, porque la lectura se bloquea).

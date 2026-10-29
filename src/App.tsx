@@ -42,6 +42,7 @@ import {
   installQuitHandler,
   startStreaming,
   stopStreaming,
+  syncStreamMonitors,
 } from "./api";
 import type {
   Program,
@@ -2937,6 +2938,24 @@ export default function App() {
     (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
     [settings, updateSettings],
   );
+
+  // Miniaturas monitorizadas: al marcar o quitar «Monitorizar» con la emisión
+  // en marcha (o al arrancar una) se sincronizan sin cortar la emisión.
+  const monitorFlagKey = useMemo(
+    () =>
+      (settings.video?.outputs ?? [])
+        .map((o) => `${o.id}:${o.enabled && o.monitor ? 1 : 0}`)
+        .join(","),
+    [settings.video],
+  );
+  useEffect(() => {
+    if (!streamStatus?.running || !monitorFlagKey.includes(":1")) return;
+    const t = window.setTimeout(() => {
+      void syncStreamMonitors(settingsRef.current).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitorFlagKey, streamStatus?.running]);
 
   // Evento «Franja AutoDJ» con limpiar: al asignarse la fuente (cambia el
   // alcance del AutoDJ, incluido el arranque manual) se quita lo que queda

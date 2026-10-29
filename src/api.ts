@@ -406,6 +406,11 @@ export function stopStreaming(group: StreamGroup = "all"): Promise<StreamStatus>
   return invoke<StreamStatus>("stream_stop", { group });
 }
 
+/** Sincroniza las miniaturas monitorizadas sin reiniciar la emisión. */
+export function syncStreamMonitors(settings: Settings): Promise<void> {
+  return invoke("stream_monitor_sync", { settings });
+}
+
 export function pushStreamPcm(data: number[]): Promise<void> {
   return invoke("stream_push_pcm", { data });
 }

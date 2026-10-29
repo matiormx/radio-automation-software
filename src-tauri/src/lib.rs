@@ -251,6 +251,7 @@ pub fn run() {
             streaming::stream_start,
             streaming::stream_stop,
             streaming::stream_push_pcm,
+            streaming::stream_monitor_sync,
             engine::engine_start,
             engine::engine_stop,
             engine::engine_cmd,
