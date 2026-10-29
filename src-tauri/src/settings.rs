@@ -233,7 +233,8 @@ pub struct AudioDeviceSetting {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AiSettings {
-    /// Motor de analisis: "ollama" (servidor local) o "opencode" (CLI local).
+    /// Motor de analisis: "ollama" (servidor local), "opencode" (CLI local) o
+    /// "cloud" (servicio compatible con OpenAI).
     pub provider: String,
     /// Direccion del servidor Ollama.
     pub url: String,
@@ -242,6 +243,13 @@ pub struct AiSettings {
     pub model: String,
     /// Orden para invocar OpenCode; vacio = "opencode".
     pub opencode_path: String,
+    /// URL del servicio en la nube compatible con OpenAI; vacio = api.openai.com/v1.
+    pub cloud_url: String,
+    /// Clave (API key) del servicio en la nube.
+    pub cloud_key: String,
+    /// Modelo del servicio en la nube (p. ej. "gpt-4o-mini" o
+    /// "llama-3.3-70b-versatile" en Groq).
+    pub cloud_model: String,
 }
 
 impl Default for AiSettings {
@@ -251,6 +259,9 @@ impl Default for AiSettings {
             url: "http://127.0.0.1:11434".to_string(),
             model: "llama3.1:8b".to_string(),
             opencode_path: String::new(),
+            cloud_url: String::new(),
+            cloud_key: String::new(),
+            cloud_model: "gpt-4o-mini".to_string(),
         }
     }
 }

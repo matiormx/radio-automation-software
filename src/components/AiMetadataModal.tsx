@@ -89,10 +89,14 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
       try {
         const suggestion = await aiSuggestMetadata(
           id,
-          ai.provider ?? "ollama",
-          ai.url,
-          ai.model,
-          ai.opencodePath ?? "",
+          {
+            ...ai,
+            provider: ai.provider ?? "ollama",
+            opencodePath: ai.opencodePath ?? "",
+            cloudUrl: ai.cloudUrl ?? "",
+            cloudKey: ai.cloudKey ?? "",
+            cloudModel: ai.cloudModel ?? "",
+          },
           styles,
         );
         setRows((prev) =>

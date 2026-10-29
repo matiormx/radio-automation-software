@@ -14,7 +14,8 @@ interface Props {
  */
 export function AiTab({ settings, onChange, showToast }: Props) {
   const ai = settings.ai ?? DEFAULT_SETTINGS.ai;
-  const provider = ai.provider === "opencode" ? "opencode" : "ollama";
+  const provider =
+    ai.provider === "opencode" || ai.provider === "cloud" ? ai.provider : "ollama";
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +28,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
     setBusy(true);
     setError("");
     try {
-      const list = await aiModels("ollama", ai.url, ai.opencodePath ?? "");
+      const list = await aiModels({ ...ai, provider: "ollama" });
       setModels(list);
       if (list.length === 0) {
         setError("Ollama responde, pero no tiene modelos instalados. Prueba con: ollama pull llama3.1:8b");
@@ -49,7 +50,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
     setModels([]);
     try {
       const version = await aiOpencodeVersion(ai.opencodePath ?? "");
-      const list = await aiModels("opencode", ai.url, ai.opencodePath ?? "");
+      const list = await aiModels({ ...ai, provider: "opencode" });
       setModels(list);
       showToast(
         `OpenCode ${version} · ${list.length} modelo${list.length === 1 ? "" : "s"}`,
@@ -58,6 +59,25 @@ export function AiTab({ settings, onChange, showToast }: Props) {
       setModels([]);
       setError(String(e));
       showToast("No se pudo comprobar OpenCode");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testCloud = async () => {
+    setBusy(true);
+    setError("");
+    setModels([]);
+    try {
+      const list = await aiModels({ ...ai, provider: "cloud" });
+      setModels(list);
+      showToast(
+        `Conectado · ${list.length} modelo${list.length === 1 ? "" : "s"}`,
+      );
+    } catch (e) {
+      setModels([]);
+      setError(String(e));
+      showToast("No se pudo conectar con el servicio de IA");
     } finally {
       setBusy(false);
     }
@@ -74,14 +94,79 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             onChange={(e) => {
               setModels([]);
               setError("");
-              setAi({ provider: e.target.value === "opencode" ? "opencode" : "ollama" });
+              setAi({ provider: e.target.value as typeof ai.provider });
             }}
           >
             <option value="ollama">Ollama (servidor local)</option>
             <option value="opencode">OpenCode (CLI opencode run)</option>
+            <option value="cloud">En la nube (compatible OpenAI)</option>
           </select>
         </label>
-        {provider === "ollama" ? (
+        {provider === "cloud" && (
+          <>
+            <p className="hint">
+              Usa un servicio <strong>compatible con OpenAI</strong> en la nube (OpenAI, Groq,
+              Gemini…) para proponer idioma, estilo y etiquetas a partir de los metadatos de cada
+              canción. No se sube el audio: solo se envían título, artista, álbum, año, estilo,
+              etiquetas y nombre del archivo. Las propuestas se revisan y se aceptan una a una
+              antes de guardarlas.
+            </p>
+            <div className="field-row">
+              <label className="field">
+                <span className="field-label">Dirección del servicio</span>
+                <input
+                  type="text"
+                  value={ai.cloudUrl ?? ""}
+                  spellCheck={false}
+                  placeholder="https://api.openai.com/v1"
+                  onChange={(e) => setAi({ cloudUrl: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Clave (API key)</span>
+                <input
+                  type="password"
+                  value={ai.cloudKey ?? ""}
+                  spellCheck={false}
+                  placeholder="sk-…"
+                  onChange={(e) => setAi({ cloudKey: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="field-row">
+              <label className="field">
+                <span className="field-label">Modelo</span>
+                <input
+                  type="text"
+                  value={ai.cloudModel ?? ""}
+                  spellCheck={false}
+                  list="ai-models"
+                  placeholder="gpt-4o-mini"
+                  onChange={(e) => setAi({ cloudModel: e.target.value })}
+                />
+                <datalist id="ai-models">
+                  {models.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </label>
+            </div>
+            <div className="update-actions">
+              <button type="button" className="btn btn-sm" onClick={() => void testCloud()} disabled={busy}>
+                {busy ? "Probando…" : "Probar conexión"}
+              </button>
+              {models.length > 0 && (
+                <span className="hint">
+                  {models.length} modelo{models.length === 1 ? "" : "s"} disponible
+                  {models.length === 1 ? "" : "s"}: {models.slice(0, 4).join(", ")}
+                  {models.length > 4 ? "…" : ""}
+                </span>
+              )}
+            </div>
+            {error && <div className="form-error">{error}</div>}
+          </>
+        )}
+        {provider === "ollama" && (
           <>
             <p className="hint">
               Usa un servidor <strong>Ollama</strong> en tu equipo para proponer idioma, estilo y
@@ -131,7 +216,8 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             </div>
             {error && <div className="form-error">{error}</div>}
           </>
-        ) : (
+        )}
+        {provider === "opencode" && (
           <>
             <p className="hint">
               Usa <strong>OpenCode</strong> instalado en tu equipo: cada análisis lanza
@@ -190,7 +276,23 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
       </fieldset>
 
-      {provider === "ollama" ? (
+      {provider === "cloud" ? (
+        <fieldset className="fieldset">
+          <legend>Cómo preparar el servicio en la nube</legend>
+          <p className="hint">
+            Crea una API key en tu servicio y pégala arriba:
+          </p>
+          <pre className="ai-command">OpenAI · platform.openai.com/api-keys · gpt-4o-mini
+Groq · console.groq.com/keys · llama-3.3-70b-versatile
+Gemini · aistudio.google.com · https://generativelanguage.googleapis.com/v1beta/openai/</pre>
+          <p className="hint">
+            La dirección acepta cualquier servicio que siga el formato de OpenAI. El modelo va
+            tal como lo llama el servicio (se llena la lista al probar la conexión). Cada
+            análisis manda solo los metadatos de la canción y tarda un par de segundos; los
+            servicios gratuitos (Groq, Gemini) casi nunca se quedan cortos para catalogar.
+          </p>
+        </fieldset>
+      ) : provider === "ollama" ? (
         <fieldset className="fieldset">
           <legend>Cómo preparar Ollama</legend>
           <p className="hint">

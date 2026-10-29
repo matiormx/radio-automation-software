@@ -12,6 +12,7 @@ use std::time::Duration;
 use tauri::State;
 
 use crate::library::{clean_language, read_library_internal};
+use crate::settings::AiSettings;
 use crate::AppState;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -269,6 +270,99 @@ fn opencode_command(path: &str) -> String {
     }
 }
 
+/// Direccion base de un servicio en la nube compatible con OpenAI.
+fn cloud_base(url: &str) -> String {
+    let mut base = url.trim().trim_end_matches('/').to_string();
+    if base.is_empty() {
+        base = "https://api.openai.com/v1".to_string();
+    }
+    if !base.starts_with("http://") && !base.starts_with("https://") {
+        base = format!("https://{base}");
+    }
+    base
+}
+
+/// Peticion chat/completions a un servicio en la nube (OpenAI, Groq, Gemini…).
+/// Solo salen los metadatos de la ficha, igual que con Ollama.
+fn cloud_chat(
+    url: &str,
+    key: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+) -> Result<String, String> {
+    if key.trim().is_empty() {
+        return Err("Falta la clave del servicio de IA en la nube (Ajustes > IA)".to_string());
+    }
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("Elige un modelo de la nube en Ajustes > IA".to_string());
+    }
+    let endpoint = format!("{}/chat/completions", cloud_base(url));
+    let request = json!({
+        "model": model,
+        "stream": false,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ],
+        "temperature": 0.1
+    });
+    let response = ureq::post(&endpoint)
+        .timeout(Duration::from_secs(180))
+        .set("Authorization", &format!("Bearer {}", key.trim()))
+        .set("Content-Type", "application/json")
+        .send_string(&request.to_string())
+        .map_err(http_error)?;
+    let body = response
+        .into_string()
+        .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
+    value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "La IA en la nube no devolvio contenido".to_string())
+}
+
+/// Catalogo de modelos de un servicio en la nube compatible con OpenAI.
+fn cloud_models(url: &str, key: &str) -> Result<Vec<String>, String> {
+    if key.trim().is_empty() {
+        return Err("Falta la clave del servicio de IA en la nube (Ajustes > IA)".to_string());
+    }
+    let endpoint = format!("{}/models", cloud_base(url));
+    let response = ureq::get(&endpoint)
+        .timeout(Duration::from_secs(20))
+        .set("Authorization", &format!("Bearer {}", key.trim()))
+        .call()
+        .map_err(http_error)?;
+    let body = response
+        .into_string()
+        .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
+    let mut models: Vec<String> = value
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    models.retain(|model| !model.trim().is_empty());
+    models.sort();
+    models.dedup();
+    if models.is_empty() {
+        return Err("El servicio de la nube no devolvio modelos".to_string());
+    }
+    Ok(models)
+}
+
+
 /// Ejecuta `opencode run` con limite de tiempo (el proceso se matara si se
 /// cuelga esperando permisos u otro bloqueo). Devuelve el texto de respuesta.
 fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, String> {
@@ -356,10 +450,7 @@ fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, Stri
 fn suggest(
     data_dir: &Path,
     id: &str,
-    provider: &str,
-    url: &str,
-    model: &str,
-    opencode_path: &str,
+    ai: &crate::settings::AiSettings,
     styles: &[String],
 ) -> Result<AiSuggestion, String> {
     let tracks = read_library_internal(data_dir);
@@ -392,14 +483,19 @@ fn suggest(
         styles_text
     );
 
-    if provider.trim() == "opencode" {
+    if ai.provider.trim() == "cloud" {
+        let content = cloud_chat(&ai.cloud_url, &ai.cloud_key, &ai.cloud_model, SYSTEM_PROMPT, &user_prompt)?;
+        let parsed = extract_json(&content)?;
+        return Ok(parse_suggestion(parsed));
+    }
+    if ai.provider.trim() == "opencode" {
         let message = format!("{SYSTEM_PROMPT}\n\n{user_prompt}\n\nRecuerda: responde SOLO el objeto JSON y no uses herramientas.");
-        let content = run_opencode(&opencode_command(opencode_path), model, &message)?;
+        let content = run_opencode(&opencode_command(&ai.opencode_path), &ai.model, &message)?;
         let parsed = extract_json(&content)?;
         return Ok(parse_suggestion(parsed));
     }
 
-    let model = model.trim();
+    let model = ai.model.trim();
     if model.is_empty() {
         return Err("Elige un modelo de Ollama en Ajustes > IA".to_string());
     }
@@ -414,7 +510,7 @@ fn suggest(
         ],
         "options": { "temperature": 0.1 }
     });
-    let endpoint = format!("{}/api/chat", base_url(url));
+    let endpoint = format!("{}/api/chat", base_url(&ai.url));
     let response = ureq::post(&endpoint)
         .timeout(Duration::from_secs(180))
         .set("Content-Type", "application/json")
@@ -434,20 +530,14 @@ fn suggest(
     Ok(parse_suggestion(parsed))
 }
 
-/// Modelos disponibles segun el proveedor: Ollama lista su servidor; OpenCode
-/// ejecuta `opencode models` y devuelve las lineas "proveedor/modelo".
+/// Modelos disponibles segun el motor configurado: Ollama lista su servidor;
+/// OpenCode ejecuta `opencode models` y la nube pide el catalogo al servicio.
 #[tauri::command]
-pub async fn ai_models(
-    provider: Option<String>,
-    url: String,
-    opencode_path: Option<String>,
-) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let provider = provider.unwrap_or_default();
-        if provider.trim() == "opencode" {
-            return opencode_models(&opencode_command(&opencode_path.unwrap_or_default()));
-        }
-        list_models(&url)
+pub async fn ai_models(ai: AiSettings) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || match ai.provider.trim() {
+        "opencode" => opencode_models(&opencode_command(&ai.opencode_path)),
+        "cloud" => cloud_models(&ai.cloud_url, &ai.cloud_key),
+        _ => list_models(&ai.url),
     })
     .await
     .map_err(|e| format!("No se pudo consultar el proveedor de IA: {e}"))?
@@ -477,31 +567,18 @@ fn opencode_models(command: &str) -> Result<Vec<String>, String> {
     Ok(models)
 }
 
-/// Pide al proveedor configurado una propuesta de idioma, estilo y etiquetas.
+/// Pide al motor configurado una propuesta de idioma, estilo y etiquetas.
 #[tauri::command]
 pub async fn ai_suggest_metadata(
     state: State<'_, AppState>,
     id: String,
-    provider: Option<String>,
-    url: String,
-    model: String,
-    opencode_path: Option<String>,
+    ai: AiSettings,
     styles: Vec<String>,
 ) -> Result<AiSuggestion, String> {
     let data_dir = state.data_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        suggest(
-            &data_dir,
-            &id,
-            provider.as_deref().unwrap_or("ollama"),
-            &url,
-            &model,
-            &opencode_path.unwrap_or_default(),
-            &styles,
-        )
-    })
-    .await
-    .map_err(|e| format!("La IA se detuvo: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || suggest(&data_dir, &id, &ai, &styles))
+        .await
+        .map_err(|e| format!("La IA se detuvo: {e}"))?
 }
 
 /// ¿Responde el orden de OpenCode? Devuelve su version.

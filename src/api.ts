@@ -20,6 +20,7 @@ import type {
   HistoryEntry,
   SessionState,
   Waveform,
+  AiSettings,
   AiSuggestion,
   VideoCaptureDevice,
 } from "./types";
@@ -106,8 +107,8 @@ export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
   return invoke("update_track", { id, patch });
 }
 
-export function aiModels(provider: string, url: string, opencodePath = ""): Promise<string[]> {
-  return invoke<string[]>("ai_models", { provider, url, opencodePath });
+export function aiModels(ai: AiSettings): Promise<string[]> {
+  return invoke<string[]>("ai_models", { ai: { ...ai, provider: ai.provider ?? "ollama" } });
 }
 
 export function aiOpencodeVersion(opencodePath = ""): Promise<string> {
@@ -116,18 +117,12 @@ export function aiOpencodeVersion(opencodePath = ""): Promise<string> {
 
 export function aiSuggestMetadata(
   id: string,
-  provider: string,
-  url: string,
-  model: string,
-  opencodePath: string,
+  ai: AiSettings,
   styles: string[],
 ): Promise<AiSuggestion> {
   return invoke<AiSuggestion>("ai_suggest_metadata", {
     id,
-    provider,
-    url,
-    model,
-    opencodePath,
+    ai: { ...ai, provider: ai.provider ?? "ollama" },
     styles,
   });
 }
