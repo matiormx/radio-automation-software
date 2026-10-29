@@ -32,6 +32,13 @@ fn live() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     L.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Cuando se paró cada monitor a mano (para que el supervisor del respaldo no
+/// lo vuelva a encender si lo apagaron después de construirse su fuente).
+fn tombstones() -> &'static Mutex<HashMap<String, std::time::Instant>> {
+    static T: OnceLock<Mutex<HashMap<String, std::time::Instant>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[derive(Default)]
 struct Latest {
     jpeg: Vec<u8>,
@@ -50,6 +57,7 @@ pub fn start(ffmpeg: &Path, input_args: Vec<String>, id: String) {
         prev.store(true, Ordering::SeqCst);
     }
     drop(live);
+    tombstones().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     let ffmpeg = ffmpeg.to_path_buf();
     let _ = thread::Builder::new().name("miradio-monitor".into()).spawn(move || {
         while !stop.load(Ordering::SeqCst) {
@@ -63,14 +71,30 @@ pub fn start(ffmpeg: &Path, input_args: Vec<String>, id: String) {
     });
 }
 
+/// ¿Puede (re)arrancarse el monitor a partir de una fuente construida en
+/// `built`? Si lo pararon a mano DESPUES de construirse esa fuente, no: la
+/// decision del operador manda.
+pub fn resumable(id: &str, built: std::time::Instant) -> bool {
+    match tombstones()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(id)
+    {
+        Some(stopped_at) => *stopped_at < built,
+        None => true,
+    }
+}
+
 /// Para todas las miniaturas (y borra las imagenes memorizadas).
 pub fn stop_all() {
-    let stops: Vec<Arc<AtomicBool>> = {
+    let stops: Vec<(String, Arc<AtomicBool>)> = {
         let mut live = live().lock().unwrap_or_else(|e| e.into_inner());
-        live.drain().map(|(_, stop)| stop).collect()
+        live.drain().collect()
     };
-    for stop in stops {
+    let now = std::time::Instant::now();
+    for (id, stop) in stops {
         stop.store(true, Ordering::SeqCst);
+        tombstones().lock().unwrap_or_else(|e| e.into_inner()).insert(id, now);
     }
     frames().lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
@@ -88,6 +112,7 @@ pub fn live_ids() -> Vec<String> {
 pub fn stop_id(id: &str) {
     if let Some(stop) = live().lock().unwrap_or_else(|e| e.into_inner()).remove(id) {
         stop.store(true, Ordering::SeqCst);
+        tombstones().lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), std::time::Instant::now());
     }
     frames().lock().unwrap_or_else(|e| e.into_inner()).remove(id);
 }

@@ -35,6 +35,16 @@ struct NdiOut {
     fps: u32,
 }
 
+/// Como se arranca la miniatura monitorizada de una salida: su FFmpeg y la
+/// fuente (que depende de la entrada en el aire, principal o respaldo).
+#[derive(Clone)]
+struct MonitorOverride {
+    ffmpeg: PathBuf,
+    args: Vec<String>,
+    /// Cuando se construyo: si apagaron el monitor despues, no se reenciende.
+    built: Instant,
+}
+
 /// Como arrancar FFmpeg para una salida.
 #[derive(Clone)]
 struct Spec {
@@ -42,6 +52,8 @@ struct Spec {
     args: Vec<String>,
     wants_audio: bool,
     ndi_out: Option<NdiOut>,
+    /// La miniatura de esta fuente; None = sin monitorizar.
+    monitor: Option<MonitorOverride>,
 }
 
 /// Que hacer si la salida se cae o se cuelga: volver a arrancarla (con
@@ -366,7 +378,7 @@ pub fn stream_start(
         let output_name = name.clone();
         match icecast_args(stream) {
             Ok(args) => {
-                let restart = Restart::new(Spec { ffmpeg: ffmpeg.clone(), args: args.clone(), wants_audio: true, ndi_out: None }, None);
+                let restart = Restart::new(Spec { ffmpeg: ffmpeg.clone(), args: args.clone(), wants_audio: true, ndi_out: None, monitor: None }, None);
                 if let Err(error) = spawn_process(
                     &mut inner,
                     &shared,
@@ -468,6 +480,14 @@ pub fn stream_start(
                     let src = output.source.trim();
                     if !src.is_empty() { src.to_string() } else if !output.name.trim().is_empty() { output.name.trim().to_string() } else { "OmniCaster".to_string() }
                 };
+                let monitor_resolved = monitor_resolution(
+                    &mut errors,
+                    &name,
+                    monitor_input,
+                    monitor_ndi,
+                    &ffmpeg,
+                    ndi.as_ref().map(|(path, _)| path.as_path()),
+                );
                 let result = video_args.and_then(|video_args| {
                     let mut args: Vec<String> = ["-hide_banner", "-loglevel", "warning", "-nostdin"].iter().map(|x| x.to_string()).collect();
                     args.extend(video_args);
@@ -483,7 +503,13 @@ pub fn stream_start(
                     ]);
                     let out = NdiOut { name: ndi_name, width: w, height: h, fps };
                     let restart = Restart::new(
-                        Spec { ffmpeg: ffmpeg.clone(), args: args.clone(), wants_audio: false, ndi_out: Some(out.clone()) },
+                        Spec {
+                            ffmpeg: ffmpeg.clone(),
+                            args: args.clone(),
+                            wants_audio: false,
+                            ndi_out: Some(out.clone()),
+                            monitor: spec_monitor(monitor_resolved.as_ref()),
+                        },
                         None,
                     );
                     spawn_process_ex(
@@ -504,16 +530,10 @@ pub fn stream_start(
                     let message = format!("{name}: {error}");
                     errors.push(message.clone());
                     inner.failed_outputs.push(failed_output(&id, &name, &kind, message));
-                } else {
-                    start_monitor(
-                        &mut errors,
-                        &name,
-                        monitor_input,
-                        monitor_ndi,
-                        &ffmpeg,
-                        ndi.as_ref().map(|(path, _)| path.as_path()),
-                        &output.id,
-                    );
+                    continue;
+                }
+                if let Some((monitor_ffmpeg, monitor_args)) = &monitor_resolved {
+                    crate::monitor::start(monitor_ffmpeg, monitor_args.clone(), format!("monitor:{}", output.id));
                 }
                 continue;
             }
@@ -713,12 +733,34 @@ pub fn stream_start(
                             } else {
                                 video_output_args(output, &settings.video, ndi_device, Some(backup))
                             };
+                            let backup_monitor = if output.monitor {
+                                let mut backup_output = output.clone();
+                                backup_output.video_input_id = backup.to_string();
+                                spec_monitor(monitor_resolution(
+                                    &mut errors,
+                                    &name,
+                                    monitor_input_for(
+                                        &backup_output,
+                                        &settings.video,
+                                        settings.video_screen.monitor,
+                                        gfxcapture,
+                                        ddagrab,
+                                        ndi_device,
+                                    ),
+                                    monitor_input_is_ndi(&backup_output, &settings.video),
+                                    &ffmpeg,
+                                    ndi.as_ref().map(|(path, _)| path.as_path()),
+                                ).as_ref())
+                            } else {
+                                None
+                            };
                             match backup_args {
                                 Ok(args) => Some(Spec {
                                     ffmpeg: backup_ffmpeg.to_path_buf(),
                                     args: crate::hwenc::apply(args, backup_ffmpeg, &settings.video.encoder),
                                     wants_audio: kind == "rtmp" || kind == "whip",
                                     ndi_out: None,
+                                    monitor: backup_monitor,
                                 }),
                                 Err(error) => {
                                     errors.push(format!("{name} (respaldo): {error}"));
@@ -729,8 +771,22 @@ pub fn stream_start(
                     } else {
                         None
                     };
+                    let monitor_resolved = monitor_resolution(
+                        &mut errors,
+                        &name,
+                        monitor_input,
+                        monitor_ndi,
+                        &ffmpeg,
+                        ndi.as_ref().map(|(path, _)| path.as_path()),
+                    );
                     let restart = Restart::new(
-                        Spec { ffmpeg: process_ffmpeg.to_path_buf(), args: args.clone(), wants_audio, ndi_out: None },
+                        Spec {
+                            ffmpeg: process_ffmpeg.to_path_buf(),
+                            args: args.clone(),
+                            wants_audio,
+                            ndi_out: None,
+                            monitor: spec_monitor(monitor_resolved.as_ref()),
+                        },
                         fallback,
                     );
                     if let Err(error) = spawn_process(
@@ -748,16 +804,8 @@ pub fn stream_start(
                         inner
                             .failed_outputs
                             .push(failed_output(&id, &name, &kind, error));
-                    } else {
-                        start_monitor(
-                            &mut errors,
-                            &name,
-                            monitor_input,
-                            monitor_ndi,
-                            &ffmpeg,
-                            ndi.as_ref().map(|(path, _)| path.as_path()),
-                            &output.id,
-                        );
+                    } else if let Some((monitor_ffmpeg, monitor_args)) = &monitor_resolved {
+                        crate::monitor::start(monitor_ffmpeg, monitor_args.clone(), format!("monitor:{}", output.id));
                     }
                 }
                 Err(error) => {
@@ -1056,23 +1104,30 @@ fn monitor_input_is_ndi(output: &VideoOutput, video: &VideoSettings) -> bool {
             .unwrap_or(false)
 }
 
-fn start_monitor(
+/// La miniatura ligada a esta fuente, resuelta ya (para el supervisor).
+fn spec_monitor(resolved: Option<&(PathBuf, Vec<String>)>) -> Option<MonitorOverride> {
+    resolved.map(|(ffmpeg, args)| MonitorOverride {
+        ffmpeg: ffmpeg.clone(),
+        args: args.clone(),
+        built: Instant::now(),
+    })
+}
+
+/// Resuelve (FFmpeg, args) de la miniatura para una fuente: None = sin miniatura.
+fn monitor_resolution(
     errors: &mut Vec<String>,
     name: &str,
     video_args: Option<Result<Vec<String>, String>>,
     input_is_ndi: bool,
     ffmpeg: &Path,
     ndi_ffmpeg: Option<&Path>,
-    output_id: &str,
-) {
-    let Some(video_args) = video_args else {
-        return;
-    };
+) -> Option<(PathBuf, Vec<String>)> {
+    let video_args = video_args?;
     let video_args = match video_args {
         Ok(args) => args,
         Err(error) => {
             errors.push(format!("{name} (miniatura): {error}"));
-            return;
+            return None;
         }
     };
     // Con el NDI Runtime la imagen llega por el servidor local y sirve el
@@ -1084,13 +1139,30 @@ fn start_monitor(
                 errors.push(format!(
                     "{name} (miniatura): NDI no disponible: indica un FFmpeg con soporte NDI en Ajustes > Vídeo > NDI"
                 ));
-                return;
+                return None;
             }
         }
     } else {
         ffmpeg
     };
-    crate::monitor::start(chosen, video_args, format!("monitor:{output_id}"));
+    Some((chosen.to_path_buf(), video_args))
+}
+
+/// Arranca (o reemplaza) la miniatura de una salida; devuelve el override
+/// para que el supervisor cambie de fuente con ella al ir al respaldo (y
+/// volver). None = sin miniatura.
+fn start_monitor(
+    errors: &mut Vec<String>,
+    name: &str,
+    video_args: Option<Result<Vec<String>, String>>,
+    input_is_ndi: bool,
+    ffmpeg: &Path,
+    ndi_ffmpeg: Option<&Path>,
+    output_id: &str,
+) -> Option<(PathBuf, Vec<String>)> {
+    let resolved = monitor_resolution(errors, name, video_args, input_is_ndi, ffmpeg, ndi_ffmpeg)?;
+    crate::monitor::start(&resolved.0, resolved.1.clone(), format!("monitor:{output_id}"));
+    Some(resolved)
 }
 
 fn spawn_process(
@@ -1397,6 +1469,14 @@ fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool
         ) {
             inner.failed_outputs.push(failed_output(&id, &old.name, &old.kind, error));
             return;
+        }
+        // La miniatura monitorizada cambia de fuente con la emision:
+        // al ir al respaldo (o volver a la principal) sigue lo que sale.
+        if let Some(monitor) = &spec.monitor {
+            let key = format!("monitor:{id}");
+            if crate::monitor::resumable(&key, monitor.built) {
+                crate::monitor::start(&monitor.ffmpeg, monitor.args.clone(), key);
+            }
         }
     }
 }
@@ -2803,8 +2883,8 @@ mod tests {
         }
         let shared = Arc::new(Mutex::new(EngineInner::default()));
         let ff = PathBuf::from("ffmpeg");
-        let primary = Spec { ffmpeg: ff.clone(), args: lavfi(2), wants_audio: false, ndi_out: None };
-        let backup = Spec { ffmpeg: ff.clone(), args: lavfi(3), wants_audio: false, ndi_out: None };
+        let primary = Spec { ffmpeg: ff.clone(), args: lavfi(2), wants_audio: false, ndi_out: None, monitor: None };
+        let backup = Spec { ffmpeg: ff.clone(), args: lavfi(3), wants_audio: false, ndi_out: None, monitor: None };
         {
             let mut inner = shared.lock().unwrap();
             spawn_process(&mut inner, &shared, &ff, lavfi(2), "v".into(), "Prueba".into(), "rtmp", false, Some(Restart::new(primary, Some(backup))))
@@ -2841,7 +2921,7 @@ mod tests {
             .iter()
             .map(|x| x.to_string())
             .collect();
-        let spec = Spec { ffmpeg: ff.clone(), args: args.clone(), wants_audio: false, ndi_out: None };
+        let spec = Spec { ffmpeg: ff.clone(), args: args.clone(), wants_audio: false, ndi_out: None, monitor: None };
         let first_pid;
         {
             let mut inner = shared.lock().unwrap();
