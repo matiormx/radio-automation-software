@@ -3500,6 +3500,15 @@ export default function App() {
         if (log) showToast(log.includes("falló") ? log.trim() : "Copia de seguridad importada");
       })
       .catch(() => undefined);
+    // Aviso si la ultima actualización no llegó a instalarse.
+    void invoke("update_trace_last")
+      .then((line) => {
+        const last = typeof line === "string" ? line : "";
+        if (last && !last.includes("OK ") && last.includes("]")) {
+          showToast(`La última actualización no llegó a instalarse — reintenta desde Ajustes (=${last.slice(11, 60)})`);
+        }
+      })
+      .catch(() => undefined);
   }, [showToast]);
   // Medidores de la mesa web para la ventana Mixer (el motor nativo manda los suyos).
   const [metersOn, setMetersOn] = useState(false);

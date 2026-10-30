@@ -1,5 +1,7 @@
 use std::process::Command;
 
+use tauri::{AppHandle, Manager};
+
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -11,6 +13,48 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[tauri::command]
 pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Rastro de las actualizaciones (data/update-trace.log, max 40 lineas): si el
+/// instalador muere a medias, al reabrir se sabe donde quedo.
+fn trace_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("update-trace.log"))
+}
+
+#[tauri::command]
+pub fn update_log(app: AppHandle, line: String) -> Result<(), String> {
+    use std::io::Write;
+    let path = trace_path(&app)?;
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut lines: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    lines.push(format!("[{secs}] {}", line.chars().take(300).collect::<String>()));
+    while lines.len() > 40 {
+        lines.remove(0);
+    }
+    let mut f = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    f.write_all(lines.join("\n").as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Ultima linea del rastro (null si no hay).
+#[tauri::command]
+pub fn update_trace_last(app: AppHandle) -> Result<Option<String>, String> {
+    let path = trace_path(&app)?;
+    Ok(std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| c.lines().last().map(|l| l.to_string()))
+        .filter(|l| !l.is_empty()))
 }
 
 /// Abre un enlace en el navegador (pagina de la release, avisos, etc).

@@ -282,6 +282,8 @@ pub fn run() {
             rbapi::api_set_update_token,
             update::app_version,
             update::open_url,
+            update::update_log,
+            update::update_trace_last,
             nowplaying::write_now_playing,
             nowplaying::write_now_playing_image
         ])
