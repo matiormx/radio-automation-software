@@ -2040,6 +2040,9 @@ fn rtmp_args_for_video(
         args.extend([arg("-af"), format!("adelay={}:all=1", (-video_delay_ms).abs())]);
     }
     if whip {
+        // El muxer whip se publicó como experimental en FFmpeg: en muchos
+        // builds exige esta bandera para arrancar de una vez.
+        args.extend([arg("-strict"), arg("experimental")]);
         args.extend([arg("-f"), arg("whip")]);
     } else {
         args.extend([arg("-f"), arg("flv")]);
@@ -2589,6 +2592,14 @@ fn is_error_line(line: &str) -> bool {
         "broken pipe",
         "401",
         "403",
+        "experimental",
+        "handshake",
+        "dtls",
+        "stun",
+        "ice candidate",
+        "sdp",
+        "srtp",
+        "rtp",
     ]
     .iter()
     .any(|needle| line.contains(needle))
