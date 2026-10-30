@@ -50,6 +50,13 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           version=$(jq -r .version src-tauri/tauri.conf.json)
+          # Las tres fuentes (y el lock) deben decir lo mismo antes de compilar.
+          cargo_v=$(grep -oP '(?<=^version = ")[^"]+' src-tauri/Cargo.toml | head -n1)
+          node_v=$(jq -r .version package.json)
+          if [ "$cargo_v" != "$version" ] || [ "$node_v" != "$version" ]; then
+            echo "::error::Versiones desalineadas: Cargo.toml=$cargo_v, package.json=$node_v, tauri.conf.json=$version. Sube la versión en los tres archivos."
+            exit 1
+          fi
           if [ "$REF_TYPE" = "tag" ]; then
             if [ "${REF_NAME#v}" != "$version" ]; then
               echo "::error::La etiqueta $REF_NAME no coincide con la versión $version de tauri.conf.json"
