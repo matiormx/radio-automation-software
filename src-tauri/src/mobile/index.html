@@ -723,18 +723,60 @@ const toDb = (x) => (x <= 0 ? -60 : x >= 1000 ? 12 : x <= 750 ? -60 + (x / 750) 
 const fromDb = (db) => (db <= -60 ? 0 : db <= 0 ? ((db + 60) / 60) * 750 : 750 + (Math.min(12, db) / 12) * 250);
 const dbText = (db) => (db <= -60 ? "−∞" : `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`);
 
+const MIX_COLORS = ["#4f8cff", "#59d98c", "#ffb84d", "#f87171", "#c084fc", "#22d3ee", "#f472b6", "#a3e635", "#f97316", "#94a3b8", "#2563eb"];
+const nextMixColor = (n) => MIX_COLORS[n % MIX_COLORS.length];
+const newMixId = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+const AGC_LABEL = { off: "apagado", slow: "lento", fast: "rápido" };
+const MONO_LABEL = { off: "ST", sum: "S", left: "L", right: "R" };
+
+function ioInputs() { return (S.io && S.io.inputs) || []; }
+function ioOutputs() { return (S.io && S.io.outputs) || []; }
+function stripIn(x) {
+  const ii = x.input || {};
+  if (ii.kind === "app") return { music: "Música", preview: "Preescucha", call: "Llamadas" }[ii.app || ""] || "Aplicación";
+  if (ii.kind === "device") {
+    const d = ioInputs().find((i) => i.id === ii.deviceId);
+    const pair = ii.channel ? ` · ${ii.channel}|${Number(ii.channel) + 1}` : "";
+    return `${d ? d.label : ii.deviceId === "none" || !ii.deviceId ? "Sin entrada" : "Tarjeta"}${pair}`;
+  }
+  return "Sin entrada";
+}
+function stripOut(x) {
+  const o = x.output || {};
+  if (o.kind === "bus") {
+    const b = (S.buses || []).find((i) => i.id === o.id);
+    return b ? `BUS ${b.name}` : "Bus";
+  }
+  if (!o.id || o.id === "default" || o.id === "none") return o.id === "none" ? "Sin salida" : "Sistema";
+  const d = ioOutputs().find((i) => i.id === o.id);
+  return d ? d.label : "Tarjeta";
+}
+
 function viewMix() {
   const chans = S.mixer || [];
   const buses = S.buses || [];
-  const strip = (c, kind) => `<div class="mstrip" data-kind="${kind}" data-id="${esc(c.id)}"><b>${esc(c.name)}</b>
-      <input type="range" min="0" max="1000" step="1" value="${Math.round(fromDb(c.gainDb))}" ${kind === "m" ? 'style="direction:ltr"' : ""} aria-label="Volumen de ${esc(c.name)}">
-      <span class="db">${dbText(c.gainDb)}</span>
-      ${kind !== "m" ? `<button class="mute ${c.muted ? "on" : ""}">${c.muted ? "SILENCIADO" : "SILENCIAR"}</button>` : ""}</div>`;
-  $("#main").innerHTML = `<h3>Mesa completa · desplázate de lado →</h3><div class="mixx">
+  const strip = (x, kind) => {
+    const soloDot = kind === "c" && x.solo ? '<span class="dot" style="background:#ffb84d"></span>' : "";
+    return `<div class="mstrip" data-kind="${kind}" data-id="${esc(x.id)}">
+      <b>${esc(x.name)}${soloDot}</b>
+      <input type="range" min="0" max="1000" step="1" value="${Math.round(fromDb(x.gainDb))}" aria-label="Volumen de ${esc(x.name)}">
+      <span class="db">${dbText(x.gainDb)}</span>
+      ${kind !== "m" ? `<small style="color:var(--dim);font-size:10px;min-height:2.4em;line-height:1.2">${esc(stripIn(x))} → ${esc(stripOut(x))}</small>` : ''}
+      <div style="display:flex;gap:6px">
+        ${kind !== "m" ? `<button class="mute ${x.muted ? "on" : ""}" style="flex:1">${x.muted ? "SILENCIADO" : "SILENCIAR"}</button>` : ""}
+        ${kind !== "m" ? `<button class="btn" style="flex:0 0 34px;padding:6px" data-edit="${kind === "c" ? "c" : "b"}:${esc(x.id)}" aria-label="Ajustes">···</button>` : ""}
+      </div>
+    </div>`;
+  };
+  $("#main").innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px">
+      <button class="btn" data-mxadd="c">+ Canal</button>
+      <button class="btn" data-mxadd="b">+ Bus</button>
+      <small class="snapnote" style="align-self:center;margin-left:auto">FX y plugins desde el ordenador</small>
+    </div><h3>Mesa · desliza de lado →</h3><div class="mixx">
       ${chans.map((c) => strip(c, "c")).join("")}
       ${buses.map((b) => strip(b, "b")).join("")}
-      ${strip({ id: "master", name: "Master", gainDb: toDb(Math.min(1, S.master ?? 1)) }, "m")}
-    </div>`;
+      ${strip({ id: "master", name: "Master", gainDb: toDb(Math.max(0.001, S.master ?? 1)) }, "m")}
+    </div><small class="snapnote">La mesa guarda tu mesa en: las tarjetas habilitadas en Ajustes &gt; Sonido salen aquí. Los plugins y compresores se ajustan desde el ordenador.</small>`;
   let timer = 0;
   $("#main").oninput = (e) => {
     const r = e.target.closest("input[type=range]");
@@ -744,20 +786,23 @@ function viewMix() {
     const id = wrap.dataset.id;
     const kind = wrap.dataset.kind;
     if (kind === "m") {
-      // master en lineal 0..1 (la mesa usa dB para canales y buses)
       const v = Math.pow(10, toDb(Number(r.value)) / 20);
-      r.closest(".mstrip").querySelector(".db").textContent = `${Math.round(Math.min(1, v) * 100)} %`;
+      wrap.querySelector(".db").textContent = `${Math.round(Math.min(1, v) * 100)} %`;
       clearTimeout(timer);
       timer = setTimeout(() => cmd({ cmd: "masterFader", value: Math.min(1, v) }), 80);
     } else {
       const db = Math.round(toDb(Number(r.value)) * 10) / 10;
-      r.closest(".mstrip").querySelector(".db").textContent = dbText(db);
+      wrap.querySelector(".db").textContent = dbText(db);
       clearTimeout(timer);
       timer = setTimeout(() => cmd({ cmd: kind === "b" ? "busFader" : "fader", id, db }), 60);
     }
   };
   $("#main").onchange = () => setTimeout(() => (dragging = false), 400);
   $("#main").onclick = (e) => {
+    const add = e.target.closest("[data-mxadd]");
+    if (add) { if (add.dataset.mxadd === "c") addChannel(); else addBus(); return; }
+    const ed = e.target.closest("[data-edit]");
+    if (ed) { const at = ed.dataset.edit.indexOf(":"); return openStrip(ed.dataset.edit.slice(0, at), ed.dataset.edit.slice(at + 1), null); }
     const m = e.target.closest(".mute");
     if (!m) return;
     const wrap = m.closest(".mstrip");
@@ -768,6 +813,195 @@ function viewMix() {
   };
 }
 
+/* + Canal: igual que en el ordenador (sin entrada/salida hasta que se elijan) */
+function addChannel() {
+  const chans = S.mixer || [];
+  const buses = S.buses || [];
+  const ch = {
+    id: newMixId(),
+    name: `Canal ${chans.length + 1}`,
+    color: nextMixColor(chans.length),
+    input: { kind: "device", app: "", deviceId: "none" },
+    output: buses.length ? { kind: "bus", id: buses[0].id } : { kind: "device", id: "default" },
+    gainDb: 0,
+    muted: false,
+  };
+  cmd({ cmd: "mixerChannelsUpdate", channels: [...chans, ch] });
+  toast("Canal añadido · elige su entrada y su salida");
+  setTimeout(() => openStrip("c", ch.id, null), 700);
+}
+function addBus() {
+  const buses = S.buses || [];
+  const bus = {
+    id: newMixId(),
+    name: `Bus ${buses.length + 1}`,
+    color: nextMixColor((S.mixer || []).length + buses.length + 1),
+    outputDeviceId: "default",
+    gainDb: 0,
+    muted: false,
+  };
+  cmd({ cmd: "mixerBusesUpdate", buses: [...buses, bus] });
+  toast("Bus añadido · elige la tarjeta de salida");
+  setTimeout(() => openStrip("b", bus.id, null), 700);
+}
+
+/* Editor completo de una tira. Se re-renderiza a si misma cuando se cambia una
+   parte estructural (sends, tipo de entrada...) usando el borrador actual. */
+function openStrip(kind, id, draft) {
+  const list = kind === "c" ? S.mixer || [] : S.buses || [];
+  const cur = draft !== undefined && draft !== null ? draft : list.find((i) => i.id === id);
+  if (!cur) return;
+  const d = JSON.parse(JSON.stringify(cur));
+  const isChan = kind === "c";
+  const io = { inputs: ioInputs(), outputs: ioOutputs() };
+  document.getElementById("ed")?.remove();
+  const el = document.createElement("div");
+  el.id = "ed"; el.className = "ed";
+  editing = { kind, id, d };
+  dragging = true;
+
+  const inputSel = isChan
+    ? `<label>Entrada</label><select data-f="__in">${[
+        `<option value="none" ${!(d.input && d.input.kind === "device" && d.input.deviceId && d.input.deviceId !== "none") ? "selected" : ""}>Sin entrada (apagada)</option>`,
+        io.inputs.map((dv) => `<option value="${esc(dv.id)}" ${d.input && d.input.kind === "device" && d.input.deviceId === dv.id ? "selected" : ""}>${esc(dv.label)}</option>`).join(""),
+      ].join("")}</select>
+      ${d.input && d.input.kind === "app" ? '<div class="snapnote">Tira de aplicación (Música/Preescucha/Llamadas): la entrada es fija.</div>' : ""}
+      <div class="row2">
+        <div style="flex:1"><label>Par estéreo (1 = 1-2, 2 = 3-4…)</label><input type="number" min="1" max="16" data-f="__pair" value="${d.input?.channel ? d.input.channel : ""}" placeholder="—"></div>
+        <div style="flex:1"><label>Ganancia de entrada (dB)</label><input type="number" min="-24" max="24" step="0.5" data-f="__ingain" value="${d.inputGainDb ?? 0}"></div>
+      </div>
+      <label>Auto ganancia (AGC)</label><select data-f="__agc">
+        <option value="off" ${d.agc !== "slow" && d.agc !== "fast" ? "selected" : ""}>Apagada</option>
+        <option value="slow" ${d.agc === "slow" ? "selected" : ""}>AGC lento</option>
+        <option value="fast" ${d.agc === "fast" ? "selected" : ""}>AGC rápido</option>
+      </select>`
+    : "";
+
+  const outVal = (() => {
+    const o = d.output || {};
+    if (o.kind === "bus") return `bus:${o.id}`;
+    return o.kind === "device" && o.id && o.id !== "none" && o.id !== "default" ? `dev:${o.id}` : o.id || "none";
+  })();
+  const outputSel = `<label>Salida</label><select data-f="__out">
+      <option value="none" ${outVal === "none" ? "selected" : ""}>Sin salida (apagada)</option>
+      <option value="default" ${outVal === "default" ? "selected" : ""}>Salida del sistema</option>
+      ${(S.buses || []).map((b) => `<option value="bus:${esc(b.id)}" ${outVal === "bus:" + b.id ? "selected" : ""}>Bus · ${esc(b.name)}</option>`).join("")}
+      ${io.outputs.map((dv) => `<option value="dev:${esc(dv.id)}" ${outVal === "dev:" + dv.id ? "selected" : ""}>Tarjeta · ${esc(dv.label)}</option>`).join("")}
+    </select>`;
+
+  const panAndMono = isChan
+    ? `<label>Pan (−1 izquierda · 0 centro · 1 derecha)</label><input type="range" min="-1" max="1" step="0.05" data-f="__pan" value="${d.pan ?? 0}">
+       <label>Estéreo</label><div class="row2">${Object.keys(MONO_LABEL).map((m) => `<button class="btn small ${(d.monoMode ?? "off") === m ? "on" : ""}" data-mono="${m}" style="flex:1">${MONO_LABEL[m]}</button>`).join("")}</div>
+       <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="__solo" ${d.solo ? "checked" : ""}> Solo (se alimenta solo el/los buses)</label>`
+    : "";
+  const sendsHtml = isChan
+    ? `${(d.sends || []).length ? `<label>Envíos a buses (solo dB)</label>${(d.sends || []).map((send, si) => {
+        const bus = (S.buses || []).find((b) => b.id === send.busId);
+        return `<div class="row2" style="align-items:center">
+          <small style="flex:1">${esc(bus?.name || "Bus · ?")}</small>
+          <small class="snapnote">${send.pre ? "fader antes" : "fader después"}</small>
+          <input type="number" step="0.5" data-f="__sgain" data-si="${si}" value="${Number(send.gainDb) || 0}" style="width:70px">
+          <button class="btn small" data-spre="${si}" style="padding:7px">${send.pre ? "pre" : "post"}</button>
+          <button class="btn small" data-srm="${si}" style="padding:7px;color:#ff8b8e">×</button>
+        </div>`;
+      }).join("")}` : ""}
+      ${(S.buses || []).length ? `<div class="row2" style="align-items:center"><select data-sendbus style="flex:1">${(S.buses || []).map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("")}</select><button class="btn small" data-sendadd="1">+ Envío</button></div>` : ""}`
+    : "";
+  const fxNote = isChan
+    ? `<label>FX del canal (leer)</label><div class="snapnote">${(d.plugins || []).map((pl) => `${esc(pl.name)}${pl.enabled ? "" : " (apagado)"}`).join(" · ") || "—"}${d.insert && d.insert.enabled ? " · INSERT en marcha" : ""}</div>`
+    : "";
+  const busDevSel = !isChan
+    ? `<label>Salida de hardware del bus (tarjeta)</label><select data-f="__busdev">
+        ${(S.io.outputs || []).map((dv) => `<option value="${esc(dv.id)}" ${d.outputDeviceId === dv.id ? "selected" : ""}>${esc(dv.label)}</option>`).join("")}
+        <option value="default" ${d.outputDeviceId === "default" ? "selected" : ""}>Salida del sistema</option></select>`
+    : "";
+
+  el.innerHTML = `<h4>${esc(d.name || "Tira")}</h4>
+    <label>Nombre</label><input type="text" data-f="name" value="${esc(d.name || "")}">
+    ${inputSel}
+    ${outputSel}
+    ${busDevSel}
+    ${panAndMono}
+    ${sendsHtml}
+    ${fxNote}
+    <div style="height:12px"></div>
+    <button class="btn" data-msave="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button>
+    <button class="btn" data-mdel="1" style="color:#ff8b8e">Quitar esta tira</button>
+    <button class="btn" data-close="1">Cancelar</button>`;
+
+  el.oninput = (e) => {
+    const f = e.target.dataset.f;
+    if (!f) return;
+    const n = e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    if (f === "name") d.name = String(e.target.value || "").slice(0, 60);
+    else if (f === "__in") {
+      d.input = e.target.value === "none" ? { kind: "device", app: "", deviceId: "none" } : { kind: "device", app: "", deviceId: e.target.value, ...(d.input?.channel ? { channel: d.input.channel } : {}) };
+      // la ganancia de entrada y el AGC se mantienen
+    } else if (f === "__pair") {
+      const chan = Number(e.target.value);
+      d.input = { ...(d.input || { kind: "device", app: "", deviceId: "none" }), kind: "device", channel: Number.isInteger(chan) && chan >= 1 ? chan : undefined };
+      if (d.input.channel === undefined) delete d.input.channel;
+    } else if (f === "__ingain") d.inputGainDb = Math.max(-24, Math.min(24, Number(e.target.value) || 0));
+    else if (f === "__agc") d.agc = e.target.value;
+    else if (f === "__out") {
+      const v = e.target.value;
+      if (v.startsWith("bus:")) d.output = { kind: "bus", id: v.slice(4) };
+      else if (v.startsWith("dev:")) d.output = { kind: "device", id: v.slice(4) };
+      else d.output = { kind: "device", id: v };
+    } else if (f === "__pan") d.pan = Number(e.target.value);
+    else if (f === "__solo") d.solo = e.target.checked;
+    else if (f === "__busdev") d.outputDeviceId = e.target.value;
+    else if (f === "__sgain") {
+      const si = Number(e.target.dataset.si);
+      if (d.sends && d.sends[si]) d.sends[si].gainDb = Math.max(-60, Math.min(12, Number(e.target.value) || 0));
+    }
+    // (sin resto)
+    // refresco del pie de tira (entrada nueva / salida nueva)
+  };
+  el.onchange = (e) => {
+    // selects: al refrescar el texto del pie en vivo, re-render con el borrador
+    if (["__in", "__out", "__agc", "__busdev"].includes(e.target.dataset.f)) {
+      openStrip(kind, id, d);
+    }
+  };
+  el.onclick = (e) => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    if (t.dataset.close) { el.remove(); editing = null; dragging = false; return; }
+    if (t.dataset.msave) {
+      const lists = kind === "c" ? (S.mixer || []).map((x2) => (x2.id === id ? d : x2)) : (S.buses || []).map((x2) => (x2.id === id ? d : x2));
+      cmd({ cmd: kind === "c" ? "mixerChannelsUpdate" : "mixerBusesUpdate", ...(kind === "c" ? { channels: lists } : { buses: lists }) });
+      el.remove(); editing = null; dragging = false;
+      return;
+    }
+    if (t.dataset.mdel) {
+      if (!confirm("¿Quitar esta tira de la mesa?")) return;
+      const lists = kind === "c" ? (S.mixer || []).filter((x2) => x2.id !== id) : (S.buses || []).filter((x2) => x2.id !== id);
+      cmd({ cmd: kind === "c" ? "mixerChannelsUpdate" : "mixerBusesUpdate", ...(kind === "c" ? { channels: lists } : { buses: lists }) });
+      el.remove(); editing = null; dragging = false;
+      return;
+    }
+    if (t.dataset.mono) { d.monoMode = t.dataset.mono; el.querySelectorAll("[data-mono]").forEach((b2) => b2.classList.toggle("on", b2.dataset.mono === d.monoMode)); return; }
+    if (t.dataset.sendadd) {
+      const sel = el.querySelector("select[data-sendbus]");
+      const busId = sel ? sel.value : "";
+      if (!busId) return toast("Sin buses para enviar");
+      d.sends = d.sends || [];
+      if (d.sends.some((sg) => sg.busId === busId)) return toast("Ya envía a ese bus");
+      d.sends.push({ busId, gainDb: 0, pre: false, muted: false });
+      return openStrip(kind, id, d);
+    }
+    if (t.dataset.spre !== undefined) {
+      const sg = (d.sends || [])[Number(t.dataset.spre)];
+      if (sg) { sg.pre = !sg.pre; return openStrip(kind, id, d); }
+    }
+    if (t.dataset.srm !== undefined) {
+      (d.sends || []).splice(Number(t.dataset.srm), 1);
+      return openStrip(kind, id, d);
+    }
+  };
+  document.body.appendChild(el);
+}
 async function loadSys() {
   try {
     const r = await fetch(`/api/sys?t=${encodeURIComponent(token)}`);

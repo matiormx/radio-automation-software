@@ -58,6 +58,8 @@ import type {
   StationEvent,
   VideoInput,
   IcecastStream,
+  MixerChannel,
+  MixerBus,
   StreamMeta,
   StreamStatus,
 } from "./types";
@@ -3593,7 +3595,7 @@ export default function App() {
         current: vsNow?.source === "capture" ? `capture:${vsNow.captureInputId ?? ""}` : "program",
         monitor: !!vsNow?.enabled,
       },
-      mixer: (settings.mixerChannels ?? []).map((c) => ({ id: c.id, name: c.name, gainDb: c.gainDb, muted: c.muted })),
+      mixer: settings.mixerChannels ?? [],
       // Imagen para el monitor de vídeo del móvil. Primero lo que de verdad
       // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
       // ve en Ajustes > Streaming y en el deck (el móvil no abre FFmpeg extra).
@@ -3621,7 +3623,11 @@ export default function App() {
         description: x.description,
         genre: x.genre,
       })),
-      buses: (settings.mixerBuses ?? []).map((b) => ({ id: b.id, name: b.name, gainDb: b.gainDb, muted: b.muted })),
+      buses: settings.mixerBuses ?? [],
+      io: {
+        inputs: (settings.audioDevices ?? []).filter((d) => d.kind === "audioinput").map((d) => ({ id: d.id, label: d.name || d.label })),
+        outputs: (settings.audioDevices ?? []).filter((d) => d.kind === "audiooutput").map((d) => ({ id: d.id, label: d.name || d.label })),
+      },
       master: settings.masterVolume,
       snap: (() => {
         if (streamMonitorId) return `out:${streamMonitorId}`;
@@ -3667,7 +3673,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -3842,6 +3848,44 @@ export default function App() {
             ch.id !== id ? ch : c.cmd === "fader" ? (Number.isFinite(db) ? { ...ch, gainDb: db } : ch) : { ...ch, muted: !!c.on },
           ),
         });
+        break;
+      }
+      // ---- Mesa: arrays completos desde el movil (canal o bus) ----
+      case "mixerChannelsUpdate": {
+        const list = Array.isArray(c.channels) ? c.channels : [];
+        const channels: MixerChannel[] = list.slice(0, 32).map((raw: Record<string, unknown>, i: number): MixerChannel => {
+          const ch = raw as unknown as MixerChannel;
+          return {
+            ...ch,
+            id: String(ch.id ?? `c${Date.now().toString(36)}${i}`),
+            name: String(ch.name ?? `Canal ${i + 1}`).slice(0, 60),
+            color: ch.color || "#94a3b8",
+            input: ch.input && (ch.input.kind === "device" || ch.input.kind === "app") ? { ...ch.input } : { kind: "device", app: "", deviceId: "none" },
+            output: ch.output && (ch.output.kind === "device" || ch.output.kind === "bus") ? { ...ch.output } : { kind: "device", id: "none" },
+            gainDb: Math.max(-60, Math.min(12, Number(ch.gainDb) || 0)),
+            muted: !!ch.muted,
+          };
+        });
+        updateSettings({ ...s, mixerChannels: channels });
+        showToast("Mesa actualizada desde el móvil");
+        break;
+      }
+      case "mixerBusesUpdate": {
+        const list = Array.isArray(c.buses) ? c.buses : [];
+        const buses: MixerBus[] = list.slice(0, 8).map((raw: Record<string, unknown>, i: number): MixerBus => {
+          const b = raw as unknown as MixerBus;
+          return {
+            ...b,
+            id: String(b.id ?? `b${Date.now().toString(36)}${i}`),
+            name: String(b.name ?? `Bus ${i + 1}`).slice(0, 60),
+            color: b.color || "#94a3b8",
+            outputDeviceId: String(b.outputDeviceId ?? "default").slice(0, 120) || "default",
+            gainDb: Math.max(-60, Math.min(12, Number(b.gainDb) || 0)),
+            muted: !!b.muted,
+          };
+        });
+        updateSettings({ ...s, mixerBuses: buses });
+        showToast("Buses actualizados desde el móvil");
         break;
       }
       // ---- Mesa: buses, master ----
