@@ -130,6 +130,23 @@
   .addt input { flex: 1; }
   .addt button, .small { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-weight: 600; }
   .row2 { display: flex; gap: 8px; align-items: center; }
+.lchips { display: flex; gap: 6px; overflow-x: auto; margin: 8px 0; }
+.lchip { flex: 0 0 auto; padding: 7px 12px; border-radius: 9px; background: #1b2028; border: 1px solid #2a2f3a; font-size: 12.5px; color: var(--dim); }
+.lchip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.lchip.act { border-color: transparent; color: var(--fg); }
+.mixx { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 12px; }
+.mstrip { flex: 0 0 132px; background: #171b22; border: 1px solid #2a2f3a; border-radius: 11px; padding: 9px 9px 10px; display: flex; flex-direction: column; gap: 7px; }
+.mstrip b { font-size: 12px; line-height: 1.2; min-height: 2.3em; display: flex; align-items: flex-end; word-break: break-word; }
+.mstrip input[type=range] { width: 100%; }
+.mstrip .db { font-size: 10.5px; color: var(--dim); }
+.mstrip .mute { padding: 6px; font-size: 10.5px; width: 100%; }
+.sec { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 4px; }
+.sec h3 { margin: 0; }
+.srhit { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid #20242c; }
+.srhit .t { flex: 1; min-width: 0; }
+.srhit .t small { color: var(--dim); }
+.vin .item, .srv .item { cursor: pointer; }
+.edsel { display: grid; gap: 8px; }
 </style>
 </head>
 <body>
@@ -308,32 +325,89 @@ let showPast = false;
 let listScrolled = false;
 function viewList() {
   const all = S.rows || [];
-  if (!all.length) { $("#main").innerHTML = '<div class="empty">La lista está vacía</div>'; return; }
-  // Como en el ordenador: de lo ya emitido solo se ven las últimas
+  const lists = S.lists || [];
+  if (!lists.length) { $("#main").innerHTML = '<div class="empty">Sin listas todavía</div>'; return; }
   const keep = S.pastVisible ?? 5;
   const firstShown = showPast || S.playing < 0 ? 0 : Math.max(0, S.playing - keep);
   const rows = all.slice(firstShown);
   const hidden = firstShown;
-  $("#main").innerHTML = `<h3>${esc(S.listName || "Lista")} · ${all.length} pistas</h3>`
-    + (hidden ? `<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">${hidden} canciones emitidas ocultas · ver</button>`
-      : showPast && S.playing > keep ? '<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">Ocultar las emitidas</button>' : "")
-    + rows.map((r) => {
+  const autoChips = collections().map((b) => `<button class="lchip ${S.autodj === b.id ? "on" : ""}" data-dj="${esc(b.id)}">${esc(b.name)}</button>`).join("");
+  $("#main").innerHTML = `<div class="lchips">${lists.map((l) => `<button class="lchip ${l.current ? "on" : ""}" data-list="${esc(l.id)}">${esc(l.name)}</button>`).join("")}</div>
+    <div class="lchips">${autoChips.length ? '<span class="lchip" style="border:none;padding:7px 4px">AUTO pilla de:</span>' + autoChips + `<button class="lchip ${S.autodj === "" ? "on" : ""}" data-dj="">Automático</button>` : ""}</div>
+    <h3>${esc(S.listName || "Lista")} · ${all.length} pistas
+      <button class="btn" data-addtrk="1" style="padding:6px 10px;float:right">+ Añadir</button>
+      <button class="btn" data-clear="1" style="padding:6px 10px;float:right;margin-right:6px;border-color:#ff8b8e;color:#ff8b8e">Vaciar</button>
+    </h3>
+    ${hidden ? `<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">${hidden} canciones emitidas ocultas · ver</button>`
+      : showPast && S.playing > keep ? '<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">Ocultar las emitidas</button>' : ""}
+    ${rows.length ? rows.map((r) => {
     const cls = r.i === S.playing ? "cur" : r.i < S.playing ? "past" : r.i === S.nextRow ? "nx" : "";
     const b = r.i === S.playing ? '<span class="badge b-live">AL AIRE</span>' : r.i === S.nextRow ? '<span class="badge b-next">SIGUIENTE</span>' : r.auto ? '<span class="badge b-auto">AUTO</span>' : "";
     return `<div class="row ${cls}"><span class="n">${r.i + 1}</span><div class="t"><div>${esc(r.title)}${b}</div><small>${esc(r.artist)}</small></div>
       <span class="d">${fmt(r.dur)}</span><button class="more" data-i="${r.i}" aria-label="Opciones">⋯</button></div>`;
-  }).join("");
+  }).join("") : '<div class="empty">La lista está vacía</div>'}`;
   $("#main").onclick = (e) => {
     if (e.target.closest("[data-past]")) { showPast = !showPast; listScrolled = false; return viewList(); }
+    const listBtn = e.target.closest("[data-list]");
+    if (listBtn) { cmd({ cmd: "listSwitch", id: listBtn.dataset.list }); return; }
+    const dj = e.target.closest("[data-dj]");
+    if (dj) { cmd({ cmd: "autodjList", id: dj.dataset.dj }); return; }
+    if (e.target.closest("[data-clear]")) {
+      if (confirm("¿Vaciar esta lista? Lo que está sonando sigue hasta el final.")) cmd({ cmd: "playlistClear" });
+      return;
+    }
+    if (e.target.closest("[data-addtrk]")) return openSearch();
     const b = e.target.closest("[data-i]");
     if (b) sheet(Number(b.dataset.i));
   };
-  // Al entrar, la que suena a la vista
   if (!listScrolled) {
     listScrolled = true;
     const cur = $("#main .row.cur");
     if (cur) cur.scrollIntoView({ block: "center" });
   }
+}
+
+/* Bloques (listas musico) que pilla el piloto automatico */
+function collections() {
+  return (S.blocks || []).filter((b) => b.id && b.name);
+}
+
+/* Buscador de canciones para anadir a la lista: publica S.hits */
+function openSearch() {
+  document.getElementById("srch")?.remove();
+  const el = document.createElement("div");
+  el.id = "srch";
+  el.className = "ed";
+  el.innerHTML = `<h4>Añadir canción a «${esc(S.listName || "la lista")}»</h4>
+    <input type="search" id="sq" placeholder="Título, artista o álbum…">
+    <div id="shits" style="max-height:60vh;overflow-y:auto;margin-top:8px"></div>
+    <div style="height:12px"></div><button class="btn" data-sclose="1">Cerrar</button>`;
+  document.body.appendChild(el);
+  el.onclick = (e) => {
+    if (e.target.closest("[data-sclose]")) { el.remove(); cmd({ cmd: "librarySearch", q: "" }); }
+    const hit = e.target.closest("[data-add]");
+    if (hit) { cmd({ cmd: "playlistAddTrack", trackId: hit.dataset.add }); el.remove(); }
+  };
+  const input = el.querySelector("#sq");
+  let t = 0;
+  input?.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => { renderHits(); cmd({ cmd: "librarySearch", q: input.value }); }, 350);
+    renderHits();
+  });
+  input?.focus();
+  renderHits();
+  // Se refresca cuando llega la respuesta por el canal SSE
+  clearInterval(window.__srchTimer);
+  window.__srchTimer = setInterval(() => { if (!document.getElementById("srch")) { clearInterval(window.__srchTimer); return; } renderHits(); }, 400);
+}
+function renderHits() {
+  const box = document.getElementById("shits");
+  if (!box) return;
+  const hits = S.hits || [];
+  box.innerHTML = hits.length
+    ? hits.map((h) => `<div class="srhit"><div class="t"><div>${esc(h.title)}</div><small>${esc(h.artist)}</small></div><button class="btn" data-add="${esc(h.id)}">Añadir</button></div>`).join("")
+    : '<div class="snapnote" style="text-align:center">Sin resultados todavía (escribí algo y espera un segundo)</div>';
 }
 
 function sheet(i) {
@@ -374,7 +448,11 @@ function viewAir() {
     <button class="btn ${st.videoOn ? "on" : ""}" data-c="vid" ${!st.videoReady || st.busy ? "disabled" : ""}><span class="dot"></span>${st.videoOn ? "VÍDEO · EN VIVO" : "EMITIR VÍDEO"}</button>
     ${(v.sources || []).length ? `<h3>Vídeo al aire</h3><div class="grid2">${v.sources.map((s) => `<button class="btn src ${s.key === v.current ? "on" : ""}" data-src="${esc(s.key)}">${esc(s.label)}</button>`).join("")}</div>
     <div style="height:10px"></div>
-    <button class="btn green ${v.monitor ? "on" : ""}" data-c="monitor"><span class="dot"></span>Monitor de presentadores ${v.monitor ? "encendido" : "apagado"}</button>` : ""}`;
+    <button class="btn green ${v.monitor ? "on" : ""}" data-c="monitor"><span class="dot"></span>Monitor de presentadores ${v.monitor ? "encendido" : "apagado"}</button>` : ""}
+    <div class="sec"><h3>Entradas de vídeo</h3><button class="btn" data-vin-new="1">+ Nueva</button></div>
+    ${(S.videoInputs || []).map((x) => `<div class="item vin" data-vin="${esc(x.id)}">
+      <div class="t"><b>${esc(x.name || x.source || "Sin nombre")}</b><small>${esc(x.kind)} · ${esc(x.source || "—")}</small></div>
+      <button class="sw ${x.enabled ? "on" : ""}" data-vinsw="${esc(x.id)}" aria-label="Activar"></button></div>`).join("")}`;
   $("#main").onclick = (e) => {
     const s = e.target.closest("[data-src]");
     if (s) return cmd({ cmd: "video", key: s.dataset.src });
@@ -382,7 +460,65 @@ function viewAir() {
     if (c === "audio") cmd({ cmd: "stream", group: "audio", on: !st.audioOn });
     if (c === "vid") cmd({ cmd: "stream", group: "video", on: !st.videoOn });
     if (c === "monitor") cmd({ cmd: "monitor", on: !v.monitor });
+    if (e.target.closest("[data-vin-new]")) return openVin(null);
+    const sw = e.target.closest("[data-vinsw]");
+    if (sw) {
+      const x = (S.videoInputs || []).find((i) => i.id === sw.dataset.vinsw);
+      if (x) cmd({ cmd: "videoInputsUpdate", inputs: (S.videoInputs || []).map((i) => (i.id === x.id ? { ...i, enabled: !i.enabled } : i)) });
+      sw.classList.toggle("on");
+      return;
+    }
+    const it = e.target.closest(".item[data-vin]");
+    if (it) openVin(it.dataset.vin);
   };
+}
+
+/* Editor de una entrada de video (mobile) */
+function openVin(id) {
+  const cur = (S.videoInputs || []).find((i) => i.id === id);
+  const d = cur ? { ...cur } : { id: "", name: "", kind: "ndi", source: "", enabled: true };
+  editing = { kind: "__vin", id, d: JSON.parse(JSON.stringify(d)) };
+  dragging = true;
+  const el = document.createElement("div");
+  el.id = "ed"; el.className = "ed";
+  const kinds = [["ndi", "NDI (nombre de la fuente)"], ["rtmp", "RTMP / URL"], ["file", "Archivo local"], ["capture", "Capturadora"]];
+  el.innerHTML = `<h4>Entrada de vídeo ${id ? "" : "nueva"}</h4>
+    <label>Nombre</label><input type="text" data-f="name" value="${esc(d.name)}">
+    <label>Tipo</label><select data-f="kind">${kinds.map((k) => `<option value="${k[0]}" ${d.kind === k[0] ? "selected" : ""}>${k[1]}</option>`).join("")}</select>
+    <label data-src-l>${d.kind === "ndi" ? "Nombre de la fuente NDI" : d.kind === "file" ? "Ruta del archivo" : "URL / fuente"}</label><input type="text" data-f="source" value="${esc(d.source)}">
+    <div style="height:12px"></div>
+    <button class="btn" data-vsave="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button>
+    ${id ? '<button class="btn" data-vdel="1" style="color:#ff8b8e">Quitar</button>' : ""}
+    <button class="btn" data-close="1">Cancelar</button>`;
+  el.oninput = (e) => {
+    const f = e.target.dataset.f;
+    if (!f) return;
+    editing.d[f] = e.target.value;
+    if (f === "kind") { el.querySelector("[data-src-l]").textContent = e.target.value === "ndi" ? "Nombre de la fuente NDI" : e.target.value === "file" ? "Ruta del archivo" : "URL / fuente"; }
+  };
+  el.onclick = (e) => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    const close = () => { el.remove(); editing = null; dragging = false; };
+    if (t.dataset.close) return close();
+    if (t.dataset.vsave) {
+      const d = editing.d;
+      if (!String(d.name || "").trim() && !String(d.source || "").trim()) { return toast("Pon nombre o fuente"); }
+      const inputs = (S.videoInputs || []).filter((i) => i.id !== id);
+      inputs.push({ ...d, id: d.id || `i${Date.now().toString(36)}`, name: String(d.name || "").trim() });
+      cmd({ cmd: "videoInputsUpdate", inputs });
+      toast("Guardado");
+      return close();
+    }
+    if (t.dataset.vdel) {
+      if (confirm("¿Quitar esta entrada de vídeo?")) {
+        cmd({ cmd: "videoInputsUpdate", inputs: (S.videoInputs || []).filter((i) => i.id !== id) });
+        close();
+      }
+      return;
+    }
+  };
+  document.body.appendChild(el);
 }
 
 // ---- Monitor de vídeo: una imagen cada segundo y medio mientras se mira ----
@@ -455,7 +591,7 @@ function viewAgenda() {
     ${list.length ? list.map((x) => `<div class="item ${x.enabled ? "" : "off"}" data-id="${esc(x.id)}">
       <div class="t"><b>${esc(x.name || "Sin nombre")}</b><small>${esc(sub(x))}</small></div>
       <button class="sw ${x.enabled ? "on" : ""}" data-sw="${esc(x.id)}" aria-label="Activar"></button></div>`).join("") : `<div class="empty">No hay ${agTab === "events" ? "eventos" : agTab === "campaigns" ? "campañas" : "programas"}</div>`}
-    ${kind === "program" ? '<button class="btn" data-new="1">+ Nuevo programa</button>' : '<div class="snapnote" style="text-align:center">Los nuevos (con sus pistas o cuñas) se crean desde el ordenador; aquí se pueden activar, cambiar horarios, duplicar o borrar.</div>'}`;
+    ${kind === "program" ? '<button class="btn" data-new="1">+ Nuevo programa</button>' : kind === "event" ? '<button class="btn" data-new="1">+ Nuevo evento</button>' : '<div class="snapnote" style="text-align:center">Las campañas y sus cuñas se crean desde el ordenador; aquí se pueden activar, duplicar o borrar.</div>'}`;
   $("#main").onclick = (e) => {
     const seg = e.target.closest("[data-ag]");
     if (seg) { agTab = seg.dataset.ag; localStorage.setItem("oc.ag", agTab); return viewAgenda(); }
@@ -474,7 +610,11 @@ function viewAgenda() {
 function openEditor(kind, id) {
   const ag = S.agenda || {};
   const src = kind === "event" ? ag.events : kind === "campaign" ? ag.campaigns : ag.programs;
-  const x = id ? (src || []).find((i) => i.id === id) : { name: "", subtitle: "", startsAt: "", enabled: true };
+  const x = id
+    ? (src || []).find((i) => i.id === id)
+    : kind === "event"
+      ? { name: "", enabled: true, kind: "auto", sourceKind: "library", sourceId: "a", trackMode: "random", onTimeout: "cancel", maxWaitSecs: 60, schedules: [] }
+      : { name: "", subtitle: "", startsAt: "", enabled: true };
   if (!x) return;
   editing = { kind, id, d: JSON.parse(JSON.stringify(x)) };
   if (kind !== "program" && !(editing.d.schedules || []).length) editing.d.schedules = [{ id: "s0", days: [1, 2, 3, 4, 5, 6, 7], times: [] }];
@@ -497,8 +637,23 @@ function renderEditor() {
       ${kind === "campaign" ? `<div class="row2" style="margin-top:8px"><button class="small" data-hourly="1">${b.hourly ? "Horas concretas" : "Cada hora"}</button></div>` : ""}
       ${(d.schedules || []).length > 1 ? '<button class="small" data-rmb="1" style="margin-top:8px;color:#ff8b8e">Quitar franja</button>' : ""}
     </div>`).join("") + '<button class="btn" data-addb="1" style="margin-top:10px">+ Otra franja</button>';
+  const blocks = collections();
+  const kaynak = kind === "event" && (d.kind === "auto" || d.kind === "insert")
+    ? `<label>Fuente</label><select data-f="sourceKind">
+        <option value="block" ${d.sourceKind === "block" ? "selected" : ""}>Un bloque musical</option>
+        <option value="library" ${d.sourceKind !== "block" ? "selected" : ""}>Toda la biblioteca</option></select>
+      ${d.sourceKind === "block" ? `<select data-f="sourceId">${blocks.length ? blocks.map((b) => `<option value="${esc(b.id)}" ${d.sourceId === b.id ? "selected" : ""}>${esc(b.name)}</option>`).join("") : '<option value="a">Sin bloques (elegirá de la biblioteca)</option>'}</select>` : ""}
+      ${d.kind === "insert" ? `<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="__rand" ${d.trackMode !== "fixed" ? "checked" : ""}> Elegir los sonidos al azar de esa fuente</label>` : ""}`
+    : "";
+  const streamUrl = kind === "event" && d.kind === "stream"
+    ? `<label>Fuente de audio (URL http… o ruta de archivo)</label><input type="text" data-f="streamUrl" value="${esc(d.streamUrl || "")}">`
+    : "";
   el.innerHTML = `<h4>${kind === "event" ? "Evento" : kind === "campaign" ? "Campaña" : "Programa"}${id ? "" : " nuevo"}</h4>
     <label>Nombre</label><input type="text" data-f="name" value="${esc(d.name)}">
+    ${kind === "event" ? `<label>Tipo</label><select data-f="kind">
+      <option value="auto" ${d.kind === "auto" ? "selected" : ""}>Franja AutoDJ</option>
+      <option value="insert" ${d.kind === "insert" ? "selected" : ""}>Sonido (pista o cuña)</option>
+      <option value="stream" ${d.kind === "stream" ? "selected" : ""}>Emisión de internet</option></select>${kaynak}${streamUrl}` : ""}
     ${kind === "program" ? `<label>Subtítulo (va como artista)</label><input type="text" data-f="subtitle" value="${esc(d.subtitle || "")}">
       <label>Empieza a las</label><input type="time" data-f="startsAt" value="${esc(d.startsAt || "")}">` : ""}
     ${kind === "event" && d.kind === "insert" ? `<label>Cuándo suena</label><select data-f="onTimeout">
@@ -516,10 +671,11 @@ function renderEditor() {
   el.oninput = (e) => {
     const f = e.target.dataset.f;
     if (!f) return;
+    if (f === "__rand") { d.trackMode = e.target.checked ? "random" : "fixed"; return; }
     const fr = e.target.closest("[data-b]");
     const v = e.target.type === "number" ? Number(e.target.value) : e.target.value;
     if (fr) d.schedules[Number(fr.dataset.b)][f] = v; else d[f] = v;
-    if (f === "onTimeout") renderEditor();
+    if (f === "onTimeout" || (kind === "event" && (f === "kind" || f === "sourceKind"))) return renderEditor();
   };
   el.onclick = (e) => {
     const t = e.target.closest("button");
@@ -538,10 +694,13 @@ function renderEditor() {
     if (t.dataset.save) {
       if (!String(d.name || "").trim()) return toast("Ponle un nombre");
       if (kind === "program" && !id) cmd({ cmd: "cfgNewProgram", name: d.name, subtitle: d.subtitle, startsAt: d.startsAt });
-      else {
+      else if (kind === "event" && !id) {
+        const patch = { name: d.name, kind: d.kind || "auto", sourceKind: d.sourceKind || "library", sourceId: d.sourceId || "a", trackMode: d.trackMode === "fixed" ? "fixed" : "random", onTimeout: d.onTimeout || "cancel", maxWaitSecs: d.maxWaitSecs || 0, schedules: d.schedules, streamUrl: d.streamUrl || "" };
+        cmd({ cmd: "cfgNewEvent", patch });
+      } else {
         const patch = { name: d.name };
         if (kind !== "program") patch.schedules = d.schedules;
-        if (kind === "event") { patch.onTimeout = d.onTimeout; patch.maxWaitSecs = d.maxWaitSecs; }
+        if (kind === "event") { patch.onTimeout = d.onTimeout; patch.maxWaitSecs = d.maxWaitSecs; patch.kind = d.kind; patch.sourceKind = d.sourceKind; patch.sourceId = d.sourceId; patch.trackMode = d.trackMode === "fixed" ? "fixed" : "random"; patch.streamUrl = d.streamUrl || ""; }
         if (kind === "campaign") { patch.startAt = d.startAt || ""; patch.endAt = d.endAt || ""; }
         if (kind === "program") { patch.subtitle = d.subtitle || ""; patch.startsAt = d.startsAt || ""; }
         cmd({ cmd: "cfgSave", kind, id, patch });
@@ -566,28 +725,46 @@ const dbText = (db) => (db <= -60 ? "−∞" : `${db > 0 ? "+" : ""}${db.toFixed
 
 function viewMix() {
   const chans = S.mixer || [];
-  $("#main").innerHTML = `<h3>Canales</h3>` + (chans.length ? chans.map((c) => `
-    <div class="ch" data-id="${esc(c.id)}"><b>${esc(c.name)}</b><span class="db">${dbText(c.gainDb)}</span>
-      <input type="range" min="0" max="1000" step="1" value="${Math.round(fromDb(c.gainDb))}" aria-label="Volumen de ${esc(c.name)}">
-      <button class="mute ${c.muted ? "on" : ""}" style="grid-column:1/-1;justify-self:start">${c.muted ? "SILENCIADO" : "SILENCIAR"}</button></div>`).join("") : '<div class="empty">Sin canales</div>');
+  const buses = S.buses || [];
+  const strip = (c, kind) => `<div class="mstrip" data-kind="${kind}" data-id="${esc(c.id)}"><b>${esc(c.name)}</b>
+      <input type="range" min="0" max="1000" step="1" value="${Math.round(fromDb(c.gainDb))}" ${kind === "m" ? 'style="direction:ltr"' : ""} aria-label="Volumen de ${esc(c.name)}">
+      <span class="db">${dbText(c.gainDb)}</span>
+      ${kind !== "m" ? `<button class="mute ${c.muted ? "on" : ""}">${c.muted ? "SILENCIADO" : "SILENCIAR"}</button>` : ""}</div>`;
+  $("#main").innerHTML = `<h3>Mesa completa · desplázate de lado →</h3><div class="mixx">
+      ${chans.map((c) => strip(c, "c")).join("")}
+      ${buses.map((b) => strip(b, "b")).join("")}
+      ${strip({ id: "master", name: "Master", gainDb: toDb(Math.min(1, S.master ?? 1)) }, "m")}
+    </div>`;
   let timer = 0;
   $("#main").oninput = (e) => {
     const r = e.target.closest("input[type=range]");
     if (!r) return;
     dragging = true;
-    const id = r.closest(".ch").dataset.id;
-    const db = Math.round(toDb(Number(r.value)) * 10) / 10;
-    r.closest(".ch").querySelector(".db").textContent = dbText(db);
-    clearTimeout(timer);
-    timer = setTimeout(() => cmd({ cmd: "fader", id, db }), 60);
+    const wrap = r.closest(".mstrip");
+    const id = wrap.dataset.id;
+    const kind = wrap.dataset.kind;
+    if (kind === "m") {
+      // master en lineal 0..1 (la mesa usa dB para canales y buses)
+      const v = Math.pow(10, toDb(Number(r.value)) / 20);
+      r.closest(".mstrip").querySelector(".db").textContent = `${Math.round(Math.min(1, v) * 100)} %`;
+      clearTimeout(timer);
+      timer = setTimeout(() => cmd({ cmd: "masterFader", value: Math.min(1, v) }), 80);
+    } else {
+      const db = Math.round(toDb(Number(r.value)) * 10) / 10;
+      r.closest(".mstrip").querySelector(".db").textContent = dbText(db);
+      clearTimeout(timer);
+      timer = setTimeout(() => cmd({ cmd: kind === "b" ? "busFader" : "fader", id, db }), 60);
+    }
   };
   $("#main").onchange = () => setTimeout(() => (dragging = false), 400);
   $("#main").onclick = (e) => {
     const m = e.target.closest(".mute");
     if (!m) return;
-    const id = m.closest(".ch").dataset.id;
-    const c = chans.find((x) => x.id === id);
-    cmd({ cmd: "mute", id, on: !c?.muted });
+    const wrap = m.closest(".mstrip");
+    const kind = wrap.dataset.kind;
+    const id = wrap.dataset.id;
+    const c = (kind === "b" ? buses : chans).find((x) => x.id === id);
+    cmd({ cmd: kind === "b" ? "busMute" : "mute", id, on: !c?.muted });
   };
 }
 
@@ -623,12 +800,83 @@ function viewSys() {
     <div class="stat"><span>Motor de audio</span>${bar(sys.audioLoad)}<b>${sys.audioLoad.toFixed(1)}%</b></div></div>
     <h3>Red</h3><div class="card">${(sys.nets || []).slice(0, 4).map((n) => `<div class="line"><span>${esc(n.name)}</span><b>↓${mbps(n.rxBps)} ↑${mbps(n.txBps)}</b></div>`).join("") || '<div class="line">Sin tráfico</div>'}</div>
     <h3>OmniCaster</h3><div class="card">${(sys.procs || []).map((p) => `<div class="line"><span>${esc(p.name)}</span><b>${p.cpu.toFixed(1)}% · ${Math.round(p.mem / 1024 ** 2)} MB</b></div>`).join("")}
-    ${sys.diskTotal ? `<div class="line"><span>Disco libre</span><b>${gb(sys.diskFree)}</b></div>` : ""}</div>`;
+    ${sys.diskTotal ? `<div class="line"><span>Disco libre</span><b>${gb(sys.diskFree)}</b></div>` : ""}</div>
+  <div class="sec"><h3>Servidores de streaming</h3><button class="btn" data-srv-new="1">+ Nuevo</button></div>
+  ${(S.icecast || []).length ? (S.icecast || []).map((x) => `<div class="item srv" data-srv="${esc(x.id)}">
+      <div class="t"><b>${esc(x.name || "Sin nombre")}</b><small>${esc(x.host || "")} · ${esc(String(x.port || ""))}${esc(x.mount || "")}</small></div>
+      <button class="sw ${x.enabled ? "on" : ""}" data-srvsw="${esc(x.id)}" aria-label="Activar"></button></div>`).join("")
+    : '<div class="empty">Sin servidores de streaming</div>'}`;
   $("#main").onclick = (e) => {
     const u = e.target.closest("[data-upd]")?.dataset.upd;
-    if (u === "check") cmd({ cmd: "updCheck" });
-    if (u === "install" && confirm("OmniCaster se cerrará y se volverá a abrir para actualizarse: la emisión se cortará unos segundos. ¿Seguir?")) cmd({ cmd: "updInstall" });
+    if (u === "check") return cmd({ cmd: "updCheck" });
+    if (u === "install" && confirm("OmniCaster se cerrará y se volverá a abrir para actualizarse: la emisión se cortará unos segundos. ¿Seguir?")) return cmd({ cmd: "updInstall" });
+    if (e.target.closest("[data-srv-new]")) return openSrv(null);
+    const sw = e.target.closest("[data-srvsw]");
+    if (sw) {
+      const x = (S.icecast || []).find((i) => i.id === sw.dataset.srvsw);
+      if (x) cmd({ cmd: "streamsUpdate", streams: (S.icecast || []).map((i) => (i.id === x.id ? { ...i, enabled: !i.enabled } : i)) });
+      sw.classList.toggle("on");
+      return;
+    }
+    const it = e.target.closest(".item[data-srv]");
+    if (it) openSrv(it.dataset.srv);
   };
+}
+
+/* Editor de un servidor Icecast (mobile) */
+function openSrv(id) {
+  const cur = (S.icecast || []).find((i) => i.id === id);
+  const d = cur ? { ...cur } : { id: "", name: "", enabled: false, host: "localhost", port: 8000, mount: "/miradio.flac", username: "source", password: "", tls: false, codec: "flac", bitrateKbps: 128, stationName: S.station || "", description: "", genre: "" };
+  editing = { kind: "__srv", id, d: JSON.parse(JSON.stringify(d)) };
+  dragging = true;
+  const el = document.createElement("div");
+  el.id = "ed"; el.className = "ed";
+  el.innerHTML = `<h4>Servidor ${id ? "" : "nuevo"}</h4>
+    <label>Nombre</label><input type="text" data-f="name" value="${esc(d.name)}">
+    <label>Servidor</label><input type="text" data-f="host" value="${esc(d.host)}">
+    <div class="row2"><div style="flex:1"><label>Puerto</label><input type="number" data-f="port" value="${d.port || 8000}"></div>
+      <label style="display:flex;align-items:center;gap:6px;align-self:end"><input type="checkbox" data-f="tls" ${d.tls ? "checked" : ""}> TLS</label></div>
+    <label>Montaje</label><input type="text" data-f="mount" value="${esc(d.mount)}">
+    <div class="row2"><div style="flex:1"><label>Usuario</label><input type="text" data-f="username" value="${esc(d.username)}"></div>
+      <div style="flex:1"><label>Contraseña</label><input type="password" data-f="password" value="${esc(d.password)}"></div></div>
+    <label>Formato</label><select data-f="codec">
+      <option value="flac" ${d.codec === "flac" ? "selected" : ""}>FLAC</option>
+      <option value="aac" ${d.codec === "aac" ? "selected" : ""}>AAC</option></select>
+    ${d.codec === "aac" ? `<label>Bitrate (kbps)</label><input type="number" min="32" max="512" data-f="bitrateKbps" value="${d.bitrateKbps || 128}">` : ""}
+    <label>Nombre de la emisora</label><input type="text" data-f="stationName" value="${esc(d.stationName || "")}">
+    <label>Descripción</label><input type="text" data-f="description" value="${esc(d.description || "")}">
+    <div class="row2"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="public" ${d.public ? "checked" : ""}> En la lista pública del servidor</label>
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="enabled" ${d.enabled ? "checked" : ""}> Encendido</label></div>
+    <div style="height:12px"></div>
+    <button class="btn" data-svsave="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button>
+    ${id ? '<button class="btn" data-svdel="1" style="color:#ff8b8e">Quitar</button>' : ""}
+    <button class="btn" data-close="1">Cancelar</button>`;
+  el.oninput = (e) => {
+    const f = e.target.dataset.f;
+    if (!f) return;
+    editing.d[f] = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    if (f === "codec") el.oninput; // re-render sencillo: se reemplaza el bloque de bitrate
+  };
+  el.onclick = (e) => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    const close = () => { el.remove(); editing = null; dragging = false; };
+    if (t.dataset.close) return close();
+    if (t.dataset.svsave) {
+      const d = editing.d;
+      cmd({ cmd: "streamsUpdate", streams: (S.icecast || []).filter((i) => i.id !== id).concat([{ ...d, id: d.id || `st${Date.now().toString(36)}`, name: String(d.name || "").trim() || "Icecast" }]) });
+      toast("Guardado (reaplica en EMITIR para que entre)");
+      return close();
+    }
+    if (t.dataset.svdel) {
+      if (confirm("¿Quitar este servidor?")) {
+        cmd({ cmd: "streamsUpdate", streams: (S.icecast || []).filter((i) => i.id !== id) });
+        close();
+      }
+      return;
+    }
+  };
+  document.body.appendChild(el);
 }
 
 // La barra de progreso avanza sola entre mensajes.

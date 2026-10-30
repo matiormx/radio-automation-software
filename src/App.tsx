@@ -56,6 +56,8 @@ import type {
   Block,
   Campaign,
   StationEvent,
+  VideoInput,
+  IcecastStream,
   StreamMeta,
   StreamStatus,
 } from "./types";
@@ -246,7 +248,7 @@ function mobileSchedules(
 }
 
 /** Cambios que el móvil puede hacer en un evento, campaña o programa (validados). */
-function mobileAgendaPatch(kind: string, p: Record<string, unknown>): Record<string, unknown> | null {
+function mobileAgendaPatch(kind: string, p: Record<string, unknown>, blocks: Block[] = []): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
   if (typeof p.name === "string") out.name = p.name.trim().slice(0, 120);
   if (typeof p.enabled === "boolean") out.enabled = p.enabled;
@@ -286,6 +288,18 @@ function mobileAgendaPatch(kind: string, p: Record<string, unknown>): Record<str
   if (kind === "event") {
     if (p.onTimeout === "next" || p.onTimeout === "force" || p.onTimeout === "cancel") out.onTimeout = p.onTimeout;
     if (p.maxWaitSecs !== undefined) out.maxWaitSecs = Math.max(0, Math.min(3600, Math.round(Number(p.maxWaitSecs) || 0)));
+    const k = String(p.kind ?? "");
+    if (k === "auto" || k === "insert" || k === "stream") out.kind = k;
+    const sk = String(p.sourceKind ?? "");
+    if (sk === "block" || sk === "library") out.sourceKind = sk;
+    if (typeof p.sourceId === "string") {
+      const sid = p.sourceId.trim().slice(0, 80);
+      const fails = sk === "block" && !(blocks ?? []).some((b) => b.id === sid);
+      out.sourceId = fails ? "a" : sid || "a";
+      if (fails) out.sourceKind = "library";
+    }
+    if (typeof p.streamUrl === "string") out.streamUrl = p.streamUrl.trim().slice(0, 500);
+    if (p.trackMode === "random" || p.trackMode === "fixed") out.trackMode = p.trackMode;
   }
   if (kind === "campaign") {
     const dt = (v: unknown) => (typeof v === "string" && (v === "" || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) ? v : undefined);
@@ -3513,6 +3527,8 @@ export default function App() {
     };
   }, []);
 
+  const [libraryHits, setLibraryHits] = useState<Track[]>([]);
+
   const deckRow = rows[playingRow] ?? null;
   // Miniatura del streaming en el panel: la primera salida monitorizada que
   // este en vivo (la misma que se ve en Ajustes > Streaming y en el móvil).
@@ -3560,6 +3576,9 @@ export default function App() {
       : { title: "", artist: "", cover: "", dur: 0, playing: false };
     const nextIndex = nextPick ? (nextPick.listId === active?.id ? nextPick.index : -1) : playingRow >= 0 ? playingRow + 1 : -1;
     return {
+      blocks: blocks.map((b) => ({ id: b.id, name: b.name })),
+      autodj: settings.defaultBlockId ?? "",
+      lists: playlists.map((p) => ({ id: p.id, name: p.name, current: p.id === active?.id })),
       station: settings.radioName || "OmniCaster",
       listName: active?.name ?? "",
       now,
@@ -3579,6 +3598,31 @@ export default function App() {
       // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
       // ve en Ajustes > Streaming y en el deck (el móvil no abre FFmpeg extra).
       // Si no la hay, la fuente NDI al aire o «Lo que suena».
+      videoInputs: (settings.video?.inputs ?? []).map((i) => ({
+        id: i.id,
+        name: i.name,
+        kind: i.kind,
+        source: i.source,
+        enabled: i.enabled,
+      })),
+      icecast: settings.streaming.icecast.map((x) => ({
+        id: x.id,
+        name: x.name,
+        enabled: x.enabled,
+        host: x.host,
+        port: x.port,
+        mount: x.mount,
+        username: x.username,
+        password: x.password,
+        tls: x.tls,
+        codec: x.codec,
+        bitrateKbps: x.bitrateKbps,
+        stationName: x.stationName,
+        description: x.description,
+        genre: x.genre,
+      })),
+      buses: (settings.mixerBuses ?? []).map((b) => ({ id: b.id, name: b.name, gainDb: b.gainDb, muted: b.muted })),
+      master: settings.masterVolume,
       snap: (() => {
         if (streamMonitorId) return `out:${streamMonitorId}`;
         if (vsNow?.source === "capture") {
@@ -3587,6 +3631,7 @@ export default function App() {
         }
         return "np";
       })(),
+      hits: libraryHits.map((t) => ({ id: t.id, title: t.title, artist: t.artist })),
       app: mobileUpd,
       pastVisible: settings.pastVisible ?? 5,
       // Agenda: eventos, campañas y programas (para verlos y cambiarlos)
@@ -3600,6 +3645,10 @@ export default function App() {
           onTimeout: e.onTimeout,
           maxWaitSecs: e.maxWaitSecs,
           random: e.trackMode === "random",
+          sourceKind: e.sourceKind,
+          sourceId: e.sourceId,
+          trackMode: e.trackMode,
+          streamUrl: e.streamUrl ?? "",
         })),
         campaigns: (settings.campaigns ?? []).map((c) => ({
           id: c.id,
@@ -3618,7 +3667,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -3724,7 +3773,7 @@ export default function App() {
           const copy = { ...item, id: `${kind[0]}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `${item.name} (copia)`, enabled: false };
           next = [...list, copy];
         } else {
-          const patch = mobileAgendaPatch(kind, (c.patch ?? {}) as Record<string, unknown>);
+          const patch = mobileAgendaPatch(kind, (c.patch ?? {}) as Record<string, unknown>, blocks);
           if (!patch) return;
           next = list.map((x) => (x.id === id ? { ...x, ...patch } : x));
         }
@@ -3748,6 +3797,34 @@ export default function App() {
         ).catch((e) => setMobileUpd((u) => ({ ...u, busy: "", error: String(e instanceof Error ? e.message : e) })));
         break;
       }
+      case "cfgNewEvent": {
+        const patch = mobileAgendaPatch("event", (c.patch ?? {}) as Record<string, unknown>, blocks);
+        if (!patch) return;
+        const schedules = (patch.schedules ?? []) as ScheduleBlock[];
+        const first = schedules[0];
+        const ev: StationEvent = {
+          id: `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          name: String(patch.name ?? "Evento").slice(0, 120) || "Evento",
+          enabled: true,
+          kind: (patch.kind as StationEvent["kind"]) ?? "insert",
+          days: (patch.days as number[]) ?? [1, 2, 3, 4, 5, 6, 7],
+          times: (patch.times as string[]) ?? [],
+          start: (patch.start as string) ?? first?.times?.[0] ?? "00:00",
+          end: patch.end as string | undefined,
+          schedules,
+          sourceKind: (patch.sourceKind as StationEvent["sourceKind"]) ?? "library",
+          sourceId: String(patch.sourceId ?? "a"),
+          trackId: "",
+          trackMode: (patch.trackMode as StationEvent["trackMode"]) ?? "random",
+          onTimeout: (patch.onTimeout as StationEvent["onTimeout"]) ?? "cancel",
+          maxWaitSecs: (patch.maxWaitSecs as number) ?? 60,
+          lastFired: "",
+          streamUrl: patch.streamUrl as string | undefined,
+        };
+        updateSettings({ ...s, events: [...(s.events ?? []), ev] });
+        showToast(`Evento «${ev.name}» creado desde el móvil`);
+        break;
+      }
       case "cfgNewProgram": {
         const name = String(c.name ?? "").trim().slice(0, 120);
         if (!name) return;
@@ -3765,6 +3842,118 @@ export default function App() {
             ch.id !== id ? ch : c.cmd === "fader" ? (Number.isFinite(db) ? { ...ch, gainDb: db } : ch) : { ...ch, muted: !!c.on },
           ),
         });
+        break;
+      }
+      // ---- Mesa: buses, master ----
+      case "busFader":
+      case "busMute": {
+        const id = String(c.id ?? "");
+        const db = Math.max(-60, Math.min(12, num("db")));
+        updateSettings({
+          ...s,
+          mixerBuses: (s.mixerBuses ?? []).map((b) =>
+            b.id !== id ? b : c.cmd === "busFader" ? { ...b, gainDb: Number.isFinite(db) ? db : b.gainDb } : { ...b, muted: !!c.on },
+          ),
+        });
+        break;
+      }
+      case "masterFader": {
+        const v = num("value");
+        if (Number.isFinite(v)) updateSettings({ ...s, masterVolume: Math.max(0, Math.min(1, v)) });
+        break;
+      }
+      // ---- Listas y AutoDJ ----
+      case "autodjList": {
+        const id = String(c.id ?? "");
+        updateSettings({ ...s, defaultBlockId: !id || blocks.some((b) => b.id === id) ? id : "" });
+        break;
+      }
+      case "listSwitch": {
+        const id = String(c.id ?? "");
+        if (playlistsRef.current.some((p) => p.id === id) && activeIdRef.current !== id) setActiveId(id);
+        break;
+      }
+      case "playlistClear": {
+        const playing = playingRowRef.current;
+        const keepId = playing >= 0 ? rowsRef.current[playing]?.id : undefined;
+        const pick = nextPickRef.current;
+        if (pick && pick.listId === activeIdRef.current) setNextPick(null);
+        void mutateList(keepId ? () => [keepId] : () => []);
+        showToast("Lista vaciada desde el móvil" + (keepId ? " (sigue sonando la canción en antena)" : ""));
+        break;
+      }
+      case "librarySearch": {
+        const q = String(c.q ?? "").trim().toLowerCase();
+        setLibraryHits(
+          q.length < 2
+            ? []
+            : tracksRef.current
+                .filter((t) => !t.missing && `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q))
+                .slice(0, 80),
+        );
+        break;
+      }
+      case "playlistAddTrack": {
+        const t = tracksRef.current.find((x) => x.id === c.trackId);
+        if (!t) return;
+        const tid = t.id;
+        void mutateList((ids) => (ids.includes(tid) ? ids : [...ids, tid]));
+        setLibraryHits([]);
+        showToast(`${t.title} añadida a «${active?.name ?? "la lista"}»`);
+        break;
+      }
+      // ---- Ajustes de emision desde el movil ----
+      case "videoInputsUpdate": {
+        const list = Array.isArray(c.inputs) ? c.inputs : [];
+        const inputs: VideoInput[] = list.slice(0, 32).map((raw: Record<string, unknown>, i: number) => {
+          const at = (k2: string) => String(raw[k2] ?? "");
+          const k2 = ["file", "rtmp", "ndi", "capture"].includes(at("kind")) ? at("kind") : "ndi";
+          const existing = s.video?.inputs?.find((x) => x.id === at("id"));
+          return {
+            id: existing?.id ?? `i${Date.now().toString(36)}${i}`,
+            name: at("name").slice(0, 80),
+            kind: k2 as VideoInput["kind"],
+            source: at("source").slice(0, 500),
+            deviceId: existing?.deviceId ?? "",
+            enabled: raw.enabled !== false,
+          };
+        });
+        updateSettings({ ...s, video: { ...s.video, inputs } });
+        showToast("Entradas de vídeo actualizadas desde el móvil");
+        break;
+      }
+      case "streamsUpdate": {
+        const list = Array.isArray(c.streams) ? c.streams : [];
+        const icecast: IcecastStream[] = list.slice(0, 12).map(
+          (raw: Record<string, unknown>, i: number): IcecastStream => {
+          const existing = s.streaming.icecast.find((x) => x.id === String(raw.id ?? ""));
+          const base = existing ?? ({} as (typeof s.streaming.icecast)[number]);
+          const at = (k2: string) => String(raw[k2] ?? "");
+          const codec: "flac" | "aac" = at("codec") === "aac" ? "aac" : "flac";
+          return {
+            ...base,
+            id: existing?.id ?? `st${Date.now().toString(36)}${i}`,
+            name: at("name").slice(0, 80) || `Icecast ${i + 1}`,
+            enabled: raw.enabled === true,
+            host: at("host").slice(0, 120) || "localhost",
+            port: Math.max(1, Math.min(65535, Math.round(Number(raw.port) || 8000))),
+            mount: at("mount").slice(0, 120) || (codec === "flac" ? "/miradio.flac" : "/miradio.aac"),
+            username: at("username").slice(0, 120) || "source",
+            password: at("password").slice(0, 200),
+            tls: raw.tls === true,
+            codec,
+            bitrateKbps: codec === "flac" ? 0 : Math.max(32, Math.min(512, Math.round(Number(raw.bitrateKbps) || 128))),
+            sampleRate: 48000,
+            channels: 2,
+            public: raw.public === true,
+            stationName: at("stationName").slice(0, 200),
+            description: at("description").slice(0, 300),
+            genre: at("genre").slice(0, 80),
+            }
+          },
+        );
+        updateSettings({ ...s, streaming: { ...s.streaming, icecast, rtmp: s.streaming.rtmp } });
+        showToast("Servidores de streaming actualizados desde el móvil");
         break;
       }
     }
