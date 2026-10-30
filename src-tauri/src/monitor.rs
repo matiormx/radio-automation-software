@@ -331,4 +331,20 @@ mod tests {
         stop_all();
         assert!(frames().lock().unwrap().get("monitor:pruebas").is_none());
     }
+
+    /// El mismo registro que mira el móvil («out:<salida>») es el que lee el
+    /// deck por el comando: lo que el móvil puede ver, el escritorio tambien.
+    #[test]
+    fn command_matches_mobile_path() {
+        update("monitor:salida", vec![5, 6, 7]);
+        let mobile = crate::ndi::snapshot_jpeg("out:salida").expect("movil entro");
+        let desk = monitor_thumbnail("salida".to_string()).expect("desk entro");
+        use base64::Engine as _;
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.decode(desk).unwrap(),
+            mobile
+        );
+        stop_all();
+        assert!(monitor_thumbnail("salida".to_string()).is_none(), "sin registro no sale nada");
+    }
 }

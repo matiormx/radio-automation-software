@@ -553,6 +553,18 @@ body.is-reordering { cursor: grabbing; user-select: none; }
   border-radius: 6px;
   border: 1px solid var(--line);
 }
+/* Mientras no hay miniatura: el hueco explica por qué (sin imagen, error…) */
+span.mwait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 4px;
+  overflow: hidden;
+}
 .deck-next-label {
   font-size: 9.5px;
   font-weight: 700;
