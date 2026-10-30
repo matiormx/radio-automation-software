@@ -23,6 +23,8 @@ interface DeckZoneProps {
   videoSource?: () => VideoState | null;
   /** Miniatura de lo que sale por streaming (salida monitorizada y en vivo) */
   monitorId?: string | null;
+  /** Diagnóstico del FFmpeg de miniatura para poder mostrar por qué va negra */
+  diag?: { attempts: number; frames: number; lastError: string | null } | null;
 }
 
 function fmtTime(secs: number): string {
@@ -67,6 +69,7 @@ export function DeckZone({
   isVideo,
   videoSource,
   monitorId,
+  diag,
 }: DeckZoneProps) {
   // Posicion que el operador esta arrastrando (aun sin soltar).
   const [scrub, setScrub] = useState<number | null>(null);
@@ -159,6 +162,7 @@ export function DeckZone({
               active
               className="deck-monitor-big"
               title="Miniatura de lo que sale por streaming (1 imagen por segundo)"
+              diag={diag}
             />
           </div>
         ) : (

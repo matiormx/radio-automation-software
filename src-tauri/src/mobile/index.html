@@ -449,6 +449,15 @@ function viewAir() {
     ${(v.sources || []).length ? `<h3>Vídeo al aire</h3><div class="grid2">${v.sources.map((s) => `<button class="btn src ${s.key === v.current ? "on" : ""}" data-src="${esc(s.key)}">${esc(s.label)}</button>`).join("")}</div>
     <div style="height:10px"></div>
     <button class="btn green ${v.monitor ? "on" : ""}" data-c="monitor"><span class="dot"></span>Monitor de presentadores ${v.monitor ? "encendido" : "apagado"}</button>` : ""}
+    <div class="sec"><h3>Salidas por internet</h3><button class="btn" data-net-new="1">+ Nueva</button></div>
+    ${(S.netOutputs || []).length ? (S.netOutputs || []).map((x) => `<div class="item vin" data-net="${esc(x.id)}">
+      <div class="t"><b>${esc(x.name || (x.kind === "whip" ? "WHIP" : "RTMP"))}</b><small>${esc(x.kind === "whip" ? "WHIP" : "RTMP")} · ${esc(x.source || "—")}</small></div>
+      <button class="sw ${x.enabled ? "on" : ""}" data-netsw="${esc(x.id)}" aria-label="Activar"></button></div>`).join("")
+      : '<div class="empty">Sin salidas por internet (RTMP/WHIP)</div>'}
+    <div style="height:6px"></div>
+    <button class="btn" data-srv-new="1">Servidores de audio (Icecast)…</button>
+    <small class="snapnote" style="display:block">( ${(S.icecast || []).filter((x) => x.enabled).length} de ${(S.icecast || []).length} encendidos )</small>
+    <div style="height:10px"></div>
     <div class="sec"><h3>Entradas de vídeo</h3><button class="btn" data-vin-new="1">+ Nueva</button></div>
     ${(S.videoInputs || []).map((x) => `<div class="item vin" data-vin="${esc(x.id)}">
       <div class="t"><b>${esc(x.name || x.source || "Sin nombre")}</b><small>${esc(x.kind)} · ${esc(x.source || "—")}</small></div>
@@ -461,6 +470,17 @@ function viewAir() {
     if (c === "vid") cmd({ cmd: "stream", group: "video", on: !st.videoOn });
     if (c === "monitor") cmd({ cmd: "monitor", on: !v.monitor });
     if (e.target.closest("[data-vin-new]")) return openVin(null);
+    if (e.target.closest("[data-net-new]")) return openNet(null);
+    if (e.target.closest("[data-srv-new]")) return openSrv(null);
+    const netsw = e.target.closest("[data-netsw]");
+    if (netsw) {
+      const x = (S.netOutputs || []).find((i) => i.id === netsw.dataset.netsw);
+      if (x) cmd({ cmd: "videoOutputsUpdate", outputs: (S.netOutputs || []).map((i) => (i.id === x.id ? { ...i, enabled: !i.enabled } : i)) });
+      netsw.classList.toggle("on");
+      return;
+    }
+    const netIt = e.target.closest(".item[data-net]");
+    if (netIt) return openNet(netIt.dataset.net);
     const sw = e.target.closest("[data-vinsw]");
     if (sw) {
       const x = (S.videoInputs || []).find((i) => i.id === sw.dataset.vinsw);
@@ -474,6 +494,70 @@ function viewAir() {
 }
 
 /* Editor de una entrada de video (mobile) */
+/* Editor de una salida por internet: RTMP o WHIP (Restream) */
+function openNet(id) {
+  const cur = (S.netOutputs || []).find((i) => i.id === id);
+  const d = cur
+    ? JSON.parse(JSON.stringify(cur))
+    : { id: "", kind: "rtmp", name: "", source: "", videoInputId: "program", audioSource: "mixer", enabled: false, width: 1280, height: 720, fps: 25, bitrateKbps: 6000, videoDelayMs: 0, monitor: false };
+  document.getElementById("ed")?.remove();
+  const el = document.createElement("div");
+  el.id = "ed";
+  el.className = "ed";
+  el.innerHTML = `<h4>Salida por internet ${id ? "" : "nueva"}</h4>
+    <label>Protocolo</label><select data-f="kind">
+      <option value="rtmp" ${d.kind === "rtmp" ? "selected" : ""}>RTMP (Facebook, YouTube, Twitch, Restream…)</option>
+      <option value="whip" ${d.kind === "whip" ? "selected" : ""}>WHIP (Restream, latencia sub-segundo)</option></select>
+    <label>Nombre</label><input type="text" data-f="name" value="${esc(d.name || "")}">
+    <label>${d.kind === "whip" ? "URL WHIP (la copias del panel de Restream)" : "URL RTMP"}</label><input type="text" data-f="source" value="${esc(d.source || "")}" placeholder="${d.kind === "whip" ? "URL WHIP" : "rtmp://…"}">
+    <label>Fuente de vídeo</label><select data-f="videoInputId">
+      <option value="program" ${!d.videoInputId || d.videoInputId === "program" ? "selected" : ""}>Pantalla de emisión</option>
+      ${(S.videoInputs || []).map((i2) => `<option value="${esc(i2.id)}" ${d.videoInputId === i2.id ? "selected" : ""}>${esc(i2.name || i2.source)} · ${esc(i2.kind)}</option>`).join("")}</select>
+    <label>Fuente de audio</label><select data-f="audioSource">
+      <option value="mixer" ${(!d.audioSource || d.audioSource === "mixer") ? "selected" : ""}>Salida Encoders de la mesa</option>
+      <option value="input" ${d.audioSource === "input" ? "selected" : ""}>El de la propia entrada de vídeo</option></select>
+    <div class="row2"><div style="flex:1"><label>Ancho</label><input type="number" data-f="width" value="${d.width || 1280}"></div>
+      <div style="flex:1"><label>Alto</label><input type="number" data-f="height" value="${d.height || 720}"></div></div>
+    <div class="row2"><div style="flex:1"><label>FPS</label><input type="number" data-f="fps" value="${d.fps || 25}"></div>
+      <div style="flex:1"><label>Bitrate (kbps)</label><input type="number" data-f="bitrateKbps" value="${d.bitrateKbps || 6000}"></div></div>
+    <label>Retardo del vídeo (ms, negativo atrasa el audio)</label><input type="number" min="-20000" max="20000" data-f="videoDelayMs" value="${d.videoDelayMs ?? 0}">
+    <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="monitor" ${d.monitor ? "checked" : ""}> Monitorizar (miniatura en el panel y en el móvil)</label>
+    <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="enabled" ${d.enabled ? "checked" : ""}> Activa</label>
+    <div style="height:12px"></div>
+    <button class="btn" data-nsave="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button>
+    ${id ? '<button class="btn" data-ndel="1" style="color:#ff8b8e">Quitar</button>' : ""}
+    <button class="btn" data-close="1">Cancelar</button>`;
+  el.oninput = (e) => {
+    const f = e.target.dataset.f;
+    if (!f) return;
+    editing = editing || {};
+    d[f] = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
+  };
+  el.onclick = (e) => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    const close = () => { el.remove(); };
+    if (t.dataset.close) return close();
+    if (t.dataset.nsave) {
+      if (d.kind === "rtmp" && String(d.source || "").toLowerCase().indexOf("rtmp") !== 0) { return toast("La URL RTMP empieza por rtmp://"); }
+      if (d.kind === "whip" && String(d.source || "").toLowerCase().indexOf("http") !== 0) { return toast("La URL WHIP empieza por http(s)://"); }
+      const outs = (S.netOutputs || []).filter((i) => i.id !== id);
+      outs.push({ ...d, id: d.id || `n${Date.now().toString(36)}`, name: String(d.name || "").trim() || (d.kind === "whip" ? "WHIP" : "RTMP") });
+      cmd({ cmd: "videoOutputsUpdate", outputs: outs });
+      toast("Guardado (pulsa EMITIR otra vez si estás al aire para aplicarla)");
+      return close();
+    }
+    if (t.dataset.ndel) {
+      if (confirm("¿Quitar esta salida?")) {
+        cmd({ cmd: "videoOutputsUpdate", outputs: (S.netOutputs || []).filter((i) => i.id !== id) });
+        close();
+      }
+      return;
+    }
+  };
+  document.body.appendChild(el);
+}
+
 function openVin(id) {
   const cur = (S.videoInputs || []).find((i) => i.id === id);
   const d = cur ? { ...cur } : { id: "", name: "", kind: "ndi", source: "", enabled: true };
@@ -532,7 +616,10 @@ async function loadSnap() {
     const r = await fetch(`/api/snap?t=${encodeURIComponent(token)}&src=${encodeURIComponent(S.snap || "np")}&n=${Date.now()}`);
     if (r.status === 401) return logout();
     if (r.status === 204) {
-      snapNote = "Sin imagen ahora mismo (el vídeo no está en marcha o la fuente no manda imagen).";
+      const key = S.snap && S.snap.startsWith("out:") ? "monitor:" + S.snap.slice(4) : null;
+      const dg = key ? (S.monitorDiag || {})[key] : null;
+      snapNote = "Sin imagen ahora mismo"
+        + (dg ? (dg.attempts === 0 ? " · el mini monitor no está en marcha" : dg.lastError ? ` · miniatura: ${dg.lastError}` : "") : " (el vídeo no está en marcha o la fuente no manda imagen)") + ".";
     } else if (r.ok) {
       const url = URL.createObjectURL(await r.blob());
       if (snapUrl) URL.revokeObjectURL(snapUrl);
@@ -1035,25 +1122,11 @@ function viewSys() {
     <h3>Red</h3><div class="card">${(sys.nets || []).slice(0, 4).map((n) => `<div class="line"><span>${esc(n.name)}</span><b>↓${mbps(n.rxBps)} ↑${mbps(n.txBps)}</b></div>`).join("") || '<div class="line">Sin tráfico</div>'}</div>
     <h3>OmniCaster</h3><div class="card">${(sys.procs || []).map((p) => `<div class="line"><span>${esc(p.name)}</span><b>${p.cpu.toFixed(1)}% · ${Math.round(p.mem / 1024 ** 2)} MB</b></div>`).join("")}
     ${sys.diskTotal ? `<div class="line"><span>Disco libre</span><b>${gb(sys.diskFree)}</b></div>` : ""}</div>
-  <div class="sec"><h3>Servidores de streaming</h3><button class="btn" data-srv-new="1">+ Nuevo</button></div>
-  ${(S.icecast || []).length ? (S.icecast || []).map((x) => `<div class="item srv" data-srv="${esc(x.id)}">
-      <div class="t"><b>${esc(x.name || "Sin nombre")}</b><small>${esc(x.host || "")} · ${esc(String(x.port || ""))}${esc(x.mount || "")}</small></div>
-      <button class="sw ${x.enabled ? "on" : ""}" data-srvsw="${esc(x.id)}" aria-label="Activar"></button></div>`).join("")
-    : '<div class="empty">Sin servidores de streaming</div>'}`;
+  <small class="snapnote" style="display:block;margin-top:10px">Los servidores de streaming (Icecast) y las salidas por internet se editan en la pestaña Emisión.</small>`;
   $("#main").onclick = (e) => {
     const u = e.target.closest("[data-upd]")?.dataset.upd;
     if (u === "check") return cmd({ cmd: "updCheck" });
     if (u === "install" && confirm("OmniCaster se cerrará y se volverá a abrir para actualizarse: la emisión se cortará unos segundos. ¿Seguir?")) return cmd({ cmd: "updInstall" });
-    if (e.target.closest("[data-srv-new]")) return openSrv(null);
-    const sw = e.target.closest("[data-srvsw]");
-    if (sw) {
-      const x = (S.icecast || []).find((i) => i.id === sw.dataset.srvsw);
-      if (x) cmd({ cmd: "streamsUpdate", streams: (S.icecast || []).map((i) => (i.id === x.id ? { ...i, enabled: !i.enabled } : i)) });
-      sw.classList.toggle("on");
-      return;
-    }
-    const it = e.target.closest(".item[data-srv]");
-    if (it) openSrv(it.dataset.srv);
   };
 }
 

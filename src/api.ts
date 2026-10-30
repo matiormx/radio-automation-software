@@ -376,6 +376,18 @@ export function monitorThumbnail(id: string): Promise<string | null> {
   return invoke<string | null>("monitor_thumbnail", { id });
 }
 
+/** Diagnóstico de los FFmpeg de miniatura: intentos, cuadros y último error. */
+export type MonitorDiagData = { attempts: number; frames: number; lastError: string | null };
+export interface MonitorDiag {
+  attempts: number;
+  frames: number;
+  lastError: string | null;
+}
+
+export function fetchMonitorDiag(): Promise<Record<string, MonitorDiagData>> {
+  return invoke("monitor_diag");
+}
+
 export function probeNdi(ffmpegPath = ""): Promise<NdiProbe> {
   return invoke<NdiProbe>("ndi_probe", { ffmpegPath });
 }

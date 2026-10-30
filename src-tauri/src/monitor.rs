@@ -26,6 +26,32 @@ fn frames() -> &'static Mutex<HashMap<String, Arc<Mutex<Latest>>>> {
     F.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Diagnostico en vivo de cada monitor: intentos de arranque del FFmpeg,
+/// cuadros recibidos y el ultimo error (para "¿por que va negro?").
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diag {
+    attempts: u64,
+    frames: u64,
+    last_error: Option<String>,
+}
+
+fn diags() -> &'static Mutex<HashMap<String, Diag>> {
+    static D: OnceLock<Mutex<HashMap<String, Diag>>> = OnceLock::new();
+    D.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn diag_patch(id: &str, f: impl FnOnce(&mut Diag)) {
+    let mut all = diags().lock().unwrap_or_else(|e| e.into_inner());
+    f(all.entry(id.to_string()).or_default());
+}
+
+/// Estado de los monitores en marcha (por salida, sin el prefijo "monitor:").
+#[tauri::command]
+pub fn monitor_diag() -> HashMap<String, Diag> {
+    diags().lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Señales de paro de los monitores en marcha.
 fn live() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     static L: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
@@ -47,10 +73,16 @@ struct Latest {
 
 fn clear(id: &str) {
     frames().lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    diags().lock().unwrap_or_else(|e| e.into_inner()).remove(id);
 }
 
 /// Pone en marcha (o reemplaza) la miniatura de una salida.
 pub fn start(ffmpeg: &Path, input_args: Vec<String>, id: String) {
+    diag_patch(&id, |d| {
+        d.attempts = 0;
+        d.frames = 0;
+        d.last_error = None;
+    });
     let stop = Arc::new(AtomicBool::new(false));
     let mut live = live().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(prev) = live.insert(id.clone(), stop.clone()) {
@@ -61,7 +93,13 @@ pub fn start(ffmpeg: &Path, input_args: Vec<String>, id: String) {
     let ffmpeg = ffmpeg.to_path_buf();
     let _ = thread::Builder::new().name("miradio-monitor".into()).spawn(move || {
         while !stop.load(Ordering::SeqCst) {
-            run_once(&ffmpeg, &input_args, &id, &stop);
+            let spawn_err = run_once(&ffmpeg, &input_args, &id, &stop);
+            diag_patch(&id, |dg| {
+                dg.attempts += 1;
+                if let Some(err) = &spawn_err {
+                    dg.last_error = Some(err.clone());
+                }
+            });
             if stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -120,7 +158,7 @@ pub fn stop_id(id: &str) {
 /// Lanza un FFmpeg de miniatura y va dejando los JPEG que suelta. Termina
 /// cuando FFmpeg se corta (y el llamador lo relanza) o cuando llega la señal
 /// de paro (con la que además mata al FFmpeg, porque la lectura se bloquea).
-fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBool>) {
+fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBool>) -> Option<String> {
     let mut cmd = Command::new(ffmpeg);
     cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error"])
         .args(input_args)
@@ -132,7 +170,7 @@ fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBoo
     crate::streaming::configure_no_window(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(child) => child,
-        Err(_) => return,
+        Err(e) => return Some(format!("no arranco FFmpeg ({e})")),
     };
     let stdout = child.stdout.take();
     let shared_child = Arc::new(Mutex::new(child));
@@ -149,7 +187,7 @@ fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBoo
     });
     let Some(mut stdout) = stdout else {
         drop(killer);
-        return;
+        return None;
     };
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 32 * 1024];
@@ -169,6 +207,7 @@ fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBoo
     }
     drop(stdout);
     let _ = shared_child.lock().map(|mut child| child.wait());
+    None
 }
 
 /// Suelta el primer JPEG del bufer. El MJPEG pega los cuadros uno tras otro:
@@ -194,6 +233,7 @@ fn take_first_jpeg(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
 }
 
 fn update(id: &str, jpeg: Vec<u8>) {
+    diag_patch(id, |d| d.frames += 1);
     let mut slots = frames().lock().unwrap_or_else(|e| e.into_inner());
     let slot = slots.entry(id.to_string()).or_default();
     let mut latest = slot.lock().unwrap_or_else(|e| e.into_inner());

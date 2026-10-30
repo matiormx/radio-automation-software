@@ -43,7 +43,9 @@ import {
   startStreaming,
   stopStreaming,
   syncStreamMonitors,
+  fetchMonitorDiag,
 } from "./api";
+import type { MonitorDiagData } from "./api";
 import type {
   Program,
   ScheduleBlock,
@@ -57,6 +59,7 @@ import type {
   Campaign,
   StationEvent,
   VideoInput,
+  VideoOutput,
   IcecastStream,
   MixerChannel,
   MixerBus,
@@ -2964,6 +2967,17 @@ export default function App() {
         .join(","),
     [settings.video],
   );
+  // Diagnóstico de las miniaturas (para saber por qué van negras, si van).
+  useEffect(() => {
+    if (!streamStatus?.running) return;
+    const t = window.setInterval(() => {
+      void fetchMonitorDiag()
+        .then((d) => setMDiag(d))
+        .catch(() => undefined);
+    }, 3000);
+    void fetchMonitorDiag().then((d) => setMDiag(d)).catch(() => undefined);
+    return () => window.clearInterval(t);
+  }, [streamStatus?.running]);
   useEffect(() => {
     if (!streamStatus?.running || !monitorFlagKey.includes(":1")) return;
     const t = window.setTimeout(() => {
@@ -3539,6 +3553,7 @@ export default function App() {
   }, []);
 
   const [libraryHits, setLibraryHits] = useState<Track[]>([]);
+  const [mDiag, setMDiag] = useState<Record<string, MonitorDiagData>>({});
 
   const deckRow = rows[playingRow] ?? null;
   // Miniatura del streaming en el panel: la primera salida monitorizada que
@@ -3609,6 +3624,7 @@ export default function App() {
       // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
       // ve en Ajustes > Streaming y en el deck (el móvil no abre FFmpeg extra).
       // Si no la hay, la fuente NDI al aire o «Lo que suena».
+      netOutputs: (settings.video?.outputs ?? []).filter((o) => o.kind === "rtmp" || o.kind === "whip"),
       videoInputs: (settings.video?.inputs ?? []).map((i) => ({
         id: i.id,
         name: i.name,
@@ -3647,6 +3663,7 @@ export default function App() {
         return "np";
       })(),
       hits: libraryHits.map((t) => ({ id: t.id, title: t.title, artist: t.artist })),
+      monitorDiag: mDiag,
       app: mobileUpd,
       pastVisible: settings.pastVisible ?? 5,
       // Agenda: eventos, campañas y programas (para verlos y cambiarlos)
@@ -3682,7 +3699,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -3973,6 +3990,35 @@ export default function App() {
         });
         updateSettings({ ...s, video: { ...s.video, inputs } });
         showToast("Entradas de vídeo actualizadas desde el móvil");
+        break;
+      }
+      case "videoOutputsUpdate": {
+        const list = Array.isArray(c.outputs) ? c.outputs : [];
+        const fromMobile = list.slice(0, 16).map((raw: Record<string, unknown>, i: number): VideoOutput => {
+          const anyRaw = raw as unknown as VideoOutput;
+          const kind = anyRaw.kind === "whip" || anyRaw.kind === "rtmp" ? anyRaw.kind : "rtmp";
+          return {
+            ...anyRaw,
+            id: String(anyRaw.id ?? `n${Date.now().toString(36)}${i}`),
+            kind,
+            name: String(anyRaw.name ?? "").slice(0, 60),
+            source: String(anyRaw.source ?? "").slice(0, 500),
+            videoInputId: anyRaw.videoInputId ?? "program",
+            fallbackVideoInputId: anyRaw.fallbackVideoInputId ?? "",
+            audioSource: anyRaw.audioSource ?? "mixer",
+            audioSourceId: anyRaw.audioSourceId ?? "",
+            enabled: anyRaw.enabled === true,
+            width: Math.max(320, Math.min(7680, Math.round(Number(anyRaw.width) || 1280))),
+            height: Math.max(240, Math.min(4320, Math.round(Number(anyRaw.height) || 720))),
+            fps: Math.max(1, Math.min(120, Math.round(Number(anyRaw.fps) || 25))),
+            bitrateKbps: Math.max(0, Math.min(100000, Math.round(Number(anyRaw.bitrateKbps) || 6000))),
+            videoDelayMs: Math.max(-20000, Math.min(20000, Math.round(Number(anyRaw.videoDelayMs) || 0))),
+            monitor: anyRaw.monitor === true,
+          };
+        });
+        const keep = (s.video?.outputs ?? []).filter((o) => o.kind !== "rtmp" && o.kind !== "whip");
+        updateSettings({ ...s, video: { ...s.video, outputs: [...keep, ...fromMobile] } });
+        showToast("Salidas por internet actualizadas desde el móvil");
         break;
       }
       case "streamsUpdate": {
@@ -4271,6 +4317,7 @@ export default function App() {
                   nextCover={nextRow?.cover ?? ""}
                   nextDuration={nextRow?.durationSecs ?? 0}
                   monitorId={streamMonitorId}
+                  diag={streamMonitorId ? mDiag[`monitor:${streamMonitorId}`] : undefined}
                   onSeek={seek}
                   isVideo={
                     !liveRun &&
