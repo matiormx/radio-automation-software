@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::State;
 
@@ -47,21 +48,21 @@ fn base_url(url: &str) -> String {
     base
 }
 
-fn http_error(error: ureq::Error) -> String {
+fn http_error(who: &str, error: ureq::Error) -> String {
     match error {
         ureq::Error::Status(code, response) => {
             let body = response.into_string().unwrap_or_default();
             let body = body.trim();
             if body.is_empty() {
-                format!("Ollama respondio {code}")
+                format!("{who} respondió {code}")
             } else {
                 format!(
-                    "Ollama respondio {code}: {}",
+                    "{who} respondió {code}: {}",
                     body.chars().take(300).collect::<String>()
                 )
             }
         }
-        other => format!("No se pudo conectar con Ollama: {other}"),
+        other => format!("No se pudo conectar con {who}: {other}"),
     }
 }
 
@@ -239,7 +240,7 @@ fn list_models(url: &str) -> Result<Vec<String>, String> {
     let response = ureq::get(&endpoint)
         .timeout(Duration::from_secs(15))
         .call()
-        .map_err(http_error)?;
+        .map_err(|e| http_error("Ollama", e))?;
     let body = response
         .into_string()
         .map_err(|e| format!("Ollama devolvio una respuesta no valida: {e}"))?;
@@ -270,6 +271,25 @@ fn opencode_command(path: &str) -> String {
     }
 }
 
+/// Sesion estable para OpenCode Go (cabecera x-opencode-session): se guarda
+/// una vez en datos y se reutiliza entre arranques.
+fn cloud_session(data_dir: &Path) -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED.get_or_init(|| {
+        let file = data_dir.join("opencode-session.txt");
+        if let Ok(v) = std::fs::read_to_string(&file) {
+            let v = v.trim().to_string();
+            if v.len() >= 16 {
+                return v;
+            }
+        }
+        let id = format!("oc-{:032x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+        let _ = std::fs::write(&file, &id);
+        id
+    })
+    .clone()
+}
+
 /// Direccion base de un servicio en la nube compatible con OpenAI.
 fn cloud_base(url: &str) -> String {
     let mut base = url.trim().trim_end_matches('/').to_string();
@@ -288,6 +308,7 @@ fn cloud_chat(
     url: &str,
     key: &str,
     model: &str,
+    session: &str,
     system: &str,
     user: &str,
 ) -> Result<String, String> {
@@ -310,10 +331,12 @@ fn cloud_chat(
     });
     let response = ureq::post(&endpoint)
         .timeout(Duration::from_secs(180))
+        .set("User-Agent", &format!("OmniCaster/{}", env!("CARGO_PKG_VERSION")))
         .set("Authorization", &format!("Bearer {}", key.trim()))
         .set("Content-Type", "application/json")
+        .set("x-opencode-session", session)
         .send_string(&request.to_string())
-        .map_err(http_error)?;
+        .map_err(|e| http_error("El servicio de IA", e))?;
     let body = response
         .into_string()
         .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
@@ -327,16 +350,18 @@ fn cloud_chat(
 }
 
 /// Catalogo de modelos de un servicio en la nube compatible con OpenAI.
-fn cloud_models(url: &str, key: &str) -> Result<Vec<String>, String> {
+fn cloud_models(url: &str, key: &str, session: &str) -> Result<Vec<String>, String> {
     if key.trim().is_empty() {
         return Err("Falta la clave del servicio de IA en la nube (Ajustes > IA)".to_string());
     }
     let endpoint = format!("{}/models", cloud_base(url));
     let response = ureq::get(&endpoint)
         .timeout(Duration::from_secs(20))
+        .set("User-Agent", &format!("OmniCaster/{}", env!("CARGO_PKG_VERSION")))
         .set("Authorization", &format!("Bearer {}", key.trim()))
+        .set("x-opencode-session", session)
         .call()
-        .map_err(http_error)?;
+        .map_err(|e| http_error("El servicio de IA", e))?;
     let body = response
         .into_string()
         .map_err(|e| format!("La IA en la nube devolvio una respuesta no valida: {e}"))?;
@@ -484,7 +509,14 @@ fn suggest(
     );
 
     if ai.provider.trim() == "cloud" {
-        let content = cloud_chat(&ai.cloud_url, &ai.cloud_key, &ai.cloud_model, SYSTEM_PROMPT, &user_prompt)?;
+        let content = cloud_chat(
+            &ai.cloud_url,
+            &ai.cloud_key,
+            &ai.cloud_model,
+            &cloud_session(data_dir),
+            SYSTEM_PROMPT,
+            &user_prompt,
+        )?;
         let parsed = extract_json(&content)?;
         return Ok(parse_suggestion(parsed));
     }
@@ -515,7 +547,7 @@ fn suggest(
         .timeout(Duration::from_secs(180))
         .set("Content-Type", "application/json")
         .send_string(&request.to_string())
-        .map_err(http_error)?;
+        .map_err(|e| http_error("Ollama", e))?;
     let body = response
         .into_string()
         .map_err(|e| format!("Ollama devolvio una respuesta no valida: {e}"))?;
@@ -533,10 +565,11 @@ fn suggest(
 /// Modelos disponibles segun el motor configurado: Ollama lista su servidor;
 /// OpenCode ejecuta `opencode models` y la nube pide el catalogo al servicio.
 #[tauri::command]
-pub async fn ai_models(ai: AiSettings) -> Result<Vec<String>, String> {
+pub async fn ai_models(state: State<'_, AppState>, ai: AiSettings) -> Result<Vec<String>, String> {
+    let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || match ai.provider.trim() {
         "opencode" => opencode_models(&opencode_command(&ai.opencode_path)),
-        "cloud" => cloud_models(&ai.cloud_url, &ai.cloud_key),
+        "cloud" => cloud_models(&ai.cloud_url, &ai.cloud_key, &cloud_session(&data_dir)),
         _ => list_models(&ai.url),
     })
     .await

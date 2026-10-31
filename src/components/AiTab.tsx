@@ -8,6 +8,25 @@ interface Props {
   showToast: (msg: string) => void;
 }
 
+/** Servicios con preset: se elige y solo queda pegar la clave. */
+const CLOUD_SERVICES: Array<{ id: string; label: string; url: string; hint: string }> = [
+  { id: "ocgo", label: "OpenCode Go (Zen)", url: "https://opencode.ai/inference/go/openai/v1", hint: "glm-5.3-flash, qwen3.8-flash… (la lista sale al probar)" },
+  { id: "openai", label: "OpenAI", url: "https://api.openai.com/v1", hint: "gpt-4o-mini" },
+  { id: "groq", label: "Groq (gratis)", url: "https://api.groq.com/openai/v1", hint: "llama-3.3-70b-versatile" },
+  { id: "gemini", label: "Gemini (gratis)", url: "https://generativelanguage.googleapis.com/v1beta/openai", hint: "mira la lista al probar" },
+  { id: "custom", label: "Otro (compatible OpenAI)", url: "", hint: "" },
+];
+
+function serviceIdOf(url: string | undefined): string {
+  const u = (url ?? "").toLowerCase();
+  if (u.includes("opencode.ai")) return "ocgo";
+  if (u.includes("api.openai.com")) return "openai";
+  if (u.includes("api.groq.com")) return "groq";
+  if (u.includes("generativelanguage.googleapis.com")) return "gemini";
+  if (!u) return "openai";
+  return "custom";
+}
+
 /**
  * Ajustes > IA: motor de analisis local (Ollama u OpenCode). El analisis solo
  * envia los metadatos de la ficha; el audio no sale del equipo.
@@ -113,14 +132,22 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             </p>
             <div className="field-row">
               <label className="field">
-                <span className="field-label">Dirección del servicio</span>
-                <input
-                  type="text"
-                  value={ai.cloudUrl ?? ""}
-                  spellCheck={false}
-                  placeholder="https://api.openai.com/v1"
-                  onChange={(e) => setAi({ cloudUrl: e.target.value })}
-                />
+                <span className="field-label">Servicio</span>
+                <select
+                  value={serviceIdOf(ai.cloudUrl)}
+                  onChange={(e) => {
+                    const preset = CLOUD_SERVICES.find((x) => x.id === e.target.value);
+                    if (preset?.url) {
+                      setModels([]);
+                      setAi({ cloudUrl: preset.url, cloudModel: preset.id === "ocgo" ? "glm-5.3-flash" : preset.id === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini" });
+                    }
+                    if (e.target.value === "custom") setAi({ cloudUrl: "" });
+                  }}
+                >
+                  {CLOUD_SERVICES.map((x) => (
+                    <option key={x.id} value={x.id}>{x.label}</option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span className="field-label">Clave (API key)</span>
@@ -128,11 +155,23 @@ export function AiTab({ settings, onChange, showToast }: Props) {
                   type="password"
                   value={ai.cloudKey ?? ""}
                   spellCheck={false}
-                  placeholder="sk-…"
+                  placeholder="Pega tu clave aquí"
                   onChange={(e) => setAi({ cloudKey: e.target.value })}
                 />
               </label>
             </div>
+            {serviceIdOf(ai.cloudUrl) === "custom" && (
+              <label className="field">
+                <span className="field-label">Dirección del servicio (compatible OpenAI)</span>
+                <input
+                  type="text"
+                  value={ai.cloudUrl ?? ""}
+                  spellCheck={false}
+                  placeholder="https://…/v1"
+                  onChange={(e) => setAi({ cloudUrl: e.target.value })}
+                />
+              </label>
+            )}
             <div className="field-row">
               <label className="field">
                 <span className="field-label">Modelo</span>
@@ -141,7 +180,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
                   value={ai.cloudModel ?? ""}
                   spellCheck={false}
                   list="ai-models"
-                  placeholder="gpt-4o-mini"
+                  placeholder={CLOUD_SERVICES.find((x) => x.id === serviceIdOf(ai.cloudUrl))?.hint || "gpt-4o-mini"}
                   onChange={(e) => setAi({ cloudModel: e.target.value })}
                 />
                 <datalist id="ai-models">
@@ -282,9 +321,10 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           <p className="hint">
             Crea una API key en tu servicio y pégala arriba:
           </p>
-          <pre className="ai-command">OpenAI · platform.openai.com/api-keys · gpt-4o-mini
+          <pre className="ai-command">OpenCode Go · plataforma.opencode.ai/console · glm-5.3-flash
+OpenAI · platform.openai.com/api-keys · gpt-4o-mini
 Groq · console.groq.com/keys · llama-3.3-70b-versatile
-Gemini · aistudio.google.com · https://generativelanguage.googleapis.com/v1beta/openai/</pre>
+Gemini · aistudio.google.com (la dirección la pone el preset)</pre>
           <p className="hint">
             La dirección acepta cualquier servicio que siga el formato de OpenAI. El modelo va
             tal como lo llama el servicio (se llena la lista al probar la conexión). Cada
