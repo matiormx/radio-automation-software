@@ -181,8 +181,44 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
     onClose();
   };
 
+  // Minimizar: la ventana es una pastilla flotante para seguir trabajando.
+  const [minimized, setMinimized] = useState(false);
+  const doneCount = rows.filter((r) => r.status === "done" || r.status === "error").length;
+  const runningCount = rows.filter((r) => r.status === "running").length;
+
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        className="ai-mini"
+        title="Volver a abrir el análisis"
+        onClick={() => setMinimized(false)}
+      >
+        {busy ? (
+          <>
+            <span className="ai-mini-dot" />
+            IA · {doneCount}/{rows.length}
+          </>
+        ) : (
+          <>IA · {pendingSelected.length} lista{pendingSelected.length === 1 ? "" : "s"} para aceptar</>
+        )}
+      </button>
+    );
+  }
+
   return (
-    <div className="modal-backdrop" onClick={() => { if (!busy) onClose(); }}>
+    <div className="modal-backdrop ai-backdrop-free" onClick={(e) => { e.stopPropagation(); }}>
+      {busy && (doneCount < rows.length || runningCount > 0) && (
+        <button
+          type="button"
+          className="ai-mini ai-mini-corner"
+          title="Esconder y seguir trabajando"
+          onClick={() => setMinimized(true)}
+        >
+          <span className="ai-mini-dot" />
+          IA · {doneCount}/{rows.length}
+        </button>
+      )}
       <div
         className="modal ai-modal"
         onClick={(e) => e.stopPropagation()}
@@ -192,6 +228,9 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
       >
         <div className="modal-head">
           <h3>Analizar metadatos con IA</h3>
+          <button type="button" className="icon-btn" onClick={() => setMinimized(true)} title="Esconder y seguir trabajando (queda en una pastilla abajo)">
+            ▁
+          </button>
           <button type="button" className="icon-btn" onClick={onClose} disabled={busy} title="Cerrar">
             ×
           </button>

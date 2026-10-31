@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { aiModels, aiOpencodeVersion } from "../api";
 import { DEFAULT_SETTINGS, type Settings } from "../types";
 
@@ -38,6 +38,26 @@ export function AiTab({ settings, onChange, showToast }: Props) {
   const [models, setModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // La lista de modelos se pide sola al proveedor (sin toasts): el campo de
+  // modelo pasa a ser una lista, no algo que escribir a mano.
+  const fetchModels = useCallback((quiet = true) => {
+    void aiModels({ ...ai, provider })
+      .then((list) => setModels(list))
+      .catch(() => setModels([]));
+    void quiet;
+  }, [ai, provider]);
+  useEffect(() => {
+    const t = window.setTimeout(() => fetchModels(), 500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    provider,
+    ai.url,
+    ai.opencodePath,
+    ai.cloudUrl,
+    ai.cloudKey,
+    ai.model && provider === "ollama" ? ai.model : "",
+  ]);
 
   const setAi = (patch: Partial<typeof ai>) => {
     onChange({ ...settings, ai: { ...ai, ...patch } });
@@ -175,19 +195,12 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             <div className="field-row">
               <label className="field">
                 <span className="field-label">Modelo</span>
-                <input
-                  type="text"
+                <ModelSelect
                   value={ai.cloudModel ?? ""}
-                  spellCheck={false}
-                  list="ai-models"
+                  models={models}
                   placeholder={CLOUD_SERVICES.find((x) => x.id === serviceIdOf(ai.cloudUrl))?.hint || "gpt-4o-mini"}
-                  onChange={(e) => setAi({ cloudModel: e.target.value })}
+                  onChange={(model) => setAi({ cloudModel: model })}
                 />
-                <datalist id="ai-models">
-                  {models.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
               </label>
             </div>
             <div className="update-actions">
@@ -226,19 +239,12 @@ export function AiTab({ settings, onChange, showToast }: Props) {
               </label>
               <label className="field">
                 <span className="field-label">Modelo</span>
-                <input
-                  type="text"
+                <ModelSelect
                   value={ai.model}
-                  spellCheck={false}
-                  list="ai-models"
+                  models={models}
                   placeholder="llama3.1:8b"
-                  onChange={(e) => setAi({ model: e.target.value })}
+                  onChange={(model) => setAi({ model })}
                 />
-                <datalist id="ai-models">
-                  {models.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
               </label>
             </div>
             <div className="update-actions">
@@ -277,20 +283,13 @@ export function AiTab({ settings, onChange, showToast }: Props) {
                 />
               </label>
               <label className="field">
-                <span className="field-label">Modelo (proveedor/modelo)</span>
-                <input
-                  type="text"
+                <span className="field-label">Modelo</span>
+                <ModelSelect
                   value={ai.model}
-                  spellCheck={false}
-                  list="ai-models"
+                  models={models}
                   placeholder="(el que tenga OpenCode por defecto)"
-                  onChange={(e) => setAi({ model: e.target.value })}
+                  onChange={(model) => setAi({ model })}
                 />
-                <datalist id="ai-models">
-                  {models.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
               </label>
             </div>
             <div className="update-actions">
@@ -362,5 +361,53 @@ Gemini · aistudio.google.com (la dirección la pone el preset)</pre>
         </fieldset>
       )}
     </>
+  );
+}
+
+/** Lista de modelos según lo que ofrece el proveedor (bajo un modo manual). */
+function ModelSelect({
+  value,
+  models,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  models: string[];
+  placeholder: string;
+  onChange: (model: string) => void;
+}) {
+  const options = [...new Set([...models, value].filter(Boolean))];
+  const manual = value !== "" && !models.includes(value);
+  const [writing, setWriting] = useState(manual && models.length === 0);
+  if (writing) {
+    return (
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          type="text"
+          value={value}
+          spellCheck={false}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button type="button" className="btn btn-sm" onClick={() => setWriting(false)}>
+          Lista
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Modelo">
+        {value === "" && <option value="">{placeholder}</option>}
+        {options.map((model) => (
+          <option key={model} value={model}>
+            {value === model && models.length > 0 && !models.includes(model) ? `${model} (el de ahora)` : model}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="btn btn-sm" title="Escribir el modelo a mano" onClick={() => setWriting(true)}>
+        ✎
+      </button>
+    </div>
   );
 }

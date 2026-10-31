@@ -4151,6 +4151,37 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 /* ---------- IA: analisis de metadatos ---------- */
 
 .ai-modal { width: min(980px, 96vw); max-height: 90vh; }
+
+/* El analisis con IA no bloquea: el fondo deja pasar los clics y la ventana
+   se puede minimizar en una pastilla para seguir trabajando. */
+.ai-backdrop-free { pointer-events: none; }
+.ai-backdrop-free > .modal, .ai-backdrop-free > .ai-mini-corner { pointer-events: auto; }
+.ai-mini {
+  position: fixed;
+  bottom: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: #10141c;
+  border: 1px solid var(--accent, #4f8cff);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+.ai-mini-corner { bottom: 18px; left: auto; right: 18px; transform: none; padding: 6px 12px; font-size: 12px; }
+.ai-mini-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #4f8cff);
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
 .ai-toolbar {
   display: flex;
   align-items: center;
