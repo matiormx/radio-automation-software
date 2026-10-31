@@ -370,6 +370,8 @@ export async function openAiWindow(): Promise<boolean> {
       height: 760,
       minWidth: 700,
       minHeight: 480,
+      decorations: false,
+      shadow: true,
       center: true,
       dragDropEnabled: false,
     });

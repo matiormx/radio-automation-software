@@ -248,12 +248,17 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
       >
         <div className="modal-head">
           <h3>Analizar metadatos con IA</h3>
-          <button type="button" className="icon-btn" onClick={minimizeToPill} title={standalone ? "Minimizar la ventana y seguir trabajando" : "Esconder y seguir trabajando (queda en una pastilla abajo)"}>
-            ▁
-          </button>
-          <button type="button" className="icon-btn" onClick={onClose} disabled={busy} title="Cerrar">
-            ×
-          </button>
+          {/* En su ventana aparte los controles los pone su cabecera (WindowControls) */}
+          {!standalone && (
+            <>
+              <button type="button" className="icon-btn" onClick={minimizeToPill} title="Esconder y seguir trabajando (queda en una pastilla abajo)">
+                ▁
+              </button>
+              <button type="button" className="icon-btn" onClick={onClose} disabled={busy} title="Cerrar">
+                ×
+              </button>
+            </>
+          )}
         </div>
         <div className="modal-body">
           <p className="hint">

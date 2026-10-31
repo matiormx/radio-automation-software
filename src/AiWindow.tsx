@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { aiWindowClose, aiWindowPayload } from "./api";
+import { aiWindowClose, aiWindowPayload, IS_LINUX } from "./api";
 import { AiMetadataModal } from "./components/AiMetadataModal";
+import { WindowControls } from "./components/WindowControls";
 import type { AiSettings, Track } from "./types";
 
 interface Payload {
@@ -43,7 +44,10 @@ export function AiWindow() {
       listen("ai://close", () => {
         if ((window as unknown as Record<string, unknown>).__AI_BUSY__ === true) {
           setNote("");
-          void getCurrentWindow().minimize().catch(() => undefined);
+          // Linux (quiosco): sin barra de tareas, minimizada se perdería.
+          if (!IS_LINUX) {
+            void getCurrentWindow().minimize().catch(() => undefined);
+          }
         } else {
           void aiWindowClose();
         }
@@ -57,29 +61,40 @@ export function AiWindow() {
     };
   }, [read]);
 
-  if (!payload) {
-    return (
-      <div className="ai-window-holder">
-        <p className="hint">{loaded ? "No hay canciones cargadas. Vuelve a abrirla desde la biblioteca." : "Cargando selección…"}</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="ai-window-holder">
-      {note && <p className="hint ai-window-note">{note}</p>}
-      <AiMetadataModal
-        tracks={payload.tracks}
-        ai={payload.ai}
-        standalone
-        onClose={() => void aiWindowClose()}
-        onSaved={async () => {
-          // La biblioteca es del motor (Rust): la lista de la ventana
-          // principal se refresca sola con este aviso.
-          await emit("ai://saved", true);
-        }}
-        showToast={setNote}
-      />
+    <div className="tool-window">
+      <header className="tool-titlebar" data-tauri-drag-region>
+        <span className="tool-title" data-tauri-drag-region>
+          OmniCaster · Análisis de metadatos con IA
+        </span>
+        <div className="top-drag" data-tauri-drag-region />
+        <WindowControls />
+      </header>
+      <div className="ai-window-holder">
+        {!payload ? (
+          <p className="hint">
+            {loaded
+              ? "No hay canciones cargadas. Vuelve a abrirla desde la biblioteca."
+              : "Cargando selección…"}
+          </p>
+        ) : (
+          <>
+            {note && <p className="hint ai-window-note">{note}</p>}
+            <AiMetadataModal
+              tracks={payload.tracks}
+              ai={payload.ai}
+              standalone
+              onClose={() => void aiWindowClose()}
+              onSaved={async () => {
+                // La biblioteca es del motor (Rust): la lista de la ventana
+                // principal se refresca sola con este aviso.
+                await emit("ai://saved", true);
+              }}
+              showToast={setNote}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }

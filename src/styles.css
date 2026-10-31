@@ -4155,8 +4155,14 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 /* La ventana aparte del analizador (index.html?w=ai): el modal ocupa el
    hueco entero y los avisos (toasts) quedan abajo del todo, sin tapar la
    lista. */
-.ai-window-holder { height: 100vh; }
-.ai-backdrop-window { background: none; overflow-y: auto; }
+.ai-window-holder { flex: 1; position: relative; overflow: hidden; display: flex; }
+.ai-backdrop-window {
+  position: absolute;
+  inset: 0;
+  background: none;
+  overflow-y: auto;
+  width: 100%;
+}
 .ai-window-note {
   position: fixed;
   bottom: 10px;
