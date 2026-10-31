@@ -9,17 +9,23 @@ interface Props {
 }
 
 /** Servicios con preset: se elige y solo queda pegar la clave. */
-const CLOUD_SERVICES: Array<{ id: string; label: string; url: string; hint: string }> = [
-  { id: "ocgo", label: "OpenCode Go (Zen)", url: "https://opencode.ai/inference/go/openai/v1", hint: "glm-5.3-flash, qwen3.8-flash… (la lista sale al probar)" },
-  { id: "openai", label: "OpenAI", url: "https://api.openai.com/v1", hint: "gpt-4o-mini" },
-  { id: "groq", label: "Groq (gratis)", url: "https://api.groq.com/openai/v1", hint: "llama-3.3-70b-versatile" },
-  { id: "gemini", label: "Gemini (gratis)", url: "https://generativelanguage.googleapis.com/v1beta/openai", hint: "mira la lista al probar" },
-  { id: "custom", label: "Otro (compatible OpenAI)", url: "", hint: "" },
+const CLOUD_SERVICES: Array<{ id: string; label: string; url: string; hint: string; model: string }> = [
+  { id: "zen", label: "OpenCode Zen (por uso)", url: "https://opencode.ai/inference/openai/v1", hint: "glm-5.3-flash, kimi-k3, qwen3.8…", model: "glm-5.3-flash" },
+  { id: "ocgo", label: "OpenCode Go (suscripción)", url: "https://opencode.ai/inference/go/openai/v1", hint: "los mismos Zen con tu plan Go", model: "glm-5.3-flash" },
+  { id: "openrouter", label: "OpenRouter (modelos gratis)", url: "https://openrouter.ai/api/v1", hint: "modelos …:free de varios proveedores", model: "meta-llama/llama-3.3-70b-instruct:free" },
+  { id: "groq", label: "Groq (gratis)", url: "https://api.groq.com/openai/v1", hint: "llama-3.3-70b-versatile", model: "llama-3.3-70b-versatile" },
+  { id: "gemini", label: "Gemini (gratis)", url: "https://generativelanguage.googleapis.com/v1beta/openai", hint: "gemini-2.5-flash", model: "gemini-2.5-flash" },
+  { id: "cerebras", label: "Cerebras (gratis, rapidísimo)", url: "https://api.cerebras.ai/v1", hint: "llama-3.3-70b y amigos", model: "llama-3.3-70b" },
+  { id: "mistral", label: "Mistral (capa gratuita)", url: "https://api.mistral.ai/v1", hint: "mistral-small-latest", model: "mistral-small-latest" },
+  { id: "deepseek", label: "DeepSeek (muy barato)", url: "https://api.deepseek.com/v1", hint: "deepseek-chat", model: "deepseek-chat" },
+  { id: "openai", label: "OpenAI", url: "https://api.openai.com/v1", hint: "gpt-4o-mini", model: "gpt-4o-mini" },
+  { id: "custom", label: "Otro (compatible OpenAI)", url: "", hint: "", model: "" },
 ];
 
 function serviceIdOf(url: string | undefined): string {
   const u = (url ?? "").toLowerCase();
-  if (u.includes("opencode.ai")) return "ocgo";
+  if (u.includes("opencode.ai/inference/go")) return "ocgo";
+  if (u.includes("opencode.ai")) return "zen";
   if (u.includes("api.openai.com")) return "openai";
   if (u.includes("api.groq.com")) return "groq";
   if (u.includes("generativelanguage.googleapis.com")) return "gemini";
@@ -159,7 +165,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
                     const preset = CLOUD_SERVICES.find((x) => x.id === e.target.value);
                     if (preset?.url) {
                       setModels([]);
-                      setAi({ cloudUrl: preset.url, cloudModel: preset.id === "ocgo" ? "glm-5.3-flash" : preset.id === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini" });
+                      setAi({ cloudUrl: preset.url, cloudModel: preset.model || preset.hint.split(" ")[0] });
                     }
                     if (e.target.value === "custom") setAi({ cloudUrl: "" });
                   }}
@@ -320,10 +326,16 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           <p className="hint">
             Crea una API key en tu servicio y pégala arriba:
           </p>
-          <pre className="ai-command">OpenCode Go · plataforma.opencode.ai/console · glm-5.3-flash
-OpenAI · platform.openai.com/api-keys · gpt-4o-mini
-Groq · console.groq.com/keys · llama-3.3-70b-versatile
-Gemini · aistudio.google.com (la dirección la pone el preset)</pre>
+          <pre className="ai-command">OpenRouter · openrouter.ai/keys · los “:free” no gastan nada
+Groq · console.groq.com/keys · Gemini · aistudio.google.com
+Cerebras · cloud.cerebras.ai/keys · Mistral · console.mistral.ai
+OpenCode (Zen/Go) · plataforma.opencode.ai · glm-5.3-flash
+DeepSeek · platform.deepseek.com · OpenAI · platform.openai.com/api-keys</pre>
+          <p className="hint">
+            Ojo con la capa gratis del Zen de OpenCode: los modelos «-free» solo responden desde el
+            propio OpenCode (otros clientes reciben 403). Desde OmniCaster salen tarificados por uso —
+            con <code>glm-5.3-flash</code> cuesta centavos por miles de canciones.
+          </p>
           <p className="hint">
             La dirección acepta cualquier servicio que siga el formato de OpenAI. El modelo va
             tal como lo llama el servicio (se llena la lista al probar la conexión). Cada
