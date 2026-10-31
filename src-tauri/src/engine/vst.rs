@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -181,6 +181,16 @@ struct Control {
 
 static CONTROL: OnceLock<Control> = OnceLock::new();
 static STATE_DIR: OnceLock<PathBuf> = OnceLock::new();
+/// En plena actualización: el hilo de plugins no descarga nada. Descargar los
+/// plugins a mitad del cierre puede revientar el proceso (WaveShell de Waves
+/// lo hacía) y mataba la app antes de que arrancara el instalador. El
+/// instalador mata el proceso, así que no hace falta descargar nada.
+static FROZEN: AtomicBool = AtomicBool::new(false);
+
+/// Suspende la descarga de plugins (todo queda cargado pero inerte).
+pub fn freeze() {
+    FROZEN.store(true, Ordering::SeqCst);
+}
 
 /// Carpeta donde se guarda el estado de cada ranura (se llama al arrancar).
 pub fn set_state_dir(dir: PathBuf) {
@@ -485,17 +495,21 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 save_state(id, &l.host.plugin);
             }
         }
-        // Se sueltan los que ya nadie usa (descargar el plugin)
-        let mut i = 0;
-        while i < graveyard.len() {
-            if Arc::strong_count(&graveyard[i]) > 1 {
-                i += 1;
-                continue;
+        // Se sueltan los que ya nadie usa (descargar el plugin). Con los
+        // plugins congelados (actualización en curso) no se toca: descargar
+        // aquí puede reventar el proceso y el instalador tampoco los necesita.
+        if !FROZEN.load(Ordering::SeqCst) {
+            let mut i = 0;
+            while i < graveyard.len() {
+                if Arc::strong_count(&graveyard[i]) > 1 {
+                    i += 1;
+                    continue;
+                }
+                let h = graveyard.swap_remove(i);
+                crumb("quitando", &h.name, &h.path);
+                drop(h);
+                crumb_done();
             }
-            let h = graveyard.swap_remove(i);
-            crumb("quitando", &h.name, &h.path);
-            drop(h);
-            crumb_done();
         }
         // La latencia cambia si se toca algo en el plugin (oversampling, lookahead…).
         if last_latency.elapsed() > Duration::from_secs(2) {

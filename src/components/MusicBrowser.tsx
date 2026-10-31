@@ -19,7 +19,8 @@ import { TrackDetailsModal } from "./TrackDetailsModal";
 import { beginDrag, registerDropZone } from "../dnd";
 import { GalleryHeader, MusicGallery, matchesSel } from "./MusicGallery";
 import { ExplorerView } from "./ExplorerView";
-import { pickScanFolder, scanFolder } from "../api";
+import { pickScanFolder, scanFolder, aiWindowPayloadSet } from "../api";
+import { openAiWindow } from "../bridge";
 import { listen } from "@tauri-apps/api/event";
 
 const LOSSLESS = new Set(["flac", "wav", "aif", "aiff", "alac", "ape", "wv"]);
@@ -64,7 +65,6 @@ export function qualityBadge(t: Track): ReactNode {
   }
   return null;
 }
-import { AiMetadataModal } from "./AiMetadataModal";
 import {
   IconPlus,
   IconX,
@@ -256,7 +256,6 @@ function MusicBrowserBase({
   const [edit, setEdit] = useState<EditState | null>(null);
   const [propsId, setPropsId] = useState("");
   const [imp, setImp] = useState<ImportState | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
   const [newBlock, setNewBlock] = useState("");
   // Alta de listas y grupos: un boton discreto con menu y un campo al elegir.
   const [addMenu, setAddMenu] = useState(false);
@@ -276,6 +275,21 @@ function MusicBrowserBase({
   useEffect(() => {
     setVisibleCount(250);
   }, [mode, selection, query, sort.key, sort.dir, tracks.length]);
+
+  // El analizador de IA vive en su ventana aparte: cuando acepta cambios
+  // avisa por aqui y la biblioteca se refresca sin recargar nada mas.
+  const savedRef = useRef(onTrackSaved);
+  useEffect(() => {
+    savedRef.current = onTrackSaved;
+  }, [onTrackSaved]);
+  useEffect(() => {
+    const un = listen("ai://saved", () => {
+      void savedRef.current();
+    });
+    return () => {
+      void un.then((f) => f()).catch(() => undefined);
+    };
+  }, []);
 
   const blockNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -572,6 +586,17 @@ function MusicBrowserBase({
       return d * dir;
     });
   }, [tracks, mode, selection, query, sort]);
+
+  // Coloca la seleccion en disco y abre (o trae al frente) su ventana. El
+  // analisis trabaja ahi: si se minimiza, sigue en segundo plano.
+  const openAnalyzer = useCallback(async () => {
+    try {
+      await aiWindowPayloadSet({ tracks: filtered, ai });
+      await openAiWindow();
+    } catch (e) {
+      showToast(String(e));
+    }
+  }, [filtered, ai, showToast]);
 
   const changeMode = (m: Mode) => {
     setMode(m);
@@ -1016,7 +1041,7 @@ function MusicBrowserBase({
         <button
           type="button"
           className="btn btn-sm icon-only"
-          onClick={() => setAiOpen(true)}
+          onClick={() => void openAnalyzer()}
           title="Analizar idioma y estilos con IA local"
           aria-label="Analizar idioma y estilos con IA local"
         >
@@ -1856,15 +1881,6 @@ function MusicBrowserBase({
         </div>
       )}
 
-      {aiOpen && (
-        <AiMetadataModal
-          tracks={filtered}
-          ai={ai}
-          onClose={() => setAiOpen(false)}
-          onSaved={onTrackSaved}
-          showToast={showToast}
-        />
-      )}
     </section>
   );
 }

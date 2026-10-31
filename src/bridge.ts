@@ -10,9 +10,9 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type ToolKind = "settings" | "mixer" | "library" | "chat";
 
-export function toolKind(): ToolKind | "videoout" | "videonp" | null {
+export function toolKind(): ToolKind | "videoout" | "videonp" | "ai" | null {
   const w = new URLSearchParams(window.location.search).get("w");
-  return w === "settings" || w === "mixer" || w === "library" || w === "chat" || w === "videoout" || w === "videonp" ? w : null;
+  return w === "settings" || w === "mixer" || w === "library" || w === "chat" || w === "videoout" || w === "videonp" || w === "ai" ? w : null;
 }
 
 // ------------------------------------------------------------ video de emision
@@ -335,6 +335,41 @@ export async function openToolWindow(kind: ToolKind): Promise<boolean> {
       minHeight: size.minHeight,
       decorations: false,
       shadow: true,
+      center: true,
+      dragDropEnabled: false,
+    });
+    return await new Promise<boolean>((resolve) => {
+      void win.once("tauri://created", () => resolve(true));
+      void win.once("tauri://error", () => resolve(false));
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Abre (o trae al frente) la ventana aparte del analizador de IA. Es una
+ * ventana normal (con su barra del sistema): se puede minimizar y el
+ * analisis sigue mientras se trabaja en la principal. Los datos (canciones
+ * y ajustes) ya fueron guardados en disco con aiWindowPayloadSet.
+ */
+export async function openAiWindow(): Promise<boolean> {
+  try {
+    const existing = await WebviewWindow.getByLabel("ai");
+    if (existing) {
+      await existing.unminimize().catch(() => undefined);
+      await existing.show().catch(() => undefined);
+      await existing.setFocus().catch(() => undefined);
+      await emit("ai://open", true);
+      return true;
+    }
+    const win = new WebviewWindow("ai", {
+      url: "index.html?w=ai",
+      title: "OmniCaster · Análisis de metadatos con IA",
+      width: 1020,
+      height: 760,
+      minWidth: 700,
+      minHeight: 480,
       center: true,
       dragDropEnabled: false,
     });

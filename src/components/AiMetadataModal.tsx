@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { aiSuggestMetadata, updateTrack } from "../api";
 import { languageFlag, languageName } from "../languages";
 import type { AiSettings, AiSuggestion, Track, TrackPatch } from "../types";
@@ -9,6 +10,7 @@ interface Props {
   onClose: () => void;
   onSaved: () => Promise<void>;
   showToast: (msg: string) => void;
+  standalone?: boolean;
 }
 
 type RowStatus = "idle" | "running" | "done" | "error";
@@ -33,7 +35,7 @@ function mergeTags(existing: string[], suggested: string[]): string[] {
  * Revision manual de las propuestas de Ollama. Se pueden marcar canciones
  * sueltas o todas, analizarlas y aceptar solo las seleccionadas.
  */
-export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Props) {
+export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, standalone = false }: Props) {
   const [rows, setRows] = useState<Row[]>(() =>
     tracks.map((track) => ({ track, status: "idle" })),
   );
@@ -181,10 +183,18 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
     onClose();
   };
 
-  // Minimizar: la ventana es una pastilla flotante para seguir trabajando.
+  // Minimizar: la ventana es una pastilla flotante para seguir trabajando
+  // (solo en la ventana principal; en su ventana aparte lo hace la del sistema).
   const [minimized, setMinimized] = useState(false);
   const doneCount = rows.filter((r) => r.status === "done" || r.status === "error").length;
   const runningCount = rows.filter((r) => r.status === "running").length;
+  // X de la ventana aparte: está trabajando? (lo mira AiWindow)
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__AI_BUSY__ = busy;
+    return () => {
+      (window as unknown as Record<string, unknown>).__AI_BUSY__ = false;
+    };
+  }, [busy]);
 
   if (minimized) {
     return (
@@ -206,9 +216,19 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
     );
   }
 
+  // En su ventana aparte: minimizar/cerrar los hace la ventana del sistema,
+  // y su X ya redirige aquí (AiWindow escucha ai://close).
+  const minimizeToPill = () => {
+    if (standalone) {
+      void getCurrentWindow().minimize().catch(() => undefined);
+      return;
+    }
+    setMinimized(true);
+  };
+
   return (
-    <div className="modal-backdrop ai-backdrop-free" onClick={(e) => { e.stopPropagation(); }}>
-      {busy && (doneCount < rows.length || runningCount > 0) && (
+    <div className={standalone ? "modal-backdrop ai-backdrop-window" : "modal-backdrop ai-backdrop-free"} onClick={(e) => { e.stopPropagation(); }}>
+      {!standalone && busy && (doneCount < rows.length || runningCount > 0) && (
         <button
           type="button"
           className="ai-mini ai-mini-corner"
@@ -228,7 +248,7 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
       >
         <div className="modal-head">
           <h3>Analizar metadatos con IA</h3>
-          <button type="button" className="icon-btn" onClick={() => setMinimized(true)} title="Esconder y seguir trabajando (queda en una pastilla abajo)">
+          <button type="button" className="icon-btn" onClick={minimizeToPill} title={standalone ? "Minimizar la ventana y seguir trabajando" : "Esconder y seguir trabajando (queda en una pastilla abajo)"}>
             ▁
           </button>
           <button type="button" className="icon-btn" onClick={onClose} disabled={busy} title="Cerrar">
@@ -237,9 +257,10 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast }: Pro
         </div>
         <div className="modal-body">
           <p className="hint">
-            Ollama propondrá idioma, estilo y etiquetas a partir de los metadatos de cada canción.
+            La IA propondrá idioma, estilo y etiquetas a partir de los metadatos de cada canción.
             Revisa las propuestas y acepta solo las que quieras guardar. No se modifica nada hasta
-            que pulses «Aceptar seleccionadas».
+            que pulses «Aceptar seleccionadas». Esta ventana se puede minimizar: el análisis
+            sigue en segundo plano y al aceptar la biblioteca se refresca sola.
           </p>
 
           <div className="ai-toolbar">

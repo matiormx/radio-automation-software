@@ -6,6 +6,7 @@ import { MixerWindow } from "./MixerWindow";
 import { LibraryWindow } from "./LibraryWindow";
 import { VideoOutWindow } from "./VideoOutWindow";
 import { ChatWindow } from "./ChatWindow";
+import { AiWindow } from "./AiWindow";
 import { fitToScreen, toolKind } from "./bridge";
 import "./styles.css";
 
@@ -21,5 +22,5 @@ window.addEventListener("contextmenu", (e) => {
 if (!kind) void fitToScreen(undefined, true);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{kind === "settings" ? <SettingsWindow /> : kind === "mixer" ? <MixerWindow /> : kind === "library" ? <LibraryWindow /> : kind === "videoout" ? <VideoOutWindow /> : kind === "videonp" ? <VideoOutWindow programOnly /> : kind === "chat" ? <ChatWindow /> : <App />}</React.StrictMode>,
+  <React.StrictMode>{kind === "settings" ? <SettingsWindow /> : kind === "mixer" ? <MixerWindow /> : kind === "library" ? <LibraryWindow /> : kind === "videoout" ? <VideoOutWindow programOnly /> : kind === "videonp" ? <VideoOutWindow /> : kind === "chat" ? <ChatWindow /> : kind === "ai" ? <AiWindow /> : <App />}</React.StrictMode>,
 );

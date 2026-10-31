@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 pub mod ai;
 pub mod analysis;
@@ -161,6 +161,14 @@ pub fn run() {
                     tauri::WindowEvent::Destroyed => window.app_handle().exit(0),
                     _ => {}
                 }
+            } else if window.label() == "ai" {
+                // La X del analizador no lo echa si está trabajando: pide la
+                // decisión a la ventana (se minimiza, o se cierra del todo si
+                // terminó). Sin esto perdería el análisis a mitad.
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.emit("ai://close", ());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -176,6 +184,9 @@ pub fn run() {
             ai::ai_models,
             ai::ai_suggest_metadata,
             ai::ai_opencode_version,
+            ai::ai_window_payload_set,
+            ai::ai_window_payload,
+            ai::ai_window_close,
             library::import_files,
             deezer::deezer_search,
             deezer::deezer_track,

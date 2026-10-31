@@ -127,6 +127,21 @@ export function aiSuggestMetadata(
   });
 }
 
+/** Guarda {tracks, ai} para la ventana aparte del analizador de IA. */
+export function aiWindowPayloadSet(payload: unknown): Promise<void> {
+  return invoke("ai_window_payload_set", { payload: JSON.stringify(payload) });
+}
+
+/** Lo que guardo con aiWindowPayloadSet (null si nunca se guardo). */
+export function aiWindowPayload(): Promise<string | null> {
+  return invoke<string | null>("ai_window_payload");
+}
+
+/** Cierra del todo la ventana del analizador (la X la minimiza si analiza). */
+export function aiWindowClose(): Promise<void> {
+  return invoke("ai_window_close");
+}
+
 export function notifyFire(event: string, vars: Record<string, string>): Promise<void> {
   return invoke("notify_fire", { event, vars });
 }

@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::library::{clean_language, read_library_internal};
 use crate::settings::AiSettings;
@@ -634,6 +634,31 @@ pub async fn ai_opencode_version(opencode_path: Option<String>) -> Result<String
     })
     .await
     .map_err(|e| format!("No se pudo comprobar OpenCode: {e}"))?
+}
+/// Guarda la selección para la ventana del analizador (index.html?w=ai): la
+/// ventana la lee al arrancar y hay que escribirla ANTES de crearla.
+#[tauri::command]
+pub fn ai_window_payload_set(state: State<'_, AppState>, payload: String) -> Result<(), String> {
+    // El payload puede pesar (cada cancion con todos sus campos): se escribe
+    // directo al disco, no en un estado en memoria, para que la ventana lo
+    // vea aunque se cree desde cero.
+    let path = state.data_dir.join("ai-window.json");
+    std::fs::write(&path, payload).map_err(|e| format!("No se pudo guardar la selección: {e}"))
+}
+
+/// La ventana del analizador pide su selección (canciones y ajustes de IA).
+#[tauri::command]
+pub fn ai_window_payload(state: State<'_, AppState>) -> Option<String> {
+    std::fs::read_to_string(state.data_dir.join("ai-window.json")).ok()
+}
+
+/// Cierra del todo la ventana del analizador (su X está vigilada para que se
+/// minimize en vez de perder un análisis en marcha).
+#[tauri::command]
+pub fn ai_window_close(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("ai") {
+        let _ = w.destroy();
+    }
 }
 
 #[cfg(test)]

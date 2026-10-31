@@ -4152,6 +4152,20 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 
 .ai-modal { width: min(980px, 96vw); max-height: 90vh; }
 
+/* La ventana aparte del analizador (index.html?w=ai): el modal ocupa el
+   hueco entero y los avisos (toasts) quedan abajo del todo, sin tapar la
+   lista. */
+.ai-window-holder { height: 100vh; }
+.ai-backdrop-window { background: none; overflow-y: auto; }
+.ai-window-note {
+  position: fixed;
+  bottom: 10px;
+  left: 14px;
+  right: 14px;
+  z-index: 30;
+  pointer-events: none;
+}
+
 /* El analisis con IA no bloquea: el fondo deja pasar los clics y la ventana
    se puede minimizar en una pastilla para seguir trabajando. */
 .ai-backdrop-free { pointer-events: none; }

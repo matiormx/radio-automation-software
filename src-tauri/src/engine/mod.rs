@@ -464,16 +464,15 @@ pub fn engine_stop(state: State<'_, EngineState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Antes de instalar una actualización: se para el sonido y se descargan los
-/// plugins. Si no, al cerrar para actualizar Windows tenía que soltar las
-/// tarjetas y los plugins (Waves, NDI…) mientras el instalador intentaba
-/// cerrar OmniCaster, y este se rendía («Failed to kill OmniCaster»).
+/// Antes de instalar una actualización: se para el sonido y los plugins
+/// quedan «congelados» (nunca descargados). Si aquí se descargaran, algunos
+/// (WaveShell de Waves) reventaban el proceso al soltarse y la app moría antes
+/// de que el instalador arrancara: parecía que «cerra y no pasa nada». Sin
+/// descarga, el instalador mata el proceso sin riesgo y sigue su curso.
 pub fn shutdown_for_update(state: &EngineState) {
+    vst::freeze();
     let engine = state.0.lock().ok().and_then(|mut g| g.take());
     drop(engine);
-    let _ = vst::ensure(Vec::new());
-    // El hilo de los plugins suelta los quitados en su siguiente vuelta (≤ 0,5 s)
-    std::thread::sleep(Duration::from_millis(800));
 }
 
 #[tauri::command]
