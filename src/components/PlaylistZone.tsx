@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Block, Playlist, PlaylistRow } from "../types";
 import { trackUrl } from "../api";
 import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave, IconNext } from "../icons";
@@ -131,6 +131,27 @@ export function PlaylistZone({
   // siempre en la frontera entre esas y las que se ven normalmente.
   const pastCut = Math.max(0, playingRow - PAST_VISIBLE);
   const hiddenPast = showAllPast ? 0 : pastCut;
+  // Al mostrar u ocultar las emitidas, el aviso (la frontera entre las ya
+  // emitidas y las que vienen) se queda en el mismo sitio de la pantalla:
+  // antes las filas que aparecían encima lo empujaban y se veía el principio
+  // de la lista.
+  const pastNoteRef = useRef<HTMLButtonElement | null>(null);
+  const pastAnchor = useRef<number | null>(null);
+  const togglePast = () => {
+    const box = rowsRef.current;
+    const note = pastNoteRef.current;
+    pastAnchor.current = box && note ? note.getBoundingClientRect().top - box.getBoundingClientRect().top : null;
+    setShowAllPast((v) => !v);
+  };
+  useLayoutEffect(() => {
+    const box = rowsRef.current;
+    const note = pastNoteRef.current;
+    const before = pastAnchor.current;
+    pastAnchor.current = null;
+    if (!box || !note || before === null) return;
+    const now = note.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    box.scrollTop += now - before;
+  }, [showAllPast]);
   // Un clic en la portada abre los detalles; doble clic emite la cancion.
   const coverClick = useRef<number | null>(null);
 
@@ -298,7 +319,8 @@ export function PlaylistZone({
               <button
                 type="button"
                 className="plrow-pastnote"
-                onClick={() => setShowAllPast((v) => !v)}
+                ref={pastNoteRef}
+                onClick={togglePast}
               >
                 {showAllPast
                   ? `▲ ${pastCut} ${pastCut === 1 ? "canción emitida" : "canciones emitidas"} · ocultar`

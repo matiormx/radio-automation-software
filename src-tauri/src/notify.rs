@@ -50,6 +50,26 @@ impl Default for Notification {
 pub struct NotifyState {
     /// Ultimo texto enviado por aviso (evita repetir el mismo cambio)
     last: Mutex<HashMap<String, String>>,
+    /// Resultado del último envío de cada aviso (para verlo en Ajustes):
+    /// antes un fallo se perdía sin dejar rastro.
+    results: std::sync::Arc<Mutex<HashMap<String, SendResult>>>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SendResult {
+    /// Segundos desde 1970
+    pub at: u64,
+    pub ok: bool,
+    /// «respuesta 200» o el error
+    pub detail: String,
+    pub event: String,
+}
+
+/// Último envío de cada aviso (por id).
+#[tauri::command]
+pub fn notify_status(state: State<'_, NotifyState>) -> HashMap<String, SendResult> {
+    state.results.lock().map(|m| m.clone()).unwrap_or_default()
 }
 
 fn urlencode(s: &str) -> String {
@@ -171,8 +191,22 @@ pub fn notify_fire(
             }
             v.insert("text".into(), text);
         }
+        let results = state.results.clone();
+        let ev = event.clone();
         let _ = std::thread::Builder::new().name("miradio-notify".into()).spawn(move || {
-            let _ = send(&n, &v);
+            let r = send(&n, &v);
+            let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let (ok, detail) = match r {
+                Ok(code) if (200..400).contains(&code) => (true, format!("respuesta {code}")),
+                Ok(code) => (false, format!("respuesta {code}")),
+                Err(e) => (false, e),
+            };
+            if !ok {
+                crate::crashlog::note(&format!("Notificación «{}» ({ev}) falló: {detail}", n.name));
+            }
+            if let Ok(mut m) = results.lock() {
+                m.insert(n.id.clone(), SendResult { at, ok, detail, event: ev });
+            }
         });
     }
 }

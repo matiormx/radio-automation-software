@@ -246,7 +246,8 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
         aria-modal="true"
         aria-label="Analizar metadatos con IA"
       >
-        <div className="modal-head">
+        {/* En su ventana el título ya está en la cabecera de la ventana */}
+        <div className="modal-head" style={standalone ? { display: "none" } : undefined}>
           <h3>Analizar metadatos con IA</h3>
           {/* En su ventana aparte los controles los pone su cabecera (WindowControls) */}
           {!standalone && (

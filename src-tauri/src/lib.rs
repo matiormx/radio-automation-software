@@ -292,6 +292,7 @@ pub fn run() {
             backup::backup_import,
             backup::backup_last_import_log,
             notify::notify_test,
+            notify::notify_status,
             rbapi::api_apply,
             rbapi::api_status,
             rbapi::api_set_login,

@@ -30,12 +30,103 @@ const SYSTEM_PROMPT: &str = r#"Eres un catalogador musical para una emisora de r
 Analiza los metadatos de una cancion y devuelve SOLO un objeto JSON valido, sin texto adicional, con esta forma:
 {"language":"es","genre":"Pop","tags":["balada","acustico"],"confidence":0.8,"reason":"..."}
 Reglas:
-- language: codigo ISO 639-1 de dos letras del idioma principal de la letra. Si es instrumental o no puedes determinarlo, usa "".
+- language: codigo ISO 639-1 de dos letras del idioma principal de la LETRA. Si se da la letra, el idioma sale de ella y no del titulo: el titulo o el artista pueden estar en otro idioma (traducciones, versiones, titulos en ingles de canciones cantadas en español). Si es instrumental o no puedes determinarlo, usa "".
 - genre: estilo musical breve en español. Si se ofrecen estilos preferidos, elige uno de ellos cuando encaje.
 - tags: entre 0 y 5 etiquetas cortas y utiles (instrumental, bailable, acustico, navidad, etc.).
-- confidence: numero entre 0 y 1. Baja la confianza si solo tienes el titulo o no estas seguro.
+- confidence: numero entre 0 y 1. Baja la confianza si no hay letra y solo tienes el titulo, o si no estas seguro.
 - reason: una frase breve en español que explique la decision.
 No inventes datos que no se puedan deducir de los metadatos."#;
+
+const INSTRUMENTAL: &str = "\u{0}instrumental";
+
+/// Quita las marcas de tiempo de una letra sincronizada ([00:12.34]) y
+/// deja un fragmento (las primeras estrofas bastan para el idioma).
+fn clean_lyrics(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.lines() {
+        let mut l = line.trim();
+        while l.starts_with('[') {
+            match l.find(']') {
+                Some(i) => l = l[i + 1..].trim_start(),
+                None => break,
+            }
+        }
+        if l.is_empty() {
+            continue;
+        }
+        out.push_str(l);
+        out.push('\n');
+        if out.chars().count() > 900 {
+            break;
+        }
+    }
+    out.chars().take(900).collect::<String>().trim().to_string()
+}
+
+/// Letra de la cancion: primero la que trae el archivo (USLT, LYRICS…); si no
+/// hay, la de LRCLIB (lrclib.net, base de datos libre de letras, sin clave).
+/// Devuelve (letra, de dónde salió); vacía si no se encuentra.
+fn lyrics_for(file: &str, title: &str, artist: &str, album: &str, duration: f64) -> (String, &'static str) {
+    use lofty::file::TaggedFileExt;
+    use lofty::tag::ItemKey;
+    if let Ok(tagged) = lofty::read_from_path(file) {
+        for tag in tagged.tags() {
+            for key in [ItemKey::UnsyncLyrics, ItemKey::Lyrics] {
+                if let Some(text) = tag.get_string(key.clone()) {
+                    let clean = clean_lyrics(text);
+                    if clean.chars().count() > 20 {
+                        return (clean, "el archivo");
+                    }
+                }
+            }
+        }
+    }
+    if title.trim().is_empty() || artist.trim().is_empty() {
+        return (String::new(), "");
+    }
+    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/matiormx/radio-automation-software)");
+    let pick = |v: &Value| -> Option<(String, &'static str)> {
+        if v.get("instrumental").and_then(|x| x.as_bool()).unwrap_or(false) {
+            return Some((INSTRUMENTAL.to_string(), "LRCLIB"));
+        }
+        let text = v.get("plainLyrics").and_then(|x| x.as_str()).or_else(|| v.get("syncedLyrics").and_then(|x| x.as_str()))?;
+        let clean = clean_lyrics(text);
+        (clean.chars().count() > 20).then_some((clean, "LRCLIB"))
+    };
+    // Coincidencia exacta (con la duración) y, si no, la búsqueda.
+    let mut get = ureq::get("https://lrclib.net/api/get")
+        .timeout(Duration::from_secs(8))
+        .set("User-Agent", agent)
+        .query("track_name", title.trim())
+        .query("artist_name", artist.trim());
+    if !album.trim().is_empty() {
+        get = get.query("album_name", album.trim());
+    }
+    if duration > 0.0 {
+        get = get.query("duration", &format!("{}", duration.round() as u64));
+    }
+    if let Ok(found) = get.call().ok().and_then(|r| r.into_string().ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()).ok_or(()) {
+        if let Some(hit) = pick(&found) {
+            return hit;
+        }
+    }
+    if let Ok(list) = ureq::get("https://lrclib.net/api/search")
+        .timeout(Duration::from_secs(8))
+        .set("User-Agent", agent)
+        .query("track_name", title.trim())
+        .query("artist_name", artist.trim())
+        .call()
+        .ok()
+        .and_then(|r| r.into_string().ok())
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .ok_or(())
+    {
+        if let Some(hit) = list.as_array().and_then(|a| a.iter().find_map(|v| pick(v))) {
+            return hit;
+        }
+    }
+    (String::new(), "")
+}
 
 fn base_url(url: &str) -> String {
     let mut base = url.trim().trim_end_matches('/').to_string();
@@ -506,8 +597,18 @@ fn suggest(
         .take(80)
         .collect::<Vec<_>>()
         .join(", ");
+    // La letra decide el idioma (antes solo iba el titulo y, con titulos
+    // en otro idioma o traducciones, la IA se confundia).
+    let (lyrics, lyrics_from) = lyrics_for(&track.file, &track.title, &track.artist, &track.album, track.duration_secs);
+    let lyrics_text = if lyrics.is_empty() {
+        "Letra: no disponible".to_string()
+    } else if lyrics == INSTRUMENTAL {
+        format!("Letra: es instrumental (según {lyrics_from})")
+    } else {
+        format!("Letra (fragmento, de {lyrics_from}):\n{lyrics}")
+    };
     let user_prompt = format!(
-        "Titulo: {}\nArtista: {}\nAlbum: {}\nAño: {}\nEstilo actual: {}\nEtiquetas actuales: {}\nArchivo: {}\nEstilos preferidos: {}",
+        "Titulo: {}\nArtista: {}\nAlbum: {}\nAño: {}\nEstilo actual: {}\nEtiquetas actuales: {}\nArchivo: {}\nEstilos preferidos: {}\n{}",
         track.title,
         track.artist,
         track.album,
@@ -515,7 +616,8 @@ fn suggest(
         track.genre,
         current_tags,
         file_name,
-        styles_text
+        styles_text,
+        lyrics_text
     );
 
     if ai.provider.trim() == "cloud" {
@@ -676,6 +778,12 @@ mod tests {
     use super::*;
 
     /// JSON limpio y JSON con charlas al rededor (OpenCode puede decir mas).
+    #[test]
+    fn lyrics_lose_timestamps() {
+        let l = clean_lyrics("[00:12.34]Santo, santo, santo\n[00:15.00][00:40.00]Dios todopoderoso\n\n");
+        assert_eq!(l, "Santo, santo, santo\nDios todopoderoso");
+    }
+
     #[test]
     fn json_extracts_from_noise() {
         let s = r#"{"language":"es","genre":"Pop","tags":["bailable"],"confidence":0.9,"reason":"claro"}"#;

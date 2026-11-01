@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
+<div id="root"></div>
+<script>
+const tracks=[{id:"t1",title:"Raise a Hallelujah",artist:"Bethel Music",album:"",genre:"",language:"",tags:[],file:"/x.mp3",durationSecs:300},{id:"t2",title:"Lluvia de Gracia",artist:"Julissa",album:"",genre:"",language:"",tags:[],file:"/y.mp3",durationSecs:280}];
+window.__TAURI_INTERNALS__ = { metadata:{currentWindow:{label:"ai"},currentWebview:{label:"ai",windowLabel:"ai"}}, invoke: async (cmd) => {
+  if(cmd==="ai_window_payload") return JSON.stringify({tracks, ai:{enabled:true,provider:"ollama",url:"",model:"llama3",styles:["Adoración","Alabanza"]}});
+  if(cmd==="plugin:event|listen") return 1;
+  return null;
+}, transformCallback: () => 0, convertFileSrc:(p)=>p };
+</script>
+<script type="module">
+import React from "react"; import { createRoot } from "react-dom/client"; import "/src/styles.css";
+import { AiWindow } from "/src/AiWindow.tsx";
+createRoot(document.getElementById("root")).render(React.createElement(AiWindow));
+</script></body></html>

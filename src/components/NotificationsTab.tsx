@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { notifyTest } from "../api";
+import { invoke } from "@tauri-apps/api/core";
 import type { NotificationRule, Settings } from "../types";
 
 interface Props {
@@ -165,6 +166,7 @@ export function NotificationsTab({ settings, onChange, showToast }: Props) {
             </label>
           )}
 
+          <LastSend id={cur.id} />
           <div className="field-row">
             <button
               type="button"
@@ -194,5 +196,42 @@ export function NotificationsTab({ settings, onChange, showToast }: Props) {
         </fieldset>
       )}
     </>
+  );
+}
+
+interface SendResult {
+  at: number;
+  ok: boolean;
+  detail: string;
+  event: string;
+}
+
+const EVENT_NAMES: Record<string, string> = {
+  track: "cambio de canción",
+  live: "LIVE",
+  program: "programa",
+  server: "servidor",
+  silence: "silencio",
+  error: "error",
+};
+
+/** Último envío real de este aviso: si falla, se ve aquí (y en errores.log). */
+function LastSend({ id }: { id: string }) {
+  const [r, setR] = useState<SendResult | null>(null);
+  useEffect(() => {
+    const load = () =>
+      void invoke<Record<string, SendResult>>("notify_status")
+        .then((m) => setR(m[id] ?? null))
+        .catch(() => undefined);
+    load();
+    const t = window.setInterval(load, 3000);
+    return () => window.clearInterval(t);
+  }, [id]);
+  if (!r) return <p className="hint">Último envío: ninguno desde que se abrió OmniCaster.</p>;
+  const when = new Date(r.at * 1000).toLocaleTimeString("es-ES");
+  return (
+    <p className={`hint${r.ok ? "" : " update-error"}`}>
+      Último envío: {when} · {EVENT_NAMES[r.event] ?? r.event} · {r.ok ? "correcto" : "FALLÓ"} ({r.detail})
+    </p>
   );
 }
