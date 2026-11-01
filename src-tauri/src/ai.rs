@@ -405,6 +405,16 @@ fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, Stri
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // OpenCode es un agente que puede ejecutar órdenes y tocar archivos, y el
+    // texto que se le manda incluye títulos y etiquetas de los archivos de
+    // música (que pueden traer cualquier cosa). Aquí solo debe contestar: se
+    // le quitan las herramientas y trabaja en una carpeta vacía.
+    let sandbox = std::env::temp_dir().join("omnicaster-opencode");
+    let _ = std::fs::create_dir_all(&sandbox);
+    cmd.current_dir(&sandbox).env(
+        "OPENCODE_CONFIG_CONTENT",
+        r#"{"permission":{"edit":"deny","bash":"deny","webfetch":"deny"},"tools":{"write":false,"edit":false,"bash":false,"patch":false,"webfetch":false}}"#,
+    );
     crate::streaming::configure_no_window(&mut cmd);
     let mut child = cmd
         .spawn()

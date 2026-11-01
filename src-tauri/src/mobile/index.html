@@ -442,7 +442,7 @@ function viewAir() {
   $("#main").innerHTML = `
     <h3>Lo que se emite</h3>
     <div class="card" style="padding:8px"><img class="snap" id="snap" alt="" ${snapUrl ? `src="${snapUrl}"` : ""}>
-      <div class="snapnote" id="snapnote">${snapNote}</div></div>
+      <div class="snapnote" id="snapnote">${esc(snapNote)}</div></div>
     <h3>Emisión</h3>
     <button class="btn ${st.audioOn ? "on" : ""}" data-c="audio" ${!st.audioReady || st.busy ? "disabled" : ""}><span class="dot"></span>${st.audioOn ? "AUDIO · EN VIVO" : "EMITIR AUDIO"}</button>
     <button class="btn ${st.videoOn ? "on" : ""}" data-c="vid" ${!st.videoReady || st.busy ? "disabled" : ""}><span class="dot"></span>${st.videoOn ? "VÍDEO · EN VIVO" : "EMITIR VÍDEO"}</button>
@@ -1145,7 +1145,7 @@ function openSrv(id) {
       <label style="display:flex;align-items:center;gap:6px;align-self:end"><input type="checkbox" data-f="tls" ${d.tls ? "checked" : ""}> TLS</label></div>
     <label>Montaje</label><input type="text" data-f="mount" value="${esc(d.mount)}">
     <div class="row2"><div style="flex:1"><label>Usuario</label><input type="text" data-f="username" value="${esc(d.username)}"></div>
-      <div style="flex:1"><label>Contraseña</label><input type="password" data-f="password" value="${esc(d.password)}"></div></div>
+      <div style="flex:1"><label>Contraseña</label><input type="password" data-f="password" value="${esc(d.password)}" placeholder="${d.hasPassword ? "(sin cambios)" : ""}"></div></div>
     <label>Formato</label><select data-f="codec">
       <option value="flac" ${d.codec === "flac" ? "selected" : ""}>FLAC</option>
       <option value="aac" ${d.codec === "aac" ? "selected" : ""}>AAC</option></select>

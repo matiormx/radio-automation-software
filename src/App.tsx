@@ -231,6 +231,21 @@ interface PendingInsert {
   onTimeout: "force" | "cancel" | "next";
 }
 
+/**
+ * Dirección de emisión sin su clave para enseñarla en el móvil:
+ * «rtmp://a.rtmp.youtube.com/live2/abcd-1234» → «…/live2/••••1234».
+ * Al guardar, si vuelve igual, se conserva la de verdad.
+ */
+function maskStreamUrl(url: string): string {
+  const u = url.trim();
+  if (!u) return "";
+  const noQuery = u.split("?")[0];
+  const cut = noQuery.lastIndexOf("/");
+  if (cut < 0 || cut >= noQuery.length - 1) return noQuery + (u.includes("?") ? "?••••" : "");
+  const key = noQuery.slice(cut + 1);
+  return `${noQuery.slice(0, cut + 1)}••••${key.length > 8 ? key.slice(-4) : ""}${u.includes("?") ? "?••••" : ""}`;
+}
+
 /** Hora «HH:MM» válida (o null). */
 function mobileTime(v: string): string | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
@@ -3624,7 +3639,10 @@ export default function App() {
       // sale por una emisión monitorizada: la misma miniatura de 1 fps que se
       // ve en Ajustes > Streaming y en el deck (el móvil no abre FFmpeg extra).
       // Si no la hay, la fuente NDI al aire o «Lo que suena».
-      netOutputs: (settings.video?.outputs ?? []).filter((o) => o.kind === "rtmp" || o.kind === "whip"),
+      // Sin claves: la URL va enmascarada (el móvil la manda igual si no la cambia)
+      netOutputs: (settings.video?.outputs ?? [])
+        .filter((o) => o.kind === "rtmp" || o.kind === "whip")
+        .map((o) => ({ ...o, source: maskStreamUrl(o.source) })),
       videoInputs: (settings.video?.inputs ?? []).map((i) => ({
         id: i.id,
         name: i.name,
@@ -3640,7 +3658,9 @@ export default function App() {
         port: x.port,
         mount: x.mount,
         username: x.username,
-        password: x.password,
+        // La contraseña no sale del estudio: solo si la hay
+        password: "",
+        hasPassword: !!x.password,
         tls: x.tls,
         codec: x.codec,
         bitrateKbps: x.bitrateKbps,
@@ -3881,8 +3901,13 @@ export default function App() {
         const list = Array.isArray(c.channels) ? c.channels : [];
         const channels: MixerChannel[] = list.slice(0, 32).map((raw: Record<string, unknown>, i: number): MixerChannel => {
           const ch = raw as unknown as MixerChannel;
+          // Plugins e inserts no se tocan desde el móvil: se quedan los que hay
+          // (si no, con el PIN se podría cargar cualquier archivo como plugin).
+          const prev = (s.mixerChannels ?? []).find((x) => x.id === ch.id);
           return {
             ...ch,
+            plugins: prev?.plugins ?? [],
+            insert: prev?.insert,
             id: String(ch.id ?? `c${Date.now().toString(36)}${i}`),
             name: String(ch.name ?? `Canal ${i + 1}`).slice(0, 60),
             color: ch.color || "#94a3b8",
@@ -3900,8 +3925,11 @@ export default function App() {
         const list = Array.isArray(c.buses) ? c.buses : [];
         const buses: MixerBus[] = list.slice(0, 8).map((raw: Record<string, unknown>, i: number): MixerBus => {
           const b = raw as unknown as MixerBus;
+          const prev = (s.mixerBuses ?? []).find((x) => x.id === b.id);
           return {
             ...b,
+            plugins: prev?.plugins ?? [],
+            insert: prev?.insert,
             id: String(b.id ?? `b${Date.now().toString(36)}${i}`),
             name: String(b.name ?? `Bus ${i + 1}`).slice(0, 60),
             color: b.color || "#94a3b8",
@@ -4002,7 +4030,12 @@ export default function App() {
             id: String(anyRaw.id ?? `n${Date.now().toString(36)}${i}`),
             kind,
             name: String(anyRaw.name ?? "").slice(0, 60),
-            source: String(anyRaw.source ?? "").slice(0, 500),
+            source: (() => {
+              const sent = String(anyRaw.source ?? "").slice(0, 500);
+              const real = (s.video?.outputs ?? []).find((o) => o.id === anyRaw.id)?.source ?? "";
+              // La URL llegó enmascarada (no la tocaron): se queda la de verdad
+              return real && sent === maskStreamUrl(real) ? real : sent;
+            })(),
             videoInputId: anyRaw.videoInputId ?? "program",
             fallbackVideoInputId: anyRaw.fallbackVideoInputId ?? "",
             audioSource: anyRaw.audioSource ?? "mixer",
@@ -4038,7 +4071,8 @@ export default function App() {
             port: Math.max(1, Math.min(65535, Math.round(Number(raw.port) || 8000))),
             mount: at("mount").slice(0, 120) || (codec === "flac" ? "/miradio.flac" : "/miradio.aac"),
             username: at("username").slice(0, 120) || "source",
-            password: at("password").slice(0, 200),
+            // Vacía = sin cambios (el móvil nunca recibe la contraseña)
+            password: at("password") ? at("password").slice(0, 200) : base.password ?? "",
             tls: raw.tls === true,
             codec,
             bitrateKbps: codec === "flac" ? 0 : Math.max(32, Math.min(512, Math.round(Number(raw.bitrateKbps) || 128))),

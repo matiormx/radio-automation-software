@@ -43,17 +43,22 @@ pub struct AppState {
 /// Se llama justo antes de instalar una actualización (ver update.ts).
 #[tauri::command]
 async fn prepare_for_update(app: tauri::AppHandle) {
-    let _ = tauri::async_runtime::spawn_blocking(move || {
-        cursor::release();
-        remote::shutdown();
-        if let Some(st) = app.try_state::<streaming::StreamingState>() {
-            streaming::shutdown(&st);
-        }
-        if let Some(st) = app.try_state::<engine::EngineState>() {
-            engine::shutdown_for_update(&st);
-        }
-    })
-    .await;
+    let _ = tauri::async_runtime::spawn_blocking(move || prepare_shutdown(&app)).await;
+}
+
+/// Para lo que no debe quedar colgando al cerrar para actualizar: emisiones
+/// (FFmpeg), VNC, el ratón y el sonido. Los plugins se quedan cargados.
+pub(crate) fn prepare_shutdown(app: &tauri::AppHandle) {
+    cursor::release();
+    remote::shutdown();
+    if let Some(st) = app.try_state::<streaming::StreamingState>() {
+        streaming::shutdown(&st);
+    }
+    if let Some(st) = app.try_state::<engine::EngineState>() {
+        engine::shutdown_for_update(&st);
+    }
+    // Un cierre a propósito no es un cierre inesperado
+    crashlog::crumb(None);
 }
 
 #[tauri::command]
@@ -296,6 +301,7 @@ pub fn run() {
             update::open_url,
             update::update_log,
             update::update_trace_last,
+            update::update_install_now,
             nowplaying::write_now_playing,
             nowplaying::write_now_playing_image
         ])

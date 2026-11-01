@@ -176,17 +176,29 @@ fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBoo
     let shared_child = Arc::new(Mutex::new(child));
     let killer_child = shared_child.clone();
     let killer_stop = stop.clone();
+    // Este FFmpeg terminó por su cuenta: el vigilante también se va (antes se
+    // quedaba esperando a la señal de paro y, con la fuente caída, se
+    // acumulaba uno nuevo cada 2 s).
+    let finished = Arc::new(AtomicBool::new(false));
+    let killer_done = finished.clone();
     let killer = thread::spawn(move || {
-        while !killer_stop.load(Ordering::SeqCst) {
+        while !killer_stop.load(Ordering::SeqCst) && !killer_done.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(100));
         }
-        if let Ok(mut child) = killer_child.lock() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if killer_stop.load(Ordering::SeqCst) {
+            if let Ok(mut child) = killer_child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     });
     let Some(mut stdout) = stdout else {
-        drop(killer);
+        finished.store(true, Ordering::SeqCst);
+        let _ = shared_child.lock().map(|mut c| {
+            let _ = c.kill();
+            c.wait()
+        });
+        let _ = killer.join();
         return None;
     };
     let mut buf: Vec<u8> = Vec::new();
@@ -206,6 +218,8 @@ fn run_once(ffmpeg: &Path, input_args: &[String], id: &str, stop: &Arc<AtomicBoo
         }
     }
     drop(stdout);
+    finished.store(true, Ordering::SeqCst);
+    let _ = killer.join();
     let _ = shared_child.lock().map(|mut child| child.wait());
     None
 }

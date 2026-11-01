@@ -1473,7 +1473,9 @@ fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool
         // La miniatura monitorizada cambia de fuente con la emision:
         // al ir al respaldo (o volver a la principal) sigue lo que sale.
         if let Some(monitor) = &spec.monitor {
-            let key = format!("monitor:{id}");
+            // El proceso es «video:<salida>»; su miniatura, «monitor:<salida>»
+            // (antes quedaba «monitor:video:…»: nadie la veía ni la paraba).
+            let key = format!("monitor:{}", id.strip_prefix("video:").unwrap_or(&id));
             if crate::monitor::resumable(&key, monitor.built) {
                 crate::monitor::start(&monitor.ffmpeg, monitor.args.clone(), key);
             }
@@ -1522,10 +1524,14 @@ pub fn shutdown(state: &StreamingState) {
 
 fn stop_group(inner: &mut EngineInner, group: &str) {
     let mut keep = Vec::new();
+    let mut stopped_monitors: Vec<String> = Vec::new();
     for mut process in inner.processes.drain(..) {
         if !in_group(&process.kind, group) {
             keep.push(process);
             continue;
+        }
+        if let Some(out) = process.id.strip_prefix("video:") {
+            stopped_monitors.push(format!("monitor:{out}"));
         }
         process.cancel.store(true, Ordering::SeqCst);
         process.tx.take();
@@ -1537,9 +1543,15 @@ fn stop_group(inner: &mut EngineInner, group: &str) {
     }
     inner.processes = keep;
     inner.failed_outputs.retain(|output| !in_group(&output.kind, group));
-    // Las miniaturas son de vídeo: se paran con el grupo de vídeo o con todo.
-    if group != "audio" {
+    // Solo las miniaturas de las salidas que se paran: antes se paraban
+    // todas, y reiniciar las salidas del estudio (lo que pasa al cambiar un
+    // ajuste) dejaba en negro el monitor de la emisión por internet.
+    if group == "everything" {
         crate::monitor::stop_all();
+    } else {
+        for id in stopped_monitors {
+            crate::monitor::stop_id(&id);
+        }
     }
 }
 

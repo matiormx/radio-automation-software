@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { appVersion } from "./api";
@@ -9,7 +10,6 @@ export const RELEASES_PAGE =
 
 /** Actualizacion encontrada en la ultima busqueda, lista para instalar. */
 let pending: Update | null = null;
-let currentVersion = "";
 
 function describeError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
@@ -28,7 +28,6 @@ function describeError(error: unknown): string {
  */
 export async function checkForUpdate(): Promise<AppUpdateInfo> {
   const current = await appVersion();
-  currentVersion = current;
   let update: Update | null;
   try {
     update = await check();
@@ -64,33 +63,16 @@ export async function installUpdate(
   if (!pending) {
     throw new Error("Busca actualizaciones antes de instalar");
   }
-  const target = pending.version;
-  let downloaded = 0;
-  let total: number | null = null;
-  await invoke("update_log", { line: `intento: ${currentVersion} → ${target}` }).catch(() => undefined);
-  await pending.download((event) => {
-    if (event.event === "Started") {
-      total = event.data.contentLength ?? null;
-      onProgress?.(0, total);
-    } else if (event.event === "Progress") {
-      downloaded += event.data.chunkLength;
-      onProgress?.(downloaded, total);
-    } else if (event.event === "Finished") {
-      onProgress?.(total ?? downloaded, total);
-    }
-  });
-  await invoke("update_log", { line: `descarga completa (${target})` }).catch(() => undefined);
-  // Antes de instalar se para el sonido y se descargan los plugins: así
-  // OmniCaster se cierra al momento y el instalador no se queda atascado.
-  await invoke("prepare_for_update").catch(() => undefined);
+  // Todo lo hace OmniCaster (Rust): descarga, comprueba la firma, para el
+  // sonido, lanza el instalador y se cierra al instante. Si vuelve, es error.
+  const off = await listen<[number, number | null]>("update://progress", (e) => onProgress?.(e.payload[0], e.payload[1]));
   try {
-    await pending.install();
+    await invoke("update_install_now");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await invoke("update_log", { line: `instalacion fallida: ${message}` }).catch(() => undefined);
     pending = null;
-    throw new Error(`La instalación no llegó a arrancar: ${message}`);
+    throw new Error(error instanceof Error ? error.message : String(error));
+  } finally {
+    off();
   }
-  await invoke("update_log", { line: `instalacion lanzada (el instalador cierra la app y la reabre) OK ${target}` }).catch(() => undefined);
   pending = null;
 }
