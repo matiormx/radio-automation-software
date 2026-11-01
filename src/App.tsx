@@ -3014,12 +3014,18 @@ export default function App() {
     const event = activeAutoEventRef.current;
     if (!event?.clearList) return;
     const playing = playingRowRef.current;
-    const keep = playing >= 0 ? rowsRef.current[playing]?.id : undefined;
+    // Se quedan lo ya emitido, lo que suena y las inserciones de otros eventos
+    // que esperan su turno (boletines, cuñas); solo se va lo que quedaba por
+    // sonar. Antes se borraba todo menos la canción en antena (también el
+    // historial) y la posición de la que suena se descolocaba.
+    const pendingIds = new Set(
+      pendingInsertsRef.current.filter((p) => p.playlistId === activeIdRef.current).map((p) => p.trackId),
+    );
     if (nextPickRef.current && nextPickRef.current.listId === activeIdRef.current) {
       // La fila elegida a mano deja de existir; lo nuevo manda.
       setNextPick(null);
     }
-    void mutateListRef.current((ids) => (keep ? ids.filter((id) => id === keep) : []));
+    void mutateListRef.current((ids) => ids.filter((id, i) => i <= playing || pendingIds.has(id)));
   }, [autoScopeKey]);
 
   useEffect(() => {
