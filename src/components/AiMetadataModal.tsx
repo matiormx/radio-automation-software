@@ -68,7 +68,7 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
       setError("Selecciona al menos una canción.");
       return;
     }
-    if (!ai.url.trim() || !ai.model.trim()) {
+    if ((ai.provider ?? "ollama") === "ollama" && (!ai.url.trim() || !ai.model.trim())) {
       setError("Configura la dirección y el modelo de Ollama en Ajustes > IA.");
       return;
     }

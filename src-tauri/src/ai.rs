@@ -30,7 +30,7 @@ const SYSTEM_PROMPT: &str = r#"Eres un catalogador musical para una emisora de r
 Analiza los metadatos de una cancion y devuelve SOLO un objeto JSON valido, sin texto adicional, con esta forma:
 {"language":"es","genre":"Pop","tags":["balada","acustico"],"confidence":0.8,"reason":"..."}
 Reglas:
-- language: codigo ISO 639-1 de dos letras del idioma principal de la LETRA. Si se da la letra, el idioma sale de ella y no del titulo: el titulo o el artista pueden estar en otro idioma (traducciones, versiones, titulos en ingles de canciones cantadas en español). Si es instrumental o no puedes determinarlo, usa "".
+- language: codigo ISO 639-1 de dos letras del idioma principal de la LETRA. Si se da la letra, el idioma sale de ella y no del titulo: el titulo o el artista pueden estar en otro idioma (traducciones, versiones, titulos en ingles de canciones cantadas en español). Si no hay letra pero se da el idioma detectado en la voz del audio (Whisper), usalo cuando su seguridad sea alta y el fragmento oido lo confirme. Si es instrumental o no puedes determinarlo, usa "".
 - genre: estilo musical breve en español. Si se ofrecen estilos preferidos, elige uno de ellos cuando encaje.
 - tags: entre 0 y 5 etiquetas cortas y utiles (instrumental, bailable, acustico, navidad, etc.).
 - confidence: numero entre 0 y 1. Baja la confianza si no hay letra y solo tienes el titulo, o si no estas seguro.
@@ -575,6 +575,7 @@ fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, Stri
 
 fn suggest(
     data_dir: &Path,
+    ffmpeg: Option<&Path>,
     id: &str,
     ai: &crate::settings::AiSettings,
     styles: &[String],
@@ -601,7 +602,21 @@ fn suggest(
     // en otro idioma o traducciones, la IA se confundia).
     let (lyrics, lyrics_from) = lyrics_for(&track.file, &track.title, &track.artist, &track.album, track.duration_secs);
     let lyrics_text = if lyrics.is_empty() {
-        "Letra: no disponible".to_string()
+        // Sin letra: se escucha la canción (Whisper, en este equipo).
+        match ffmpeg.map(|ff| crate::whisper::listen(data_dir, ff, &track.file, track.duration_secs)) {
+            Some(Ok(Some(v))) => format!(
+                "Letra: no disponible en texto.\nVoz reconocida en el audio (Whisper): idioma detectado «{}» con un {:.0}% de seguridad.\nFragmento oído:\n{}",
+                v.language,
+                v.probability * 100.0,
+                v.text
+            ),
+            Some(Ok(None)) => "Letra: no disponible. Al escuchar el audio no se reconoce voz cantada (probablemente instrumental).".to_string(),
+            Some(Err(e)) => {
+                crate::crashlog::note(&format!("IA: no se pudo escuchar la voz de {}: {e}", track.file));
+                "Letra: no disponible".to_string()
+            }
+            None => "Letra: no disponible".to_string(),
+        }
     } else if lyrics == INSTRUMENTAL {
         format!("Letra: es instrumental (según {lyrics_from})")
     } else {
@@ -715,13 +730,15 @@ fn opencode_models(command: &str) -> Result<Vec<String>, String> {
 /// Pide al motor configurado una propuesta de idioma, estilo y etiquetas.
 #[tauri::command]
 pub async fn ai_suggest_metadata(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     ai: AiSettings,
     styles: Vec<String>,
 ) -> Result<AiSuggestion, String> {
     let data_dir = state.data_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || suggest(&data_dir, &id, &ai, &styles))
+    let ffmpeg = crate::streaming::find_ffmpeg(&app);
+    tauri::async_runtime::spawn_blocking(move || suggest(&data_dir, ffmpeg.as_deref(), &id, &ai, &styles))
         .await
         .map_err(|e| format!("La IA se detuvo: {e}"))?
 }

@@ -33,6 +33,7 @@ pub mod media;
 pub mod explorer;
 pub mod vstpkg;
 pub mod monitor;
+mod whisper;
 
 pub struct AppState {
     pub data_dir: PathBuf,
