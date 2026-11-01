@@ -12,3 +12,32 @@
     ExecWait '$R9 /S'
   ${EndIf}
 !macroend
+
+; Al actualizar, OmniCaster se cierra solo justo después de lanzar este
+; instalador, pero Windows puede tardar en liberar el proceso (drivers de
+; audio, plugins VST…). Si el instalador intenta cerrarlo mientras aún se
+; está cerrando, falla con «Failed to kill OmniCaster». Aquí se espera a que
+; desaparezca (hasta 90 s) y, si sigue, se fuerza su cierre.
+!macro NSIS_HOOK_PREINSTALL
+  ${If} $UpdateMode = 1
+    DetailPrint "Esperando a que OmniCaster termine de cerrarse…"
+    StrCpy $R8 0
+    omni_wait_loop:
+      nsExec::Exec 'cmd /c tasklist /FI "IMAGENAME eq ${MAINBINARYNAME}.exe" /NH | find /I "${MAINBINARYNAME}.exe"'
+      Pop $R7
+      ${If} $R7 != 0
+        Goto omni_wait_done
+      ${EndIf}
+      IntOp $R8 $R8 + 1
+      ${If} $R8 = 60
+        DetailPrint "Forzando el cierre de OmniCaster…"
+        nsExec::Exec 'taskkill /F /T /IM ${MAINBINARYNAME}.exe'
+        Pop $R7
+      ${EndIf}
+      ${If} $R8 < 90
+        Sleep 1000
+        Goto omni_wait_loop
+      ${EndIf}
+    omni_wait_done:
+  ${EndIf}
+!macroend
