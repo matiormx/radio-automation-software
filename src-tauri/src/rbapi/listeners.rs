@@ -45,6 +45,40 @@ pub fn parse_status(json: &Value) -> Snapshot {
     snap
 }
 
+/// De dónde se leen los oyentes: las estadísticas de cada servidor de
+/// emisión y los montajes propios (para no sumar otras emisoras del mismo
+/// servidor).
+#[derive(Clone, Debug, Default)]
+pub struct Sources {
+    pub urls: Vec<String>,
+    pub mounts: Vec<String>,
+}
+
+fn norm_mount(m: &str) -> String {
+    let m = m.trim();
+    if m.starts_with('/') { m.to_string() } else { format!("/{m}") }
+}
+
+/// Junta las estadísticas de varios servidores, quedándose con los montajes
+/// propios. Si en un servidor no aparece ninguno de ellos (montaje con otro
+/// nombre), cuenta todos los de ese servidor.
+pub fn merge(results: &[Snapshot], mounts: &[String]) -> Snapshot {
+    let own: Vec<String> = mounts.iter().filter(|m| !m.trim().is_empty()).map(|m| norm_mount(m)).collect();
+    let mut out = Snapshot::default();
+    for snap in results {
+        let mine: Vec<&Mount> = snap.mounts.iter().filter(|m| own.contains(&m.name)).collect();
+        let pick: Vec<&Mount> = if own.is_empty() || mine.is_empty() { snap.mounts.iter().collect() } else { mine };
+        for m in pick {
+            if out.mounts.iter().any(|x| x.name == m.name) {
+                continue;
+            }
+            out.total += m.listeners;
+            out.mounts.push(m.clone());
+        }
+    }
+    out
+}
+
 pub struct Poller {
     pub latest: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
@@ -52,25 +86,29 @@ pub struct Poller {
 
 impl Poller {
     /// `url` se lee en cada vuelta (cambiarlo en Ajustes no exige reiniciar).
-    pub fn start(url: Arc<Mutex<String>>) -> Poller {
+    pub fn start(sources: Arc<Mutex<Sources>>) -> Poller {
         let latest = Arc::new(Mutex::new(Snapshot::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (l, st) = (latest.clone(), stop.clone());
         let _ = std::thread::Builder::new().name("miradio-api-listeners".into()).spawn(move || {
             while !st.load(Ordering::SeqCst) {
-                let target = url.lock().map(|u| u.clone()).unwrap_or_default();
-                if !target.is_empty() {
-                    let res = ureq::get(&target)
-                        .timeout(Duration::from_millis(800))
+                let src = sources.lock().map(|u| u.clone()).unwrap_or_default();
+                let mut got = Vec::new();
+                for target in &src.urls {
+                    let res = ureq::get(target)
+                        .timeout(Duration::from_millis(1500))
                         .call()
                         .ok()
                         .and_then(|r| r.into_string().ok())
                         .and_then(|t| serde_json::from_str::<Value>(&t).ok());
-                    // Si Icecast no responde se conserva el ultimo valor conocido.
                     if let Some(json) = res {
-                        if let Ok(mut g) = l.lock() {
-                            *g = parse_status(&json);
-                        }
+                        got.push(parse_status(&json));
+                    }
+                }
+                // Si ningún servidor responde se conserva el último valor conocido.
+                if !got.is_empty() {
+                    if let Ok(mut g) = l.lock() {
+                        *g = merge(&got, &src.mounts);
                     }
                 }
                 for _ in 0..50 {
@@ -108,6 +146,12 @@ mod tests {
         let s = parse_status(&j);
         assert_eq!(s.total, 42);
         assert_eq!(s.mounts[0], Mount { name: "/live.flac".into(), listeners: 12 });
+        // Solo los montajes propios; los de otras emisoras del servidor no cuentan.
+        let other = Snapshot { total: 99, mounts: vec![Mount { name: "/otra".into(), listeners: 99 }, Mount { name: "/live.aac".into(), listeners: 30 }] };
+        let m = merge(&[s.clone(), other], &["live.flac".into(), "/live.aac".into()]);
+        assert_eq!(m.total, 42);
+        // Montaje que no aparece: se cuentan todos los del servidor.
+        assert_eq!(merge(&[s.clone()], &["/nada".into()]).total, 42);
         let single: Value = serde_json::from_str(r#"{"icestats":{"source":{"listenurl":"http://x/radio","listeners":5}}}"#).unwrap();
         assert_eq!(parse_status(&single).total, 5);
         let none: Value = serde_json::from_str(r#"{"icestats":{}}"#).unwrap();

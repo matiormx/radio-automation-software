@@ -209,15 +209,17 @@ pub struct ApiConfig {
     pub port: u16,
     /// Escuchar en todas las interfaces (si no, solo 127.0.0.1 para el tunel)
     pub bind_all: bool,
-    /// status-json.xsl de Icecast (vacio = sin oyentes)
+    /// status-json.xsl de cada servidor de emision, uno por linea (vacio = sin oyentes)
     pub icecast_status_url: String,
+    /// Montajes propios, para no sumar otras emisoras del mismo servidor
+    pub icecast_mounts: Vec<String>,
     /// Aviso de cambio de cancion al worker (vacio = no se avisa)
     pub update_url: String,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
-        ApiConfig { enabled: false, port: 9000, bind_all: false, icecast_status_url: String::new(), update_url: String::new() }
+        ApiConfig { enabled: false, port: 9000, bind_all: false, icecast_status_url: String::new(), icecast_mounts: Vec::new(), update_url: String::new() }
     }
 }
 
@@ -227,7 +229,7 @@ pub struct Core {
     data_dir: PathBuf,
     now: Mutex<Now>,
     secrets: Mutex<Secrets>,
-    icecast_url: Arc<Mutex<String>>,
+    icecast_url: Arc<Mutex<self::listeners::Sources>>,
     update_url: Mutex<String>,
     poller: Poller,
     last_notified: Mutex<String>,
@@ -252,7 +254,7 @@ fn mtime(p: &Path) -> Option<SystemTime> {
 
 impl Core {
     pub fn new(data_dir: PathBuf) -> Arc<Core> {
-        let icecast_url = Arc::new(Mutex::new(String::new()));
+        let icecast_url = Arc::new(Mutex::new(self::listeners::Sources::default()));
         let secrets = Secrets::load(&data_dir);
         Arc::new(Core {
             poller: Poller::start(icecast_url.clone()),
@@ -325,7 +327,13 @@ impl Core {
 
     fn set_urls(&self, cfg: &ApiConfig) {
         if let Ok(mut g) = self.icecast_url.lock() {
-            *g = cfg.icecast_status_url.trim().to_string();
+            let mut urls: Vec<String> = Vec::new();
+            for u in cfg.icecast_status_url.lines().map(str::trim).filter(|u| !u.is_empty()) {
+                if !urls.iter().any(|x| x == u) {
+                    urls.push(u.to_string());
+                }
+            }
+            *g = self::listeners::Sources { urls, mounts: cfg.icecast_mounts.clone() };
         }
         if let Ok(mut g) = self.update_url.lock() {
             *g = cfg.update_url.trim().to_string();

@@ -66,7 +66,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
+import { DEFAULT_SETTINGS, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -3087,15 +3087,17 @@ export default function App() {
   }, [rows, playingRow, pos]);
 
   // ---- API compatible con RadioBOSS (ngradio.es) ----
-  // Configuracion: la URL de oyentes sale de la primera emision Icecast si no se indica.
+  // Configuracion: los oyentes salen de las propias emisiones Icecast
+  // (activas; si no hay ninguna activa, de todas), cada una con sus
+  // estadisticas opcionales por si el servidor las da en otro puerto.
   useEffect(() => {
     const api = settings.api;
     if (!api) return;
-    const ice = settings.streaming.icecast.find((x) => x.enabled) ?? settings.streaming.icecast[0];
-    const icecastStatusUrl =
-      api.icecastStatusUrl.trim() ||
-      (ice ? `${ice.tls ? "https" : "http"}://${ice.host}:${ice.port}/status-json.xsl` : "");
-    void apiApply({ ...api, icecastStatusUrl }).catch(() => undefined);
+    const all = settings.streaming.icecast.filter((x) => x.host.trim());
+    const ices = all.some((x) => x.enabled) ? all.filter((x) => x.enabled) : all;
+    const icecastStatusUrl = ices.map(icecastStatsUrl).join("\n");
+    const icecastMounts = ices.map((x) => x.mount);
+    void apiApply({ ...api, icecastStatusUrl, icecastMounts } as typeof api).catch(() => undefined);
   }, [settings.api, settings.streaming.icecast]);
 
   // Estado de la emision: en cada cambio y cada 2 s (la API extrapola la posicion).

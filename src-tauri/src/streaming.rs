@@ -2736,6 +2736,7 @@ mod tests {
             station_name: "OmniCaster".to_string(),
             description: "Prueba".to_string(),
             genre: "Variado".to_string(),
+            stats_url: String::new(),
         }
     }
 

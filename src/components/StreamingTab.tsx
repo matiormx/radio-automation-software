@@ -10,6 +10,7 @@ import type {
   VideoOutput,
   VideoOutputKind,
 } from "../types";
+import { icecastStatsUrl } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
 import { listVideoCaptureDevices } from "../api";
 import { MonitorThumb } from "./MonitorThumb";
@@ -789,6 +790,20 @@ export function StreamingTab({
                             updateStream(s.id, { description: e.target.value })
                           }
                         />
+                      </label>
+                      <label className="field stream-wide">
+                        <span className="field-label">Estadísticas de oyentes (opcional)</span>
+                        <input
+                          value={s.statsUrl ?? ""}
+                          placeholder={icecastStatsUrl({ ...s, statsUrl: "" })}
+                          onChange={(e) =>
+                            updateStream(s.id, { statsUrl: e.target.value })
+                          }
+                        />
+                        <span className="hint">
+                          Vacío: las del mismo servidor y puerto. Si usa otro puerto, basta con escribir el número
+                          (p. ej. 8080) o la URL completa de status-json.xsl.
+                        </span>
                       </label>
                     </div>
 

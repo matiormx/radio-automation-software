@@ -379,7 +379,7 @@ export interface ApiSettings {
   port: number;
   /** Escuchar en toda la red (si no, solo en este equipo, para el tunel) */
   bindAll: boolean;
-  /** status-json.xsl de Icecast; vacio = el de la primera emision Icecast */
+  /** Ya no se usa: los oyentes salen de las emisiones Icecast (Ajustes › Streaming) */
   icecastStatusUrl: string;
   /** Aviso de cambio de cancion (p. ej. https://core.ngradio.es/update) */
   updateUrl: string;
@@ -541,6 +541,20 @@ export interface IcecastStream {
   stationName: string;
   description: string;
   genre: string;
+  /** Estadísticas de oyentes (opcional): URL de status-json.xsl o solo el
+   *  puerto si el servidor las da en otro. Vacío = host:puerto de la emisión. */
+  statsUrl?: string;
+}
+
+/** URL de status-json.xsl de una emisión Icecast. */
+export function icecastStatsUrl(s: IcecastStream): string {
+  const proto = s.tls ? "https" : "http";
+  const host = s.host.trim().replace(/^[a-z]+:\/\//i, "").replace(/[/:].*$/, "");
+  const v = (s.statsUrl ?? "").trim();
+  if (/^\d{1,5}$/.test(v)) return `${proto}://${host}:${v}/status-json.xsl`;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v) return `${proto}://${v.replace(/^\/+/, "")}`;
+  return `${proto}://${host}:${s.port}/status-json.xsl`;
 }
 
 export interface RtmpOutput {

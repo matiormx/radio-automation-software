@@ -787,6 +787,8 @@ pub struct IcecastStream {
     pub station_name: String,
     pub description: String,
     pub genre: String,
+    /// Estadisticas de oyentes (opcional): URL o puerto de status-json.xsl
+    pub stats_url: String,
 }
 
 impl Default for IcecastStream {
@@ -809,6 +811,7 @@ impl Default for IcecastStream {
             station_name: "OmniCaster".to_string(),
             description: String::new(),
             genre: String::new(),
+            stats_url: String::new(),
         }
     }
 }

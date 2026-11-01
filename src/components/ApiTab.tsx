@@ -44,8 +44,6 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
     return () => window.clearInterval(t);
   }, [refresh]);
 
-  const ice = settings.streaming.icecast.find((x) => x.enabled) ?? settings.streaming.icecast[0];
-  const icePlaceholder = ice ? `${ice.tls ? "https" : "http"}://${ice.host}:${ice.port}/status-json.xsl` : "http://servidor:8000/status-json.xsl";
 
   return (
     <>
@@ -181,15 +179,10 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>Oyentes</legend>
-        <label className="field">
-          <span className="field-label">Estadísticas de Icecast (status-json.xsl)</span>
-          <input
-            value={api.icecastStatusUrl}
-            placeholder={icePlaceholder}
-            onChange={(e) => set({ icecastStatusUrl: e.target.value })}
-          />
-        </label>
-        <p className="hint">Vacío: se usa el servidor de tu primera emisión Icecast. Se suman los oyentes de todos los mounts.</p>
+        <p className="hint">
+          Se leen de tus emisiones Icecast (Ajustes › Streaming) y se suman los de sus montajes. Si un servidor da
+          las estadísticas en otro puerto, indícalo en «Estadísticas» dentro de esa emisión.
+        </p>
       </fieldset>
 
       <fieldset className="fieldset">
