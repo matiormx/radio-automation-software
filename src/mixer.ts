@@ -5,6 +5,7 @@ import type {
   Settings,
   VUStereoLevel,
 } from "./types";
+import { busOutputs } from "./types";
 import { Leveler, levelerOf } from "./leveler";
 
 /**
@@ -324,14 +325,14 @@ export class SoundMixer {
     const busById = new Map(cfg.mixerBuses.map((b) => [b.id, b]));
     const usedDevices = new Set<string>([DEFAULT_DEVICE]);
     for (const bus of cfg.mixerBuses)
-      usedDevices.add(normDevice(bus.outputDeviceId));
+      for (const d of busOutputs(bus)) usedDevices.add(normDevice(d));
     usedDevices.delete(NONE_DEVICE);
     for (const ch of cfg.mixerChannels) {
       if (ch.output.kind === "device")
         usedDevices.add(normDevice(ch.output.id));
       if (ch.output.kind === "bus" && busById.has(ch.output.id)) {
         const bus = busById.get(ch.output.id);
-        if (bus) usedDevices.add(normDevice(bus.outputDeviceId));
+        if (bus) for (const d of busOutputs(bus)) usedDevices.add(normDevice(d));
       }
     }
 
@@ -384,8 +385,8 @@ export class SoundMixer {
       gain.gain.value = bus.muted ? 0 : dbToGain(bus.gainDb);
       const pan = panner(bus.pan);
       gain.connect(pan.input);
-      if (normDevice(bus.outputDeviceId) !== NONE_DEVICE)
-        pan.output.connect(this.deviceMix(normDevice(bus.outputDeviceId)));
+      for (const d of busOutputs(bus))
+        if (normDevice(d) !== NONE_DEVICE) pan.output.connect(this.deviceMix(normDevice(d)));
       this.faders.push(gain);
       this.busFaders.set(bus.id, pan.output);
       this.liveFaders.set(`bus:${bus.id}`, { gain, open: !bus.muted });
@@ -408,7 +409,7 @@ export class SoundMixer {
     // salida predeterminada (se avisa en la mesa; no depende del VU).
     const streamUsed =
       cfg.mixerBuses.some(
-        (b) => normDevice(b.outputDeviceId) === STREAM_DEVICE,
+        (b) => busOutputs(b).some((d) => normDevice(d) === STREAM_DEVICE),
       ) ||
       cfg.mixerChannels.some(
         (ch) =>

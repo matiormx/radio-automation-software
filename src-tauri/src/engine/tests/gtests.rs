@@ -272,3 +272,15 @@ fn output_limiter_and_compressor() {
     let l = levels(&mut c, 9600);
     assert!(l["default"] < 0.2, "{:?}", l);
 }
+
+#[test]
+fn bus_with_several_outputs_sounds_on_all() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"bus","id":"B"},"gainDb":-6.0206,"muted":false}],
+      "mixerBuses":[{"id":"B","outputDeviceId":"streaming","extraOutputIds":["default","streaming","none"],"gainDb":0,"muted":false}],"monitorBusId":""}"#);
+    let _ = levels(&mut c, 4096);
+    let l = levels(&mut c, 1024);
+    // Igual por las dos salidas y sin sumarse dos veces en la repetida.
+    assert!((l["streaming"] - 0.25).abs() < 1e-3, "{:?}", l);
+    assert!((l["default"] - 0.25).abs() < 1e-3, "{:?}", l);
+}

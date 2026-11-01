@@ -203,10 +203,10 @@ fn control() -> &'static Control {
         let (tx, rx) = mpsc::channel();
         let hosts = Arc::new(Mutex::new(HashMap::new()));
         let h = hosts.clone();
-        let _ = std::thread::Builder::new().name("miradio-vst".into()).spawn(move || {
-            crate::rt::boost_thread();
-            control_loop(rx, h)
-        });
+        // Prioridad normal a propósito: aquí se pintan los editores de los
+        // plugins, y con prioridad alta le quitaban CPU a la propia ventana de
+        // OmniCaster (parecía congelada). El audio va en su propio hilo.
+        let _ = std::thread::Builder::new().name("miradio-vst".into()).spawn(move || control_loop(rx, h));
         Control { tx, hosts }
     })
 }
@@ -289,6 +289,8 @@ fn save_state(id: &str, plugin: &Arc<Mutex<Plugin>>) {
 struct Loaded {
     host: Arc<Host>,
     window: Option<PluginWindow>,
+    /// Se ha abierto su editor desde la última copia del estado
+    touched: bool,
 }
 
 fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>) {
@@ -340,7 +342,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                             if let Ok(mut map) = hosts.lock() {
                                 map.insert(id.clone(), h.clone());
                             }
-                            loaded.insert(id, Loaded { host: h, window: None });
+                            loaded.insert(id, Loaded { host: h, window: None, touched: false });
                         }
                         Err(e) => errors.push(format!("{}: {e}", if cfg.name.is_empty() { &cfg.path } else { &cfg.name })),
                     }
@@ -361,7 +363,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                                 if let Ok(mut map) = hosts.lock() {
                                     map.insert(cfg.id.clone(), h.clone());
                                 }
-                                loaded.insert(cfg.id.clone(), Loaded { host: h, window: None });
+                                loaded.insert(cfg.id.clone(), Loaded { host: h, window: None, touched: false });
                             }
                             Err(e) => {
                                 let _ = reply.send(Err(format!("No se pudo cargar el plugin: {e}")));
@@ -380,6 +382,7 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                         crumb("abriendo la ventana de", &l.host.name, &l.host.path);
                         let mut w = PluginWindow::new(l.host.plugin.clone());
                         let r = w.open().map(|_| l.window = Some(w)).map_err(|e| format!("No se pudo abrir el editor: {e}"));
+                        l.touched = true;
                         if r.is_ok() {
                             pump_messages();
                             raise_editor(&l.host);
@@ -518,11 +521,16 @@ fn control_loop(rx: Receiver<Cmd>, hosts: Arc<Mutex<HashMap<String, Arc<Host>>>>
                 l.host.refresh_latency();
             }
         }
-        // Copia de seguridad del estado cada minuto (por si se cierra la app).
+        // Copia de seguridad del estado cada minuto (por si se cierra la app),
+        // solo de los plugins que se han tocado: guardar bloquea el plugin un
+        // instante y el audio pasaría sin efecto en ese momento.
         if last_save.elapsed() > Duration::from_secs(60) {
             last_save = Instant::now();
-            for (id, l) in loaded.iter() {
-                save_state(id, &l.host.plugin);
+            for (id, l) in loaded.iter_mut() {
+                if l.touched {
+                    save_state(id, &l.host.plugin);
+                    l.touched = l.window.is_some();
+                }
             }
         }
     }

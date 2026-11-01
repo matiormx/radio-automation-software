@@ -18,6 +18,7 @@ import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
 import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerAgc, MixerBus, MixerChannel, MixerSend, PluginSlot, Settings } from "./types";
+import { busOutputs } from "./types";
 import type { SharedState } from "./SettingsWindow";
 
 /**
@@ -918,7 +919,7 @@ function MixerBoard({
   const toStream = (id: string) => (id || "").trim().toLowerCase() === "streaming";
   const streamFeeds = [
     ...channels.filter((c) => c.output.kind === "device" && toStream(c.output.id)).map((c) => `canal ${c.name}`),
-    ...buses.filter((b) => toStream(b.outputDeviceId)).map((b) => `bus ${b.name}`),
+    ...buses.filter((b) => busOutputs(b).some(toStream)).map((b) => `bus ${b.name}`),
   ];
   const masterDb = s.masterVolume <= 0.001 ? MIN_GAIN_DB : 20 * Math.log10(s.masterVolume);
 
@@ -1538,8 +1539,25 @@ function BusStrip({
   const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "io">("");
   const close = useCallback(() => setPop(""), []);
   const out = bus.outputDeviceId || "default";
-  const outputLabel =
-    out === "none" ? "Ninguna" : out === "streaming" ? "Streaming" : out === "default" ? "Predeterminada" : outputs.find((d) => d.id === out)?.label ?? "Salida";
+  const extras = bus.extraOutputIds ?? [];
+  const nameOf = (id: string) =>
+    id === "none" ? "Ninguna" : id === "streaming" ? "Streaming" : id === "default" ? "Predeterminada" : outputs.find((d) => d.id === id)?.label ?? "Salida";
+  const allOuts = busOutputs(bus);
+  const outputLabel = allOuts.length === 0 ? "Ninguna" : allOuts.length === 1 ? nameOf(allOuts[0]) : `${nameOf(allOuts[0])} +${allOuts.length - 1}`;
+  const outputTitle = allOuts.length > 1 ? allOuts.map(nameOf).join(" · ") : outputLabel;
+  const outOptions = (withNone: boolean) => (
+    <>
+      <option value="streaming">Streaming (encoders)</option>
+      {withNone && <option value="none">Ninguna (solo envíos)</option>}
+      <option value="default">Salida predeterminada</option>
+      {outputs.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.label}
+        </option>
+      ))}
+    </>
+  );
+  const setExtras = (list: string[]) => onPatch({ extraOutputIds: list });
   const key = `bus:${bus.id}`;
   return (
     <section className="mx-strip mx-bus" aria-label={bus.name} data-drop-zone="mixer-strip" data-strip-id={bus.id} data-group="bus">
@@ -1597,23 +1615,39 @@ function BusStrip({
       </div>
       <div className="mx-section mx-grow-top">
         <span className="mx-label">SALIDA</span>
-        <button type="button" className="mx-slot" title={outputLabel} onClick={() => setPop(pop === "io" ? "" : "io")}>
+        <button type="button" className="mx-slot" title={outputTitle} onClick={() => setPop(pop === "io" ? "" : "io")}>
           {outputLabel}
         </button>
         <Pop open={pop === "io"} onClose={close}>
           <label className="mixer-field">
             <span>Salida</span>
             <select value={out} onChange={(e) => onPatch({ outputDeviceId: e.target.value })}>
-              <option value="streaming">Streaming (encoders)</option>
-              <option value="none">Ninguna (solo envíos)</option>
-              <option value="default">Salida predeterminada</option>
-              {outputs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
+              {outOptions(true)}
             </select>
           </label>
+          {extras.map((x, i) => (
+            <div className="mixer-field mx-extra-out" key={i}>
+              <span>Salida {i + 2}</span>
+              <span className="mx-extra-row">
+                <select value={x} onChange={(e) => setExtras(extras.map((y, j) => (j === i ? e.target.value : y)))}>
+                  {outOptions(false)}
+                </select>
+                <button type="button" className="ghost-btn" title="Quitar esta salida" onClick={() => setExtras(extras.filter((_, j) => j !== i))}>
+                  ✕
+                </button>
+              </span>
+            </div>
+          ))}
+          {extras.length < 7 && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setExtras([...extras, allOuts.includes("default") ? "streaming" : "default"])}
+            >
+              + Añadir otra salida
+            </button>
+          )}
+          {extras.length > 0 && <p className="hint">El bus suena igual por todas sus salidas.</p>}
         </Pop>
       </div>
       <PanKnob pan={bus.pan ?? 0} onCommit={(pan) => onPatch({ pan })} />

@@ -426,6 +426,8 @@ export interface MixerBus {
   name: string;
   color: string;
   outputDeviceId: string;
+  /** Salidas adicionales: el bus suena igual por todas ellas */
+  extraOutputIds?: string[];
   gainDb: number;
   muted: boolean;
   leveler?: LevelerSettings;
@@ -434,6 +436,18 @@ export interface MixerBus {
   insert?: InsertSettings;
   pan?: number;
   sends?: MixerSend[];
+}
+
+/** Todas las salidas de un bus (la principal y las adicionales), sin
+ *  repetir y sin «ninguna». */
+export function busOutputs(bus: Pick<MixerBus, "outputDeviceId" | "extraOutputIds">): string[] {
+  const out: string[] = [];
+  for (const raw of [bus.outputDeviceId, ...(bus.extraOutputIds ?? [])]) {
+    const id = (raw ?? "").trim() || "default";
+    if (id.toLowerCase() === "none" || out.includes(id)) continue;
+    out.push(id);
+  }
+  return out;
 }
 
 export type VideoInputKind = "file" | "rtmp" | "ndi" | "capture";

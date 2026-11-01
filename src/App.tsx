@@ -3942,6 +3942,9 @@ export default function App() {
             name: String(b.name ?? `Bus ${i + 1}`).slice(0, 60),
             color: b.color || "#94a3b8",
             outputDeviceId: String(b.outputDeviceId ?? "default").slice(0, 120) || "default",
+            extraOutputIds: Array.isArray(b.extraOutputIds)
+              ? b.extraOutputIds.slice(0, 8).map((x) => String(x).slice(0, 120))
+              : prev?.extraOutputIds,
             gainDb: Math.max(-60, Math.min(12, Number(b.gainDb) || 0)),
             muted: !!b.muted,
           };

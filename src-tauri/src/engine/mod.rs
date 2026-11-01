@@ -475,12 +475,39 @@ pub fn shutdown_for_update(state: &EngineState) {
     drop(engine);
 }
 
+/// Ordenes al motor en su propio hilo y en orden: la ventana nunca espera.
+/// Antes se aplicaban en el hilo principal de la app, y si el audio estaba
+/// ocupado (un plugin VST lento o colgado mientras se toca su editor) toda la
+/// aplicación se quedaba congelada esperando.
+static OPS: std::sync::OnceLock<std::sync::mpsc::Sender<Op>> = std::sync::OnceLock::new();
+
+fn ops_sender(app: &AppHandle) -> &'static std::sync::mpsc::Sender<Op> {
+    OPS.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Op>();
+        let app = app.clone();
+        let _ = std::thread::Builder::new().name("miradio-engine-ops".into()).spawn(move || {
+            while let Ok(op) = rx.recv() {
+                let state = app.state::<EngineState>();
+                let g = state.0.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(engine) = g.as_ref() {
+                    engine.apply(op);
+                }
+            }
+        });
+        tx
+    })
+}
+
 #[tauri::command]
-pub fn engine_cmd(state: State<'_, EngineState>, op: Op) -> Result<(), String> {
-    let g = state.0.lock().map_err(|_| "El motor no responde".to_string())?;
-    let engine = g.as_ref().ok_or_else(|| "El motor nativo no está en marcha".to_string())?;
-    engine.apply(op);
-    Ok(())
+pub fn engine_cmd(app: AppHandle, state: State<'_, EngineState>, op: Op) -> Result<(), String> {
+    // Sin esperar: si el motor está ocupado aplicando otra orden, se da por
+    // en marcha y la orden se encola.
+    if let Ok(g) = state.0.try_lock() {
+        if g.is_none() {
+            return Err("El motor nativo no está en marcha".to_string());
+        }
+    }
+    ops_sender(&app).send(op).map_err(|_| "El motor no responde".to_string())
 }
 
 #[tauri::command]
@@ -515,7 +542,7 @@ impl Engine {
 /// Retorno para los oyentes de las llamadas: f32 LE estereo a 48 kHz.
 /// Si se acumula demasiado (nadie lo leia), se queda con lo ultimo.
 #[tauri::command]
-pub fn engine_return_pcm(state: State<'_, EngineState>) -> tauri::ipc::Response {
+pub async fn engine_return_pcm(state: State<'_, EngineState>) -> Result<tauri::ipc::Response, String> {
     let mut out: Vec<u8> = Vec::new();
     if let Ok(g) = state.0.lock() {
         if let Some(engine) = g.as_ref() {
@@ -531,7 +558,7 @@ pub fn engine_return_pcm(state: State<'_, EngineState>) -> tauri::ipc::Response 
             }
         }
     }
-    tauri::ipc::Response::new(out)
+    Ok(tauri::ipc::Response::new(out))
 }
 
 /// Plugins VST3 instalados en el equipo (rutas estandar).
@@ -562,7 +589,7 @@ pub async fn vst_editor(slot: String, path: String, name: String) -> Result<(), 
 
 /// Preescucha y llamadas del WebView hacia el motor nativo.
 #[tauri::command]
-pub fn engine_feed(state: State<'_, EngineState>, src: String, rate: u32, data: Vec<u8>) -> Result<(), String> {
+pub async fn engine_feed(state: State<'_, EngineState>, src: String, rate: u32, data: Vec<u8>) -> Result<(), String> {
     if src != "preview" && src != "call" {
         return Err("Fuente desconocida".into());
     }

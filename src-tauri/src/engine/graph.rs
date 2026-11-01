@@ -126,6 +126,8 @@ pub struct SendCfg {
 pub struct BusCfg {
     pub id: String,
     pub output_device_id: String,
+    /// Salidas adicionales (el bus suena igual por todas)
+    pub extra_output_ids: Vec<String>,
     pub gain_db: f64,
     pub muted: bool,
     pub pan: f64,
@@ -286,7 +288,8 @@ struct Bus {
     key: String,
     gl: Smooth,
     gr: Smooth,
-    out: usize,
+    /// Salidas por las que suena (una o varias)
+    out: Vec<usize>,
     buf: Vec<f32>,
     meter: Meter,
     pan: f64,
@@ -496,7 +499,17 @@ impl Plan {
         for b in &cfg.mixer_buses {
             let g = if b.muted { 0.0 } else { db_to_gain(b.gain_db) };
             let (l, r) = balance(g, b.pan);
-            let out = out_index(&b.output_device_id, &mut outs);
+            let mut out: Vec<usize> = Vec::new();
+            for dev in std::iter::once(&b.output_device_id).chain(b.extra_output_ids.iter()) {
+                // «Ninguna» solo cuenta si es la única salida.
+                if norm_device(dev) == NONE_DEVICE && (!out.is_empty() || !b.extra_output_ids.is_empty()) {
+                    continue;
+                }
+                let i = out_index(dev, &mut outs);
+                if !out.contains(&i) {
+                    out.push(i);
+                }
+            }
             let key = format!("bus:{}", b.id);
             let (gl, gr) = prev_lr(&key, l, r);
             let insert = insert_of(&b.insert, &key, &mut inserts);
@@ -850,9 +863,11 @@ impl Plan {
             let gr = b.gr.gains(frames);
             scale2(&mut b.buf[..n], gl, gr);
             b.meter.feed(&b.buf[..n]);
-            let out = &mut self.outs[b.out].buf[..n];
-            for (o, s) in out.iter_mut().zip(b.buf[..n].iter()) {
-                *o += *s;
+            for &oi in &b.out {
+                let out = &mut self.outs[oi].buf[..n];
+                for (o, s) in out.iter_mut().zip(b.buf[..n].iter()) {
+                    *o += *s;
+                }
             }
             if self.monitor_bus == Some(bi) {
                 self.monitor[..n].copy_from_slice(&b.buf[..n]);
