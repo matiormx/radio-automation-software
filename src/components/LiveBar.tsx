@@ -1,6 +1,7 @@
 import { trackUrl } from "../api";
 import { IconNote } from "../icons";
 import type { Program } from "../types";
+import { ListenersBadge } from "./Audience";
 
 interface LiveBarProps {
   programs: Program[];
@@ -9,6 +10,7 @@ interface LiveBarProps {
   onSelect: (id: string) => void;
   onToggleLive: (on: boolean) => void;
   onOpenPrograms: () => void;
+  onOpenAudience: () => void;
 }
 
 /**
@@ -24,6 +26,7 @@ export function LiveBar({
   onSelect,
   onToggleLive,
   onOpenPrograms,
+  onOpenAudience,
 }: LiveBarProps) {
   const active = programs.find((program) => program.id === activeId) ?? null;
   const others = programs.filter((program) => program.id !== activeId);
@@ -66,6 +69,8 @@ export function LiveBar({
           ))}
         </div>
       )}
+
+      <ListenersBadge onOpen={onOpenAudience} />
 
       <button
         type="button"

@@ -6,6 +6,7 @@
 //! memoria: `playbackinfo` no toca disco ni red.
 
 pub mod listeners;
+pub mod audience;
 pub mod rb;
 pub mod tags;
 pub mod xml;
@@ -257,7 +258,7 @@ impl Core {
         let icecast_url = Arc::new(Mutex::new(self::listeners::Sources::default()));
         let secrets = Secrets::load(&data_dir);
         Arc::new(Core {
-            poller: Poller::start(icecast_url.clone()),
+            poller: Poller::start(icecast_url.clone(), data_dir.clone()),
             data_dir,
             now: Mutex::new(Now::default()),
             secrets: Mutex::new(secrets),
@@ -1126,6 +1127,33 @@ fn status_of(state: &ApiState, core: &Core) -> ApiStatus {
 #[tauri::command]
 pub fn api_publish(app: State<'_, AppState>, state: State<'_, ApiState>, published: Published) {
     state.core(&app.data_dir).publish(published);
+}
+
+/// Oyentes ahora mismo (para el panel principal y el móvil).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenersNow {
+    pub total: u64,
+    pub mounts: Vec<self::listeners::Mount>,
+    pub updated: u64,
+    pub error: String,
+    pub configured: bool,
+}
+
+pub fn listeners_snapshot(state: &ApiState, data_dir: &Path) -> ListenersNow {
+    let s = state.core(data_dir).poller.snapshot();
+    ListenersNow { total: s.total, mounts: s.mounts, updated: s.updated, error: s.error, configured: s.configured }
+}
+
+#[tauri::command]
+pub fn listeners_now(app: State<'_, AppState>, state: State<'_, ApiState>) -> ListenersNow {
+    listeners_snapshot(&state, &app.data_dir)
+}
+
+/// Audiencia por franjas de los últimos `days` días.
+#[tauri::command]
+pub async fn listeners_stats(days: u32) -> Result<self::audience::Stats, String> {
+    tauri::async_runtime::spawn_blocking(move || self::audience::stats(days)).await.map_err(|e| e.to_string())
 }
 
 /// Aplica la configuracion: arranca, para o reinicia el servidor si hace falta.

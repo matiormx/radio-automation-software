@@ -381,6 +381,16 @@ fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicB
                 Err(_) => reply(req, 404, "text/plain", Vec::new()),
             }
         }
+        ("GET", "/api/audience") => {
+            // Oyentes ahora y, si se piden días, la audiencia por franjas.
+            let days: u32 = query(&url, "days").and_then(|d| d.parse().ok()).unwrap_or(0);
+            let now = match (app.try_state::<crate::rbapi::ApiState>(), app.try_state::<crate::AppState>()) {
+                (Some(api), Some(st)) => serde_json::to_value(crate::rbapi::listeners_snapshot(&api, &st.data_dir)).unwrap_or_default(),
+                _ => serde_json::Value::Null,
+            };
+            let stats = if days > 0 { serde_json::to_value(crate::rbapi::audience::stats(days)).unwrap_or_default() } else { serde_json::Value::Null };
+            json(req, 200, serde_json::json!({"now": now, "stats": stats}))
+        }
         ("GET", "/api/sys") => {
             let stats = app.try_state::<crate::sysmon::SysMon>().map(|m| crate::sysmon::compute(app, &m, true));
             match stats {

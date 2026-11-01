@@ -25,6 +25,21 @@
   header b { font-size: 16px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hlogo { width: 28px; height: 28px; border-radius: 7px; object-fit: contain; }
   .login .llogo { width: 120px; height: 120px; object-fit: contain; display: block; margin: 0 auto 14px; }
+  .audchip { display: none; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; }
+  .audchip svg { width: 16px; height: 16px; color: var(--dim); }
+  .audchip.err svg { color: var(--warn); }
+  .audchip.on { border-color: var(--accent); }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .kpis div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .kpis span { display: block; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+  .kpis b { font-size: 22px; } .kpis b.sm { font-size: 15px; } .kpis small { display: block; color: var(--faint); font-size: 12px; }
+  .achart { width: 100%; height: auto; display: block; }
+  .achart .g { stroke: var(--line); } .achart .ax { fill: var(--faint); font-size: 11px; }
+  .achart .b { fill: var(--accent); } .achart .b.hot { fill: var(--ok); } .achart .m { fill: var(--accent); opacity: .22; }
+  .heat { display: grid; grid-template-columns: 30px repeat(24, 1fr); gap: 1px; align-items: center; }
+  .heat i { height: 16px; border-radius: 2px; background: var(--accent); }
+  .heat small { font-size: 9px; color: var(--faint); } .heat span { font-size: 11px; color: var(--dim); }
   .conn { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
   .conn.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   main { flex: 1; overflow-y: auto; padding: 14px 16px 90px; }
@@ -150,7 +165,7 @@
 </style>
 </head>
 <body>
-<header><img class="hlogo" src="/logo" alt=""><b id="station">OmniCaster</b><span class="conn" id="conn"></span></header>
+<header><img class="hlogo" src="/logo" alt=""><b id="station">OmniCaster</b><button class="audchip" id="audchip" aria-label="Oyentes"></button><span class="conn" id="conn"></span></header>
 <main id="main"></main>
 <nav id="nav"></nav>
 <script>
@@ -242,6 +257,7 @@ function start() {
   renderNav();
   connect();
   render();
+  loadAud(tab === "aud");
 }
 
 function connect() {
@@ -285,7 +301,7 @@ function render() {
   if (!token) return;
   if (!S || !S.now) { $("#main").innerHTML = '<div class="empty">Esperando a OmniCaster…</div>'; return; }
   $("#station").textContent = S.station || brandName;
-  const view = { live: viewLive, list: viewList, air: viewAir, agenda: viewAgenda, mix: viewMix, sys: viewSys }[tab] || viewLive;
+  const view = { live: viewLive, list: viewList, air: viewAir, agenda: viewAgenda, mix: viewMix, sys: viewSys, aud: viewAud }[tab] || viewLive;
   view();
 }
 
@@ -1089,6 +1105,92 @@ function openStrip(kind, id, draft) {
   };
   document.body.appendChild(el);
 }
+// ---- Oyentes y audiencia ----
+let aud = null; // { now, stats }
+let audDays = 30;
+let audView = "hours";
+const audIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.4.2 4.3 1.7 4.8 4.3"/></svg>';
+async function loadAud(withStats) {
+  if (!token) return;
+  try {
+    const r = await fetch(`/api/audience?t=${encodeURIComponent(token)}&days=${withStats ? audDays : 0}`);
+    if (r.status === 401) return logout();
+    const j = await r.json();
+    aud = { now: j.now, stats: j.stats || (aud && aud.stats) || null };
+  } catch { return; }
+  const n = aud.now;
+  const chip = $("#audchip");
+  if (n && n.configured) {
+    chip.style.display = "inline-flex";
+    chip.className = `audchip${n.error ? " err" : ""}${tab === "aud" ? " on" : ""}`;
+    chip.innerHTML = `${audIcon}${n.updated ? n.total : "–"}`;
+  } else chip.style.display = "none";
+  if (tab === "aud") viewAud();
+}
+$("#audchip").onclick = () => {
+  if (tab === "aud") { tab = localStorage.getItem("oc.tab") || "live"; }
+  else { tab = "aud"; }
+  renderNav(); render(); loadAud(tab === "aud");
+};
+setInterval(() => token && !document.hidden && loadAud(tab === "aud"), 10000);
+const n1 = (v) => (v >= 10 ? String(Math.round(v)) : v.toFixed(1).replace(".", ","));
+const DOW = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+function audBars(points, label, hot = []) {
+  const W = 360, H = 170, L = 28, R = 4, T = 8, B = 20;
+  const top = Math.max(1, ...points.map((p) => Math.max(p.max, p.avg)));
+  const step = top <= 5 ? 1 : top <= 20 ? 5 : top <= 100 ? 20 : Math.ceil(top / 5 / 50) * 50;
+  const ymax = Math.ceil(top / step) * step, iw = W - L - R, ih = H - T - B, bw = iw / points.length;
+  const y = (v) => T + ih - (v / ymax) * ih;
+  const every = points.length > 48 ? 24 : 6;
+  let g = "";
+  for (let v = 0; v <= ymax; v += step) g += `<line class="g" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 4}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  points.forEach((p, i) => {
+    const x = L + i * bw;
+    if (p.avg >= 0) {
+      if (p.max > p.avg) g += `<rect class="m" x="${x + bw * .12}" width="${bw * .76}" y="${y(p.max)}" height="${Math.max(0, y(p.avg) - y(p.max))}"/>`;
+      g += `<rect class="b${hot.includes(i) ? " hot" : ""}" x="${x + bw * .12}" width="${bw * .76}" y="${y(p.avg)}" height="${Math.max(.5, T + ih - y(p.avg))}"/>`;
+    }
+    if (i % every === 0) g += `<text class="ax" x="${x + bw / 2}" y="${H - 5}" text-anchor="middle">${label(p)}</text>`;
+  });
+  return `<svg class="achart" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+function viewAud() {
+  const n = aud && aud.now, st = aud && aud.stats;
+  if (!aud) { $("#main").innerHTML = '<div class="empty">Cargando…</div>'; loadAud(true); return; }
+  const clock = (t) => new Date(t * 1000).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  const when = (t) => new Date(t * 1000).toLocaleString("es-ES", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  let chart = '<div class="empty">Cargando…</div>';
+  if (st) {
+    const empty = st.samples === 0 && st.last24h.every((p) => p.avg < 0);
+    if (empty) chart = '<div class="empty">Aún no hay datos: OmniCaster apunta los oyentes cada minuto mientras está abierto.</div>';
+    else if (audView === "24h") chart = audBars(st.last24h, (p) => clock(p.t));
+    else if (audView === "hours") chart = audBars(st.byHour, (p) => `${p.t}h`, st.bestHours) + '<p style="color:var(--dim);font-size:13px">Barra: media · sombra: máximo · en verde, las tres mejores franjas.</p>';
+    else {
+      const top = Math.max(1, ...st.heat.flat());
+      chart = `<div class="heat"><span></span>${Array.from({ length: 24 }, (_, h) => `<small>${h % 6 === 0 ? h : ""}</small>`).join("")}
+        ${st.heat.map((row, d) => `<span>${DOW[d]}</span>${row.map((v) => `<i style="opacity:${v < 0 ? .08 : .15 + .85 * v / top}"></i>`).join("")}`).join("")}</div>
+        <p style="color:var(--dim);font-size:13px">Más intenso = más oyentes de media en esa hora de ese día.</p>`;
+    }
+  }
+  $("#main").innerHTML = `
+    <div class="kpis">
+      <div><span>Ahora</span><b>${n && n.updated ? n.total : "–"}</b>${n && n.mounts && n.mounts.length > 1 ? `<small>${n.mounts.map((m) => `${esc(m.name)} ${m.listeners}`).join(" · ")}</small>` : ""}</div>
+      <div><span>Media ${audDays} d</span><b>${st ? n1(st.avg) : "–"}</b></div>
+      <div><span>Máximo</span><b>${st ? st.peak : "–"}</b>${st && st.peakAt ? `<small>${when(st.peakAt)}</small>` : ""}</div>
+      <div><span>Mejores franjas</span><b class="sm">${st && st.bestHours.length ? st.bestHours.map((h) => `${h}–${h + 1} h`).join("<br>") : "–"}</b></div>
+    </div>
+    ${n && n.error ? `<div class="card" style="color:#ff8b8e;font-size:13px">No se pudieron leer los oyentes: ${esc(n.error)}</div>` : ""}
+    <div class="seg"><button data-av="24h" class="${audView === "24h" ? "on" : ""}">24 horas</button><button data-av="hours" class="${audView === "hours" ? "on" : ""}">Por horas</button><button data-av="week" class="${audView === "week" ? "on" : ""}">Semana</button></div>
+    ${audView !== "24h" ? `<div class="seg">${[7, 30, 90].map((d) => `<button data-ad="${d}" class="${audDays === d ? "on" : ""}">${d} días</button>`).join("")}</div>` : ""}
+    <div class="card">${chart}</div>`;
+  $("#main").onclick = (e) => {
+    const v = e.target.closest("[data-av]");
+    if (v) { audView = v.dataset.av; return viewAud(); }
+    const d = e.target.closest("[data-ad]");
+    if (d) { audDays = Number(d.dataset.ad); aud.stats = null; viewAud(); loadAud(true); }
+  };
+}
+
 async function loadSys() {
   try {
     const r = await fetch(`/api/sys?t=${encodeURIComponent(token)}`);

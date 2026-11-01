@@ -73,6 +73,7 @@ import { SoundMixer } from "./mixer";
 import { StudioCalls, type StudioSnapshot } from "./studioCalls";
 import { StreamEncoder } from "./streaming";
 import { LiveBar } from "./components/LiveBar";
+import { AudienceModal } from "./components/Audience";
 import { TrackEditor } from "./components/TrackEditor";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
@@ -503,6 +504,7 @@ export default function App() {
   const [pos, setPos] = useState({ cur: 0, total: 0 });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [audienceOpen, setAudienceOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [normalizerOpen, setNormalizerOpen] = useState(false);
@@ -4328,7 +4330,9 @@ export default function App() {
                     setSettingsMounted(true);
                     setSettingsOpen(true);
                   }}
+                  onOpenAudience={() => setAudienceOpen(true)}
                 />
+                {audienceOpen && <AudienceModal onClose={() => setAudienceOpen(false)} />}
                 <VideoSwitcher
                   settings={settings}
                   onChange={(patch) =>

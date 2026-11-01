@@ -4898,3 +4898,35 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 /* Mesa: varias salidas por bus */
 .mx-extra-row { display: flex; gap: 6px; align-items: center; }
 .mx-extra-row select { flex: 1; min-width: 0; }
+
+/* Oyentes y audiencia */
+.aud-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--line-strong); border-radius: 5px; background: var(--panel-2);
+  color: var(--text); font: inherit; font-size: 11px; padding: 4px 8px; cursor: pointer; white-space: nowrap;
+}
+.aud-badge b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.aud-badge span { color: var(--text-dim); }
+.aud-badge:hover { border-color: var(--accent); }
+.aud-badge.stale { color: var(--text-faint); }
+.aud-badge.err svg { color: var(--warn); }
+.aud-modal { width: min(820px, 94vw); max-height: 90vh; }
+.aud-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.aud-kpis > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aud-kpis span { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .6px; }
+.aud-kpis b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.aud-kpis b.aud-best { font-size: 14px; line-height: 1.4; }
+.aud-kpis small { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aud-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.aud-chart { width: 100%; height: auto; display: block; }
+.aud-grid { stroke: var(--line); stroke-width: 1; }
+.aud-axis { fill: var(--text-faint); font-size: 10px; }
+.aud-bar { fill: var(--accent); }
+.aud-bar.hot { fill: var(--live); }
+.aud-max { fill: var(--accent); opacity: .22; }
+.aud-heat { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 2px; align-items: center; }
+.aud-heat-row { display: contents; }
+.aud-heat-h { font-size: 9.5px; color: var(--text-faint); text-align: left; }
+.aud-heat-d { font-size: 11px; color: var(--text-dim); }
+.aud-heat-c { height: 20px; border-radius: 3px; background: var(--accent); }
+@media (max-width: 640px) { .aud-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

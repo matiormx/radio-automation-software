@@ -295,6 +295,8 @@ pub fn run() {
             notify::notify_test,
             notify::notify_status,
             rbapi::api_apply,
+            rbapi::listeners_now,
+            rbapi::listeners_stats,
             rbapi::api_status,
             rbapi::api_set_login,
             rbapi::api_new_token,
