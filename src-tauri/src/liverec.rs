@@ -91,6 +91,12 @@ fn write_sidecar(path: &Path, chapters: &[Chapter]) {
     if let Ok(json) = serde_json::to_vec_pretty(chapters) {
         let _ = std::fs::write(sidecar(path), json);
     }
+    // Y la hoja .cue estándar, para otros programas.
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let first = chapters.first();
+    let album = first.map(|c| c.title.as_str()).unwrap_or("Directo");
+    let artist = first.map(|c| c.artist.as_str()).unwrap_or("");
+    let _ = std::fs::write(path.with_extension("cue"), crate::library::cue_sheet(name, album, artist, chapters));
 }
 
 fn chapter(at: f64, m: &RecMeta) -> Chapter {
@@ -334,6 +340,7 @@ fn stop(data_dir: &Path, ffmpeg: Option<&Path>) -> Option<RecDone> {
     if secs < 1.0 || !r.path.is_file() {
         let _ = std::fs::remove_file(&r.path);
         let _ = std::fs::remove_file(sidecar(&r.path));
+        let _ = std::fs::remove_file(r.path.with_extension("cue"));
         done.error = "No llegó audio a la grabación (¿está en marcha el motor de sonido?)".to_string();
         return Some(done);
     }

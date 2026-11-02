@@ -147,10 +147,124 @@ pub struct Chapter {
 pub fn sidecar_chapters(file: &Path) -> Vec<Chapter> {
     let mut p = file.as_os_str().to_owned();
     p.push(".tramos.json");
-    std::fs::read(PathBuf::from(p))
+    let own = std::fs::read(PathBuf::from(p))
         .ok()
         .and_then(|b| serde_json::from_slice::<Vec<Chapter>>(&b).ok())
+        .unwrap_or_default();
+    if !own.is_empty() {
+        return own;
+    }
+    // Si no, una hoja .cue con el mismo nombre (la escribe OmniCaster y
+    // muchos otros programas).
+    std::fs::read(file.with_extension("cue"))
+        .ok()
+        .map(|b| parse_cue(&String::from_utf8_lossy(&b)))
         .unwrap_or_default()
+}
+
+/// Escribe una hoja .cue (un FILE y una TRACK por tramo).
+pub fn cue_sheet(file_name: &str, album_title: &str, album_artist: &str, chapters: &[Chapter]) -> String {
+    let q = |s: &str| s.replace('"', "'").replace(['\r', '\n'], " ");
+    // «WAVE» es lo que esperan los lectores para cualquier audio (FLAC, M4A…).
+    let kind = "WAVE";
+    let mut out = String::new();
+    if !album_artist.trim().is_empty() {
+        out.push_str(&format!("PERFORMER \"{}\"\r\n", q(album_artist.trim())));
+    }
+    out.push_str(&format!("TITLE \"{}\"\r\n", q(album_title.trim())));
+    out.push_str(&format!("FILE \"{}\" {kind}\r\n", q(file_name)));
+    for (i, c) in chapters.iter().enumerate() {
+        let frames = (c.at.max(0.0) * 75.0).round() as u64;
+        let (m, s, f) = (frames / 75 / 60, frames / 75 % 60, frames % 75);
+        out.push_str(&format!("  TRACK {:02} AUDIO\r\n", i + 1));
+        out.push_str(&format!("    TITLE \"{}\"\r\n", q(&c.title)));
+        if !c.artist.trim().is_empty() {
+            out.push_str(&format!("    PERFORMER \"{}\"\r\n", q(&c.artist)));
+        }
+        out.push_str(&format!("    INDEX 01 {m:02}:{s:02}:{f:02}\r\n"));
+    }
+    out
+}
+
+/// Lee los tramos de una hoja .cue (TITLE, PERFORMER e INDEX 01 de cada TRACK).
+pub fn parse_cue(text: &str) -> Vec<Chapter> {
+    fn quoted(rest: &str) -> String {
+        let r = rest.trim();
+        if let Some(stripped) = r.strip_prefix('"') {
+            stripped.split('"').next().unwrap_or("").to_string()
+        } else {
+            r.to_string()
+        }
+    }
+    let mut out: Vec<Chapter> = Vec::new();
+    let mut cur: Option<Chapter> = None;
+    let mut album = String::new();
+    let mut files = 0;
+    for line in text.lines() {
+        let l = line.trim();
+        let (word, rest) = l.split_once(' ').unwrap_or((l, ""));
+        match word.to_ascii_uppercase().as_str() {
+            "FILE" => files += 1,
+            "TRACK" => {
+                if let Some(c) = cur.take() {
+                    out.push(c);
+                }
+                cur = Some(Chapter { at: -1.0, album: album.clone(), ..Default::default() });
+            }
+            "TITLE" => match cur.as_mut() {
+                Some(c) => c.title = quoted(rest),
+                None => album = quoted(rest),
+            },
+            "PERFORMER" => {
+                if let Some(c) = cur.as_mut() {
+                    c.artist = quoted(rest);
+                }
+            }
+            "INDEX" => {
+                let mut it = rest.split_whitespace();
+                if it.next() == Some("01") {
+                    if let (Some(t), Some(c)) = (it.next(), cur.as_mut()) {
+                        let p: Vec<f64> = t.split(':').filter_map(|x| x.parse().ok()).collect();
+                        if p.len() == 3 {
+                            c.at = p[0] * 60.0 + p[1] + p[2] / 75.0;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(c) = cur.take() {
+        out.push(c);
+    }
+    // Solo hojas de un único archivo (si no, los tiempos no son de este).
+    if files > 1 {
+        return Vec::new();
+    }
+    out.retain(|c| c.at >= 0.0);
+    out.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+#[cfg(test)]
+mod cue_tests {
+    use super::*;
+
+    #[test]
+    fn cue_round_trip() {
+        let ch = vec![
+            Chapter { at: 0.0, title: "Bitácora".into(), artist: "Emilia Bolado".into(), ..Default::default() },
+            Chapter { at: 3725.4, title: "Entrevista \"especial\"".into(), artist: "".into(), ..Default::default() },
+        ];
+        let cue = cue_sheet("Bitácora - 2026-11-02 15.00.flac", "Bitácora (02/11/2026)", "Emilia Bolado", &ch);
+        assert!(cue.contains("FILE \"Bitácora - 2026-11-02 15.00.flac\" WAVE"));
+        assert!(cue.contains("INDEX 01 62:05:30"));
+        let back = parse_cue(&cue);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].artist, "Emilia Bolado");
+        assert_eq!(back[1].title, "Entrevista 'especial'");
+        assert!((back[1].at - 3725.4).abs() < 0.02);
+    }
 }
 
 fn default_library() -> String {
