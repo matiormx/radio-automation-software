@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { deleteProgramCover, importProgramCover, pickAnyFolder, pickImageFile, trackUrl } from "../api";
 import { IconChevron, IconNote, IconPlus, IconTrash } from "../icons";
-import type { Program, Settings } from "../types";
+import { LIVE_RECORD_DEFAULTS, type LiveRecordSettings, type Program, type Settings } from "../types";
 
 interface ProgramsTabProps {
   settings: Settings;
@@ -38,6 +38,17 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
   const topRef = useRef<HTMLDivElement | null>(null);
 
   const byId = new Map(programs.map((program) => [program.id, program]));
+  const rec = { ...LIVE_RECORD_DEFAULTS, ...(settings.liveRecord ?? {}) };
+  const setRec = (patch: Partial<LiveRecordSettings>) => onChange({ ...settings, liveRecord: { ...rec, ...patch } });
+  const now = new Date();
+  const example = (rec.nameTemplate.trim() || LIVE_RECORD_DEFAULTS.nameTemplate)
+    .replace("{programa}", programs[0]?.name || "Mi programa")
+    .replace("{subtitulo}", programs[0]?.subtitle || "")
+    .replace("{fecha}", now.toISOString().slice(0, 10))
+    .replace("{hora}", `${String(now.getHours()).padStart(2, "0")}.${String(now.getMinutes()).padStart(2, "0")}`)
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const shown = dragOrder
     ? dragOrder.flatMap((id) => {
         const program = byId.get(id);
@@ -166,44 +177,88 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
       <fieldset className="fieldset">
         <legend>Grabar los directos</legend>
         <label className="check-field">
-          <input
-            type="checkbox"
-            checked={settings.liveRecord?.enabled ?? true}
-            onChange={(e) =>
-              onChange({ ...settings, liveRecord: { folder: settings.liveRecord?.folder ?? "", enabled: e.target.checked } })
-            }
-          />
+          <input type="checkbox" checked={rec.enabled} onChange={(e) => setRec({ enabled: e.target.checked })} />
           Grabar lo que sale al aire mientras LIVE está activado
         </label>
         <div className="field-row">
+          <label className="field">
+            <span className="field-label">Formato</span>
+            <select value={rec.format} onChange={(e) => setRec({ format: e.target.value === "aac" ? "aac" : "flac" })}>
+              <option value="flac">FLAC (sin pérdida)</option>
+              <option value="aac">AAC (.m4a)</option>
+            </select>
+          </label>
+          {rec.format === "aac" ? (
+            <label className="field">
+              <span className="field-label">Calidad AAC</span>
+              <select value={rec.bitrateKbps} onChange={(e) => setRec({ bitrateKbps: Number(e.target.value) })}>
+                {[128, 160, 192, 256, 320].map((k) => (
+                  <option key={k} value={k}>
+                    {k} kbps
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="field">
+              <span className="field-label">Compresión FLAC</span>
+              <select value={rec.compression} onChange={(e) => setRec({ compression: Number(e.target.value) })}>
+                <option value={0}>0 · más rápida</option>
+                <option value={5}>5 · normal</option>
+                <option value={8}>8 · archivo más pequeño</option>
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <span className="field-label">Frecuencia</span>
+            <select value={rec.sampleRate} onChange={(e) => setRec({ sampleRate: Number(e.target.value) === 44100 ? 44100 : 48000 })}>
+              <option value={48000}>48 kHz</option>
+              <option value={44100}>44,1 kHz</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Canales</span>
+            <select value={rec.channels} onChange={(e) => setRec({ channels: Number(e.target.value) === 1 ? 1 : 2 })}>
+              <option value={2}>Estéreo</option>
+              <option value={1}>Mono</option>
+            </select>
+          </label>
+        </div>
+        <div className="field-row">
           <label className="field" style={{ flex: 1 }}>
             <span className="field-label">Carpeta de las grabaciones</span>
-            <input
-              value={settings.liveRecord?.folder ?? ""}
-              placeholder="Directos (dentro de la carpeta de música)"
-              onChange={(e) =>
-                onChange({ ...settings, liveRecord: { enabled: settings.liveRecord?.enabled ?? true, folder: e.target.value } })
-              }
-            />
+            <input value={rec.folder} placeholder="Directos (dentro de la carpeta de música)" onChange={(e) => setRec({ folder: e.target.value })} />
           </label>
           <button
             type="button"
             className="btn btn-sm"
             style={{ alignSelf: "flex-end" }}
-            onClick={() =>
-              void pickAnyFolder().then(
-                (f) => f && onChange({ ...settings, liveRecord: { enabled: settings.liveRecord?.enabled ?? true, folder: f } }),
-              )
-            }
+            onClick={() => void pickAnyFolder().then((f) => f && setRec({ folder: f }))}
           >
             Elegir…
           </button>
         </div>
+        <label className="field">
+          <span className="field-label">Nombre del archivo</span>
+          <input
+            value={rec.nameTemplate}
+            placeholder={LIVE_RECORD_DEFAULTS.nameTemplate}
+            onChange={(e) => setRec({ nameTemplate: e.target.value })}
+          />
+        </label>
         <p className="hint">
-          Se graba en MP3 a 320 kbps. Cada cambio de programa o de sus datos durante el directo
-          queda apuntado con su segundo exacto: al terminar, la grabación entra sola en la
-          biblioteca y, al ponerla en una lista, el título que se emite va cambiando igual que en
-          el directo.
+          Puedes usar {"{programa}"}, {"{subtitulo}"}, {"{fecha}"} y {"{hora}"}. Ejemplo:{" "}
+          <b>{example}.{rec.format === "aac" ? "m4a" : "flac"}</b>
+        </p>
+        <label className="check-field">
+          <input type="checkbox" checked={rec.addToLibrary} onChange={(e) => setRec({ addToLibrary: e.target.checked })} />
+          Añadir la grabación a la biblioteca al terminar (con la etiqueta «directo»)
+        </label>
+        <p className="hint">
+          Cada cambio de programa o de sus datos durante el directo queda apuntado con su segundo
+          exacto, junto al archivo y como capítulos dentro de él. Al poner la grabación en una
+          lista, el título que se emite va cambiando igual que en el directo. El sonido se graba
+          tal como sale al aire (16 bits).
         </p>
       </fieldset>
 

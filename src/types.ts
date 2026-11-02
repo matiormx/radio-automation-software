@@ -86,7 +86,31 @@ export interface LiveRecordSettings {
   enabled: boolean;
   /** Carpeta; vacío = «Directos» dentro de la carpeta de música */
   folder: string;
+  /** "flac" (sin pérdida) o "aac" (.m4a) */
+  format?: "flac" | "aac";
+  /** AAC: kbps */
+  bitrateKbps?: number;
+  sampleRate?: 44100 | 48000;
+  channels?: 1 | 2;
+  /** FLAC: 0 (rápido) … 8 (más pequeño) */
+  compression?: number;
+  /** {programa} {subtitulo} {fecha} {hora} */
+  nameTemplate?: string;
+  /** Añadir la grabación a la biblioteca al terminar */
+  addToLibrary?: boolean;
 }
+
+export const LIVE_RECORD_DEFAULTS: Required<LiveRecordSettings> = {
+  enabled: true,
+  folder: "",
+  format: "flac",
+  bitrateKbps: 256,
+  sampleRate: 48000,
+  channels: 2,
+  compression: 5,
+  nameTemplate: "{programa} - {fecha} {hora}",
+  addToLibrary: true,
+};
 
 export function effectiveDuration(t: Track): number {
   const start = Math.max(0, t.trimStart || 0);

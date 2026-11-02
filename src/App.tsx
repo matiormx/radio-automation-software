@@ -66,7 +66,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, chapterAt, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
+import { DEFAULT_SETTINGS, LIVE_RECORD_DEFAULTS, chapterAt, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -1060,11 +1060,11 @@ export default function App() {
   const recMetaRef = useRef(recMeta);
   recMetaRef.current = recMeta;
   useEffect(() => {
-    const rec = settings.liveRecord ?? { enabled: true, folder: "" };
+    const rec = { ...LIVE_RECORD_DEFAULTS, ...(settings.liveRecord ?? {}) };
     if (settings.liveMode && rec.enabled && !recOnRef.current) {
       recOnRef.current = true;
       setRecSecs(0);
-      void invoke("liverec_start", { folder: rec.folder ?? "", meta: recMetaRef.current }).catch((e) => {
+      void invoke("liverec_start", { config: rec, meta: recMetaRef.current }).catch((e) => {
         recOnRef.current = false;
         setRecSecs(null);
         showToast(`No se pudo grabar el directo: ${String(e)}`);
@@ -1080,11 +1080,8 @@ export default function App() {
             return;
           }
           const mins = Math.round(d.secs / 60);
-          showToast(
-            d.trackId
-              ? `Directo grabado (${mins} min, ${d.chapters} ${d.chapters === 1 ? "tramo" : "tramos"}) y añadido a la biblioteca`
-              : d.error,
-          );
+          const what = `${mins} min, ${d.chapters} ${d.chapters === 1 ? "tramo" : "tramos"}`;
+          showToast(d.trackId ? `Directo grabado (${what}) y añadido a la biblioteca` : d.error || `Directo grabado (${what}) en ${d.path}`);
           if (d.trackId) setTracks(await listTracks());
         })
         .catch((e) => showToast(`No se pudo cerrar la grabación: ${String(e)}`));
