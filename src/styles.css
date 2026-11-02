@@ -4930,3 +4930,12 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .aud-heat-d { font-size: 11px; color: var(--text-dim); }
 .aud-heat-c { height: 20px; border-radius: 3px; background: var(--accent); }
 @media (max-width: 640px) { .aud-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Grabación del directo */
+.livebar-rec {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .6px; color: #fecaca;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.livebar-rec i { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: rec-blink 1.2s infinite; }
+@keyframes rec-blink { 50% { opacity: .25; } }

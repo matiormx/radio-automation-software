@@ -66,7 +66,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
+import { DEFAULT_SETTINGS, chapterAt, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -940,14 +940,35 @@ export default function App() {
     return selectedProgram;
   }, [settings.liveMode, selectedProgram]);
 
+  // Directo grabado: el tramo que suena ahora (sus metadatos cambian a lo
+  // largo de la pista, como cambiaron en el directo).
+  const playingChapter = useMemo(() => {
+    if (liveTrack || playingRow < 0) return null;
+    const row = rows[playingRow];
+    const track = row ? tracks.find((item) => item.id === row.id) : undefined;
+    if (!track?.chapters?.length) return null;
+    return chapterAt(track, pos.cur + Math.max(0, track.trimStart || 0));
+  }, [liveTrack, playingRow, rows, tracks, pos.cur]);
+
   // Cancion que esta sonando ahora.
   const nowPlayingTrack = useMemo(() => {
     if (liveTrack) return liveTrack;
     if (playingRow < 0) return null;
     const row = rows[playingRow];
     if (!row) return null;
-    const track = tracks.find((item) => item.id === row.id);
-    if (!track) return null;
+    const base = tracks.find((item) => item.id === row.id);
+    if (!base) return null;
+    const ch = playingChapter;
+    const track = ch
+      ? {
+          ...base,
+          title: ch.title || base.title,
+          artist: ch.artist ?? base.artist,
+          album: ch.album || base.album,
+          genre: ch.genre || base.genre,
+          cover: ch.cover || base.cover,
+        }
+      : base;
     const meta = row.meta;
     if (!hasMeta(meta)) return track;
     return {
@@ -959,7 +980,7 @@ export default function App() {
       genre: meta.genre?.trim() || track.genre,
       cover: meta.cover?.trim() || track.cover,
     };
-  }, [playingRow, rows, tracks, liveTrack]);
+  }, [playingRow, rows, tracks, liveTrack, playingChapter]);
 
   /** Datos de la cancion que suena. */
   const songFields = useMemo<NowPlayingFields | null>(() => {
@@ -1021,6 +1042,68 @@ export default function App() {
   nowPlayingTextRef.current = nowPlayingText;
   const liveTextRef = useRef<string | null>(null);
   liveTextRef.current = liveText;
+
+  // ---- Grabación del directo: al activar LIVE se graba lo que sale al
+  // aire; cada cambio de programa/metadatos es un tramo con su segundo. ----
+  const recOnRef = useRef(false);
+  const [recSecs, setRecSecs] = useState<number | null>(null);
+  const recMeta = useMemo(
+    () => ({
+      title: liveProgram?.name ?? "",
+      artist: liveProgram?.subtitle ?? "",
+      album: liveProgram?.album ?? "",
+      genre: liveProgram?.genre ?? "",
+      cover: liveProgram?.cover ?? "",
+    }),
+    [liveProgram],
+  );
+  const recMetaRef = useRef(recMeta);
+  recMetaRef.current = recMeta;
+  useEffect(() => {
+    const rec = settings.liveRecord ?? { enabled: true, folder: "" };
+    if (settings.liveMode && rec.enabled && !recOnRef.current) {
+      recOnRef.current = true;
+      setRecSecs(0);
+      void invoke("liverec_start", { folder: rec.folder ?? "", meta: recMetaRef.current }).catch((e) => {
+        recOnRef.current = false;
+        setRecSecs(null);
+        showToast(`No se pudo grabar el directo: ${String(e)}`);
+      });
+    } else if (!settings.liveMode && recOnRef.current) {
+      recOnRef.current = false;
+      setRecSecs(null);
+      void invoke<{ path: string; secs: number; chapters: number; trackId: string; error: string } | null>("liverec_stop")
+        .then(async (d) => {
+          if (!d) return;
+          if (d.error && !d.trackId) {
+            showToast(d.error);
+            return;
+          }
+          const mins = Math.round(d.secs / 60);
+          showToast(
+            d.trackId
+              ? `Directo grabado (${mins} min, ${d.chapters} ${d.chapters === 1 ? "tramo" : "tramos"}) y añadido a la biblioteca`
+              : d.error,
+          );
+          if (d.trackId) setTracks(await listTracks());
+        })
+        .catch((e) => showToast(`No se pudo cerrar la grabación: ${String(e)}`));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.liveMode, settings.liveRecord?.enabled]);
+  useEffect(() => {
+    if (!recOnRef.current) return;
+    void invoke("liverec_mark", { meta: recMeta }).catch(() => undefined);
+  }, [recMeta]);
+  useEffect(() => {
+    if (recSecs === null) return;
+    const t = window.setInterval(() => {
+      void invoke<{ active: boolean; secs: number }>("liverec_status")
+        .then((st) => setRecSecs(st.active ? st.secs : null))
+        .catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [recSecs === null]);
   const nowPlayingErrorRef = useRef("");
 
   const nowPlayingCoverUrl = useMemo(() => {
@@ -4331,6 +4414,7 @@ export default function App() {
                     setSettingsOpen(true);
                   }}
                   onOpenAudience={() => setAudienceOpen(true)}
+                  recSecs={recSecs}
                 />
                 {audienceOpen && <AudienceModal onClose={() => setAudienceOpen(false)} />}
                 <VideoSwitcher

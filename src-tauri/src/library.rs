@@ -113,6 +113,37 @@ pub struct Track {
     /// Version de la lectura de etiquetas extra (1 = ya se leyo album_artist)
     #[serde(default)]
     pub tags_v: u8,
+    /// Metadatos que cambian a lo largo de la pista (un directo grabado):
+    /// al reproducirla, el título que sale va cambiando como en el directo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chapters: Vec<Chapter>,
+}
+
+/// Tramo de una pista con sus propios metadatos.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Chapter {
+    /// Segundo de la pista en que empieza
+    pub at: f64,
+    pub title: String,
+    pub artist: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub album: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub genre: String,
+    /// Ruta absoluta de la portada de ese tramo
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub cover: String,
+}
+
+/// Tramos guardados junto al archivo («X.mp3.tramos.json»), si los hay.
+pub fn sidecar_chapters(file: &Path) -> Vec<Chapter> {
+    let mut p = file.as_os_str().to_owned();
+    p.push(".tramos.json");
+    std::fs::read(PathBuf::from(p))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<Chapter>>(&b).ok())
+        .unwrap_or_default()
 }
 
 fn default_library() -> String {
@@ -680,6 +711,7 @@ pub struct TrackResolved {
     pub audio_kbps: u32,
     /// «Artista del álbum»
     pub album_artist: String,
+    pub chapters: Vec<Chapter>,
 }
 
 impl TrackResolved {
@@ -725,6 +757,7 @@ impl TrackResolved {
             audio_kbps: t.audio_kbps,
             album_artist: t.album_artist,
             language: t.language,
+            chapters: t.chapters,
         }
     }
 }
@@ -734,6 +767,51 @@ fn resolve_all(tracks: Vec<Track>, data_dir: &Path) -> Vec<TrackResolved> {
         .into_iter()
         .map(|t| TrackResolved::from(t, data_dir))
         .collect()
+}
+
+/// Añade a la biblioteca un directo grabado (sin copiarlo: ya está en la
+/// carpeta de música), con sus tramos de metadatos.
+pub fn add_recorded(
+    data_dir: &Path,
+    file: &Path,
+    meta: (&str, &str, &str, &str),
+    duration: f64,
+    cover_src: &str,
+    chapters: Vec<Chapter>,
+) -> Result<String, String> {
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(data_dir);
+    let id = Uuid::new_v4().simple().to_string();
+    let mut cover = String::new();
+    let src = Path::new(cover_src.trim());
+    if src.is_file() {
+        let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("jpg").to_ascii_lowercase();
+        let name = format!("{id}.{ext}");
+        let _ = fs::create_dir_all(covers_dir(data_dir));
+        if fs::copy(src, covers_dir(data_dir).join(&name)).is_ok() {
+            cover = name;
+        }
+    }
+    let mut rec = Track {
+        id: id.clone(),
+        title: meta.0.to_string(),
+        artist: meta.1.to_string(),
+        album: meta.2.to_string(),
+        genre: meta.3.to_string(),
+        duration_secs: (duration * 100.0).round() / 100.0,
+        file: file.to_string_lossy().into_owned(),
+        original_name: file.file_name().and_then(|n| n.to_str()).unwrap_or("directo").to_string(),
+        library: "a".to_string(),
+        cover_checked: true,
+        cover,
+        tags: vec!["directo".to_string()],
+        chapters,
+        ..Default::default()
+    };
+    fill_audio_props(&mut rec);
+    tracks.push(rec);
+    write_library(data_dir, &tracks)?;
+    Ok(id)
 }
 
 /// Importa archivos: los COPIA a la carpeta de musica predefinida,
@@ -819,6 +897,8 @@ pub fn import_files(
             cover: String::new(),
             cover_checked: false,
             language: String::new(),
+            // Un directo grabado por OmniCaster trae sus tramos al lado.
+            chapters: sidecar_chapters(&src),
             ..Default::default()
         };
         let mut rec = rec;

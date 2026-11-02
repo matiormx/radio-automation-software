@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { deleteProgramCover, importProgramCover, pickImageFile, trackUrl } from "../api";
+import { deleteProgramCover, importProgramCover, pickAnyFolder, pickImageFile, trackUrl } from "../api";
 import { IconChevron, IconNote, IconPlus, IconTrash } from "../icons";
 import type { Program, Settings } from "../types";
 
@@ -161,6 +161,50 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
         {programs.length === 0 && (
           <p className="hint">Todavía no hay programas. Crea el primero para poder usarlo en directo.</p>
         )}
+      </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Grabar los directos</legend>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={settings.liveRecord?.enabled ?? true}
+            onChange={(e) =>
+              onChange({ ...settings, liveRecord: { folder: settings.liveRecord?.folder ?? "", enabled: e.target.checked } })
+            }
+          />
+          Grabar lo que sale al aire mientras LIVE está activado
+        </label>
+        <div className="field-row">
+          <label className="field" style={{ flex: 1 }}>
+            <span className="field-label">Carpeta de las grabaciones</span>
+            <input
+              value={settings.liveRecord?.folder ?? ""}
+              placeholder="Directos (dentro de la carpeta de música)"
+              onChange={(e) =>
+                onChange({ ...settings, liveRecord: { enabled: settings.liveRecord?.enabled ?? true, folder: e.target.value } })
+              }
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ alignSelf: "flex-end" }}
+            onClick={() =>
+              void pickAnyFolder().then(
+                (f) => f && onChange({ ...settings, liveRecord: { enabled: settings.liveRecord?.enabled ?? true, folder: f } }),
+              )
+            }
+          >
+            Elegir…
+          </button>
+        </div>
+        <p className="hint">
+          Se graba en MP3 a 320 kbps. Cada cambio de programa o de sus datos durante el directo
+          queda apuntado con su segundo exacto: al terminar, la grabación entra sola en la
+          biblioteca y, al ponerla en una lista, el título que se emite va cambiando igual que en
+          el directo.
+        </p>
       </fieldset>
 
       <div className="prog-list">

@@ -34,6 +34,7 @@ pub mod explorer;
 pub mod vstpkg;
 pub mod monitor;
 mod whisper;
+mod liverec;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -50,6 +51,7 @@ async fn prepare_for_update(app: tauri::AppHandle) {
 /// Para lo que no debe quedar colgando al cerrar para actualizar: emisiones
 /// (FFmpeg), VNC, el ratón y el sonido. Los plugins se quedan cargados.
 pub(crate) fn prepare_shutdown(app: &tauri::AppHandle) {
+    liverec::shutdown();
     cursor::release();
     remote::shutdown();
     if let Some(st) = app.try_state::<streaming::StreamingState>() {
@@ -307,12 +309,21 @@ pub fn run() {
             update::update_trace_last,
             update::update_install_now,
             nowplaying::write_now_playing,
-            nowplaying::write_now_playing_image
+            nowplaying::write_now_playing_image,
+            liverec::liverec_start,
+            liverec::liverec_mark,
+            liverec::liverec_status,
+            liverec::liverec_stop
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")
         .run(|_app, event| {
             if let tauri::RunEvent::Exit = event {
+                // Un directo a medio grabar se cierra bien (y entra en la biblioteca).
+                if let Some(st) = _app.try_state::<AppState>() {
+                    let ff = streaming::find_ffmpeg(_app);
+                    let _ = liverec::stop_now(&st.data_dir, ff.as_deref());
+                }
                 cursor::release();
                 remote::shutdown();
                 if let Some(st) = _app.try_state::<streaming::StreamingState>() {

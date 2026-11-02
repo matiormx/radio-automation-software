@@ -11,6 +11,8 @@ interface LiveBarProps {
   onToggleLive: (on: boolean) => void;
   onOpenPrograms: () => void;
   onOpenAudience: () => void;
+  /** Segundos grabados del directo (null = no se graba) */
+  recSecs?: number | null;
 }
 
 /**
@@ -27,6 +29,7 @@ export function LiveBar({
   onToggleLive,
   onOpenPrograms,
   onOpenAudience,
+  recSecs = null,
 }: LiveBarProps) {
   const active = programs.find((program) => program.id === activeId) ?? null;
   const others = programs.filter((program) => program.id !== activeId);
@@ -68,6 +71,15 @@ export function LiveBar({
             </button>
           ))}
         </div>
+      )}
+
+      {recSecs !== null && (
+        <span className="livebar-rec" title="Se está grabando el directo: al terminar entra en la biblioteca con sus cambios de título">
+          <i />
+          REC {Math.floor(recSecs / 3600) > 0 ? `${Math.floor(recSecs / 3600)}:` : ""}
+          {String(Math.floor((recSecs % 3600) / 60)).padStart(Math.floor(recSecs / 3600) > 0 ? 2 : 1, "0")}:
+          {String(Math.floor(recSecs % 60)).padStart(2, "0")}
+        </span>
       )}
 
       <ListenersBadge onOpen={onOpenAudience} />

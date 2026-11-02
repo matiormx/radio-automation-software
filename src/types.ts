@@ -39,6 +39,8 @@ export interface Track {
   language?: string;
   /** «Artista del álbum» (agrupa los álbumes) */
   albumArtist?: string;
+  /** Metadatos que cambian a lo largo de la pista (directo grabado) */
+  chapters?: TrackChapter[];
   /** Extension del archivo en minusculas (flac, mp3…) */
   format?: string;
   /** Calidad del archivo (0 = desconocida) */
@@ -56,6 +58,34 @@ export interface IntroOverlay {
   /** Segundo del archivo de la pista donde empieza el intro */
   at: number;
   gainDb: number;
+}
+
+/** Tramo de una pista con sus propios metadatos (segundo del archivo). */
+export interface TrackChapter {
+  at: number;
+  title: string;
+  artist: string;
+  album?: string;
+  genre?: string;
+  cover?: string;
+}
+
+/** Tramo que suena en el segundo `fileSecs` del archivo (o null). */
+export function chapterAt(t: Pick<Track, "chapters">, fileSecs: number): TrackChapter | null {
+  const list = t.chapters ?? [];
+  let hit: TrackChapter | null = null;
+  for (const c of list) {
+    if (c.at <= fileSecs + 0.25) hit = c;
+    else break;
+  }
+  return hit;
+}
+
+/** Grabación de los directos */
+export interface LiveRecordSettings {
+  enabled: boolean;
+  /** Carpeta; vacío = «Directos» dentro de la carpeta de música */
+  folder: string;
 }
 
 export function effectiveDuration(t: Track): number {
@@ -782,6 +812,8 @@ export interface Settings {
   defaultBlockId: string;
   /** Modo LIVE: la barra auxiliar sustituye los metadatos por los del programa */
   liveMode: boolean;
+  /** Grabar cada directo (LIVE) con sus cambios de metadatos */
+  liveRecord?: LiveRecordSettings;
   /** Programa seleccionado en modo LIVE */
   liveProgramId: string;
   /** Programas preparados de antemano */
