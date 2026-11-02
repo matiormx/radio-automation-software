@@ -64,13 +64,21 @@ struct Restart {
     on_backup: bool,
     /// Caidas seguidas sin llegar a aguantar un minuto
     fails: u32,
+    /// Fuente NDI de la entrada principal: estando en el respaldo se vigila
+    /// y, cuando vuelve a llegar imagen, la emisión vuelve sola a ella.
+    primary_ndi: Option<String>,
+    /// Segundos seguidos con la principal de vuelta
+    back_ok: u32,
 }
 
 impl Restart {
     fn new(primary: Spec, backup: Option<Spec>) -> Restart {
-        Restart { primary, backup, on_backup: false, fails: 0 }
+        Restart { primary, backup, on_backup: false, fails: 0, primary_ndi: None, back_ok: 0 }
     }
 }
+
+/// Segundos seguidos con imagen en la fuente principal para volver a ella.
+const BACK_AFTER_SECS: u32 = 5;
 
 /// Segundos sin avanzar para dar por colgada una salida (y margen al arrancar).
 #[cfg(not(test))]
@@ -789,6 +797,16 @@ pub fn stream_start(
                         },
                         fallback,
                     );
+                    let mut restart = restart;
+                    if restart.backup.is_some() && !use_program && crate::ndi::runtime().is_ok() {
+                        restart.primary_ndi = settings
+                            .video
+                            .inputs
+                            .iter()
+                            .find(|i| i.id == video_choice && i.kind == "ndi")
+                            .map(|i| i.source.trim().to_string())
+                            .filter(|s| !s.is_empty());
+                    }
                     if let Err(error) = spawn_process(
                         &mut inner,
                         &shared,
@@ -1406,8 +1424,22 @@ fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool
                 })
                 .unwrap_or(false);
             if !(exited || broken || stalled) {
-                continue;
-            }
+                // En el respaldo: ¿ha vuelto la imagen de la fuente principal?
+                let watch = p.restart.as_ref().filter(|r| r.on_backup).and_then(|r| r.primary_ndi.clone());
+                let Some(source) = watch else { continue };
+                drop(inner);
+                let alive = crate::ndi::source_alive(&source);
+                let Ok(mut inner) = shared.lock() else { return };
+                let Some(index) = mine(&inner) else { return };
+                let Some(r) = inner.processes[index].restart.as_mut() else { continue };
+                r.back_ok = if alive { r.back_ok + 1 } else { 0 };
+                if r.back_ok < BACK_AFTER_SECS {
+                    continue;
+                }
+                r.back_ok = 0;
+                r.fails = 0;
+                ("ha vuelto la imagen de la entrada principal".to_string(), u64::MAX)
+            } else {
             let last = p.error.lock().ok().and_then(|e| e.clone());
             let reason = if stalled && !exited {
                 "la imagen o el envío se quedó parado".to_string()
@@ -1428,7 +1460,11 @@ fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool
             };
             r.fails += 1;
             (reason, delay)
+            }
         };
+        // u64::MAX: no ha caído; vuelve a la principal desde el respaldo.
+        let back = delay == u64::MAX;
+        let delay = if back { 0 } else { delay };
         for _ in 0..delay {
             std::thread::sleep(Duration::from_secs(1));
             if cancel.load(Ordering::SeqCst) {
@@ -1442,12 +1478,14 @@ fn supervise(shared: Arc<Mutex<EngineInner>>, id: String, cancel: Arc<AtomicBool
         let _ = old.child.kill();
         let _ = old.child.wait();
         let Some(mut r) = old.restart.take() else { return };
-        let to_backup = r.backup.is_some() && !r.on_backup;
+        let to_backup = !back && r.backup.is_some() && !r.on_backup;
         r.on_backup = to_backup;
         let spec = if to_backup { r.backup.clone() } else { Some(r.primary.clone()) };
         let Some(spec) = spec else { return };
         let what = if to_backup {
             "pasa al vídeo de respaldo"
+        } else if back {
+            "vuelve a la entrada principal"
         } else if r.backup.is_some() {
             "vuelve a probar la entrada principal"
         } else {
@@ -2051,6 +2089,11 @@ fn rtmp_args_for_video(
     } else if video_delay_ms < 0 {
         args.extend([arg("-af"), format!("adelay={}:all=1", (-video_delay_ms).abs())]);
     }
+    // Si la imagen se corta (la fuente NDI deja de mandar, se cae la
+    // capturadora…), FFmpeg debe terminar: sin esto seguía emitiendo solo el
+    // audio de la mesa con la imagen congelada o en negro, y nunca pasaba al
+    // respaldo.
+    args.push(arg("-shortest"));
     if whip {
         // El muxer whip se publicó como experimental en FFmpeg: en muchos
         // builds exige esta bandera para arrancar de una vez.

@@ -497,6 +497,18 @@ fn receiver(source: &str) -> Arc<Receiver> {
     r
 }
 
+/// ¿Llega imagen de esta fuente ahora mismo? Mantiene su receptor abierto
+/// para poder saberlo (lo usa la emisión en el respaldo para volver sola a
+/// la fuente principal cuando reaparece).
+pub fn source_alive(source: &str) -> bool {
+    if source.trim().is_empty() || runtime().is_err() {
+        return false;
+    }
+    let r = receiver(source);
+    let l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+    l.raw_w > 0 && l.at.map(|a| a.elapsed() < Duration::from_secs(2)).unwrap_or(false)
+}
+
 /// Comprime a JPEG la ultima imagen recibida, solo si alguien la mira por
 /// MJPEG (vista previa o pantalla de emision). Va en su propio hilo: el
 /// receptor NDI no espera nunca al compresor (antes, comprimir cada imagen en
@@ -960,7 +972,7 @@ fn serve_raw(req: tiny_http::Request, r: Arc<Receiver>, w: usize, h: usize, fps:
         if strict {
             let stale = match at {
                 Some(at) => at.elapsed() > Duration::from_secs(5),
-                None => opened.elapsed() > Duration::from_secs(15),
+                None => opened.elapsed() > Duration::from_secs(8),
             };
             if stale {
                 return; // FFmpeg se entera y la salida pasa al respaldo
