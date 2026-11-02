@@ -3714,6 +3714,23 @@ export default function App() {
   useEffect(() => {
     void appVersion().then((v) => setMobileUpd((u) => ({ ...u, version: v }))).catch(() => undefined);
   }, []);
+  // Se busca sola cada hora (y al poco de arrancar): antes el móvil solo se
+  // enteraba de una versión nueva si alguien pulsaba «Buscar» y se quedaba
+  // con el «Está al día» de la última vez.
+  useEffect(() => {
+    const quiet = () => {
+      if (mobileUpdRef.current.busy) return;
+      void checkForUpdate()
+        .then((r) => setMobileUpd((u) => (u.busy ? u : { ...u, latest: r.latest, available: r.available, error: "" })))
+        .catch(() => undefined);
+    };
+    const first = window.setTimeout(quiet, 30_000);
+    const every = window.setInterval(quiet, 60 * 60_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(every);
+    };
+  }, []);
   const mobileSnapshot = useMemo(() => {
     if (!mobileCfg?.enabled) return null;
     const now = deckRow

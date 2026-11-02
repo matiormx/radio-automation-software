@@ -1204,7 +1204,13 @@ async function loadSys() {
 }
 setInterval(() => tab === "sys" && token && !document.hidden && loadSys(), 3000);
 
+let updAsked = 0;
 function viewSys() {
+  // Al abrir Sistema se mira si hay versión nueva (como mucho cada 5 min).
+  if (S && S.app && !S.app.busy && Date.now() - updAsked > 5 * 60_000) {
+    updAsked = Date.now();
+    cmd({ cmd: "updCheck" });
+  }
   if (!sys) { $("#main").innerHTML = '<div class="empty">Cargando…</div>'; loadSys(); return; }
   const ram = sys.memTotal ? (sys.memUsed / sys.memTotal) * 100 : 0;
   const gb = (b) => `${(b / 1024 ** 3).toFixed(1)} GB`;
