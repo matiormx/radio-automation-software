@@ -117,6 +117,13 @@ pub struct Track {
     /// al reproducirla, el título que sale va cambiando como en el directo.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chapters: Vec<Chapter>,
+    /// Cuándo entró en la biblioteca (segundos unix; 0 = antes de guardarse)
+    #[serde(default)]
+    pub added_at: u64,
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 /// Tramo de una pista con sus propios metadatos.
@@ -712,6 +719,7 @@ pub struct TrackResolved {
     /// «Artista del álbum»
     pub album_artist: String,
     pub chapters: Vec<Chapter>,
+    pub added_at: u64,
 }
 
 impl TrackResolved {
@@ -758,6 +766,7 @@ impl TrackResolved {
             album_artist: t.album_artist,
             language: t.language,
             chapters: t.chapters,
+            added_at: t.added_at,
         }
     }
 }
@@ -778,6 +787,7 @@ pub fn add_recorded(
     duration: f64,
     cover_src: &str,
     chapters: Vec<Chapter>,
+    block_id: &str,
 ) -> Result<String, String> {
     let _guard = lock_library();
     let mut tracks = read_library_internal(data_dir);
@@ -806,6 +816,8 @@ pub fn add_recorded(
         cover,
         tags: vec!["directo".to_string()],
         chapters,
+        added_at: now_secs(),
+        blocks: if block_id.trim().is_empty() { Vec::new() } else { vec![block_id.trim().to_string()] },
         ..Default::default()
     };
     fill_audio_props(&mut rec);
@@ -899,6 +911,7 @@ pub fn import_files(
             language: String::new(),
             // Un directo grabado por OmniCaster trae sus tramos al lado.
             chapters: sidecar_chapters(&src),
+            added_at: now_secs(),
             ..Default::default()
         };
         let mut rec = rec;

@@ -41,6 +41,8 @@ export interface Track {
   albumArtist?: string;
   /** Metadatos que cambian a lo largo de la pista (directo grabado) */
   chapters?: TrackChapter[];
+  /** Cuándo entró en la biblioteca (segundos unix; 0 = desconocido) */
+  addedAt?: number;
   /** Extension del archivo en minusculas (flac, mp3…) */
   format?: string;
   /** Calidad del archivo (0 = desconocida) */
@@ -98,6 +100,8 @@ export interface LiveRecordSettings {
   nameTemplate?: string;
   /** Añadir la grabación a la biblioteca al terminar */
   addToLibrary?: boolean;
+  /** Lista de la biblioteca a la que va cada grabación ("" = ninguna) */
+  blockId?: string;
 }
 
 export const LIVE_RECORD_DEFAULTS: Required<LiveRecordSettings> = {
@@ -110,6 +114,7 @@ export const LIVE_RECORD_DEFAULTS: Required<LiveRecordSettings> = {
   compression: 5,
   nameTemplate: "{programa} - {fecha} {hora}",
   addToLibrary: true,
+  blockId: "",
 };
 
 export function effectiveDuration(t: Track): number {
@@ -333,8 +338,9 @@ export interface StationEvent {
   fadeSecs?: number;
   /** stream: datos que se muestran mientras suena */
   meta?: StreamMeta;
-  /** insert: "fixed" = una pista concreta; "random" = una al azar de sourceKind/sourceId */
-  trackMode?: "fixed" | "random";
+  /** insert: "fixed" = una pista concreta; "random" = una al azar de sourceKind/sourceId;
+   *  "latest" = la más reciente de sourceKind/sourceId (p. ej. el último directo grabado) */
+  trackMode?: "fixed" | "random" | "latest";
   /** auto: al asignar la fuente se limpia la lista (quedándose solo con lo que suena) */
   clearList?: boolean;
   /** random: no repetir la misma pista a la misma hora durante tantos días (0 = sin regla) */
@@ -726,6 +732,8 @@ export interface Program {
   /** Hora de inicio prevista ("22:00"); vacio = sin hora */
   startsAt: string;
   enabled: boolean;
+  /** Lista a la que van las grabaciones de este programa; vacío = la general */
+  recordBlockId?: string;
 }
 
 /** Llamadas de oyentes al aire, recogidas del worker de NGRADIO. */

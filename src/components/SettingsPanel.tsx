@@ -492,7 +492,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "programs" && (
-              <ProgramsTab settings={s} onChange={onChange} showToast={showToast} />
+              <ProgramsTab settings={s} blocks={blocks} onChange={onChange} showToast={showToast} />
             )}
             {tab === "streaming" && (
               <StreamingTab

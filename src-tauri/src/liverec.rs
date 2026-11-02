@@ -140,6 +140,8 @@ pub struct RecConfig {
     pub name_template: String,
     /// Al terminar, añadir la grabación a la biblioteca
     pub add_to_library: bool,
+    /// Lista (bloque) de la biblioteca a la que se añade ("" = ninguna)
+    pub block_id: String,
 }
 
 impl Default for RecConfig {
@@ -153,6 +155,7 @@ impl Default for RecConfig {
             compression: 5,
             name_template: "{programa} - {fecha} {hora}".into(),
             add_to_library: true,
+            block_id: String::new(),
         }
     }
 }
@@ -353,7 +356,7 @@ fn stop(data_dir: &Path, ffmpeg: Option<&Path>) -> Option<RecDone> {
         chrono::Local::now().format("%d/%m/%Y")
     );
     let album = if r.meta.album.trim().is_empty() { "Directos" } else { r.meta.album.trim() };
-    match crate::library::add_recorded(data_dir, &r.path, (&title, r.meta.artist.trim(), album, r.meta.genre.trim()), secs, &r.meta.cover, r.chapters.clone()) {
+    match crate::library::add_recorded(data_dir, &r.path, (&title, r.meta.artist.trim(), album, r.meta.genre.trim()), secs, &r.meta.cover, r.chapters.clone(), &r.config.block_id) {
         Ok(id) => done.track_id = id,
         Err(e) => done.error = format!("Grabado, pero no se pudo añadir a la biblioteca: {e}"),
     }

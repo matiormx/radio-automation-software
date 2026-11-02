@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DEFAULT_AIR_MINS, DEFAULT_EVENT_DAYS, DEFAULT_SLOT_DAYS, isRandom, randomPool } from "../eventPick";
+import { DEFAULT_AIR_MINS, DEFAULT_EVENT_DAYS, DEFAULT_SLOT_DAYS, isLatest, isPooled, pickLatest, randomPool } from "../eventPick";
 import type {
   Block,
   Settings,
@@ -126,12 +126,15 @@ function eventMeta(event: StationEvent, blocks: Block[], byId: Map<string, Track
     ];
   }
   const track = byId.get(event.trackId);
-  const random = isRandom(event);
+  const random = isPooled(event);
   const custom = event.meta?.title?.trim() || event.meta?.artist?.trim() || "";
+  const latest = isLatest(event) ? pickLatest(event, Array.from(byId.values())) : null;
   return [
     `A las ${timesText(event)}`,
     daysText(event),
-    random
+    isLatest(event)
+      ? `La más reciente de ${sourceLabel(event, blocks)}${latest ? `: ${latest.title}` : " (vacía)"}`
+      : random
       ? `Aleatoria: ${sourceLabel(event, blocks)} · ${randomPool(event, Array.from(byId.values())).length} pistas`
       : track
         ? `Biblioteca: ${track.title} · ${track.artist}`
@@ -294,7 +297,7 @@ export function EventsTab({
           setError("Elige la Biblioteca A o la B.");
           return;
         }
-      } else if (draft.trackMode === "random") {
+      } else if (draft.trackMode === "random" || draft.trackMode === "latest") {
         if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
           setError("Elige la lista del que saldrán las pistas.");
           return;
@@ -423,7 +426,7 @@ export function EventsTab({
       ) : (
         <div className="camp-list">
           {settings.events.map((event) => {
-            const random = isRandom(event);
+            const random = isPooled(event);
             const missingTrack =
               event.kind === "insert" && !random && !!event.trackId && !byId.has(event.trackId);
             const missingBlock =
@@ -536,7 +539,7 @@ function EventEditor({
   const q = search.trim().toLowerCase();
   const selected = byId.get(draft.trackId);
   const [trackBlock, setTrackBlock] = useState("");
-  const random = isRandom(draft);
+  const random = isPooled(draft);
   const allTracks = useMemo(() => Array.from(byId.values()), [byId]);
   const pool = useMemo(() => (random ? randomPool(draft, allTracks).length : 0), [random, draft, allTracks]);
   const options = useMemo(
@@ -570,13 +573,13 @@ function EventEditor({
     if (draft.kind === "auto") setKind("insert");
   };
 
-  const setSource = (value: "track" | "random" | "url") => {
+  const setSource = (value: "track" | "random" | "latest" | "url") => {
     const block = eventSchedules(draft)[0];
     const first = block?.start || block?.times?.[0] || draft.start || "06:00";
-    if (value === "random") {
+    if (value === "random" || value === "latest") {
       set({
         kind: "insert",
-        trackMode: "random",
+        trackMode: value,
         times: draft.times?.length ? draft.times : [draft.start],
         ...(draft.sourceKind === "block" || draft.sourceId === "a" || draft.sourceId === "b"
           ? {}
@@ -653,11 +656,12 @@ function EventEditor({
           <label className="field">
             <span className="field-label">Fuente del audio</span>
             <select
-              value={draft.kind === "stream" ? "url" : random ? "random" : "track"}
-              onChange={(e) => setSource(e.target.value as "track" | "random" | "url")}
+              value={draft.kind === "stream" ? "url" : isLatest(draft) ? "latest" : random ? "random" : "track"}
+              onChange={(e) => setSource(e.target.value as "track" | "random" | "latest" | "url")}
             >
               <option value="track">Pista de la biblioteca</option>
               <option value="random">Pista aleatoria</option>
+              <option value="latest">La más reciente de una lista</option>
               <option value="url">Audio de internet</option>
             </select>
           </label>
@@ -762,7 +766,7 @@ function EventEditor({
               )}
             </div>
             <p className="hint">
-              {random ? "Una pista elegida al azar" : "El sonido"} se coloca justo después del tema que esté sonando en cada una de las horas
+              {isLatest(draft) ? "La pista más reciente de la lista" : random ? "Una pista elegida al azar" : "El sonido"} se coloca justo después del tema que esté sonando en cada una de las horas
               indicadas.{" "}
               {draft.onTimeout === "next"
                 ? "Suena cuando termine ese tema, dure lo que dure."
@@ -973,9 +977,11 @@ function RandomFields({
       <span className="hint rule-hint">{hint}</span>
     </label>
   );
+  const latestMode = isLatest(draft);
+  const latestTrack = latestMode ? pickLatest(draft, Array.from(byId.values())) : null;
   return (
     <fieldset className="fieldset">
-      <legend>Pista aleatoria</legend>
+      <legend>{latestMode ? "La más reciente de una lista" : "Pista aleatoria"}</legend>
       <div className="field-row">
         <label className="field">
           <span className="field-label">Tomarla de</span>
@@ -1005,12 +1011,21 @@ function RandomFields({
           </select>
         </label>
         <div className="field">
-          <span className="field-label">Disponibles</span>
+          <span className="field-label">{latestMode ? "Sonaría ahora" : "Disponibles"}</span>
           <span className={`rule-count ${pool === 0 ? "rule-count-zero" : ""}`}>
-            {pool} {pool === 1 ? "pista" : "pistas"}
+            {latestMode ? (latestTrack ? latestTrack.title : "La lista está vacía") : `${pool} ${pool === 1 ? "pista" : "pistas"}`}
           </span>
         </div>
       </div>
+      {latestMode && (
+        <p className="hint">
+          Cada vez que salta el evento se coloca la pista que entró la última en esa lista. Pensado
+          para los directos grabados: si las grabaciones de un programa van a su lista (Ajustes ›
+          Programas), este evento emite siempre la del último directo.
+        </p>
+      )}
+      {!latestMode && (
+      <>
 
       <div className="field-row rules-row">
         {rule(
@@ -1042,8 +1057,10 @@ function RandomFields({
         Si la fuente tiene pocas pistas y no queda ninguna que cumpla las reglas, se van saltando de la última
         a la primera para que el evento siempre suene, y se avisa al lanzarlo.
       </p>
+      </>
+      )}
 
-      {recent.length > 0 && (
+      {!latestMode && recent.length > 0 && (
         <div className="pick-log">
           <div className="pick-log-head">
             <span className="field-label">Últimas elegidas</span>

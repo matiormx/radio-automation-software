@@ -119,7 +119,7 @@ import { SettingsPanel, type SettingsTab } from "./components/SettingsPanel";
 import { Normalizer } from "./components/Normalizer";
 import type { NormalizerApi, NormalizerStatus } from "./components/Normalizer";
 import { IconGear, IconList, IconWave, LogoRadio } from "./icons";
-import { isRandom, logPick, pickRandom, randomPool, relaxedText } from "./eventPick";
+import { isLatest, isRandom, logPick, pickLatest, pickRandom, randomPool, relaxedText } from "./eventPick";
 
 const CAMPAIGN_GRACE_MS = 15 * 60 * 1000;
 const EVENT_GRACE_MS = 15 * 60 * 1000;
@@ -320,7 +320,7 @@ function mobileAgendaPatch(kind: string, p: Record<string, unknown>, blocks: Blo
       if (fails) out.sourceKind = "library";
     }
     if (typeof p.streamUrl === "string") out.streamUrl = p.streamUrl.trim().slice(0, 500);
-    if (p.trackMode === "random" || p.trackMode === "fixed") out.trackMode = p.trackMode;
+    if (p.trackMode === "random" || p.trackMode === "fixed" || p.trackMode === "latest") out.trackMode = p.trackMode;
   }
   if (kind === "campaign") {
     const dt = (v: unknown) => (typeof v === "string" && (v === "" || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) ? v : undefined);
@@ -1064,7 +1064,8 @@ export default function App() {
     if (settings.liveMode && rec.enabled && !recOnRef.current) {
       recOnRef.current = true;
       setRecSecs(0);
-      void invoke("liverec_start", { config: rec, meta: recMetaRef.current }).catch((e) => {
+      const blockId = liveProgram?.recordBlockId || rec.blockId || "";
+      void invoke("liverec_start", { config: { ...rec, blockId }, meta: recMetaRef.current }).catch((e) => {
         recOnRef.current = false;
         setRecSecs(null);
         showToast(`No se pudo grabar el directo: ${String(e)}`);
@@ -2522,6 +2523,14 @@ export default function App() {
       const currentId = playing >= 0 ? rowsRef.current[playing]?.id ?? "" : "";
       let trackId = event.trackId;
       let pickNote = "";
+      if (isLatest(event)) {
+        const latest = pickLatest(event, tracksRef.current);
+        if (!latest) {
+          showToast(`El evento «${event.name}» no tiene pistas en su fuente`);
+          return;
+        }
+        trackId = latest.id;
+      }
       if (isRandom(event)) {
         const now = new Date();
         const slot = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
@@ -2886,6 +2895,11 @@ export default function App() {
       for (const fire of fires) {
         firedKeys.set(fire.event.id, fire.key);
         let trackId = fire.event.trackId;
+        if (isLatest(fire.event)) {
+          const latest = pickLatest(fire.event, tracksRef.current);
+          if (!latest) continue;
+          trackId = latest.id;
+        }
         if (isRandom(fire.event)) {
           const pick = pickRandom(
             fire.event,

@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
 import { deleteProgramCover, importProgramCover, pickAnyFolder, pickImageFile, trackUrl } from "../api";
 import { IconChevron, IconNote, IconPlus, IconTrash } from "../icons";
-import { LIVE_RECORD_DEFAULTS, type LiveRecordSettings, type Program, type Settings } from "../types";
+import { LIVE_RECORD_DEFAULTS, type Block, type LiveRecordSettings, type Program, type Settings } from "../types";
 
 interface ProgramsTabProps {
   settings: Settings;
+  /** Listas de la biblioteca (para elegir dónde van las grabaciones) */
+  blocks?: Block[];
   onChange: (s: Settings) => void;
   showToast: (msg: string) => void;
 }
@@ -28,7 +30,7 @@ function newProgram(): Program {
  * La lista va compacta (una línea por programa); se despliega uno para
  * editarlo y se reordenan arrastrando el asa. Los nuevos se añaden arriba.
  */
-export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps) {
+export function ProgramsTab({ settings, blocks = [], onChange, showToast }: ProgramsTabProps) {
   const programs = settings.programs ?? [];
   const [open, setOpen] = useState<Set<string>>(new Set());
   // Orden provisional mientras se arrastra; se guarda una sola vez al soltar.
@@ -254,6 +256,26 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
           <input type="checkbox" checked={rec.addToLibrary} onChange={(e) => setRec({ addToLibrary: e.target.checked })} />
           Añadir la grabación a la biblioteca al terminar (con la etiqueta «directo»)
         </label>
+        {rec.addToLibrary && (
+          <label className="field">
+            <span className="field-label">Y meterla en la lista</span>
+            <select value={rec.blockId} onChange={(e) => setRec({ blockId: e.target.value })}>
+              <option value="">Ninguna</option>
+              {blocks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {rec.addToLibrary && (
+          <p className="hint">
+            Cada programa puede llevar sus grabaciones a otra lista (al desplegarlo, abajo). Un evento
+            con «La más reciente de una lista» emite siempre la última grabación de esa lista: por
+            ejemplo, la repetición del último directo.
+          </p>
+        )}
         <p className="hint">
           Cada cambio de programa o de sus datos durante el directo queda apuntado con su segundo
           exacto, junto al archivo y como capítulos dentro de él. Al poner la grabación en una
@@ -403,6 +425,20 @@ export function ProgramsTab({ settings, onChange, showToast }: ProgramsTabProps)
                           onChange={(e) => update(program.id, { startsAt: e.target.value })}
                         />
                       </span>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Sus grabaciones van a la lista</span>
+                      <select
+                        value={program.recordBlockId ?? ""}
+                        onChange={(e) => update(program.id, { recordBlockId: e.target.value })}
+                      >
+                        <option value="">La general (Grabar los directos)</option>
+                        {blocks.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   </div>
                   <div className="prog-actions">

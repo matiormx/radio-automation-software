@@ -746,7 +746,10 @@ function renderEditor() {
         <option value="block" ${d.sourceKind === "block" ? "selected" : ""}>Un bloque musical</option>
         <option value="library" ${d.sourceKind !== "block" ? "selected" : ""}>Toda la biblioteca</option></select>
       ${d.sourceKind === "block" ? `<select data-f="sourceId">${blocks.length ? blocks.map((b) => `<option value="${esc(b.id)}" ${d.sourceId === b.id ? "selected" : ""}>${esc(b.name)}</option>`).join("") : '<option value="a">Sin bloques (elegirá de la biblioteca)</option>'}</select>` : ""}
-      ${d.kind === "insert" ? `<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-f="__rand" ${d.trackMode !== "fixed" ? "checked" : ""}> Elegir los sonidos al azar de esa fuente</label>` : ""}`
+      ${d.kind === "insert" ? `<label>Qué pista</label><select data-f="trackMode">
+        <option value="fixed" ${d.trackMode === "fixed" ? "selected" : ""}>Una concreta (la elegida en el estudio)</option>
+        <option value="random" ${d.trackMode === "random" ? "selected" : ""}>Una al azar de esa fuente</option>
+        <option value="latest" ${d.trackMode === "latest" ? "selected" : ""}>La más reciente de esa fuente (último directo)</option></select>` : ""}`
     : "";
   const streamUrl = kind === "event" && d.kind === "stream"
     ? `<label>Fuente de audio (URL http… o ruta de archivo)</label><input type="text" data-f="streamUrl" value="${esc(d.streamUrl || "")}">`

@@ -23,6 +23,31 @@ export function isRandom(event: StationEvent): boolean {
   return event.kind === "insert" && event.trackMode === "random";
 }
 
+/** Inserta la pista más reciente de la fuente (el último directo grabado…). */
+export function isLatest(event: StationEvent): boolean {
+  return event.kind === "insert" && event.trackMode === "latest";
+}
+
+/** La pista sale de una fuente (al azar o la más reciente), no es fija. */
+export function isPooled(event: StationEvent): boolean {
+  return isRandom(event) || isLatest(event);
+}
+
+/** La pista más reciente de la fuente: la que entró la última en la
+ *  biblioteca (si no consta la fecha, la que está más abajo en ella). */
+export function pickLatest(event: StationEvent, tracks: Track[]): Track | null {
+  let best: Track | null = null;
+  let bestKey = -1;
+  randomPool(event, tracks).forEach((t, i) => {
+    const key = (t.addedAt ?? 0) * 1_000_000 + i;
+    if (key >= bestKey) {
+      best = t;
+      bestKey = key;
+    }
+  });
+  return best;
+}
+
 /** Pistas de la fuente del evento (biblioteca A/B o bloque), sin las que faltan en disco. */
 export function randomPool(event: StationEvent, tracks: Track[]): Track[] {
   return tracks.filter((t) => {
