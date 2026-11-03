@@ -66,7 +66,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, LIVE_RECORD_DEFAULTS, chapterAt, icecastStatsUrl, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
+import { DEFAULT_SETTINGS, LIVE_RECORD_DEFAULTS, chapterAt, icecastStatsSource, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -3191,9 +3191,10 @@ export default function App() {
     if (!api) return;
     const all = settings.streaming.icecast.filter((x) => x.host.trim());
     const ices = all.some((x) => x.enabled) ? all.filter((x) => x.enabled) : all;
-    const icecastStatusUrl = ices.map(icecastStatsUrl).join("\n");
-    const icecastMounts = ices.map((x) => x.mount);
-    void apiApply({ ...api, icecastStatusUrl, icecastMounts } as typeof api).catch(() => undefined);
+    const icecastSources = ices.flatMap((x) => icecastStatsSource(x) ?? []);
+    const icecastStatusUrl = icecastSources.map((x) => `${x.base}/status-json.xsl`).join("\n");
+    const icecastMounts = icecastSources.map((x) => x.mount);
+    void apiApply({ ...api, icecastStatusUrl, icecastMounts, icecastSources } as typeof api).catch(() => undefined);
   }, [settings.api, settings.streaming.icecast]);
 
   // Estado de la emision: en cada cambio y cada 2 s (la API extrapola la posicion).

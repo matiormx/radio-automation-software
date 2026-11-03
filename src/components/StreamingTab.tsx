@@ -10,7 +10,7 @@ import type {
   VideoOutput,
   VideoOutputKind,
 } from "../types";
-import { icecastStatsUrl } from "../types";
+import { icecastStats, type IcecastStats } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
 import { listVideoCaptureDevices } from "../api";
 import { MonitorThumb } from "./MonitorThumb";
@@ -791,20 +791,7 @@ export function StreamingTab({
                           }
                         />
                       </label>
-                      <label className="field stream-wide">
-                        <span className="field-label">Estadísticas de oyentes (opcional)</span>
-                        <input
-                          value={s.statsUrl ?? ""}
-                          placeholder={icecastStatsUrl({ ...s, statsUrl: "" })}
-                          onChange={(e) =>
-                            updateStream(s.id, { statsUrl: e.target.value })
-                          }
-                        />
-                        <span className="hint">
-                          Vacío: las del mismo servidor y puerto. Si usa otro puerto, basta con escribir el número
-                          (p. ej. 8080) o la URL completa de status-json.xsl.
-                        </span>
-                      </label>
+                      <StatsFields stream={s} onChange={(stats) => updateStream(s.id, { stats, statsUrl: undefined })} />
                     </div>
 
                     <div className="stream-checks">
@@ -1203,5 +1190,80 @@ export function VideoOutputsEditor({
           </button>
         </div>
       </fieldset>
+  );
+}
+
+
+/** Estadísticas de oyentes de una emisión: del mismo servidor o de otro
+ *  (servidor, puerto, TLS, usuario y contraseña de administración, montaje). */
+function StatsFields({ stream, onChange }: { stream: IcecastStream; onChange: (s: IcecastStats) => void }) {
+  const st = icecastStats(stream);
+  const set = (patch: Partial<IcecastStats>) => onChange({ ...st, ...patch });
+  return (
+    <fieldset className="fieldset stream-wide stats-box">
+      <legend>Estadísticas de oyentes</legend>
+      <div className="stats-mode">
+        <label className="check-field">
+          <input type="radio" checked={st.mode === "same"} onChange={() => set({ mode: "same" })} />
+          Del mismo servidor de la emisión
+        </label>
+        <label className="check-field">
+          <input
+            type="radio"
+            checked={st.mode === "other"}
+            onChange={() => set({ mode: "other", host: st.host || stream.host, port: st.port || stream.port })}
+          />
+          De otro servidor
+        </label>
+        <label className="check-field">
+          <input type="radio" checked={st.mode === "off"} onChange={() => set({ mode: "off" })} />
+          No contar esta emisión
+        </label>
+      </div>
+      {st.mode !== "off" && (
+        <div className="stream-grid">
+          {st.mode === "other" && (
+            <>
+              <label className="field">
+                <span className="field-label">Servidor</span>
+                <input value={st.host} placeholder="149.202.62.254" onChange={(e) => set({ host: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field-label">Puerto</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={st.port}
+                  onChange={(e) => set({ port: Math.max(1, Math.min(65535, Number(e.target.value) || 8000)) })}
+                />
+              </label>
+            </>
+          )}
+          <label className="field">
+            <span className="field-label">Montaje</span>
+            <input value={st.mount} placeholder={stream.mount || "/live"} onChange={(e) => set({ mount: e.target.value })} />
+          </label>
+          <label className="field">
+            <span className="field-label">Usuario admin</span>
+            <input value={st.user} placeholder="admin" onChange={(e) => set({ user: e.target.value })} />
+          </label>
+          <label className="field">
+            <span className="field-label">Contraseña admin</span>
+            <input type="password" value={st.password} placeholder="Solo si hace falta" onChange={(e) => set({ password: e.target.value })} />
+          </label>
+          {st.mode === "other" && (
+            <label className="check-field" style={{ alignSelf: "flex-end" }}>
+              <input type="checkbox" checked={st.tls} onChange={(e) => set({ tls: e.target.checked })} />
+              TLS/SSL
+            </label>
+          )}
+        </div>
+      )}
+      <p className="hint">
+        Se leen primero las estadísticas públicas del servidor y, si no las da, las de administración con
+        el usuario y la contraseña de admin de Icecast (no la de emisión). Montaje vacío = el de esta emisión.
+      </p>
+    </fieldset>
   );
 }

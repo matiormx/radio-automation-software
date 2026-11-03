@@ -615,9 +615,59 @@ export interface IcecastStream {
   stationName: string;
   description: string;
   genre: string;
-  /** Estadísticas de oyentes (opcional): URL de status-json.xsl o solo el
-   *  puerto si el servidor las da en otro. Vacío = host:puerto de la emisión. */
+  /** Antiguo: URL o puerto de las estadísticas (se migra a `stats`). */
   statsUrl?: string;
+  /** De dónde se leen los oyentes de esta emisión */
+  stats?: IcecastStats;
+}
+
+/** Estadísticas de oyentes de una emisión (como en RadioBOSS). */
+export interface IcecastStats {
+  /** "same" = del mismo servidor de la emisión; "other" = de otro; "off" = no contar */
+  mode: "same" | "other" | "off";
+  host: string;
+  port: number;
+  tls: boolean;
+  /** Usuario de administración de Icecast (vacío = admin) */
+  user: string;
+  /** Contraseña de administración (si las estadísticas públicas no están abiertas) */
+  password: string;
+  /** Montaje que se cuenta (vacío = el de la emisión) */
+  mount: string;
+}
+
+/** Ajustes de estadísticas de una emisión (con lo antiguo ya migrado). */
+export function icecastStats(s: IcecastStream): IcecastStats {
+  const host = s.host.trim().replace(/^[a-z]+:\/\//i, "").replace(/[/:].*$/, "");
+  if (s.stats) return s.stats;
+  const base: IcecastStats = { mode: "same", host, port: s.port, tls: s.tls, user: "", password: "", mount: "" };
+  const v = (s.statsUrl ?? "").trim();
+  if (!v) return base;
+  if (/^\d{1,5}$/.test(v)) return { ...base, mode: "other", port: Number(v), tls: false };
+  try {
+    const u = new URL(/^https?:\/\//i.test(v) ? v : `http://${v}`);
+    return { ...base, mode: "other", host: u.hostname, port: Number(u.port) || (u.protocol === "https:" ? 443 : 80), tls: u.protocol === "https:" };
+  } catch {
+    return base;
+  }
+}
+
+/** Servidor del que se leen los oyentes de una emisión (null = no se cuentan). */
+export function icecastStatsSource(s: IcecastStream): { base: string; user: string; password: string; mount: string } | null {
+  const st = icecastStats(s);
+  if (st.mode === "off") return null;
+  const streamHost = s.host.trim().replace(/^[a-z]+:\/\//i, "").replace(/[/:].*$/, "");
+  const other = st.mode === "other";
+  const host = other ? st.host.trim().replace(/^[a-z]+:\/\//i, "").replace(/[/:].*$/, "") : streamHost;
+  if (!host) return null;
+  const port = other ? st.port : s.port;
+  const tls = other ? st.tls : s.tls;
+  return {
+    base: `${tls ? "https" : "http"}://${host}:${port}`,
+    user: st.user.trim(),
+    password: st.password,
+    mount: st.mount.trim() || s.mount.trim(),
+  };
 }
 
 /** URL de status-json.xsl de una emisión Icecast. */

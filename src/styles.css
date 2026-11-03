@@ -4939,3 +4939,7 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 }
 .livebar-rec i { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: rec-blink 1.2s infinite; }
 @keyframes rec-blink { 50% { opacity: .25; } }
+
+/* Estadísticas de oyentes de una emisión */
+.stats-box { margin-top: 4px; }
+.stats-mode { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }

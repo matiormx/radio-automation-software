@@ -214,13 +214,15 @@ pub struct ApiConfig {
     pub icecast_status_url: String,
     /// Montajes propios, para no sumar otras emisoras del mismo servidor
     pub icecast_mounts: Vec<String>,
+    /// Servidores de estadísticas (con contraseña y montaje); si hay, mandan
+    pub icecast_sources: Vec<self::listeners::StatsSource>,
     /// Aviso de cambio de cancion al worker (vacio = no se avisa)
     pub update_url: String,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
-        ApiConfig { enabled: false, port: 9000, bind_all: false, icecast_status_url: String::new(), icecast_mounts: Vec::new(), update_url: String::new() }
+        ApiConfig { enabled: false, port: 9000, bind_all: false, icecast_status_url: String::new(), icecast_mounts: Vec::new(), icecast_sources: Vec::new(), update_url: String::new() }
     }
 }
 
@@ -334,7 +336,7 @@ impl Core {
                     urls.push(u.to_string());
                 }
             }
-            *g = self::listeners::Sources { urls, mounts: cfg.icecast_mounts.clone() };
+            *g = self::listeners::Sources { urls, mounts: cfg.icecast_mounts.clone(), list: cfg.icecast_sources.clone() };
         }
         if let Ok(mut g) = self.update_url.lock() {
             *g = cfg.update_url.trim().to_string();
