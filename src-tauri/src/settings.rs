@@ -691,6 +691,8 @@ pub struct VideoOutput {
     /// Retardo del video con respecto al audio en la salida (RTMP), ms
     /// (positivo atrasa el video; negativo atrasa el audio).
     pub video_delay_ms: i32,
+    /// Solo emite mientras hay programa (LIVE activado); las demás, siempre
+    pub only_live: bool,
 }
 
 impl Default for VideoOutput {
@@ -711,6 +713,7 @@ impl Default for VideoOutput {
             fps: 25,
             bitrate_kbps: 6000,
             video_delay_ms: 0,
+            only_live: false,
         }
     }
 }

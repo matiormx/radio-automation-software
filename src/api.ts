@@ -423,7 +423,7 @@ export function getStreamStatus(): Promise<StreamStatus> {
   return invoke<StreamStatus>("stream_status");
 }
 
-export type StreamGroup = "audio" | "video" | "all" | "local";
+export type StreamGroup = "audio" | "video" | "all" | "local" | `output:${string}`;
 
 export function startStreaming(settings: Settings, group: StreamGroup = "all"): Promise<StreamStatus> {
   return invoke<StreamStatus>("stream_start", { settings, group });

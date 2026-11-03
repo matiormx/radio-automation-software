@@ -538,6 +538,8 @@ export interface VideoCaptureDevice {
 export type VideoAudioSource = "mixer" | "input" | "device";
 
 export interface VideoOutput {
+  /** Solo emite mientras hay programa (LIVE activado) */
+  onlyLive?: boolean;
   id: string;
   name: string;
   kind: VideoOutputKind;

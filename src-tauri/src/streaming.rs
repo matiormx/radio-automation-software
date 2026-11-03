@@ -300,8 +300,10 @@ pub fn stream_start(
     group: Option<String>,
 ) -> Result<StreamStatus, String> {
     let group = group.as_deref().unwrap_or("all");
+    // "output:<id>": una sola salida (la que solo emite con programa).
+    let only_output = group.strip_prefix("output:").map(|s| s.to_string());
     let want_audio = group == "audio" || group == "all";
-    let want_rtmp = group == "video" || group == "all";
+    let want_rtmp = group == "video" || group == "all" || only_output.is_some();
     let want_local = group == "local";
     let want_video = want_rtmp || want_local;
     let ffmpeg = find_ffmpeg(&app)
@@ -428,6 +430,11 @@ pub fn stream_start(
             .outputs
             .iter()
             .filter(|o| o.enabled && if is_local_kind(&o.kind) { want_local } else { want_rtmp })
+            .filter(|o| match &only_output {
+                Some(id) => o.id == *id,
+                // Las de «solo con programa» no salen fuera del directo.
+                None => !o.only_live || settings.live_mode || is_local_kind(&o.kind),
+            })
             .map(|o| settings.video.capped(o))
             .collect();
         for output in capped.iter() {
@@ -1543,6 +1550,14 @@ pub fn is_local_kind(kind: &str) -> bool {
 
 /// Grupos: "audio" (Icecast), "video" (RTMP), "all" (la emision: audio y
 /// RTMP), "local" (salidas del estudio) y "everything" (al cerrar).
+/// Como `in_group`, pero "output:<id>" es solo esa salida de vídeo.
+fn in_group_id(id: &str, kind: &str, group: &str) -> bool {
+    match group.strip_prefix("output:") {
+        Some(out) => id == format!("video:{out}"),
+        None => in_group(kind, group),
+    }
+}
+
 fn in_group(kind: &str, group: &str) -> bool {
     match group {
         "audio" => kind == "icecast",
@@ -1564,7 +1579,7 @@ fn stop_group(inner: &mut EngineInner, group: &str) {
     let mut keep = Vec::new();
     let mut stopped_monitors: Vec<String> = Vec::new();
     for mut process in inner.processes.drain(..) {
-        if !in_group(&process.kind, group) {
+        if !in_group_id(&process.id, &process.kind, group) {
             keep.push(process);
             continue;
         }
@@ -1580,7 +1595,7 @@ fn stop_group(inner: &mut EngineInner, group: &str) {
         let _ = process.child.wait();
     }
     inner.processes = keep;
-    inner.failed_outputs.retain(|output| !in_group(&output.kind, group));
+    inner.failed_outputs.retain(|output| !in_group_id(&output.id, &output.kind, group));
     // Solo las miniaturas de las salidas que se paran: antes se paraban
     // todas, y reiniciar las salidas del estudio (lo que pasa al cambiar un
     // ajuste) dejaba en negro el monitor de la emisión por internet.

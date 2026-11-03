@@ -2328,6 +2328,28 @@ export default function App() {
     [streamBusy, failStreaming, showToast],
   );
 
+  // Salidas de vídeo «solo con programa»: con la emisión de vídeo en marcha,
+  // se encienden al activar LIVE y se apagan al quitarlo, sin tocar las demás.
+  const liveOutPrev = useRef(settings.liveMode);
+  const videoRunningRef = useRef(videoStreamRunning);
+  videoRunningRef.current = videoStreamRunning;
+  useEffect(() => {
+    if (liveOutPrev.current === settings.liveMode) return;
+    liveOutPrev.current = settings.liveMode;
+    const s = settingsRef.current;
+    if (!videoRunningRef.current || !s.video.enabled) return;
+    const outs = s.video.outputs.filter((o) => o.enabled && o.onlyLive && (o.kind === "rtmp" || o.kind === "whip"));
+    for (const o of outs) {
+      const group = `output:${o.id}` as const;
+      void (s.liveMode ? startStreaming(s, group) : stopStreaming(group))
+        .then((st) => {
+          setStreamStatus(st);
+          showToast(`${o.name || "Salida de vídeo"}: ${s.liveMode ? "emitiendo (empieza el programa)" : "parada (fin del programa)"}`);
+        })
+        .catch((e) => showToast(`${o.name || "Salida de vídeo"}: ${String(e)}`));
+    }
+  }, [settings.liveMode, showToast]);
+
   // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
   const autoStreamDone = useRef(false);
   const setStreamGroupRef = useRef(setStreamGroup);

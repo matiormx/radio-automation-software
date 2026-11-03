@@ -1171,6 +1171,16 @@ export function VideoOutputsEditor({
                        />
                        Monitorizar (miniatura de lo que sale, cada segundo)
                      </label>
+                    {(output.kind === "rtmp" || output.kind === "whip") && (
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={!!output.onlyLive}
+                          onChange={(e) => updateVideoOutput(output.id, { onlyLive: e.target.checked })}
+                        />
+                        Solo durante los programas (con LIVE activado); si no, emite siempre
+                      </label>
+                    )}
                     {output.kind === "ndi" && (
                       <p className="hint">
                         Sale por NDI con el NDI Runtime (sin FFmpeg especial): la imagen de la fuente
