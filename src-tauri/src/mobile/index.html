@@ -327,8 +327,12 @@ function viewLive() {
       </div>
     </div>
     <div class="card next">Siguiente: ${S.next ? `<b>${esc(S.next.title)}</b> — ${esc(S.next.artist)}` : "<b>nada</b>"}</div>
-    <button class="btn green ${S.autopilot ? "on" : ""}" data-c="autopilot"><span class="dot"></span>Piloto automático ${S.autopilot ? "activado" : "apagado"}</button>`;
+    <button class="btn green ${S.autopilot ? "on" : ""}" data-c="autopilot"><span class="dot"></span>Piloto automático ${S.autopilot ? "activado" : "apagado"}</button>
+    ${collections().length ? `<div class="snapnote" style="margin:4px 2px 0">El piloto automático elige canciones de:</div>
+    <div class="lchips" style="flex-wrap:wrap">${collections().map((b) => `<button class="lchip ${S.autodj === b.id ? "on" : ""}" data-dj="${esc(b.id)}">${esc(b.name)}</button>`).join("")}<button class="lchip ${!S.autodj ? "on" : ""}" data-dj="">Toda la biblioteca</button></div>` : ""}`;
   $("#main").onclick = (e) => {
+    const dj = e.target.closest("[data-dj]");
+    if (dj) { cmd({ cmd: "autodjList", id: dj.dataset.dj }); return; }
     const b = e.target.closest("[data-c]");
     if (!b) return;
     const c = b.dataset.c;
@@ -339,7 +343,90 @@ function viewLive() {
 
 let showPast = false;
 let listScrolled = false;
+let listMode = localStorage.getItem("oc.lmode") || "lists";
+let openBlock = ""; // lista de la biblioteca abierta
+let blockData = null; // { id, tracks }
+function listSeg() {
+  return `<div class="seg" style="grid-template-columns:1fr 1fr"><button data-lmode="lists" class="${listMode === "lists" ? "on" : ""}">Listas</button><button data-lmode="queue" class="${listMode === "queue" ? "on" : ""}">En antena</button></div>`;
+}
+function onListSeg(e) {
+  const m = e.target.closest("[data-lmode]");
+  if (!m) return false;
+  listMode = m.dataset.lmode;
+  localStorage.setItem("oc.lmode", listMode);
+  openBlock = "";
+  listScrolled = false;
+  viewList();
+  $("#main").scrollTop = 0;
+  return true;
+}
+async function loadBlock(id) {
+  try {
+    const r = await fetch(`/api/block?t=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`);
+    if (r.status === 401) return logout();
+    const j = await r.json();
+    blockData = { id, tracks: j.tracks || [] };
+  } catch { blockData = { id, tracks: [] }; }
+  if (tab === "list" && listMode === "lists" && openBlock === id) viewList();
+}
+function viewBlocks() {
+  const bl = collections();
+  $("#main").innerHTML = `${listSeg()}
+    <button class="btn" data-bnew="1">+ Nueva lista</button>
+    ${bl.length ? bl.map((b) => `<div class="row" data-bopen="${esc(b.id)}"><div class="t"><div>${esc(b.name)}${S.autodj === b.id ? '<span class="badge b-auto">PILOTO</span>' : ""}</div><small>${b.count ?? 0} ${b.count === 1 ? "pista" : "pistas"}</small></div><span class="d">›</span></div>`).join("") : '<div class="empty">Todavía no hay listas</div>'}`;
+  $("#main").onclick = (e) => {
+    if (onListSeg(e)) return;
+    if (e.target.closest("[data-bnew]")) {
+      const name = prompt("Nombre de la lista nueva");
+      if (name && name.trim()) cmd({ cmd: "blockCreate", name: name.trim() });
+      return;
+    }
+    const o = e.target.closest("[data-bopen]");
+    if (o) { openBlock = o.dataset.bopen; blockData = null; viewList(); $("#main").scrollTop = 0; loadBlock(openBlock); }
+  };
+}
+function viewBlock() {
+  const b = collections().find((x) => x.id === openBlock);
+  if (!b) { openBlock = ""; return viewBlocks(); }
+  // La lista cambió (se añadió o quitó algo): se vuelve a pedir.
+  if (blockData && blockData.id === b.id && blockData.tracks.length !== (b.count ?? 0) && !blockData.loading) {
+    blockData.loading = true;
+    loadBlock(b.id);
+  }
+  const tr = blockData && blockData.id === b.id ? blockData.tracks : null;
+  $("#main").innerHTML = `${listSeg()}
+    <button class="btn" data-bback="1" style="text-align:left">‹ Todas las listas</button>
+    <h3>${esc(b.name)} · ${b.count ?? 0} pistas</h3>
+    <div class="grid2"><button class="btn" data-badd="1" style="background:var(--accent);border-color:var(--accent);color:#fff">+ Añadir pistas</button><button class="btn" data-bren="1">Renombrar</button></div>
+    ${tr === null ? '<div class="empty">Cargando…</div>' : tr.length ? tr.map((t) => `<div class="row ${t.missing ? "past" : ""}"><div class="t"><div>${esc(t.title)}</div><small>${esc(t.artist)}${t.missing ? " · falta el archivo" : ""}</small></div>
+      <span class="d">${fmt(t.dur)}</span><button class="more" data-brm="${esc(t.id)}" aria-label="Quitar de la lista" style="color:#ff8b8e">✕</button></div>`).join("") : '<div class="empty">La lista está vacía</div>'}
+    <button class="btn" data-bdel="1" style="margin-top:16px;border-color:#ff8b8e;color:#ff8b8e">Borrar la lista</button>`;
+  $("#main").onclick = (e) => {
+    if (onListSeg(e)) return;
+    if (e.target.closest("[data-bback]")) { openBlock = ""; viewList(); return; }
+    if (e.target.closest("[data-badd]")) return openSearch({ blockId: b.id, name: b.name });
+    if (e.target.closest("[data-bren]")) {
+      const name = prompt("Nuevo nombre de la lista", b.name);
+      if (name && name.trim() && name.trim() !== b.name) cmd({ cmd: "blockRename", id: b.id, name: name.trim() });
+      return;
+    }
+    if (e.target.closest("[data-bdel]")) {
+      if (confirm(`¿Borrar la lista «${b.name}»? Las canciones siguen en la biblioteca.`)) { cmd({ cmd: "blockDelete", id: b.id }); openBlock = ""; }
+      return;
+    }
+    const rm = e.target.closest("[data-brm]");
+    if (rm) {
+      const t = (tr || []).find((x) => x.id === rm.dataset.brm);
+      if (t && confirm(`¿Quitar «${t.title}» de ${b.name}? Sigue en la biblioteca.`)) {
+        cmd({ cmd: "blockRemoveTrack", blockId: b.id, trackId: t.id });
+        blockData.tracks = blockData.tracks.filter((x) => x.id !== t.id);
+        viewBlock();
+      }
+    }
+  };
+}
 function viewList() {
+  if (listMode === "lists") return openBlock ? viewBlock() : viewBlocks();
   const all = S.rows || [];
   const lists = S.lists || [];
   if (!lists.length) { $("#main").innerHTML = '<div class="empty">Sin listas todavía</div>'; return; }
@@ -347,13 +434,9 @@ function viewList() {
   const firstShown = showPast || S.playing < 0 ? 0 : Math.max(0, S.playing - keep);
   const rows = all.slice(firstShown);
   const hidden = firstShown;
-  const autoChips = collections().map((b) => `<button class="lchip ${S.autodj === b.id ? "on" : ""}" data-dj="${esc(b.id)}">${esc(b.name)}</button>`).join("");
-  $("#main").innerHTML = `<div class="lchips">${lists.map((l) => `<button class="lchip ${l.current ? "on" : ""}" data-list="${esc(l.id)}">${esc(l.name)}</button>`).join("")}</div>
-    <div class="lchips">${autoChips.length ? '<span class="lchip" style="border:none;padding:7px 4px">AUTO pilla de:</span>' + autoChips + `<button class="lchip ${S.autodj === "" ? "on" : ""}" data-dj="">Automático</button>` : ""}</div>
-    <h3>${esc(S.listName || "Lista")} · ${all.length} pistas
-      <button class="btn" data-addtrk="1" style="padding:6px 10px;float:right">+ Añadir</button>
-      <button class="btn" data-clear="1" style="padding:6px 10px;float:right;margin-right:6px;border-color:#ff8b8e;color:#ff8b8e">Vaciar</button>
-    </h3>
+  $("#main").innerHTML = `${listSeg()}<div class="lchips">${lists.map((l) => `<button class="lchip ${l.current ? "on" : ""}" data-list="${esc(l.id)}">${esc(l.name)}</button>`).join("")}</div>
+    <h3>${esc(S.listName || "Lista")} · ${all.length} pistas</h3>
+    <div class="grid2"><button class="btn" data-addtrk="1">+ Añadir</button><button class="btn" data-clear="1" style="border-color:#ff8b8e;color:#ff8b8e">Vaciar</button></div>
     ${hidden ? `<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">${hidden} canciones emitidas ocultas · ver</button>`
       : showPast && S.playing > keep ? '<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">Ocultar las emitidas</button>' : ""}
     ${rows.length ? rows.map((r) => {
@@ -363,11 +446,10 @@ function viewList() {
       <span class="d">${fmt(r.dur)}</span><button class="more" data-i="${r.i}" aria-label="Opciones">⋯</button></div>`;
   }).join("") : '<div class="empty">La lista está vacía</div>'}`;
   $("#main").onclick = (e) => {
+    if (onListSeg(e)) return;
     if (e.target.closest("[data-past]")) { showPast = !showPast; listScrolled = false; return viewList(); }
     const listBtn = e.target.closest("[data-list]");
     if (listBtn) { cmd({ cmd: "listSwitch", id: listBtn.dataset.list }); return; }
-    const dj = e.target.closest("[data-dj]");
-    if (dj) { cmd({ cmd: "autodjList", id: dj.dataset.dj }); return; }
     if (e.target.closest("[data-clear]")) {
       if (confirm("¿Vaciar esta lista? Lo que está sonando sigue hasta el final.")) cmd({ cmd: "playlistClear" });
       return;
@@ -389,12 +471,16 @@ function collections() {
 }
 
 /* Buscador de canciones para anadir a la lista: publica S.hits */
-function openSearch() {
+let searchTarget = null; // { blockId, name } = añadir a una lista de la biblioteca
+const addedNow = new Set();
+function openSearch(target = null) {
+  searchTarget = target;
+  addedNow.clear();
   document.getElementById("srch")?.remove();
   const el = document.createElement("div");
   el.id = "srch";
   el.className = "ed";
-  el.innerHTML = `<h4>Añadir canción a «${esc(S.listName || "la lista")}»</h4>
+  el.innerHTML = `<h4>Añadir canción a «${esc(target ? target.name : S.listName || "la lista")}»</h4>
     <input type="search" id="sq" placeholder="Título, artista o álbum…">
     <div id="shits" style="max-height:60vh;overflow-y:auto;margin-top:8px"></div>
     <div style="height:12px"></div><button class="btn" data-sclose="1">Cerrar</button>`;
@@ -402,6 +488,13 @@ function openSearch() {
   el.onclick = (e) => {
     if (e.target.closest("[data-sclose]")) { el.remove(); cmd({ cmd: "librarySearch", q: "" }); }
     const hit = e.target.closest("[data-add]");
+    if (hit && searchTarget) {
+      // En una lista de la biblioteca se pueden añadir varias seguidas.
+      cmd({ cmd: "blockAddTrack", blockId: searchTarget.blockId, trackId: hit.dataset.add });
+      addedNow.add(hit.dataset.add);
+      renderHits();
+      return;
+    }
     if (hit) { cmd({ cmd: "playlistAddTrack", trackId: hit.dataset.add }); el.remove(); }
   };
   const input = el.querySelector("#sq");
@@ -422,7 +515,7 @@ function renderHits() {
   if (!box) return;
   const hits = S.hits || [];
   box.innerHTML = hits.length
-    ? hits.map((h) => `<div class="srhit"><div class="t"><div>${esc(h.title)}</div><small>${esc(h.artist)}</small></div><button class="btn" data-add="${esc(h.id)}">Añadir</button></div>`).join("")
+    ? hits.map((h) => `<div class="srhit"><div class="t"><div>${esc(h.title)}</div><small>${esc(h.artist)}</small></div>${addedNow.has(h.id) ? '<button class="btn" disabled>Añadida</button>' : `<button class="btn" data-add="${esc(h.id)}">Añadir</button>`}</div>`).join("")
     : '<div class="snapnote" style="text-align:center">Sin resultados todavía (escribí algo y espera un segundo)</div>';
 }
 

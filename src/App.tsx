@@ -3732,6 +3732,11 @@ export default function App() {
       window.clearInterval(every);
     };
   }, []);
+  const blockCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tracks) for (const b of t.blocks) m.set(b, (m.get(b) ?? 0) + 1);
+    return m;
+  }, [tracks]);
   const mobileSnapshot = useMemo(() => {
     if (!mobileCfg?.enabled) return null;
     const now = deckRow
@@ -3739,7 +3744,7 @@ export default function App() {
       : { title: "", artist: "", cover: "", dur: 0, playing: false };
     const nextIndex = nextPick ? (nextPick.listId === active?.id ? nextPick.index : -1) : playingRow >= 0 ? playingRow + 1 : -1;
     return {
-      blocks: blocks.map((b) => ({ id: b.id, name: b.name })),
+      blocks: blocks.map((b) => ({ id: b.id, name: b.name, count: blockCounts.get(b.id) ?? 0 })),
       autodj: settings.defaultBlockId ?? "",
       lists: playlists.map((p) => ({ id: p.id, name: p.name, current: p.id === active?.id })),
       station: settings.radioName || "OmniCaster",
@@ -3841,7 +3846,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag, blockCounts]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -4086,6 +4091,52 @@ export default function App() {
         break;
       }
       // ---- Listas y AutoDJ ----
+      // ---- Listas de la biblioteca (bloques) desde el móvil ----
+      case "blockAddTrack":
+      case "blockRemoveTrack": {
+        const blockId = String(c.blockId ?? "");
+        const t = tracksRef.current.find((x) => x.id === String(c.trackId ?? ""));
+        if (!t || !blocks.some((b) => b.id === blockId)) return;
+        const add = c.cmd === "blockAddTrack";
+        if (add === t.blocks.includes(blockId)) return;
+        const next = add ? [...t.blocks, blockId] : t.blocks.filter((b) => b !== blockId);
+        void setTrackBlocks(t.id, next)
+          .then(() => {
+            setTracks((prev) => prev.map((x) => (x.id === t.id ? { ...x, blocks: next } : x)));
+            const name = blocks.find((b) => b.id === blockId)?.name ?? "la lista";
+            showToast(add ? `«${t.title}» añadida a ${name} desde el móvil` : `«${t.title}» quitada de ${name} desde el móvil`);
+          })
+          .catch((e) => showToast(`No se pudo cambiar la lista: ${String(e)}`));
+        break;
+      }
+      case "blockCreate": {
+        const name = String(c.name ?? "").trim().slice(0, 80);
+        if (!name) return;
+        void createBlock(name)
+          .then(() => refreshTracksAndBlocks())
+          .then(() => showToast(`Lista «${name}» creada desde el móvil`))
+          .catch((e) => showToast(`No se pudo crear la lista: ${String(e)}`));
+        break;
+      }
+      case "blockRename": {
+        const id = String(c.id ?? "");
+        const name = String(c.name ?? "").trim().slice(0, 80);
+        if (!name || !blocks.some((b) => b.id === id)) return;
+        void renameBlock(id, name)
+          .then(() => refreshTracksAndBlocks())
+          .catch((e) => showToast(`No se pudo renombrar la lista: ${String(e)}`));
+        break;
+      }
+      case "blockDelete": {
+        const id = String(c.id ?? "");
+        const b = blocks.find((x) => x.id === id);
+        if (!b) return;
+        void deleteBlock(id)
+          .then(() => refreshTracksAndBlocks())
+          .then(() => showToast(`Lista «${b.name}» borrada desde el móvil (las canciones siguen en la biblioteca)`))
+          .catch((e) => showToast(`No se pudo borrar la lista: ${String(e)}`));
+        break;
+      }
       case "autodjList": {
         const id = String(c.id ?? "");
         updateSettings({ ...s, defaultBlockId: !id || blocks.some((b) => b.id === id) ? id : "" });

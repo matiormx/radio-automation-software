@@ -381,6 +381,22 @@ fn serve(app: &AppHandle, shared: &Arc<(Mutex<Shared>, Condvar)>, stop: &AtomicB
                 Err(_) => reply(req, 404, "text/plain", Vec::new()),
             }
         }
+        ("GET", "/api/block") => {
+            // Pistas de una lista de la biblioteca (las más nuevas primero).
+            let id = query(&url, "id").unwrap_or_default();
+            let Some(st) = app.try_state::<crate::AppState>() else {
+                return json(req, 503, serde_json::json!({"error": "sin biblioteca"}));
+            };
+            let lib = crate::library::read_library_internal(&st.data_dir);
+            let mut list: Vec<&crate::library::Track> = lib.iter().filter(|t| t.blocks.iter().any(|b| *b == id)).collect();
+            list.reverse();
+            list.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+            let rows: Vec<serde_json::Value> = list
+                .iter()
+                .map(|t| serde_json::json!({"id": t.id, "title": t.title, "artist": t.artist, "dur": t.duration_secs, "missing": t.file.trim().is_empty() || !std::path::Path::new(t.file.trim()).is_file()}))
+                .collect();
+            json(req, 200, serde_json::json!({"tracks": rows}))
+        }
         ("GET", "/api/audience") => {
             // Oyentes ahora y, si se piden días, la audiencia por franjas.
             let days: u32 = query(&url, "days").and_then(|d| d.parse().ok()).unwrap_or(0);
