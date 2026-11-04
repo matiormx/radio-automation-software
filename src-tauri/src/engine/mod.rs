@@ -294,7 +294,9 @@ impl Engine {
                 return;
             }
         };
-        let (mut live, mut prod) = live::LiveIn::new(ENGINE_RATE, 8.0, 0.6);
+        // 30 s de buffer y 2,5 s de colchón: las emisiones por internet (HLS sobre
+        // todo) llegan a trozos; con 0,6 s se oían saltos.
+        let (mut live, mut prod) = live::LiveIn::new(ENGINE_RATE, 30.0, 2.5);
         let stop = Arc::new(AtomicBool::new(false));
         {
             let mut g = lock(&self.shared);
