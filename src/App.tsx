@@ -3156,8 +3156,14 @@ export default function App() {
     topupBusy.current = true;
     const need = Math.max(1, settings.autopilotFillTo - Math.max(0, upComing));
     const scope = autoScopeRef.current;
+    // Solo cuenta lo que suena y lo que queda: las ya emitidas que siguen en
+    // la lista no deben agotar la lista del evento. Antes, con cientos de
+    // canciones emitidas en la lista, las de una lista pequeña (o la del
+    // evento al cabo de unas horas) quedaban «ya usadas» y el AutoDJ caía a
+    // toda la biblioteca: parecía que el evento no cambiaba nada.
+    const fromRow = Math.max(0, playingRow);
     void autoPick(
-      rows.map((r) => r.id),
+      rows.slice(fromRow).map((r) => r.id),
       need,
       scope?.kind,
       scope?.id,
@@ -3171,8 +3177,14 @@ export default function App() {
           });
           void mutateList((ids) => {
             const copy = [...ids];
+            const playingId = playingRowRef.current >= 0 ? ids[playingRowRef.current] : undefined;
             for (const id of picked) {
-              if (!copy.includes(id)) copy.push(id);
+              const at = copy.indexOf(id);
+              const pIdx = playingId ? copy.indexOf(playingId) : -1;
+              if (at >= 0 && (id === playingId || at > pIdx)) continue; // ya está por sonar
+              // Estaba entre las emitidas: se mueve al final (una lista no repite pistas).
+              if (at >= 0) copy.splice(at, 1);
+              copy.push(id);
             }
             return copy;
           });
