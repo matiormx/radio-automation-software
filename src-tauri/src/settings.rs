@@ -192,6 +192,9 @@ pub struct Settings {
     pub video: VideoSettings,
     pub streaming: StreamingSettings,
     pub studio_calls: StudioCallsSettings,
+    /// Grabación de los directos (la interfaz lo gestiona; aquí solo se guarda)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_record: Option<serde_json::Value>,
 }
 
 /// Programa de emisión preparado con antelacion: tiene titulo, portada y
@@ -213,6 +216,8 @@ pub struct Program {
     /// Hora de inicio prevista ("22:00"); vacio = sin hora
     pub starts_at: String,
     pub enabled: bool,
+    /// Lista a la que van las grabaciones de este programa
+    pub record_block_id: String,
 }
 
 /// Entrada o salida de audio habilitada en Ajustes > Sonido.
@@ -458,11 +463,14 @@ pub struct MixerBus {
     pub insert: InsertSettings,
     pub pan: f32,
     pub sends: Vec<MixerSend>,
+    /// Salidas adicionales (el bus suena igual por todas)
+    pub extra_output_ids: Vec<String>,
 }
 
 impl Default for MixerBus {
     fn default() -> Self {
         Self {
+            extra_output_ids: Vec::new(),
             id: String::new(),
             name: String::new(),
             color: "#59d98c".to_string(),
@@ -581,6 +589,8 @@ pub struct StationEvent {
     pub no_repeat_air_mins: u32,
     /// "random": pistas elegidas (para las reglas de repeticion)
     pub pick_log: Vec<PickEntry>,
+    /// Franja AutoDJ: al entrar, quitar lo que queda por sonar de la lista
+    pub clear_list: bool,
 }
 
 /// Una pista elegida al azar por un evento.
@@ -610,6 +620,7 @@ pub struct StreamMeta {
 impl Default for StationEvent {
     fn default() -> Self {
         Self {
+            clear_list: false,
             id: String::new(),
             name: String::new(),
             enabled: true,
@@ -792,11 +803,15 @@ pub struct IcecastStream {
     pub genre: String,
     /// Estadisticas de oyentes (opcional): URL o puerto de status-json.xsl
     pub stats_url: String,
+    /// Estadísticas de oyentes (la interfaz lo gestiona; aquí solo se guarda)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<serde_json::Value>,
 }
 
 impl Default for IcecastStream {
     fn default() -> Self {
         Self {
+            stats: None,
             id: String::new(),
             name: String::new(),
             enabled: true,
@@ -896,6 +911,7 @@ pub struct RemoteSettings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            live_record: None,
             vst: VstSettings::default(),
             remote: RemoteSettings::default(),
             mobile: crate::mobile::MobileConfig::default(),
@@ -1442,6 +1458,22 @@ mod tests {
         s.auto_blocks = blocks.iter().map(|b| b.to_string()).collect();
         s.default_block_id = default_block.to_string();
         s
+    }
+
+    #[test]
+    fn se_guardan_los_ajustes_nuevos() {
+        let json = r#"{"liveRecord":{"enabled":true,"format":"aac"},
+          "programs":[{"id":"p","name":"X","recordBlockId":"b1"}],
+          "events":[{"id":"e","kind":"auto","clearList":true}],
+          "mixerBuses":[{"id":"B","outputDeviceId":"default","extraOutputIds":["streaming"]}],
+          "streaming":{"icecast":[{"id":"i","stats":{"mode":"other","port":8001}}]}}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        let back = serde_json::to_value(&s).unwrap();
+        assert_eq!(back["liveRecord"]["format"], "aac");
+        assert_eq!(back["programs"][0]["recordBlockId"], "b1");
+        assert_eq!(back["events"][0]["clearList"], true);
+        assert_eq!(back["mixerBuses"][0]["extraOutputIds"][0], "streaming");
+        assert_eq!(back["streaming"]["icecast"][0]["stats"]["port"], 8001);
     }
 
     #[test]

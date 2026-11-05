@@ -2795,6 +2795,7 @@ mod tests {
             description: "Prueba".to_string(),
             genre: "Variado".to_string(),
             stats_url: String::new(),
+            stats: None,
         }
     }
 
