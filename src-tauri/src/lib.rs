@@ -35,6 +35,7 @@ pub mod vstpkg;
 pub mod monitor;
 mod whisper;
 mod liverec;
+mod gpumon;
 
 pub struct AppState {
     pub data_dir: PathBuf,

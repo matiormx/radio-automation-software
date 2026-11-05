@@ -1322,6 +1322,8 @@ function viewSys() {
   <h3>Equipo</h3><div class="card">
     <div class="stat"><span>Procesador</span>${bar(sys.cpu)}<b>${Math.round(sys.cpu)}%</b></div>
     <div class="stat"><span>Memoria</span>${bar(ram)}<b>${gb(sys.memUsed)}</b></div>
+    ${sys.gpu ? `<div class="stat"><span>Gráfica</span>${bar(sys.gpu.util)}<b>${Math.round(sys.gpu.util)}%</b></div>
+    <div class="line"><span>${esc(sys.gpu.name || "Tarjeta gráfica")}${sys.gpu.encoder >= 0 ? ` · codificador ${Math.round(sys.gpu.encoder)}%` : ""}</span><b>${sys.gpu.memUsed ? gb(sys.gpu.memUsed) + (sys.gpu.memTotal ? " / " + gb(sys.gpu.memTotal) : "") : ""}</b></div>` : ""}
     <div class="stat"><span>Motor de audio</span>${bar(sys.audioLoad)}<b>${sys.audioLoad.toFixed(1)}%</b></div></div>
     <h3>Red</h3><div class="card">${(sys.nets || []).slice(0, 4).map((n) => `<div class="line"><span>${esc(n.name)}</span><b>↓${mbps(n.rxBps)} ↑${mbps(n.txBps)}</b></div>`).join("") || '<div class="line">Sin tráfico</div>'}</div>
     <h3>OmniCaster</h3><div class="card">${(sys.procs || []).map((p) => `<div class="line"><span>${esc(p.name)}</span><b>${p.cpu.toFixed(1)}% · ${Math.round(p.mem / 1024 ** 2)} MB</b></div>`).join("")}

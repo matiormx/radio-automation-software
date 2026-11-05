@@ -26,6 +26,7 @@ interface Stats {
   procs: Proc[];
   diskFree: number;
   diskTotal: number;
+  gpu?: { name: string; util: number; encoder: number; decoder: number; memUsed: number; memTotal: number };
 }
 
 const gb = (b: number) => `${(b / 1024 ** 3).toFixed(b >= 10 * 1024 ** 3 ? 0 : 1)} GB`;
@@ -77,7 +78,7 @@ export function SysMonitor() {
 
   if (!s) return null;
   const ram = s.memTotal > 0 ? (s.memUsed / s.memTotal) * 100 : 0;
-  const worst = Math.max(s.cpu, ram, s.audioLoad);
+  const worst = Math.max(s.cpu, ram, s.audioLoad, s.gpu?.util ?? 0);
   return (
     <div className="sm" ref={box}>
       <button
@@ -89,6 +90,7 @@ export function SysMonitor() {
         <span className="sm-dot" />
         <span>CPU {Math.round(s.cpu)}%</span>
         <span>RAM {Math.round(ram)}%</span>
+        {s.gpu && <span>GPU {Math.round(s.gpu.util)}%</span>}
         <span className="sm-net">↓{bps(s.rxBps)} ↑{bps(s.txBps)}</span>
       </button>
       {open && (
@@ -112,6 +114,26 @@ export function SysMonitor() {
               {gb(s.memUsed)} / {gb(s.memTotal)}
             </b>
           </div>
+          {s.gpu && (
+            <>
+              <div className="sm-row" title={s.gpu.name || "Tarjeta gráfica"}>
+                <span>Gráfica</span>
+                <Bar pct={s.gpu.util} />
+                <b>{Math.round(s.gpu.util)}%</b>
+              </div>
+              <div className="sm-line sm-dim">
+                <span>
+                  {[
+                    s.gpu.encoder >= 0 ? `Codificador ${Math.round(s.gpu.encoder)}%` : "",
+                    s.gpu.decoder >= 0 ? `decodificador ${Math.round(s.gpu.decoder)}%` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <b>{s.gpu.memUsed > 0 ? `${mb(s.gpu.memUsed)}${s.gpu.memTotal > 0 ? ` / ${mb(s.gpu.memTotal)}` : ""}` : ""}</b>
+              </div>
+            </>
+          )}
           <div className="sm-row" title="Tiempo que tarda el motor en mezclar cada bloque de audio. Cerca del 100 % se oirían cortes.">
             <span>Motor de audio</span>
             <Bar pct={s.audioLoad} />

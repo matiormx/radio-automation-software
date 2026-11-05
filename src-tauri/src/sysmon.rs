@@ -66,6 +66,9 @@ pub struct Stats {
     procs: Vec<Proc>,
     disk_free: u64,
     disk_total: u64,
+    /// Tarjeta gráfica (None = no hay o no se puede medir)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gpu: Option<crate::gpumon::GpuInfo>,
 }
 
 fn is_loopback(name: &str) -> bool {
@@ -102,6 +105,7 @@ pub fn compute(app: &tauri::AppHandle, mon: &SysMon, detail: bool) -> Stats {
         mem_used: sys.used_memory(),
         mem_total: sys.total_memory(),
         audio_load: crate::engine::io::audio_load(),
+        gpu: crate::gpumon::latest(),
         ..Default::default()
     };
 
