@@ -36,6 +36,7 @@ pub mod monitor;
 mod whisper;
 mod liverec;
 mod gpumon;
+mod cloud;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -314,7 +315,10 @@ pub fn run() {
             liverec::liverec_start,
             liverec::liverec_mark,
             liverec::liverec_status,
-            liverec::liverec_stop
+            liverec::liverec_stop,
+            cloud::cloud_get,
+            cloud::cloud_join,
+            cloud::cloud_leave
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")

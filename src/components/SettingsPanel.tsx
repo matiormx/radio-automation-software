@@ -1,3 +1,4 @@
+import { CloudTab } from "./CloudTab";
 import { ApiTab } from "./ApiTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { BackupTab } from "./BackupTab";
@@ -200,6 +201,7 @@ export type SettingsTab =
   | "backup"
   | "remote"
   | "mobile"
+  | "cloud"
   | "network";
 
 export function SettingsPanel({
@@ -400,6 +402,15 @@ export function SettingsPanel({
               Control desde el móvil
               <span>Directo, lista, emisión y mesa</span>
             </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "cloud" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("cloud")}
+              title="Unir este equipo al maestro en la nube"
+            >
+              Maestro (nube)
+              <span>Equipos de la emisora y panel remoto</span>
+            </button>
             {IS_LINUX && (
               <button
                 type="button"
@@ -505,6 +516,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "mobile" && <MobileTab settings={s} onChange={onChange} />}
+            {tab === "cloud" && <CloudTab showToast={showToast} />}
             {tab === "remote" && <RemoteTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "network" && <NetworkTab showToast={showToast} />}
             {tab === "backup" && (

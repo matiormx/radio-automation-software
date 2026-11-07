@@ -74,6 +74,7 @@ import { StudioCalls, type StudioSnapshot } from "./studioCalls";
 import { StreamEncoder } from "./streaming";
 import { LiveBar } from "./components/LiveBar";
 import { AudienceModal } from "./components/Audience";
+import { cloudGet, cloudNode } from "./cloud";
 import { TrackEditor } from "./components/TrackEditor";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
@@ -3902,6 +3903,26 @@ export default function App() {
   }, [mobileCfg?.enabled, mobileSnapshot]);
 
   const mobileActions = useRef<(c: Record<string, unknown>) => void>(() => undefined);
+
+  // ---- Maestro en la nube: latido con el estado y órdenes del panel remoto
+  // (se ejecutan igual que las del control desde el móvil). ----
+  const cloudStatusRef = useRef<() => Record<string, unknown>>(() => ({}));
+  cloudStatusRef.current = () => ({
+    app: mobileUpd.version,
+    onAir: playingRow >= 0 && !paused,
+    live: settings.liveMode,
+    nowPlaying: songFields ? { title: songFields.title, artist: songFields.artist } : null,
+    streaming: { audio: audioStreamRunning, video: videoStreamRunning },
+    autopilot: autopilotOn,
+  });
+  useEffect(() => {
+    cloudNode.getStatus = () => cloudStatusRef.current();
+    cloudNode.onCommand = (cmd) => mobileActions.current(cmd);
+    void cloudGet()
+      .then((j) => j && cloudNode.start(j))
+      .catch(() => undefined);
+    return () => cloudNode.stop();
+  }, []);
   mobileActions.current = (c) => {
     const num = (k: string) => Number(c[k]);
     const s = settingsRef.current;
