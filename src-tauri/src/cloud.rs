@@ -89,6 +89,7 @@ pub fn cloud_join(state: State<'_, AppState>, file: String) -> Result<JoinFile, 
 /// Deja el maestro (borra la llave de este equipo).
 #[tauri::command]
 pub fn cloud_leave(state: State<'_, AppState>) -> Result<(), String> {
+    crate::cloudsync::forget(&state.data_dir);
     match std::fs::remove_file(path(&state.data_dir)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

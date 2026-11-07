@@ -1757,14 +1757,14 @@ pub struct BlockInfo {
     pub track_count: usize,
 }
 
-fn read_blocks(data_dir: &Path) -> Vec<Block> {
+pub(crate) fn read_blocks(data_dir: &Path) -> Vec<Block> {
     fs::read(data_dir.join(BLOCKS_FILE))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
 }
 
-fn write_blocks(data_dir: &Path, b: &[Block]) -> Result<(), String> {
+pub(crate) fn write_blocks(data_dir: &Path, b: &[Block]) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(b).map_err(|e| e.to_string())?;
     fs::write(data_dir.join(BLOCKS_FILE), json).map_err(|e| e.to_string())
 }

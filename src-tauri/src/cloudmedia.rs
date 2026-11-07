@@ -501,6 +501,17 @@ pub fn on_startup(dir: &Path) {
     }
 }
 
+/// Huellas ya calculadas: ruta -> (tamaño, fecha, sha256).
+pub fn known_hashes(dir: &Path) -> HashMap<String, (u64, u64, String)> {
+    let cache: HashMap<String, HashEntry> =
+        std::fs::read_to_string(dir.join(HASH_FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    cache.into_iter().map(|(k, e)| (k, (e.size, e.mtime, e.hash))).collect()
+}
+
+pub fn hash_file_pub(p: &Path) -> std::io::Result<String> {
+    hash_file(p)
+}
+
 // ------------------------------------------------------------------ comandos
 
 #[tauri::command]

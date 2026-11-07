@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { cloudGet, cloudJoinPick, cloudLeave, cloudMediaSet, cloudMediaStatus, cloudNode, type CloudStatus, type MediaStatus } from "../cloud";
+import { cloudGet, cloudJoinPick, cloudLeave, cloudMediaSet, cloudMediaStatus, cloudNode, cloudSyncSet, cloudSyncStatus, type CloudStatus, type MediaStatus, type SyncStatus } from "../cloud";
 
 const ROLE: Record<string, string> = {
   main: "Principal (emite)",
@@ -92,12 +92,8 @@ export function CloudTab({ showToast }: { showToast: (m: string) => void }) {
             </div>
           </>
         )}
+        {j && <DataSync role={j.node.role} showToast={showToast} />}
         {j && j.node.role !== "backup" && <MediaUpload showToast={showToast} />}
-        <p className="hint">
-          Por ahora el maestro ve el estado de este equipo (qué suena, si emite, oyentes) y puede
-          manejarlo como el control desde el móvil. La sincronización de la biblioteca, las listas
-          y los eventos entre equipos llega en la siguiente fase.
-        </p>
       </fieldset>
     </div>
   );
@@ -172,6 +168,82 @@ function MediaUpload({ showToast }: { showToast: (m: string) => void }) {
           {m.failed > 0 && <p className="hint update-error">{m.failed} archivos no se pudieron subir; se reintentarán en la próxima pasada.</p>}
         </>
       )}
+    </fieldset>
+  );
+}
+
+/** Sincronización de biblioteca, listas, programas, eventos y campañas. */
+function DataSync({ role, showToast }: { role: string; showToast: (m: string) => void }) {
+  const [x, setX] = useState<SyncStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => void cloudSyncStatus().then((v) => alive && setX(v)).catch(() => undefined);
+    tick();
+    const t = window.setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, []);
+  if (!x) return null;
+  const set = (enabled: boolean, download: SyncStatus["download"]) => {
+    if (enabled && !x.enabled && role !== "main" && x.items === 0) {
+      if (
+        !window.confirm(
+          "Este equipo no es el principal: la primera vez adopta los datos del maestro (biblioteca, listas, programas, eventos y campañas). Lo que tenga ahora se queda aquí, pero no se sube. ¿Seguir?",
+        )
+      )
+        return;
+    }
+    void cloudSyncSet(enabled, download).then(setX).catch((e) => showToast(String(e)));
+  };
+  const when = x.lastAt ? new Date(x.lastAt * 1000).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  const text =
+    x.phase === "off"
+      ? "Desactivada"
+      : x.phase === "syncing"
+        ? "Sincronizando…"
+        : x.phase === "ok"
+          ? `Al día (${x.items} elementos) · última comprobación ${when}`
+          : x.phase === "nomaster"
+            ? "Este equipo no está unido al maestro"
+            : `Error: ${x.error} (se reintenta solo)`;
+  return (
+    <fieldset className="fieldset" style={{ marginTop: 12 }}>
+      <legend>Datos de la emisora</legend>
+      <p className="hint">
+        Biblioteca, listas, programas, eventos y campañas, iguales en todos los equipos de la emisora.
+        {role === "backup"
+          ? " Este equipo es de relevo: recibe los cambios, pero no los manda."
+          : " Lo que cambies aquí llega a los demás en segundos, y al revés."}{" "}
+        La lista que está sonando en un equipo no se cambia desde otro.
+      </p>
+      <div className="field-row">
+        <button type="button" className={x.enabled ? "btn" : "btn btn-accent"} onClick={() => set(!x.enabled, x.download)}>
+          {x.enabled ? "Detener la sincronización" : "Sincronizar con el maestro"}
+        </button>
+        <label className="field">
+          <span className="field-label">Música que falte en este equipo</span>
+          <select value={x.download} onChange={(e) => set(x.enabled, e.target.value as SyncStatus["download"])}>
+            <option value="needed">Bajar solo la de las listas y los eventos</option>
+            <option value="all">Bajarla toda</option>
+            <option value="none">No bajar nada</option>
+          </select>
+        </label>
+      </div>
+      <p className={x.phase === "error" ? "hint update-error" : "hint"}>{text}</p>
+      {x.enabled && (x.sentTotal > 0 || x.receivedTotal > 0) && (
+        <p className="hint">
+          Desde que se abrió el programa: {x.sentTotal} cambios enviados, {x.receivedTotal} recibidos.
+        </p>
+      )}
+      {x.dlPending > 0 && (
+        <p className="hint">
+          Bajando música: {x.dlDone} de {x.dlPending}
+          {x.dlCurrent ? ` · ↓ ${x.dlCurrent}` : ""}
+        </p>
+      )}
+      {x.dlError && <p className="hint update-error">{x.dlError}</p>}
     </fieldset>
   );
 }

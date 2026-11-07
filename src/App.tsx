@@ -4322,6 +4322,54 @@ export default function App() {
       }
     }
   };
+  // Sincronización con el maestro: canciones y bloques ya están escritos (se
+  // recargan); listas, programas, eventos y campañas los aplica esta ventana.
+  useEffect(() => {
+    type In = { kind: string; id: string; deleted: boolean; data: unknown };
+    const offLib = listen("cloud://library", () => void refreshTracksAndBlocks());
+    const offApply = listen<In[]>("cloud://apply", (e) => {
+      const items = Array.isArray(e.payload) ? e.payload : [];
+      const field = { program: "programs", event: "events", campaign: "campaigns" } as const;
+      const sets = items.filter((i) => i.kind in field);
+      if (sets.length) {
+        setSettings((prev) => {
+          const next = { ...prev } as Settings;
+          for (const it of sets) {
+            const f = field[it.kind as keyof typeof field];
+            const list = [...((next[f] as unknown as { id: string }[]) ?? [])];
+            const at = list.findIndex((x) => x.id === it.id);
+            if (it.deleted) {
+              if (at >= 0) list.splice(at, 1);
+            } else if (it.data && typeof it.data === "object") {
+              if (at >= 0) list[at] = it.data as { id: string };
+              else list.push(it.data as { id: string });
+            }
+            (next as unknown as Record<string, unknown>)[f] = list;
+          }
+          void saveSettings(next).catch(() => undefined);
+          return next;
+        });
+      }
+      for (const it of items.filter((i) => i.kind === "playlist")) {
+        // La lista que está sonando aquí no se toca desde fuera.
+        if (it.id === activeIdRef.current && playingRowRef.current >= 0) continue;
+        if (it.deleted) {
+          if (playlistsRef.current.length <= 1) continue;
+          setPlaylists((prev) => prev.filter((p) => p.id !== it.id));
+          if (activeIdRef.current === it.id) setActiveId(playlistsRef.current.find((p) => p.id !== it.id)?.id ?? "");
+          void deletePlaylist(it.id).catch(() => undefined);
+        } else if (it.data && typeof it.data === "object") {
+          const pl = { meta: [], ...(it.data as Playlist), id: it.id };
+          setPlaylists((prev) => (prev.some((p) => p.id === pl.id) ? prev.map((p) => (p.id === pl.id ? pl : p)) : [...prev, pl]));
+          void savePlaylist(pl).catch(() => undefined);
+        }
+      }
+    });
+    return () => {
+      void offLib.then((f) => f());
+      void offApply.then((f) => f());
+    };
+  }, [refreshTracksAndBlocks]);
   useEffect(() => {
     const off = listen<Record<string, unknown>>("mobile://cmd", (e) => mobileActions.current(e.payload ?? {}));
     return () => {

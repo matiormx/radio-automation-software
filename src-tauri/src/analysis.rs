@@ -46,7 +46,7 @@ fn now_epoch() -> u64 {
         .unwrap_or(0)
 }
 
-fn file_signature(path: &Path) -> String {
+pub(crate) fn file_signature(path: &Path) -> String {
     match fs::metadata(path) {
         Ok(m) => {
             let modified = m

@@ -57,6 +57,30 @@ export function cloudMediaSet(enabled: boolean, limitMbps: number): Promise<Medi
   return invoke<MediaStatus>("cloud_media_set", { enabled, limitMbps });
 }
 
+/** Sincronización de los datos con el maestro. */
+export interface SyncStatus {
+  enabled: boolean;
+  download: "needed" | "all" | "none";
+  phase: "off" | "syncing" | "ok" | "error" | "nomaster";
+  error: string;
+  lastAt: number;
+  version: number;
+  items: number;
+  sentTotal: number;
+  receivedTotal: number;
+  dlPending: number;
+  dlDone: number;
+  dlBytes: number;
+  dlCurrent: string;
+  dlError: string;
+}
+export function cloudSyncStatus(): Promise<SyncStatus> {
+  return invoke<SyncStatus>("cloud_sync_status");
+}
+export function cloudSyncSet(enabled: boolean, download: SyncStatus["download"]): Promise<SyncStatus> {
+  return invoke<SyncStatus>("cloud_sync_set", { enabled, download });
+}
+
 type Listener = (s: CloudStatus) => void;
 
 /**
@@ -135,6 +159,8 @@ class CloudNode {
       }
       if ((msg.type === "hello" || msg.type === "changed") && typeof msg.version === "number") {
         this.set({ version: msg.version });
+        // Hay cambios en el maestro: que la sincronización pase ya.
+        void invoke("cloud_sync_now").catch(() => undefined);
       } else if (msg.type === "cmd" && msg.cmd && typeof msg.cmd === "object") {
         let ok = true;
         let error = "";

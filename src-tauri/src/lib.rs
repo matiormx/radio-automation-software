@@ -38,6 +38,7 @@ mod liverec;
 mod gpumon;
 mod cloud;
 mod cloudmedia;
+mod cloudsync;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -140,6 +141,7 @@ pub fn run() {
             // Linux: si VNC estaba activado, se enciende otra vez.
             remote::on_startup(&settings::read_settings_public(&data_dir));
             cloudmedia::on_startup(&data_dir);
+            cloudsync::on_startup(app.handle(), &data_dir);
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             // Prueba en segundo plano qué compresor de vídeo por hardware hay
@@ -322,7 +324,10 @@ pub fn run() {
             cloud::cloud_join,
             cloud::cloud_leave,
             cloudmedia::cloud_media_status,
-            cloudmedia::cloud_media_set
+            cloudmedia::cloud_media_set,
+            cloudsync::cloud_sync_status,
+            cloudsync::cloud_sync_set,
+            cloudsync::cloud_sync_now
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")
