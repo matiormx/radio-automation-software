@@ -1,5 +1,7 @@
 export interface Track {
   id: string;
+  /** Inhabilitada: no suena aunque esté en una lista o un evento */
+  disabled?: boolean;
   title: string;
   artist: string;
   album: string;
@@ -158,6 +160,7 @@ export interface TrackPatch {
   year?: string;
   tags?: string[];
   language?: string;
+  disabled?: boolean;
 }
 
 /** Configuracion del analisis de metadatos con IA local (Ollama/OpenCode) o en la nube. */

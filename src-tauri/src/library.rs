@@ -28,6 +28,10 @@ const ALLOWED_EXTENSIONS: [&str; 12] = [
 #[serde(rename_all = "camelCase", default)]
 pub struct Track {
     pub id: String,
+    /// Inhabilitada: no suena aunque esté en una lista o en un evento
+    /// (ni la elige el AutoDJ). Sigue en la biblioteca.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
     pub title: String,
     pub artist: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -1241,6 +1245,9 @@ pub struct TrackPatch {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub language: Option<String>,
+    /// Inhabilitada: no suena aunque esté en una lista o en un evento
+    #[serde(default)]
+    pub disabled: Option<bool>,
 }
 
 /// Edita los metadatos de una cancion. El archivo queda intacto:
@@ -1283,6 +1290,9 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), S
         }
         if let Some(lang) = patch.language {
             t.language = clean_language(&lang);
+        }
+        if let Some(d) = patch.disabled {
+            t.disabled = d;
         }
         keys.insert(cover_key(t));
     } else {

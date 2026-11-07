@@ -51,7 +51,7 @@ export function pickLatest(event: StationEvent, tracks: Track[]): Track | null {
 /** Pistas de la fuente del evento (biblioteca A/B o bloque), sin las que faltan en disco. */
 export function randomPool(event: StationEvent, tracks: Track[]): Track[] {
   return tracks.filter((t) => {
-    if (t.missing) return false;
+    if (t.missing || t.disabled) return false;
     return event.sourceKind === "block"
       ? t.blocks.includes(event.sourceId)
       : t.library === (event.sourceId === "b" ? "b" : "a");

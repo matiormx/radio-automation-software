@@ -13,3 +13,4 @@ src-tauri/gen
 src-tauri/bin/*
 !src-tauri/bin/.gitkeep
 __pycache__/
+dist-web

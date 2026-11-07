@@ -1308,7 +1308,7 @@ pub fn pick_tracks(
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut in_scope: HashSet<&str> = HashSet::new();
     for t in library {
-        if is_intro(t) {
+        if is_intro(t) || t.disabled {
             continue;
         }
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {

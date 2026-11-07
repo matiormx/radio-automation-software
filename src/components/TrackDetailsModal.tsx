@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TrackDetails } from "../types";
+import { closeOnBackdrop } from "../backdrop";
 import { getTrackDetails, trackUrl } from "../api";
 import { IconEdit, IconNote } from "../icons";
 
@@ -49,7 +50,7 @@ export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModa
   }, [trackId]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" {...closeOnBackdrop(onClose)}>
       <div
         className="modal props-modal"
         onClick={(e) => e.stopPropagation()}

@@ -1,13 +1,14 @@
 {
   "name": "miradio",
   "private": true,
-  "version": "1.1.31",
+  "version": "1.1.32",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:web": "vite build -c vite.web.config.ts"
   },
   "dependencies": {
     "@cloudflare/realtimekit": "^2.0.4",

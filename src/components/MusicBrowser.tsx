@@ -22,6 +22,8 @@ import { ExplorerView } from "./ExplorerView";
 import { pickScanFolder, scanFolder, aiWindowPayloadSet } from "../api";
 import { openAiWindow } from "../bridge";
 import { listen } from "@tauri-apps/api/event";
+import { IS_WEB } from "../platform";
+import { closeOnBackdrop } from "../backdrop";
 
 const LOSSLESS = new Set(["flac", "wav", "aif", "aiff", "alac", "ape", "wv"]);
 const LOSSY = new Set(["mp3", "wma", "mp2", "aac", "m4a", "ogg", "opus"]);
@@ -130,6 +132,7 @@ interface EditState {
   year: string;
   tagsText: string;
   language: string;
+  disabled: boolean;
   blocks: string[];
   busy: boolean;
   /** Caratula actual (ruta) */
@@ -196,7 +199,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: "explorer", label: "Explorador" },
   { id: "tags", label: "Etiquetas" },
   { id: "history", label: "Historial" },
-];
+].filter((m) => !IS_WEB || (m.id !== "explorer" && m.id !== "history")) as { id: Mode; label: string }[];
 
 /** Cuantas canciones ya emitidas se ven a la vez. */
 const HISTORY_LIMIT = 25;
@@ -663,6 +666,7 @@ function MusicBrowserBase({
         year: t.year,
         tagsText: t.tags.join(", "),
       language: t.language ?? "",
+        disabled: !!t.disabled,
         blocks: [...t.blocks],
         busy: false,
         cover: t.cover,
@@ -682,6 +686,7 @@ function MusicBrowserBase({
       year: t.year,
       tagsText: t.tags.join(", "),
       language: t.language ?? "",
+      disabled: !!t.disabled,
       blocks: [...t.blocks],
       busy: false,
       cover: t.cover,
@@ -700,6 +705,7 @@ function MusicBrowserBase({
         genre: edit.genre.trim(),
         year: edit.year.trim(),
         language: edit.language,
+        disabled: edit.disabled,
         tags: edit.tagsText
           .split(",")
           .map((s) => s.trim())
@@ -919,6 +925,7 @@ function MusicBrowserBase({
                       {t.library === "b" && <span className="chip chip-lib">B</span>}
                       {qualityBadge(t)}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
+                      {t.disabled && <span className="badge-missing">inhabilitada</span>}
                     </span>
                     <span className="brow-sub">
                       {t.artist}
@@ -1006,6 +1013,7 @@ function MusicBrowserBase({
         >
           <IconImport size={14} />
         </button>
+        {!IS_WEB && (
         <button
           type="button"
           className="btn btn-sm icon-only"
@@ -1016,6 +1024,8 @@ function MusicBrowserBase({
         >
           <IconScan size={14} />
         </button>
+        )}
+        {!IS_WEB && (
         <button
           type="button"
           className="btn btn-sm icon-only"
@@ -1029,6 +1039,8 @@ function MusicBrowserBase({
         >
           <IconFolder size={14} />
         </button>
+        )}
+        {!IS_WEB && (
         <button
           type="button"
           className="btn btn-sm icon-only"
@@ -1038,6 +1050,8 @@ function MusicBrowserBase({
         >
           <IconList size={14} />
         </button>
+        )}
+        {!IS_WEB && (
         <button
           type="button"
           className="btn btn-sm icon-only"
@@ -1047,6 +1061,7 @@ function MusicBrowserBase({
         >
           <IconSparkles size={14} />
         </button>
+        )}
       </div>
 
       {mode === "explorer" ? (
@@ -1592,7 +1607,7 @@ function MusicBrowserBase({
       )}
 
       {edit && (
-        <div className="modal-backdrop" onClick={() => setEdit(null)}>
+        <div className="modal-backdrop" {...closeOnBackdrop(() => setEdit(null))}>
           <div
             className="modal modal-wide"
             onClick={(e) => e.stopPropagation()}
@@ -1699,6 +1714,10 @@ function MusicBrowserBase({
                   onChange={(e) => setEdit({ ...edit, tagsText: e.target.value })}
                 />
               </label>
+              <label className="check" title="Sigue en la biblioteca, pero no suena aunque esté en una lista o en un evento, y el AutoDJ no la elige">
+                <input type="checkbox" checked={edit.disabled} onChange={(e) => setEdit({ ...edit, disabled: e.target.checked })} />
+                Inhabilitada: no suena aunque esté en una lista o en un evento
+              </label>
 
               <div className="field">
                 <span className="field-label">Listas</span>
@@ -1752,7 +1771,7 @@ function MusicBrowserBase({
       )}
 
       {imp && (
-        <div className="modal-backdrop" onClick={() => setImp(null)}>
+        <div className="modal-backdrop" {...closeOnBackdrop(() => setImp(null))}>
           <div
             className="modal modal-wide"
             onClick={(e) => e.stopPropagation()}

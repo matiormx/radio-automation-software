@@ -413,7 +413,8 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   const byId = new Map(tracks.map((t) => [t.id, t]));
   return pl.trackIds.flatMap((id, index) => {
     const t = byId.get(id);
-    if (!t) return [];
+    // Una pista inhabilitada no suena (ni se ve en la lista) aunque siga en ella.
+    if (!t || t.disabled) return [];
     const meta = pl.meta?.[index] ?? null;
     const value = (override: string | undefined, base: string) =>
       override?.trim() ? override : base;
@@ -1949,7 +1950,7 @@ export default function App() {
   /** Suelta una lista entero en la lista: sus canciones (las que no estan ya). */
   const dropBlockAt = useCallback(
     (blockId: string, at: number) => {
-      const ids = tracksRef.current.filter((t) => t.blocks.includes(blockId) && !t.missing).map((t) => t.id);
+      const ids = tracksRef.current.filter((t) => t.blocks.includes(blockId) && !t.missing && !t.disabled).map((t) => t.id);
       if (ids.length === 0) {
         showToast("Esa lista no tiene canciones");
         return;
@@ -2871,7 +2872,7 @@ export default function App() {
         if (!event.enabled || event.kind !== "insert") continue;
         if (isRandom(event)) {
           if (randomPool(event, tracksRef.current).length === 0) continue;
-        } else if (!event.trackId || !byId.has(event.trackId)) continue;
+        } else if (!event.trackId || !byId.has(event.trackId) || byId.get(event.trackId)?.disabled) continue;
         let latest: { at: number; key: string; slot: string } | null = null;
         for (const block of eventSchedules(event)) {
           for (const value of block.times.length > 0 ? block.times : [block.start ?? event.start]) {
@@ -4217,7 +4218,7 @@ export default function App() {
           q.length < 2
             ? []
             : tracksRef.current
-                .filter((t) => !t.missing && `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q))
+                .filter((t) => !t.missing && !t.disabled && `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q))
                 .slice(0, 80),
         );
         break;

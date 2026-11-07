@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { closeOnBackdrop } from "../backdrop";
 import {
   autoTrackTrim,
   getTrackWaveform,
@@ -341,7 +342,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
   const head = playPos >= 0 ? playPos : start;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" {...closeOnBackdrop(onClose)}>
       <div className="modal modal-wide trim-modal" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head">
           <h3>Cortes y puntos</h3>

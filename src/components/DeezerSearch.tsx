@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DeezerTrack } from "../types";
+import { closeOnBackdrop } from "../backdrop";
 import { deezerSearch, deezerTrack } from "../api";
 import { IconSearch } from "../icons";
 
@@ -75,7 +76,7 @@ export function DeezerSearch({ initialQuery = "", onClose, onPick, showToast }: 
   };
 
   return (
-    <div className="modal-backdrop deezer-modal" onClick={onClose}>
+    <div className="modal-backdrop deezer-modal" {...closeOnBackdrop(onClose)}>
       <div
         className="modal modal-wide"
         onClick={(e) => e.stopPropagation()}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
+import { closeOnBackdrop } from "../backdrop";
 import {
   analyzeTrack,
   autoTrackTrim,
@@ -796,7 +797,7 @@ function TrimEditor({ track, mixer, active, onClose, onSaved, showToast }: TrimE
   };
 
   return (
-    <div className="modal-backdrop norm-modal" onClick={onClose}>
+    <div className="modal-backdrop norm-modal" {...closeOnBackdrop(onClose)}>
       <div className="modal modal-wide trim-modal" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head">
           <h3>Inicio y final de la pista</h3>
