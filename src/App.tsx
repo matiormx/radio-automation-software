@@ -1507,7 +1507,7 @@ export default function App() {
       const index = playingRowRef.current;
       // Mientras arranca (aún no ha continuado ni suena nada) no se pisa la
       // sesión guardada: si se cierra en ese momento, se pierde dónde estaba.
-      if (index < 0 && !sessionRestoredRef.current && !autoPlayStartedRef.current) return;
+      if (index < 0 && ((!sessionRestoredRef.current && !autoPlayStartedRef.current) || restoringRef.current)) return;
       const row = index >= 0 ? rowsRef.current[index] : null;
       const session: SessionState = {
         playlistId: activeIdRef.current,
