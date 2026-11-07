@@ -31,6 +31,32 @@ export function cloudLeave(): Promise<void> {
   return invoke("cloud_leave");
 }
 
+/** Subida de la música a la nube (en segundo plano). */
+export interface MediaStatus {
+  enabled: boolean;
+  limitMbps: number;
+  phase: "idle" | "hashing" | "checking" | "uploading" | "done" | "paused" | "error" | "nomaster";
+  totalFiles: number;
+  totalBytes: number;
+  hashed: number;
+  already: number;
+  pendingFiles: number;
+  pendingBytes: number;
+  uploadedFiles: number;
+  uploadedBytes: number;
+  current: string;
+  rateMbps: number;
+  error: string;
+  failed: number;
+  finishedAt: number;
+}
+export function cloudMediaStatus(): Promise<MediaStatus> {
+  return invoke<MediaStatus>("cloud_media_status");
+}
+export function cloudMediaSet(enabled: boolean, limitMbps: number): Promise<MediaStatus> {
+  return invoke<MediaStatus>("cloud_media_set", { enabled, limitMbps });
+}
+
 type Listener = (s: CloudStatus) => void;
 
 /**

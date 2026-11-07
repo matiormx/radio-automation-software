@@ -38,6 +38,11 @@ fn path(data_dir: &Path) -> PathBuf {
     data_dir.join(FILE)
 }
 
+/// Datos de la unión (None = este equipo no está unido a un maestro).
+pub fn read_join(data_dir: &Path) -> Option<JoinFile> {
+    read(data_dir)
+}
+
 fn read(data_dir: &Path) -> Option<JoinFile> {
     let text = std::fs::read_to_string(path(data_dir)).ok()?;
     serde_json::from_str(&text).ok()

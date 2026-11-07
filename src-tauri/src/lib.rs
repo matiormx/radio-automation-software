@@ -37,6 +37,7 @@ mod whisper;
 mod liverec;
 mod gpumon;
 mod cloud;
+mod cloudmedia;
 
 pub struct AppState {
     pub data_dir: PathBuf,
@@ -138,6 +139,7 @@ pub fn run() {
             vstpkg::apply_pending(&data_dir);
             // Linux: si VNC estaba activado, se enciende otra vez.
             remote::on_startup(&settings::read_settings_public(&data_dir));
+            cloudmedia::on_startup(&data_dir);
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             // Prueba en segundo plano qué compresor de vídeo por hardware hay
@@ -318,7 +320,9 @@ pub fn run() {
             liverec::liverec_stop,
             cloud::cloud_get,
             cloud::cloud_join,
-            cloud::cloud_leave
+            cloud::cloud_leave,
+            cloudmedia::cloud_media_status,
+            cloudmedia::cloud_media_set
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")
