@@ -75,6 +75,8 @@ struct Shared {
     limit: AtomicU32,
     wake: Mutex<bool>,
     cv: std::sync::Condvar,
+    /// Medidor de velocidad real, a lo largo de varios archivos
+    meter: Mutex<(Instant, u64)>,
 }
 
 static SHARED: std::sync::OnceLock<Arc<Shared>> = std::sync::OnceLock::new();
@@ -100,6 +102,7 @@ fn shared(dir: &Path) -> Arc<Shared> {
                 limit: AtomicU32::new(cfg.limit_mbps),
                 wake: Mutex::new(false),
                 cv: std::sync::Condvar::new(),
+                meter: Mutex::new((Instant::now(), 0)),
             });
             let s2 = sh.clone();
             let d = dir.to_path_buf();
@@ -386,12 +389,20 @@ impl<R: Read> Read for Throttled<'_, R> {
                 std::thread::sleep(should - el);
             }
         }
-        // Velocidad real (y ventana nueva cada 5 s para seguir los cambios de límite).
+        // Ventana nueva cada 5 s, para seguir los cambios de límite.
         if self.window_start.elapsed() > Duration::from_secs(5) {
-            let rate = self.window_sent as f64 * 8.0 / 1_000_000.0 / self.window_start.elapsed().as_secs_f64();
-            set_status(self.sh, |s| s.rate_mbps = (rate * 10.0).round() / 10.0);
             self.window_start = Instant::now();
             self.window_sent = 0;
+        }
+        // Velocidad real: se mide entre archivos (muchos tardan menos de 5 s).
+        if let Ok(mut m) = self.sh.meter.lock() {
+            m.1 += n as u64;
+            let el = m.0.elapsed();
+            if el > Duration::from_secs(5) {
+                let rate = m.1 as f64 * 8.0 / 1_000_000.0 / el.as_secs_f64();
+                set_status(self.sh, |s| s.rate_mbps = (rate * 10.0).round() / 10.0);
+                *m = (Instant::now(), 0);
+            }
         }
         set_status(self.sh, |s| s.uploaded_bytes += n as u64);
         let _ = self.started;
