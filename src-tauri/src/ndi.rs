@@ -390,6 +390,9 @@ struct Latest {
     raw_w: usize,
     raw_h: usize,
     raw_seq: u64,
+    /// La última imagen ya encajada al tamaño que pide FFmpeg (ancho, alto,
+    /// imagen de origen): se calcula una vez y la comparten todas las salidas.
+    fit: Option<(usize, usize, u64, Arc<Vec<u8>>)>,
     jpeg: Arc<Vec<u8>>,
     seq: u64,
     at: Option<Instant>,
@@ -960,8 +963,9 @@ fn serve_raw(req: tiny_http::Request, r: Arc<Receiver>, w: usize, h: usize, fps:
     let tick = Duration::from_secs_f64(1.0 / fps.max(1) as f64);
     let opened = Instant::now();
     let mut next = Instant::now();
-    let mut frame: Vec<u8> = Vec::new();
-    fit_bgra(&[], 0, 0, w, h, &mut frame); // negro hasta la primera imagen
+    let mut black: Vec<u8> = Vec::new();
+    fit_bgra(&[], 0, 0, w, h, &mut black); // negro hasta la primera imagen
+    let mut frame: Arc<Vec<u8>> = Arc::new(black);
     let mut have = 0u64;
     loop {
         *r.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
@@ -981,13 +985,33 @@ fn serve_raw(req: tiny_http::Request, r: Arc<Receiver>, w: usize, h: usize, fps:
         if seq != have && sw > 0 {
             have = seq;
             if sw == w && sh == h && raw.len() >= w * h * 4 {
-                frame.clear();
-                frame.extend_from_slice(&raw[..w * h * 4]);
+                // Del mismo tamaño: sin copiar.
+                frame = raw;
             } else {
-                fit_bgra(&raw, sw, sh, w, h, &mut frame);
+                // Encajar cuesta: una sola vez por imagen, para todas las salidas.
+                let cached = {
+                    let l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+                    match &l.fit {
+                        Some((fw, fh, fs, buf)) if *fw == w && *fh == h && *fs == seq => Some(buf.clone()),
+                        _ => None,
+                    }
+                };
+                frame = match cached {
+                    Some(b) => b,
+                    None => {
+                        let mut v = Vec::new();
+                        fit_bgra(&raw, sw, sh, w, h, &mut v);
+                        let a = Arc::new(v);
+                        let mut l = r.latest.lock().unwrap_or_else(|e| e.into_inner());
+                        if l.raw_seq == seq {
+                            l.fit = Some((w, h, seq, a.clone()));
+                        }
+                        a
+                    }
+                };
             }
         }
-        if out.write_all(&frame).and_then(|_| out.flush()).is_err() {
+        if out.write_all(&frame[..w * h * 4]).and_then(|_| out.flush()).is_err() {
             return;
         }
         next += tick;
