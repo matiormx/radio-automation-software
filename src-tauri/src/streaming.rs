@@ -148,6 +148,8 @@ struct StreamProcess {
     progress: Arc<Mutex<Progress>>,
     started: Instant,
     warned_full: bool,
+    /// Audio descartado porque el encoder no daba abasto (bytes PCM 48 kHz estéreo)
+    lost_bytes: u64,
 }
 
 impl StreamProcess {
@@ -1391,6 +1393,7 @@ fn spawn_process_ex(
         progress,
         started: Instant::now(),
         warned_full: false,
+        lost_bytes: 0,
     });
     if supervise_new {
         let shared = shared.clone();
@@ -3058,13 +3061,16 @@ fn push_pcm(shared: &Arc<Mutex<EngineInner>>, data: &[u8]) -> Result<(), String>
         match result {
             Ok(()) => process.warned_full = false,
             Err(TrySendError::Full(_)) => {
-                // El encoder no da abasto (red de subida lenta o servidor
-                // lento): se descarta este trozo para no frenar el audio.
-                if !process.warned_full {
+                // El encoder no da abasto (procesador al límite o subida
+                // lenta): se descarta este trozo para no frenar el audio. Se
+                // lleva la cuenta para que se vea cuánto se ha perdido.
+                process.lost_bytes += data.len() as u64;
+                let secs = process.lost_bytes as f64 / 192_000.0;
+                if !process.warned_full || process.lost_bytes % (192_000 * 2) < data.len() as u64 {
                     process.warned_full = true;
                     error = Some(format!(
-                        "{}: la conexión de subida no da abasto, se pierde audio",
-                        process.name
+                        "{}: no da abasto (procesador o subida) y se pierde audio: {:.1} s perdidos desde que empezó",
+                        process.name, secs
                     ));
                 }
             }
