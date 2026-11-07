@@ -599,6 +599,9 @@ export default function App() {
   const pausedStateRef = useRef(true);
   const sessionRef = useRef<SessionState | null>(null);
   const sessionRestoredRef = useRef(false);
+  /** Ya se cargaron los datos guardados (antes, nada de fuera puede tocarlos). */
+  const dataLoadedRef = useRef(false);
+  const pendingCloudRef = useRef<unknown[]>([]);
   const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
   const studioRef = useRef<StudioCalls | null>(null);
@@ -1416,6 +1419,11 @@ export default function App() {
         setActiveId(ps[0]?.id ?? "");
         setSettings(loaded);
         if (loaded !== s) void saveSettings(loaded).catch(() => undefined);
+        dataLoadedRef.current = true;
+        // Cambios del maestro que llegaron mientras se cargaba: ahora.
+        const early = pendingCloudRef.current;
+        pendingCloudRef.current = [];
+        if (early.length) window.setTimeout(() => void emitEvent("cloud://apply", early), 0);
         setHistory(hist);
         sessionRef.current = session;
         if (session?.playlistId && ps.some((pl) => pl.id === session.playlistId)) {
@@ -4330,6 +4338,12 @@ export default function App() {
     const offLib = listen("cloud://library", () => void refreshTracksAndBlocks());
     const offApply = listen<In[]>("cloud://apply", (e) => {
       const items = Array.isArray(e.payload) ? e.payload : [];
+      // Sin los ajustes cargados se guardarían los de fábrica encima de los
+      // de verdad: se aplica al terminar de cargar.
+      if (!dataLoadedRef.current) {
+        pendingCloudRef.current.push(...items);
+        return;
+      }
       const field = { program: "programs", event: "events", campaign: "campaigns" } as const;
       const sets = items.filter((i) => i.kind in field);
       if (sets.length) {
