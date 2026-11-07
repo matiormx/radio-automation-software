@@ -196,7 +196,8 @@ async function write(list: { kind: Kind; id: string; data?: Data; deleted?: bool
 
 /** Archivo de una canción en la web: «cloud:<sha256>.<ext>». */
 export function mediaUrl(path: string): string {
-  const m = path.match(/^cloud:([a-f0-9]{64})/);
+  // Canciones («cloud:») e imágenes de programas y eventos («media:»)
+  const m = path.match(/^(?:cloud|media):([a-f0-9]{64})/);
   if (!m) return "";
   // Con sesión (cookie) no hace falta nada más; con llave, va en la dirección.
   return `/v1/media/${m[1]}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
@@ -404,6 +405,15 @@ async function uploadMedia(file: File, hash: string, onProgress: (f: number) => 
   });
 }
 
+/** Sube una imagen (portada) y devuelve su referencia «media:<sha256>.<ext>». */
+export async function uploadImage(file: File): Promise<string> {
+  const hash = await sha256(file);
+  const ext = (file.name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "jpg").toLowerCase();
+  const { missing } = await api<{ missing: string[] }>("/v1/media/missing", { method: "POST", body: JSON.stringify({ hashes: [hash] }) });
+  if (missing.includes(hash)) await putWithProgress(`/v1/media/${hash}`, file, { "Content-Type": file.type || "image/jpeg" }, () => undefined);
+  return `media:${hash}.${ext}`;
+}
+
 /** «Artista - Título.flac» -> título y artista */
 function guessFromName(name: string): { title: string; artist: string } {
   const base = name.replace(/\.[^.]+$/, "").replace(/_/g, " ").trim();
@@ -554,6 +564,9 @@ const commands: Record<string, (a: Args) => unknown | Promise<unknown>> = {
   delete_playlist: (a) => write([{ kind: "playlist", id: str(a.id), deleted: true }]),
   // Programas, eventos y campañas (el resto de ajustes es de cada equipo)
   get_settings: () => settingsNow(),
+  // La portada ya está en la nube: se usa tal cual (no hay carpeta que copiar).
+  import_program_cover: (a) => str(a.path),
+  delete_program_cover: () => undefined,
   save_settings: (a) => saveSettings(a.settings as Settings),
 };
 

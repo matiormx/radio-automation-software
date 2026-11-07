@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open as nativeOpen, save as nativeSave } from "@tauri-apps/plugin-dialog";
 import { pickOpen, pickSave, type PickOptions } from "./filePicker";
+import { IS_WEB } from "./platform";
 import type {
   Block,
   Playlist,
@@ -584,7 +585,8 @@ export function requestQuit(action: QuitAction = "quit"): Promise<void> {
 }
 
 /** Linux (equipo dedicado / quiosco): los botones son reiniciar y apagar el equipo. */
-export const IS_LINUX = typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
+// En la gestión web los diálogos son los del navegador (aunque sea Linux).
+export const IS_LINUX = !IS_WEB && typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent) && !/Android/i.test(navigator.userAgent);
 
 /**
  * Diálogo de abrir archivo/carpeta. En Linux (quiosco) usa el selector propio,

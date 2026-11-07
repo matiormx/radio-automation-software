@@ -110,6 +110,10 @@ struct Shared {
     /// Contenido que se mandó a la ventana principal y aún no se ve aplicado
     pending: Mutex<HashMap<String, Value>>,
     downloading: AtomicBool,
+    /// Huellas de las imágenes (portadas de programas y eventos): ruta -> (tamaño, fecha, sha256)
+    img_hashes: Mutex<HashMap<String, (u64, u64, String)>>,
+    /// Imágenes que ya están en la nube (no se vuelve a preguntar)
+    img_uploaded: Mutex<HashSet<String>>,
 }
 
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
@@ -154,6 +158,8 @@ pub fn on_startup(app: &AppHandle, dir: &Path) {
         cv: Condvar::new(),
         pending: Mutex::new(HashMap::new()),
         downloading: AtomicBool::new(false),
+        img_hashes: Mutex::new(HashMap::new()),
+        img_uploaded: Mutex::new(HashSet::new()),
     });
     if SHARED.set(sh.clone()).is_ok() {
         let _ = std::thread::Builder::new().name("miradio-cloudsync".into()).spawn(move || {
@@ -332,6 +338,129 @@ fn track_value(t: &Track, mdir: &Path, hashes: &HashMap<String, (u64, u64, Strin
     v
 }
 
+// ------------------------------------------------------------ imágenes
+
+/// Campos con imágenes (rutas de este equipo) en programas, eventos y campañas.
+const IMG_KEYS: [&str; 3] = ["cover", "image", "logo"];
+pub const IMG_DIR: &str = "maestro-imagenes";
+
+fn is_sha(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Ruta de este equipo -> «media:<sha256>.<ext>» (lo que viaja). Anota las
+/// que hay que subir.
+fn images_out(sh: &Shared, v: &mut Value, need: &mut HashMap<String, PathBuf>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                if let (true, Value::String(p)) = (IMG_KEYS.contains(&k.as_str()), &*x) {
+                    if let Some(r) = image_ref(sh, p, need) {
+                        *x = Value::String(r);
+                    }
+                } else {
+                    images_out(sh, x, need);
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| images_out(sh, x, need)),
+        _ => {}
+    }
+}
+
+fn image_ref(sh: &Shared, p: &str, need: &mut HashMap<String, PathBuf>) -> Option<String> {
+    if p.is_empty() || p.starts_with("media:") || p.starts_with("http") {
+        return None;
+    }
+    let path = Path::new(p);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    // Las bajadas del maestro ya se llaman por su huella.
+    if path.parent() == Some(sh.dir.join(IMG_DIR).as_path()) {
+        if let Some(stem) = path.file_stem().and_then(|x| x.to_str()).filter(|x| is_sha(x)) {
+            return Some(format!("media:{stem}.{ext}"));
+        }
+    }
+    let m = fs::metadata(path).ok().filter(|m| m.is_file() && m.len() <= 20 * 1024 * 1024)?;
+    let mt = m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    let mut cache = sh.img_hashes.lock().ok()?;
+    let h = match cache.get(p) {
+        Some((sz, t, h)) if *sz == m.len() && *t == mt => h.clone(),
+        _ => {
+            let h = crate::cloudmedia::hash_file_pub(path).ok()?;
+            cache.insert(p.to_string(), (m.len(), mt, h.clone()));
+            h
+        }
+    };
+    need.insert(h.clone(), path.to_path_buf());
+    Some(format!("media:{h}.{ext}"))
+}
+
+/// «media:<sha256>.<ext>» -> ruta de este equipo (bajándola si hace falta).
+fn images_in(sh: &Shared, join: &crate::cloud::JoinFile, v: &mut Value) {
+    match v {
+        Value::String(x) if x.starts_with("media:") => {
+            let name = &x[6..];
+            let (stem, _) = name.split_once('.').unwrap_or((name, ""));
+            if !is_sha(stem) || name.contains(['/', '\\']) {
+                return;
+            }
+            let dir = sh.dir.join(IMG_DIR);
+            let path = dir.join(name);
+            if !path.is_file() {
+                let _ = fs::create_dir_all(&dir);
+                let auth = format!("Bearer {}", join.token);
+                if download_one(&agent(), &auth, &join.api, stem, &path, sh).is_err() {
+                    return; // se queda la referencia; se reintenta en la próxima pasada
+                }
+            }
+            *x = path.to_string_lossy().into_owned();
+        }
+        Value::Object(m) => m.values_mut().for_each(|x| images_in(sh, join, x)),
+        Value::Array(a) => a.iter_mut().for_each(|x| images_in(sh, join, x)),
+        _ => {}
+    }
+}
+
+/// Sube las imágenes que aún no están en la nube.
+fn upload_images(sh: &Shared, join: &crate::cloud::JoinFile, need: &HashMap<String, PathBuf>) -> Result<(), String> {
+    let done = sh.img_uploaded.lock().map(|g| g.clone()).unwrap_or_default();
+    let ask: Vec<&String> = need.keys().filter(|h| !done.contains(*h)).collect();
+    if ask.is_empty() {
+        return Ok(());
+    }
+    let ag = agent();
+    let auth = format!("Bearer {}", join.token);
+    let v = ag
+        .post(&format!("{}/v1/media/missing", join.api))
+        .set("Authorization", &auth)
+        .set("Content-Type", "application/json")
+        .send_string(&json!({ "hashes": ask }).to_string())
+        .map_err(net_err)
+        .and_then(body_json)?;
+    let missing: HashSet<String> = v["missing"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    for h in ask {
+        if missing.contains(h) {
+            let path = &need[h];
+            let bytes = fs::read(path).map_err(|e| e.to_string())?;
+            let ctype = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+                Some("png") => "image/png",
+                Some("webp") => "image/webp",
+                Some("gif") => "image/gif",
+                _ => "image/jpeg",
+            };
+            ag.put(&format!("{}/v1/media/{h}", join.api))
+                .set("Authorization", &auth)
+                .set("Content-Type", ctype)
+                .send_bytes(&bytes)
+                .map_err(net_err)?;
+        }
+        if let Ok(mut g) = sh.img_uploaded.lock() {
+            g.insert(h.clone());
+        }
+    }
+    Ok(())
+}
+
 struct Local {
     kind: &'static str,
     id: String,
@@ -339,7 +468,8 @@ struct Local {
     h: String,
 }
 
-fn collect_local(dir: &Path) -> HashMap<String, Local> {
+fn collect_local(sh: &Shared, need: &mut HashMap<String, PathBuf>) -> HashMap<String, Local> {
+    let dir = sh.dir.as_path();
     let mut out = HashMap::new();
     let mut add = |kind: &'static str, id: String, data: Value| {
         if id.is_empty() {
@@ -375,8 +505,9 @@ fn collect_local(dir: &Path) -> HashMap<String, Local> {
         ("event", arr(serde_json::to_value(&s.events).unwrap_or(Value::Null))),
         ("campaign", arr(serde_json::to_value(&s.campaigns).unwrap_or(Value::Null))),
     ] {
-        for it in list {
+        for mut it in list {
             let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            images_out(sh, &mut it, need);
             add(kind, id, it);
         }
     }
@@ -393,7 +524,11 @@ struct Incoming {
 }
 
 /// Aplica lo que llega del maestro. Devuelve cuántos elementos cambió aquí.
-fn apply(sh: &Shared, incoming: Vec<Incoming>) -> Result<(), String> {
+fn apply(sh: &Shared, join: &crate::cloud::JoinFile, mut incoming: Vec<Incoming>) -> Result<(), String> {
+    // Las imágenes de programas, eventos y campañas: a este equipo.
+    for it in incoming.iter_mut().filter(|i| APP_KINDS.contains(&i.kind.as_str()) && i.kind != "playlist") {
+        images_in(sh, join, &mut it.data);
+    }
     if incoming.is_empty() {
         return Ok(());
     }
@@ -550,7 +685,7 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
             incoming.push(Incoming { kind, id, deleted, data });
         }
         received += incoming.len() as u64;
-        apply(sh, incoming)?;
+        apply(sh, join, incoming)?;
         st.cursor = v.get("next").and_then(|x| x.as_u64()).unwrap_or(st.cursor);
         save_state(dir, &st)?;
         if !v.get("more").and_then(|x| x.as_bool()).unwrap_or(false) {
@@ -567,7 +702,8 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
         });
         return Ok(());
     }
-    let locals = collect_local(dir);
+    let mut need_images: HashMap<String, PathBuf> = HashMap::new();
+    let locals = collect_local(sh, &mut need_images);
     let adopt = first && role != "main";
     let mut push: Vec<(String, Value, String)> = Vec::new(); // (clave, elemento, huella)
     let mut reemit: Vec<Value> = Vec::new();
@@ -634,6 +770,8 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
     // 3. Mandar lo cambiado aquí (el relevo no cambia datos).
     let mut sent = 0u64;
     if role != "backup" && !push.is_empty() {
+        // Primero las imágenes que citan (para que estén cuando llegue el dato).
+        upload_images(sh, join, &need_images)?;
         // Primero lo pequeño (bloques, programas…), después las canciones.
         push.sort_by_key(|(k, _, _)| if k.starts_with("track:") { 1 } else { 0 });
         let hashes: HashMap<String, String> = push.iter().map(|(k, _, h)| (k.clone(), h.clone())).collect();
@@ -668,7 +806,7 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
                 );
                 incoming.push(Incoming { kind, id, deleted, data });
             }
-            apply(sh, incoming)?;
+            apply(sh, join, incoming)?;
             save_state(dir, &st)?;
         }
     }
