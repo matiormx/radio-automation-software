@@ -153,3 +153,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+/// La interfaz deja constancia de algo que salió mal (para diagnosticar).
+#[tauri::command]
+pub fn crash_note(text: String) {
+    note(&text.chars().take(500).collect::<String>());
+}

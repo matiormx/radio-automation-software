@@ -133,7 +133,8 @@ export class NativePlayer {
 
   async restoreAt(index: number, positionSecs: number, autoplay: boolean): Promise<void> {
     await this.cmd({ op: "restoreAt", index, pos: positionSecs, autoplay });
-    await this.until((s) => s.index === index && (autoplay ? s.playing : s.paused), 4000);
+    // Al arrancar el equipo va cargado (biblioteca, tarjetas, emisión): más margen.
+    await this.until((s) => s.index === index && (autoplay ? s.playing : s.paused), 12000);
   }
 
   async toggle(): Promise<void> {

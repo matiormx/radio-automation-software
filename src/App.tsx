@@ -1391,13 +1391,23 @@ export default function App() {
     restoringRef.current = true;
     // Si estaba sonando al cerrar, sigue sonando; si estaba en pausa, queda
     // preparada en ese punto (salvo que este activo "reproducir al iniciar").
+    const wantPlay = session.playing || settings.autoPlayOnStart;
     void player
-      .restoreAt(index, session.positionSecs, session.playing || settings.autoPlayOnStart)
+      .restoreAt(index, session.positionSecs, wantPlay)
+      .then(() => {
+        // No arrancó aunque debía: que suene desde el principio de esa pista.
+        if (wantPlay && !player.isPlaying) return playRowRef.current(index);
+      })
       .then(() => {
         setPaused(!player.isPlaying);
         pausedRef.current = !player.isPlaying;
       })
-      .catch(() => undefined);
+      .catch((e) => {
+        const msg = String(e instanceof Error ? e.message : e);
+        void invoke("crash_note", { text: `No se pudo continuar donde se quedó: ${msg}` }).catch(() => undefined);
+        showToast(`No se pudo continuar donde se quedó (${msg})${wantPlay ? ": empieza la lista" : ""}`);
+        if (wantPlay) void playRowRef.current(index);
+      });
   }, [rows, settings.autoPlayOnStart]);
 
   // Carga inicial de datos

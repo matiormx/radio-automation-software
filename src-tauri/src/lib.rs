@@ -327,7 +327,8 @@ pub fn run() {
             cloudmedia::cloud_media_set,
             cloudsync::cloud_sync_status,
             cloudsync::cloud_sync_set,
-            cloudsync::cloud_sync_now
+            cloudsync::cloud_sync_now,
+            crashlog::crash_note
         ])
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")
