@@ -1250,23 +1250,100 @@ pub struct TrackPatch {
     pub disabled: Option<bool>,
 }
 
-/// Edita los metadatos de una cancion. El archivo queda intacto:
-/// los metadatos de la biblioteca son los que mandan.
+/// Edita los metadatos de una cancion. Las etiquetas del archivo no se
+/// tocan (mandan las de la biblioteca); si está activado, el archivo se
+/// renombra a «Artista - Título». Devuelve un aviso si no se pudo renombrar.
 #[tauri::command]
 pub fn update_track(
     state: State<'_, AppState>,
     id: String,
     patch: TrackPatch,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     apply_patch(&state.data_dir, &id, patch)
 }
 
+/// Nombre de archivo válido en Windows, macOS y Linux.
+fn safe_file_stem(artist: &str, title: &str) -> String {
+    let raw = if artist.trim().is_empty() { title.trim().to_string() } else { format!("{} - {}", artist.trim(), title.trim()) };
+    let mut out: String = raw
+        .chars()
+        .map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    out = out.trim_matches(|c: char| c == '.' || c == ' ').to_string();
+    if out.chars().count() > 150 {
+        out = out.chars().take(150).collect::<String>().trim_end().to_string();
+    }
+    // Nombres reservados de Windows
+    let upper = out.to_ascii_uppercase();
+    if ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2"].contains(&upper.as_str()) {
+        out.push('_');
+    }
+    out
+}
+
+/// Renombra el archivo de la canción según sus metadatos. Se mueven con él
+/// sus acompañantes (.tramos.json, .cue). Ok(None) = no hacía falta.
+pub(crate) fn rename_to_metadata(data_dir: &Path, t: &mut Track) -> Result<Option<PathBuf>, String> {
+    let old = PathBuf::from(t.file.trim());
+    if t.file.trim().is_empty() || !old.is_file() {
+        return Ok(None);
+    }
+    // Los archivos que gestiona OmniCaster (los bajados del maestro, la
+    // carpeta interna) se llaman por su huella o su id: no se tocan.
+    if old.starts_with(data_dir) {
+        return Ok(None);
+    }
+    let stem = safe_file_stem(&t.artist, &t.title);
+    if stem.is_empty() {
+        return Ok(None);
+    }
+    let ext = old.extension().and_then(|e| e.to_str()).map(|e| format!(".{e}")).unwrap_or_default();
+    let dir = old.parent().ok_or("El archivo no tiene carpeta")?;
+    let current = old.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    if current == stem {
+        return Ok(None);
+    }
+    let mut target = dir.join(format!("{stem}{ext}"));
+    let mut n = 2;
+    // Mismo nombre salvo mayúsculas: en Windows es el mismo archivo.
+    let only_case = current.eq_ignore_ascii_case(&stem);
+    while !only_case && target.exists() {
+        target = dir.join(format!("{stem} ({n}){ext}"));
+        n += 1;
+        if n > 99 {
+            return Err("Ya hay demasiados archivos con ese nombre".into());
+        }
+    }
+    if only_case {
+        let tmp = dir.join(format!("{stem}.omnicaster-tmp{ext}"));
+        fs::rename(&old, &tmp).and_then(|_| fs::rename(&tmp, &target)).map_err(|e| e.to_string())?;
+    } else {
+        fs::rename(&old, &target).map_err(|e| e.to_string())?;
+    }
+    // Acompañantes con el mismo nombre
+    let mut side = old.as_os_str().to_owned();
+    side.push(".tramos.json");
+    let mut side_to = target.as_os_str().to_owned();
+    side_to.push(".tramos.json");
+    let _ = fs::rename(PathBuf::from(side), PathBuf::from(side_to));
+    let _ = fs::rename(old.with_extension("cue"), target.with_extension("cue"));
+    crate::cloudmedia::moved(data_dir, &old, &target);
+    t.file = target.to_string_lossy().into_owned();
+    Ok(Some(target))
+}
+
 /// Aplica una edicion de metadatos (la usan la app y la API).
-pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), String> {
+pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<Option<String>, String> {
+    let rename = crate::settings::read_settings_public(&data_dir.to_path_buf()).rename_files;
     let _guard = lock_library();
     let mut tracks = read_library_internal(data_dir);
     let mut keys: HashSet<String> = HashSet::new();
+    let mut note = None;
     if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
+        let before = (t.title.clone(), t.artist.clone());
         keys.insert(cover_key(t));
         if let Some(v) = patch.title.map(|v| v.trim().to_string()) {
             if !v.is_empty() {
@@ -1294,6 +1371,13 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), S
         if let Some(d) = patch.disabled {
             t.disabled = d;
         }
+        if rename && before != (t.title.clone(), t.artist.clone()) {
+            if let Err(e) = rename_to_metadata(data_dir, t) {
+                note = Some(format!(
+                    "Datos guardados, pero el archivo no se pudo renombrar ({e}). Si está sonando, vuelve a guardar cuando acabe."
+                ));
+            }
+        }
         keys.insert(cover_key(t));
     } else {
         return Err("La cancion ya no existe en la biblioteca".to_string());
@@ -1302,7 +1386,8 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<(), S
         sync_album_cover(data_dir, &mut tracks, key);
     }
     cleanup_covers(data_dir, &tracks);
-    write_library(data_dir, &tracks)
+    write_library(data_dir, &tracks)?;
+    Ok(note)
 }
 
 /// Extension de imagen por su firma (para portadas descargadas).
@@ -2257,6 +2342,37 @@ pub fn import_playlist(
         missing,
         streams,
     })
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn renames_file_and_keeps_link() {
+        let base = std::env::temp_dir().join(format!("oc-rename-{}", std::process::id()));
+        let data = base.join("datos");
+        let music = base.join("musica");
+        fs::create_dir_all(&data).unwrap();
+        fs::create_dir_all(&music).unwrap();
+        let f = music.join("track01.flac");
+        fs::write(&f, b"x").unwrap();
+        fs::write(music.join("track01.cue"), b"c").unwrap();
+        let mut t = Track { id: "a".into(), title: "Por Amor".into(), artist: "Álvaro López".into(), file: f.to_string_lossy().into_owned(), ..Default::default() };
+        let to = rename_to_metadata(&data, &mut t).unwrap().unwrap();
+        assert_eq!(to.file_name().unwrap().to_str().unwrap(), "Álvaro López - Por Amor.flac");
+        assert!(to.is_file() && !f.exists());
+        assert!(music.join("Álvaro López - Por Amor.cue").is_file());
+        assert_eq!(t.file, to.to_string_lossy());
+        // Otro con el mismo nombre: (2)
+        let g = music.join("otro.flac");
+        fs::write(&g, b"y").unwrap();
+        let mut t2 = Track { id: "b".into(), title: "Por Amor".into(), artist: "Álvaro López".into(), file: g.to_string_lossy().into_owned(), ..Default::default() };
+        let to2 = rename_to_metadata(&data, &mut t2).unwrap().unwrap();
+        assert!(to2.to_string_lossy().ends_with("Álvaro López - Por Amor (2).flac"));
+        assert_eq!(safe_file_stem("AC/DC", "Back: in *Black*?"), "AC DC - Back in Black");
+        let _ = fs::remove_dir_all(&base);
+    }
 }
 
 #[cfg(test)]

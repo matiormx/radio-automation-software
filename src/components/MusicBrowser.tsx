@@ -711,7 +711,7 @@ function MusicBrowserBase({
           .map((s) => s.trim())
           .filter(Boolean),
       };
-      await updateTrack(edit.id, patch);
+      const note = await updateTrack(edit.id, patch);
       await setTrackBlocks(edit.id, edit.blocks);
       // La caratula va despues: si cambio el album, se guarda en el nuevo.
       const cc = edit.coverChange;
@@ -719,7 +719,7 @@ function MusicBrowserBase({
       else if (cc) await setTrackCover(edit.id, cc.source);
       await onTrackSaved();
       setEdit(null);
-      showToast("Canción actualizada");
+      showToast(note || "Canción actualizada");
     } catch (e) {
       showToast(`No se pudo guardar: ${String(e)}`);
       setEdit((s) => (s ? { ...s, busy: false } : s));

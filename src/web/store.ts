@@ -466,7 +466,7 @@ const commands: Record<string, (a: Args) => unknown | Promise<unknown>> = {
       const p = (a.patch ?? {}) as Data;
       for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== null) d[k] = v;
       return d;
-    }).then(() => undefined),
+    }).then(() => null),
   set_track_blocks: (a) => patchTracks([str(a.id)], (d) => ({ ...d, blocks: (a.blockIds as string[]) ?? [] })).then(() => undefined),
   move_tracks_block: (a) =>
     patchTracks((a.ids as string[]) ?? [], (d) => {

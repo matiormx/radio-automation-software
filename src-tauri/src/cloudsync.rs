@@ -415,6 +415,7 @@ fn apply(sh: &Shared, incoming: Vec<Incoming>) -> Result<(), String> {
         let _g = crate::library::lock_library();
         if !tracks.is_empty() {
             let hashes = crate::cloudmedia::known_hashes(dir);
+            let rename = crate::settings::read_settings_public(&dir.to_path_buf()).rename_files;
             let mut lib = crate::library::read_library_internal(dir);
             let mut pos: HashMap<String, usize> = lib.iter().enumerate().map(|(i, t)| (t.id.clone(), i)).collect();
             let mut remove: HashSet<String> = HashSet::new();
@@ -445,6 +446,11 @@ fn apply(sh: &Shared, incoming: Vec<Incoming>) -> Result<(), String> {
                         t.audio_checked = old.audio_checked;
                         t.tags_v = old.tags_v;
                         t.analysis_sig = if keep { old.analysis_sig.clone() } else { String::new() };
+                        // Cambió el título o el artista en otro equipo (o en la web): el
+                        // archivo de aquí también se renombra (si está sonando, no).
+                        if keep && rename && (old.title != t.title || old.artist != t.artist) {
+                            let _ = crate::library::rename_to_metadata(dir, &mut t);
+                        }
                         lib[i] = t;
                     }
                     None => {

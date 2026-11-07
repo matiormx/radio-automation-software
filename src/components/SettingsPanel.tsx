@@ -640,6 +640,14 @@ function GeneralTab({
         <label className="check-field">
           <input
             type="checkbox"
+            checked={s.renameFiles !== false}
+            onChange={(e) => onChange({ ...s, renameFiles: e.target.checked })}
+          />
+          Al cambiar el título o el artista de una canción, renombrar también su archivo («Artista - Título»)
+        </label>
+        <label className="check-field">
+          <input
+            type="checkbox"
             checked={s.silenceDetection}
             onChange={(e) => onChange({ ...s, silenceDetection: e.target.checked })}
           />

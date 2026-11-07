@@ -102,6 +102,10 @@ pub struct Settings {
     pub audio_buffer_ms: u32,
     /// Reproducir la lista automaticamente al abrir la app.
     pub auto_play_on_start: bool,
+    /// Al cambiar el título o el artista de una canción, renombrar también
+    /// su archivo («Artista - Título.ext»). El enlace se actualiza solo.
+    #[serde(default = "yes")]
+    pub rename_files: bool,
     /// Pasar a la siguiente pista (o reanudar) si hay silencio.
     pub silence_detection: bool,
     /// Umbral de silencio en dBFS (RMS).
@@ -908,6 +912,10 @@ pub struct RemoteSettings {
     pub vnc_only_wg: bool,
 }
 
+fn yes() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -918,6 +926,7 @@ impl Default for Settings {
             fade_seconds: 6,
             audio_buffer_ms: 40,
             auto_play_on_start: false,
+            rename_files: true,
             silence_detection: false,
             silence_threshold_db: -55.0,
             past_visible: 5,

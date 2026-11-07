@@ -103,8 +103,9 @@ export function scanMusicFolder(): Promise<number> {
   return invoke<number>("scan_music_folder");
 }
 
-export function updateTrack(id: string, patch: TrackPatch): Promise<void> {
-  return invoke("update_track", { id, patch });
+/** Devuelve un aviso si los datos se guardaron pero el archivo no se pudo renombrar. */
+export function updateTrack(id: string, patch: TrackPatch): Promise<string | null> {
+  return invoke<string | null>("update_track", { id, patch });
 }
 
 export function aiModels(ai: AiSettings): Promise<string[]> {

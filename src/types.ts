@@ -858,6 +858,8 @@ export interface Settings {
   audioBufferMs?: number;
   /** Reproducir la lista automaticamente al abrir la app */
   autoPlayOnStart: boolean;
+  /** Renombrar el archivo al cambiar título o artista («Artista - Título») */
+  renameFiles?: boolean;
   /** Pasar a la siguiente pista (o reanudar) si hay silencio */
   silenceDetection: boolean;
   /** Umbral de silencio en dBFS (RMS); por debajo se considera silencio */

@@ -508,6 +508,17 @@ pub fn known_hashes(dir: &Path) -> HashMap<String, (u64, u64, String)> {
     cache.into_iter().map(|(k, e)| (k, (e.size, e.mtime, e.hash))).collect()
 }
 
+/// Un archivo cambió de nombre: su huella sigue valiendo (mismo contenido).
+pub fn moved(dir: &Path, from: &Path, to: &Path) {
+    let path = dir.join(HASH_FILE);
+    let mut cache: HashMap<String, HashEntry> =
+        std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    if let Some(e) = cache.remove(&from.to_string_lossy().into_owned()) {
+        cache.insert(to.to_string_lossy().into_owned(), e);
+        save_cache(&path, &cache);
+    }
+}
+
 pub fn hash_file_pub(p: &Path) -> std::io::Result<String> {
     hash_file(p)
 }
