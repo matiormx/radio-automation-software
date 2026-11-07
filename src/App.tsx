@@ -1505,6 +1505,9 @@ export default function App() {
     let last = "";
     const save = () => {
       const index = playingRowRef.current;
+      // Mientras arranca (aún no ha continuado ni suena nada) no se pisa la
+      // sesión guardada: si se cierra en ese momento, se pierde dónde estaba.
+      if (index < 0 && !sessionRestoredRef.current && !autoPlayStartedRef.current) return;
       const row = index >= 0 ? rowsRef.current[index] : null;
       const session: SessionState = {
         playlistId: activeIdRef.current,
@@ -3166,10 +3169,24 @@ export default function App() {
   // por sonar de la lista activa; la canción en antena se respeta y el
   // relleno de abajo entra enseguida con la fuente nueva.
   const lastAutoScope = useRef<string | null>(null);
+  const scopeGraceUntil = useRef(0);
   useEffect(() => {
-    const changed = lastAutoScope.current !== null && lastAutoScope.current !== autoScopeKey;
+    // Al abrir no es que empiece la franja: es que se cargan los ajustes (y
+    // el reloj de eventos da su primera vuelta). Durante ese arranque el
+    // alcance que salga es el punto de partida y no se limpia nada: antes se
+    // borraba la lista (y con ella la canción donde se había quedado).
+    if (!dataLoadedRef.current) {
+      lastAutoScope.current = null;
+      return;
+    }
+    if (lastAutoScope.current === null) {
+      lastAutoScope.current = autoScopeKey;
+      scopeGraceUntil.current = Date.now() + 20000;
+      return;
+    }
+    const changed = lastAutoScope.current !== autoScopeKey;
     lastAutoScope.current = autoScopeKey;
-    if (!changed) return;
+    if (!changed || Date.now() < scopeGraceUntil.current) return;
     const event = activeAutoEventRef.current;
     if (!event?.clearList) return;
     const playing = playingRowRef.current;
