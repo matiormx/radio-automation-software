@@ -2231,6 +2231,27 @@ export default function App() {
     void playRowRef.current(0);
   }, [settings.autoPlayOnStart, active, rows.length]);
 
+  // Red de seguridad al abrir: con «Reproducir al iniciar», si a los 25 s no
+  // suena nada (y nadie ha pausado), arranca la lista donde se quedó o desde
+  // el principio. Queda anotado para saber por qué no arrancó solo.
+  const startWatchRef = useRef(false);
+  useEffect(() => {
+    if (startWatchRef.current || !settings.autoPlayOnStart) return;
+    if (!active || rows.length === 0 || !playerRef.current) return;
+    startWatchRef.current = true;
+    const timer = window.setTimeout(() => {
+      if (userPausedRef.current || playingRowRef.current >= 0 || playerRef.current?.isPlaying) return;
+      const session = sessionRef.current;
+      const list = rowsRef.current;
+      const at = Math.max(0, session?.trackId ? list.findIndex((r) => r.id === session.trackId) : 0);
+      void invoke("crash_note", { text: `Al abrir no arrancó la reproducción sola; se arranca la fila ${at + 1}` }).catch(() => undefined);
+      showToast("No arrancó solo al abrir: empieza a sonar ahora");
+      void playRowRef.current(at);
+    }, 25000);
+    // Sin cancelar al cambiar la lista (el AutoDJ la toca a menudo): una sola vez.
+    void timer;
+  }, [settings.autoPlayOnStart, active, rows.length]);
+
   // Deteccion de silencio: si la reproduccion esta parada, la reanuda.
   useEffect(() => {
     if (!settings.silenceDetection) return;
