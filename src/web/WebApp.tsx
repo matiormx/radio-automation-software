@@ -6,7 +6,22 @@ import { ProgramsTab } from "../components/ProgramsTab";
 import { createBlock, deleteBlock, deletePlaylist, deleteTrack, getSettings, listBlocks, listPlaylists, renameBlock, savePlaylist, saveSettings } from "../api";
 import { DEFAULT_SETTINGS, type Block, type Playlist, type Settings, type Track } from "../types";
 import type { SoundMixer } from "../mixer";
-import { connect, logout, mediaUrl, setToken, subscribe, takeToken, tracksNow, uploadFiles, whoAmI, type UploadProgress } from "./store";
+import {
+  Unauthorized,
+  authState,
+  connect,
+  logout,
+  mediaUrl,
+  requestCode,
+  setToken,
+  subscribe,
+  takeToken,
+  tracksNow,
+  uploadFiles,
+  verifyCode,
+  whoAmI,
+  type UploadProgress,
+} from "./store";
 import { PlaylistEditor } from "./PlaylistEditor";
 
 type Tab = "music" | "playlists" | "events" | "programs";
@@ -80,35 +95,103 @@ function pickFiles(accept = "audio/*,video/*,.flac,.m4a,.aac,.ogg,.opus,.wav,.mp
   });
 }
 
-function Login({ error, onEnter }: { error: string; onEnter: (t: string) => void }) {
-  const [v, setV] = useState("");
+function Login({ error, onEnter }: { error: string; onEnter: () => void }) {
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem("oc.web.email") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(error);
+  const [station, setStation] = useState("");
+  useEffect(() => {
+    void authState()
+      .then((s) => setStation(s.station ?? ""))
+      .catch(() => undefined);
+  }, []);
+  const ask = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await requestCode(email.trim());
+      try {
+        localStorage.setItem("oc.web.email", email.trim());
+      } catch {
+        /* nada */
+      }
+      setSent(true);
+    } catch (e) {
+      setMsg(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verify = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      await verifyCode(email.trim(), code.trim());
+      onEnter();
+    } catch (e) {
+      setMsg(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="web-login">
       <div className="web-card">
-        <h1>Gestión de la emisora</h1>
-        <p className="hint">
-          Entra con el enlace que te ha mandado quien gestiona la emisora. Si tienes la llave a mano, pégala aquí.
-        </p>
-        {error && <p className="hint update-error">{error}</p>}
+        <h1>{station ? `Gestión de ${station}` : "Gestión de la emisora"}</h1>
+        <p className="hint">Entra con tu email: te llegará un código de un solo uso. No hace falta contraseña.</p>
+        {msg && <p className="hint update-error">{msg}</p>}
         <input
-          type="password"
-          placeholder="och_… u ocs_…"
-          autoComplete="off"
-          spellCheck={false}
-          value={v}
-          onChange={(e) => setV(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && v.trim() && onEnter(v.trim())}
+          type="email"
+          autoComplete="email"
+          placeholder="tu@email.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && email.trim() && !sent && void ask()}
         />
-        <button type="button" className="btn btn-accent" disabled={!v.trim()} onClick={() => onEnter(v.trim())}>
-          Entrar
-        </button>
+        {!sent ? (
+          <button type="button" className="btn btn-accent" disabled={!email.trim() || busy} onClick={() => void ask()}>
+            Mandarme un código
+          </button>
+        ) : (
+          <>
+            <p className="hint">Si ese email tiene acceso, te acaba de llegar un código (mira también en spam). Caduca en 10 minutos.</p>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="Código de 6 cifras"
+              value={code}
+              autoFocus
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              onKeyDown={(e) => e.key === "Enter" && code.length === 6 && void verify()}
+            />
+            <button type="button" className="btn btn-accent" disabled={code.length !== 6 || busy} onClick={() => void verify()}>
+              Entrar
+            </button>
+            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void ask()}>
+              Mandar otro código
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 export function WebApp() {
-  const [state, setState] = useState<"connecting" | "login" | "ready">(() => (takeToken() ? "connecting" : "login"));
+  // Primero se prueba la sesión (cookie) o la llave del enlace.
+  const [state, setState] = useState<"connecting" | "login" | "ready">(() => {
+    takeToken();
+    return "connecting";
+  });
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("music");
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -147,7 +230,8 @@ export function WebApp() {
       })
       .catch((e) => {
         if (!alive) return;
-        setError(String(e instanceof Error ? e.message : e));
+        if (!(e instanceof Unauthorized)) setError(String(e instanceof Error ? e.message : e));
+        else setToken("");
         setState("login");
       });
     return () => {
@@ -204,8 +288,7 @@ export function WebApp() {
     return (
       <Login
         error={error}
-        onEnter={(t) => {
-          setToken(t);
+        onEnter={() => {
           setError("");
           setState("connecting");
         }}
@@ -232,8 +315,8 @@ export function WebApp() {
           ))}
         </nav>
         <span className="web-who">
-          {me?.caller.kind === "helper" ? me.caller.name : "Propietario"}
-          <button type="button" className="btn btn-sm" onClick={() => window.confirm("¿Salir de la gestión en este navegador?") && logout()}>
+          {me?.caller.name || (me?.caller.kind === "helper" ? "Ayudante" : "Responsable")}
+          <button type="button" className="btn btn-sm" onClick={() => window.confirm("¿Salir de la gestión en este navegador?") && void logout()}>
             Salir
           </button>
         </span>

@@ -60,8 +60,9 @@ export function setToken(t: string) {
   }
 }
 
-export function logout() {
+export async function logout() {
   setToken("");
+  await fetch("/v1/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
   try {
     ws?.close();
   } catch {
@@ -74,12 +75,27 @@ export function whoAmI(): Me | null {
   return me;
 }
 
+// ------------------------------------------------------------------ entrar con el email
+
+export async function authState(): Promise<{ setup: boolean; station: string | null }> {
+  return api("/v1/auth/state");
+}
+export async function requestCode(email: string): Promise<void> {
+  await api("/v1/auth/code", { method: "POST", body: JSON.stringify({ email }) });
+}
+export async function verifyCode(email: string, code: string): Promise<void> {
+  await api("/v1/auth/verify", { method: "POST", body: JSON.stringify({ email, code }) });
+}
+
 // ------------------------------------------------------------------ red
+
+export class Unauthorized extends Error {}
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(path, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, ...(init.body && typeof init.body === "string" ? { "Content-Type": "application/json" } : {}), ...(init.headers ?? {}) },
+    credentials: "same-origin",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.body && typeof init.body === "string" ? { "Content-Type": "application/json" } : {}), ...(init.headers ?? {}) },
   });
   const text = await r.text();
   let body: unknown = null;
@@ -90,7 +106,7 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!r.ok) {
     const msg = (body as { error?: string } | null)?.error ?? `${r.status} ${r.statusText}`;
-    if (r.status === 401) throw new Error(`La llave no vale (${msg}). Pide un enlace nuevo a quien gestiona la emisora.`);
+    if (r.status === 401) throw new Unauthorized(msg);
     throw new Error(msg);
   }
   return body as T;
@@ -126,7 +142,7 @@ async function pull() {
 }
 
 function openSocket() {
-  const url = `${location.origin.replace(/^http/, "ws")}/v1/ws?token=${encodeURIComponent(token)}`;
+  const url = `${location.origin.replace(/^http/, "ws")}/v1/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   ws = new WebSocket(url);
   ws.onmessage = (ev) => {
     try {
@@ -140,7 +156,7 @@ function openSocket() {
     ws = null;
     if (ev.code === 4001) return; // dado de baja
     window.setTimeout(() => {
-      if (token) {
+      if (me) {
         void pull().catch(() => undefined);
         openSocket();
       }
@@ -182,7 +198,8 @@ async function write(list: { kind: Kind; id: string; data?: Data; deleted?: bool
 export function mediaUrl(path: string): string {
   const m = path.match(/^cloud:([a-f0-9]{64})/);
   if (!m) return "";
-  return `/v1/media/${m[1]}?token=${encodeURIComponent(token)}`;
+  // Con sesión (cookie) no hace falta nada más; con llave, va en la dirección.
+  return `/v1/media/${m[1]}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 }
 
 // ------------------------------------------------------------------ canciones
@@ -353,7 +370,7 @@ function putWithProgress(url: string, body: Blob, headers: Record<string, string
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open("PUT", url);
-    x.setRequestHeader("Authorization", `Bearer ${token}`);
+    if (token) x.setRequestHeader("Authorization", `Bearer ${token}`);
     for (const [k, v] of Object.entries(headers)) x.setRequestHeader(k, v);
     x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     x.onload = () => (x.status >= 200 && x.status < 300 ? resolve(x.responseText) : reject(new Error(`Error al subir (${x.status})`)));
