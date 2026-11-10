@@ -77,6 +77,7 @@ import { AudienceModal } from "./components/Audience";
 import { cloudGet, cloudNode } from "./cloud";
 import { TrackEditor } from "./components/TrackEditor";
 import { Welcome } from "./components/Welcome";
+import { StudioLive } from "./components/StudioLive";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -606,6 +607,7 @@ export default function App() {
   /** Ya se cargaron los datos guardados (antes, nada de fuera puede tocarlos). */
   const dataLoadedRef = useRef(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showStudioLive, setShowStudioLive] = useState(false);
   const pendingCloudRef = useRef<unknown[]>([]);
   const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
@@ -3977,6 +3979,41 @@ export default function App() {
 
   const mobileActions = useRef<(c: Record<string, unknown>) => void>(() => undefined);
 
+  // ---- El directo para los puestos de trabajo: qué suena, la lista en
+  // antena y por dónde va (al cambiar algo y cada 10 s).
+  const liveKey = `${activeId}|${rows.map((r) => r.id).join(",")}|${playingRow}|${paused}|${nextPick?.index ?? -1}|${autopilotOn}|${settings.liveMode}`;
+  useEffect(() => {
+    if (workstation) return;
+    const send = () => {
+      if (cloudNode.status.state !== "online") return;
+      const r = rowsRef.current;
+      const i = playingRowRef.current;
+      const np = nextPickRef.current;
+      const pl = playlistsRef.current.find((p) => p.id === activeIdRef.current);
+      cloudNode.sendLive({
+        listId: activeIdRef.current,
+        listName: pl?.name ?? "",
+        ids: r.map((x) => x.id),
+        row: i,
+        nextPick: np && np.listId === activeIdRef.current ? np.index : -1,
+        paused: pausedStateRef.current,
+        pos: posRef.current.cur,
+        dur: posRef.current.total,
+        at: Date.now(),
+        autopilot: settingsRef.current.autopilotEnabled,
+        live: settingsRef.current.liveMode,
+        title: i >= 0 ? (r[i]?.title ?? "") : "",
+        artist: i >= 0 ? (r[i]?.artist ?? "") : "",
+      });
+    };
+    const first = window.setTimeout(send, 300);
+    const t = window.setInterval(send, 10_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(t);
+    };
+  }, [liveKey, workstation]);
+
   // ---- Maestro en la nube: latido con el estado y órdenes del panel remoto
   // (se ejecutan igual que las del control desde el móvil). ----
   const cloudStatusRef = useRef<() => Record<string, unknown>>(() => ({}));
@@ -3999,7 +4036,32 @@ export default function App() {
   mobileActions.current = (c) => {
     const num = (k: string) => Number(c[k]);
     const s = settingsRef.current;
+    // Órdenes de otro equipo (puesto de trabajo): la fila que se toca tiene
+    // que ser la que él veía; si la lista cambió entretanto, no se hace.
+    const expect = (k: string) => {
+      const want = typeof c.expect === "string" ? c.expect : "";
+      if (want && rowsRef.current[num(k)]?.id !== want) throw new Error("La lista acaba de cambiar en el estudio; vuelve a intentarlo");
+    };
+    const visibleIdx = (ids: string[]) => {
+      const known = new Map(tracks.map((t) => [t.id, t]));
+      const out: number[] = [];
+      ids.forEach((id, k) => {
+        const t = known.get(id);
+        if (t && !t.disabled) out.push(k);
+      });
+      return out;
+    };
+    if (["playRow", "setNext", "remove"].includes(String(c.cmd))) expect("i");
+    if (c.cmd === "move") expect("from");
     switch (c.cmd) {
+      case "liveInsert": {
+        // Meter una canción en la lista en antena: {id, at} (at = fila)
+        const id = String(c.id ?? "");
+        if (!tracks.some((t) => t.id === id)) throw new Error("Esa canción no está en la biblioteca del estudio (aún se está sincronizando)");
+        const at = Number.isInteger(num("at")) ? num("at") : rowsRef.current.length;
+        void mutateList((ids) => placeIds(ids, [id], visibleIdx(ids)[at] ?? ids.length, activeIdRef.current));
+        break;
+      }
       case "toggle":
         void togglePlay();
         break;
@@ -4027,7 +4089,12 @@ export default function App() {
       case "remove": {
         const i = num("i");
         if (!Number.isInteger(i) || i === playingRowRef.current) return;
-        void mutateList((ids) => ids.filter((_, k) => k !== i));
+        // Fila de la lista que se ve -> posición en la lista guardada (las
+        // inhabilitadas o borradas no se ven, pero siguen ahí).
+        void mutateList((ids) => {
+          const k = visibleIdx(ids)[i];
+          return k === undefined ? ids : ids.filter((_, x) => x !== k);
+        });
         break;
       }
       case "move": {
@@ -4035,10 +4102,13 @@ export default function App() {
         const to = num("to");
         if (![from, to].every(Number.isInteger)) return;
         void mutateList((ids) => {
-          if (from < 0 || from >= ids.length) return ids;
+          const map = visibleIdx(ids);
+          const f = map[from];
+          if (f === undefined) return ids;
+          const t = map[Math.max(0, Math.min(map.length - 1, to))] ?? ids.length - 1;
           const copy = [...ids];
-          const [m] = copy.splice(from, 1);
-          copy.splice(Math.max(0, Math.min(copy.length, to)), 0, m);
+          const [m] = copy.splice(f, 1);
+          copy.splice(Math.max(0, Math.min(copy.length, t)), 0, m);
           return copy;
         });
         break;
@@ -4487,6 +4557,11 @@ export default function App() {
               Puesto de trabajo
             </span>
           )}
+          {workstation && (
+            <button type="button" className="btn btn-sm btn-accent" onClick={() => setShowStudioLive(true)} title="Ver y manejar lo que suena en el estudio">
+              Directo del estudio
+            </button>
+          )}
           {autopilotOn && activeAutoEvent && (
             <span
               className="pill pill-event"
@@ -4892,6 +4967,8 @@ export default function App() {
           onToggleStreamGroup={(group, on) => void setStreamGroup(group, on)}
         />
       )}
+
+      {showStudioLive && <StudioLive tracks={tracks} onClose={() => setShowStudioLive(false)} showToast={showToast} />}
 
       {showWelcome && (
         <Welcome

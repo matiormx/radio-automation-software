@@ -4955,3 +4955,28 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .welcome-dots { display: flex; gap: 6px; justify-content: center; }
 .welcome-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border, #30363d); }
 .welcome-dots span.on { background: var(--accent, #2f81f7); }
+
+/* Directo del estudio (puesto de trabajo) */
+.studio-live { max-width: 820px; width: calc(100% - 32px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 10px; padding: 18px; overflow: hidden; }
+.studio-live-head { display: flex; align-items: center; gap: 12px; }
+.studio-live-head h2 { margin: 0; font-size: 18px; }
+.studio-live-head .hint { flex: 1; }
+.studio-live-now { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--border, #30363d); border-radius: 10px; }
+.studio-live-now .t { display: flex; flex-direction: column; }
+.studio-live-now .t span { color: var(--text-2, #8b949e); }
+.studio-live-bar { height: 5px; border-radius: 3px; background: var(--border, #30363d); overflow: hidden; }
+.studio-live-bar > div { height: 100%; background: var(--accent, #2f81f7); transition: width .5s linear; }
+.studio-live-ctl { display: flex; align-items: center; gap: 6px; }
+.studio-live-rows { overflow: auto; min-height: 120px; flex: 1; }
+.studio-live-rows li { cursor: default; }
+.studio-live-rows li.on-air { background: color-mix(in srgb, var(--accent, #2f81f7) 16%, transparent); }
+.studio-live-rows li.past { opacity: .5; }
+.studio-live-add { position: relative; }
+.studio-live-add input { width: 100%; }
+.web-hits { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--border, #30363d); border-radius: 6px; max-height: 240px; overflow: auto; }
+.web-hits li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border, #30363d); }
+.web-hits li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.web-rows { list-style: none; margin: 0; padding: 0; }
+.web-rows li { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--border, #30363d); }
+.web-rows .n { width: 2.2em; text-align: right; color: var(--text-2, #8b949e); }
+.web-rows .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

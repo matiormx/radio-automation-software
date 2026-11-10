@@ -83,6 +83,27 @@ export function cloudSyncSet(enabled: boolean, download: SyncStatus["download"])
 
 type Listener = (s: CloudStatus) => void;
 
+/** El directo del equipo que emite, tal como lo ve un puesto de trabajo. */
+export interface LiveState {
+  node: string;
+  /** Lista en antena y sus canciones (en orden, como se ven allí) */
+  listId: string;
+  listName: string;
+  ids: string[];
+  /** Fila que suena (-1 = nada) y la siguiente elegida a mano (-1 = la de después) */
+  row: number;
+  nextPick: number;
+  paused: boolean;
+  /** Posición (s) y cuándo se midió (ms): se puede extrapolar */
+  pos: number;
+  dur: number;
+  at: number;
+  autopilot: boolean;
+  live: boolean;
+  title: string;
+  artist: string;
+}
+
 /**
  * Conexión de este equipo con el maestro: un WebSocket que se mantiene abierto
  * (y se reconecta solo). Por él van el latido cada 30 s con el estado de la
@@ -98,6 +119,42 @@ class CloudNode {
   status: CloudStatus = { state: "off", join: null, error: "", version: 0, since: 0 };
   getStatus: () => Record<string, unknown> = () => ({});
   onCommand: (cmd: Record<string, unknown>) => unknown = () => undefined;
+  /** El directo del equipo que emite (si este equipo no es el que emite) */
+  live: LiveState | null = null;
+  private liveListeners = new Set<(l: LiveState | null) => void>();
+  private pending = new Map<string, (r: { ok: boolean; error?: string }) => void>();
+
+  subscribeLive(fn: (l: LiveState | null) => void): () => void {
+    this.liveListeners.add(fn);
+    fn(this.live);
+    return () => this.liveListeners.delete(fn);
+  }
+
+  /** El equipo que emite cuenta cómo va el directo. */
+  sendLive(live: Omit<LiveState, "node">) {
+    this.send({ type: "event", kind: "live", live });
+  }
+
+  /** Orden al equipo que emite (como el control del móvil). */
+  remote(cmd: Record<string, unknown>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        reject(new Error("Sin conexión con el maestro"));
+        return;
+      }
+      const id = Math.random().toString(36).slice(2);
+      const t = window.setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error("El estudio no ha respondido"));
+      }, 8000);
+      this.pending.set(id, (r) => {
+        window.clearTimeout(t);
+        if (r.ok) resolve();
+        else reject(new Error(r.error || "El estudio no pudo hacerlo"));
+      });
+      this.send({ type: "cmd", id, cmd });
+    });
+  }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -161,6 +218,13 @@ class CloudNode {
         this.set({ version: msg.version });
         // Hay cambios en el maestro: que la sincronización pase ya.
         void invoke("cloud_sync_now").catch(() => undefined);
+      } else if (msg.type === "reply" && typeof msg.id === "string" && this.pending.has(msg.id)) {
+        const f = this.pending.get(msg.id)!;
+        this.pending.delete(msg.id);
+        f({ ok: !!msg.ok, error: typeof msg.error === "string" ? msg.error : "" });
+      } else if (msg.type === "event" && msg.kind === "live" && msg.live && typeof msg.live === "object") {
+        this.live = { ...(msg.live as Omit<LiveState, "node">), node: String(msg.node ?? "") };
+        for (const l of this.liveListeners) l(this.live);
       } else if (msg.type === "cmd" && msg.cmd && typeof msg.cmd === "object") {
         let ok = true;
         let error = "";
@@ -170,7 +234,7 @@ class CloudNode {
           ok = false;
           error = String(e);
         }
-        this.send({ type: "reply", id: msg.id, ok, error });
+        this.send({ type: "reply", id: msg.id, ok, error, from: msg.from });
         // Tras una orden, el panel ve el resultado enseguida.
         window.setTimeout(() => this.beat(), 600);
       }
