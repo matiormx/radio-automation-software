@@ -76,6 +76,7 @@ import { LiveBar } from "./components/LiveBar";
 import { AudienceModal } from "./components/Audience";
 import { cloudGet, cloudNode } from "./cloud";
 import { TrackEditor } from "./components/TrackEditor";
+import { Welcome } from "./components/Welcome";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -567,7 +568,10 @@ export default function App() {
     from: number;
     to: number;
   } | null>(null);
-  const autopilotOn = settings.autopilotEnabled;
+  // Un puesto de trabajo organiza, no emite: sin AutoDJ, eventos ni emisión
+  // automática (si no, cambiaría las listas de todos los equipos).
+  const workstation = settings.stationMode === "workstation";
+  const autopilotOn = settings.autopilotEnabled && !workstation;
   const cutsTrack = tracks.find((track) => track.id === cutsTrackId) ?? null;
   const defaultBlockId = blocks.some((block) => block.id === settings.defaultBlockId)
     ? settings.defaultBlockId
@@ -601,6 +605,7 @@ export default function App() {
   const sessionRestoredRef = useRef(false);
   /** Ya se cargaron los datos guardados (antes, nada de fuera puede tocarlos). */
   const dataLoadedRef = useRef(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const pendingCloudRef = useRef<unknown[]>([]);
   const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
@@ -866,7 +871,7 @@ export default function App() {
   // empezó más tarde (y a igualdad, el último de la lista).
   const activeAutoEvent = useMemo(() => {
     // Con el modo LIVE los eventos quedan en pausa.
-    if (!settings.eventsEnabled || settings.liveMode) return null;
+    if (!settings.eventsEnabled || settings.liveMode || workstation) return null;
     const manual =
       manualAuto && manualAuto.until > nowTick
         ? settings.events.find(
@@ -1391,7 +1396,7 @@ export default function App() {
     restoringRef.current = true;
     // Si estaba sonando al cerrar, sigue sonando; si estaba en pausa, queda
     // preparada en ese punto (salvo que este activo "reproducir al iniciar").
-    const wantPlay = session.playing || settings.autoPlayOnStart;
+    const wantPlay = settingsRef.current.stationMode !== "workstation" && (session.playing || settings.autoPlayOnStart);
     void player
       .restoreAt(index, session.positionSecs, wantPlay)
       .then(() => {
@@ -1422,7 +1427,14 @@ export default function App() {
           listHistory().catch(() => [] as HistoryEntry[]),
           loadSession().catch(() => null),
         ]);
-        const loaded = migrateLegacyRtmp(s);
+        let loaded = migrateLegacyRtmp(s);
+        // Primer arranque: el asistente pregunta qué es este equipo. Si ya se
+        // usaba (biblioteca o listas), es un equipo que emite: sin preguntar.
+        if (!loaded.stationMode) {
+          const used = t.length > 0 || ps.some((p) => p.trackIds.length > 0);
+          if (used) loaded = { ...loaded, stationMode: "broadcast" };
+          else setShowWelcome(true);
+        }
         setTracks(t);
         setBlocks(bs);
         setPlaylists(ps);
@@ -2222,7 +2234,7 @@ export default function App() {
   // Arranque automatico al abrir la app (solo una vez por sesion).
   useEffect(() => {
     if (autoPlayStartedRef.current) return;
-    if (!settings.autoPlayOnStart) return;
+    if (!settings.autoPlayOnStart || workstation) return;
     if (!active || rows.length === 0 || !playerRef.current) return;
     // Si hay una sesion que continuar, la restauracion ya arranca donde se quedo.
     const session = sessionRef.current;
@@ -2239,7 +2251,7 @@ export default function App() {
   // el principio. Queda anotado para saber por qué no arrancó solo.
   const startWatchRef = useRef(false);
   useEffect(() => {
-    if (startWatchRef.current || !settings.autoPlayOnStart) return;
+    if (startWatchRef.current || !settings.autoPlayOnStart || workstation) return;
     if (!active || rows.length === 0 || !playerRef.current) return;
     startWatchRef.current = true;
     const timer = window.setTimeout(() => {
@@ -2399,7 +2411,7 @@ export default function App() {
   const setStreamGroupRef = useRef(setStreamGroup);
   setStreamGroupRef.current = setStreamGroup;
   useEffect(() => {
-    if (autoStreamDone.current || !mixer || !settings.streaming?.autoStart || !hasStreamOutputs) return;
+    if (autoStreamDone.current || !mixer || !settings.streaming?.autoStart || !hasStreamOutputs || workstation) return;
     autoStreamDone.current = true;
     // Sin limpiar el temporizador: si cambian los ajustes en esos segundos,
     // la emision tiene que arrancar igual (y solo una vez).
@@ -2533,7 +2545,7 @@ export default function App() {
         else if (Date.now() >= run.endsAt || (ev && !ev.enabled)) endLiveEvent(true);
         return;
       }
-      if (!s.eventsEnabled || s.liveMode) return;
+      if (!s.eventsEnabled || s.liveMode || s.stationMode === "workstation") return;
       for (const ev of s.events) {
         if (!ev.enabled || ev.kind !== "stream" || !(ev.streamUrl ?? "").trim()) continue;
         const w = streamWindow(ev, now);
@@ -2551,6 +2563,10 @@ export default function App() {
 
   const launchEvent = useCallback(
     (event: StationEvent) => {
+      if (settingsRef.current.stationMode === "workstation") {
+        showToast("Este equipo es un puesto de trabajo: los eventos se lanzan desde el estudio");
+        return;
+      }
       if (!settingsRef.current.eventsEnabled) {
         showToast("Los eventos están desactivados globalmente");
         return;
@@ -2902,7 +2918,7 @@ export default function App() {
     if (!active) return;
     const check = () => {
       const s = settingsRef.current;
-      if (!s.eventsEnabled || s.liveMode) return;
+      if (!s.eventsEnabled || s.liveMode || s.stationMode === "workstation") return;
       const now = new Date();
       const rowsNow = rowsRef.current;
       const playing = playingRowRef.current;
@@ -4466,6 +4482,11 @@ export default function App() {
         <div className="top-drag" data-tauri-drag-region />
         <div className="top-right">
           {importing && <span className="pill pill-warn">Importando…</span>}
+          {workstation && (
+            <span className="pill pill-auto" title="Este equipo organiza y no emite: sin AutoDJ, eventos ni emisión automática (Ajustes › Maestro)">
+              Puesto de trabajo
+            </span>
+          )}
           {autopilotOn && activeAutoEvent && (
             <span
               className="pill pill-event"
@@ -4869,6 +4890,19 @@ export default function App() {
           streamBusy={streamBusy}
           onRestartStream={() => void restartStreaming()}
           onToggleStreamGroup={(group, on) => void setStreamGroup(group, on)}
+        />
+      )}
+
+      {showWelcome && (
+        <Welcome
+          settings={settings}
+          showToast={showToast}
+          onDone={(next, rescan) => {
+            setSettings(next);
+            void saveSettings(next).catch(() => undefined);
+            setShowWelcome(false);
+            if (rescan) void refreshTracksAndBlocks();
+          }}
         />
       )}
 

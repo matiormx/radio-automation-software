@@ -516,7 +516,7 @@ export function SettingsPanel({
               />
             )}
             {tab === "mobile" && <MobileTab settings={s} onChange={onChange} />}
-            {tab === "cloud" && <CloudTab showToast={showToast} />}
+            {tab === "cloud" && <CloudTab showToast={showToast} settings={s} onChange={onChange} />}
             {tab === "remote" && <RemoteTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "network" && <NetworkTab showToast={showToast} />}
             {tab === "backup" && (

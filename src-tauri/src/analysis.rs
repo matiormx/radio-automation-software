@@ -334,7 +334,7 @@ pub async fn track_waveform(
         .find(|t| t.id == id)
         .ok_or_else(|| "La cancion ya no existe en la biblioteca".to_string())?;
     let path = Path::new(t.file.trim());
-    if t.file.trim().is_empty() || !path.is_file() {
+    if t.file.trim().is_empty() || !crate::cloudsync::ensure_local(path) {
         return Err("El archivo de la cancion no esta disponible".to_string());
     }
     let scan = scan_file(path)?;

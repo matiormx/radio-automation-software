@@ -4943,3 +4943,15 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 /* Estadísticas de oyentes de una emisión */
 .stats-box { margin-top: 4px; }
 .stats-mode { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
+
+/* Asistente del primer arranque */
+.welcome-modal { max-width: 560px; width: calc(100% - 32px); display: flex; flex-direction: column; gap: 10px; padding: 24px; }
+.welcome-modal h2 { margin: 0; }
+.welcome-choices { display: grid; gap: 10px; }
+.welcome-choice { text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: 10px; border: 1px solid var(--border, #30363d); background: transparent; color: inherit; cursor: pointer; }
+.welcome-choice span { color: var(--text-2, #8b949e); font-size: 13px; }
+.welcome-choice.on { border-color: var(--accent, #2f81f7); box-shadow: 0 0 0 1px var(--accent, #2f81f7) inset; }
+.welcome-actions { display: flex; gap: 8px; margin-top: 8px; }
+.welcome-dots { display: flex; gap: 6px; justify-content: center; }
+.welcome-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border, #30363d); }
+.welcome-dots span.on { background: var(--accent, #2f81f7); }

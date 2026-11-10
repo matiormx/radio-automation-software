@@ -106,6 +106,11 @@ pub struct Settings {
     /// su archivo («Artista - Título.ext»). El enlace se actualiza solo.
     #[serde(default = "yes")]
     pub rename_files: bool,
+    /// Qué es este equipo: "broadcast" (emite), "workstation" (puesto de
+    /// trabajo: organiza, no emite) o "" (aún sin elegir).
+    pub station_mode: String,
+    /// Carpeta para la música que se baja de la nube ("" = la de datos)
+    pub cloud_media_dir: String,
     /// Pasar a la siguiente pista (o reanudar) si hay silencio.
     pub silence_detection: bool,
     /// Umbral de silencio en dBFS (RMS).
@@ -927,6 +932,8 @@ impl Default for Settings {
             audio_buffer_ms: 40,
             auto_play_on_start: false,
             rename_files: true,
+            station_mode: String::new(),
+            cloud_media_dir: String::new(),
             silence_detection: false,
             silence_threshold_db: -55.0,
             past_visible: 5,

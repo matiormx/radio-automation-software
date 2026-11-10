@@ -328,6 +328,10 @@ pub fn run() {
             cloudsync::cloud_sync_status,
             cloudsync::cloud_sync_set,
             cloudsync::cloud_sync_now,
+            cloudsync::cloud_local_usage,
+            cloudsync::cloud_free_space,
+            cloudsync::cloud_set_media_dir,
+            cloudsync::cloud_media_dir,
             crashlog::crash_note
         ])
         .build(tauri::generate_context!())

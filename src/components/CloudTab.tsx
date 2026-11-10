@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { cloudGet, cloudJoinPick, cloudLeave, cloudMediaSet, cloudMediaStatus, cloudNode, cloudSyncSet, cloudSyncStatus, type CloudStatus, type MediaStatus, type SyncStatus } from "../cloud";
+import type { Settings } from "../types";
+import { pickFolder } from "../api";
+import { formatBytes } from "./cloudFmt";
+import { cloudGet, cloudJoinPick, cloudLeave, cloudMediaSet, cloudMediaStatus, cloudNode, cloudSyncSet, cloudSyncStatus, cloudLocalUsage, cloudFreeSpace, cloudSetMediaDir, cloudMediaDir, type CloudStatus, type MediaStatus, type SyncStatus } from "../cloud";
 
 const ROLE: Record<string, string> = {
   main: "Principal (emite)",
@@ -8,7 +11,15 @@ const ROLE: Record<string, string> = {
 };
 
 /** Ajustes › Maestro (nube): unir este equipo al maestro con su archivo de alta. */
-export function CloudTab({ showToast }: { showToast: (m: string) => void }) {
+export function CloudTab({
+  showToast,
+  settings,
+  onChange,
+}: {
+  showToast: (m: string) => void;
+  settings: Settings;
+  onChange: (s: Settings) => void;
+}) {
   const [st, setSt] = useState<CloudStatus>(cloudNode.status);
   const [busy, setBusy] = useState(false);
   useEffect(() => cloudNode.subscribe(setSt), []);
@@ -92,7 +103,9 @@ export function CloudTab({ showToast }: { showToast: (m: string) => void }) {
             </div>
           </>
         )}
+        <StationMode settings={settings} onChange={onChange} />
         {j && <DataSync role={j.node.role} showToast={showToast} />}
+        {j && <LocalMusic settings={settings} onChange={onChange} showToast={showToast} />}
         {j && j.node.role !== "backup" && <MediaUpload showToast={showToast} />}
       </fieldset>
     </div>
@@ -227,7 +240,7 @@ function DataSync({ role, showToast }: { role: string; showToast: (m: string) =>
           <select value={x.download} onChange={(e) => set(x.enabled, e.target.value as SyncStatus["download"])}>
             <option value="needed">Bajar solo la de las listas y los eventos</option>
             <option value="all">Bajarla toda</option>
-            <option value="none">No bajar nada</option>
+            <option value="none">Solo la que escuche o edite aquí (bajo demanda)</option>
           </select>
         </label>
       </div>
@@ -244,6 +257,104 @@ function DataSync({ role, showToast }: { role: string; showToast: (m: string) =>
         </p>
       )}
       {x.dlError && <p className="hint update-error">{x.dlError}</p>}
+    </fieldset>
+  );
+}
+
+/** Qué es este equipo: emite o puesto de trabajo. */
+export function StationMode({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
+  const ws = settings.stationMode === "workstation";
+  return (
+    <fieldset className="fieldset" style={{ marginTop: 12 }}>
+      <legend>Este equipo</legend>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Qué hace</span>
+          <select
+            value={ws ? "workstation" : "broadcast"}
+            onChange={(e) => onChange({ ...settings, stationMode: e.target.value as Settings["stationMode"] })}
+          >
+            <option value="broadcast">Emite (estudio o relevo)</option>
+            <option value="workstation">Puesto de trabajo (organiza, no emite)</option>
+          </select>
+        </label>
+      </div>
+      <p className="hint">
+        {ws
+          ? "Puesto de trabajo: aquí se organizan la biblioteca, las playlists y los eventos, y se escucha lo que haga falta. No funcionan el AutoDJ, los eventos ni la emisión automática, para no cambiar las listas que suenan en el estudio."
+          : "Este equipo emite: AutoDJ, eventos y emisión funcionan con normalidad."}
+      </p>
+    </fieldset>
+  );
+}
+
+/** Carpeta de la música bajada de la nube, cuánto ocupa y liberar espacio. */
+function LocalMusic({
+  settings,
+  onChange,
+  showToast,
+}: {
+  settings: Settings;
+  onChange: (s: Settings) => void;
+  showToast: (m: string) => void;
+}) {
+  const [dir, setDir] = useState("");
+  const [use, setUse] = useState<{ files: number; bytes: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = () => {
+    void cloudMediaDir().then(setDir).catch(() => undefined);
+    void cloudLocalUsage().then(setUse).catch(() => undefined);
+  };
+  useEffect(() => {
+    refresh();
+    const t = window.setInterval(refresh, 10000);
+    return () => window.clearInterval(t);
+  }, []);
+  const change = async () => {
+    const p = await pickFolder();
+    if (!p) return;
+    try {
+      const d = await cloudSetMediaDir(p);
+      onChange({ ...settings, cloudMediaDir: p });
+      setDir(d);
+      showToast("Carpeta cambiada. Lo ya bajado se mueve allí en segundo plano.");
+    } catch (e) {
+      showToast(String(e));
+    }
+  };
+  const free = async () => {
+    if (!window.confirm("¿Borrar de este equipo la música bajada de la nube? Tus archivos propios no se tocan. Lo que haga falta se vuelve a bajar solo.")) return;
+    setBusy(true);
+    try {
+      const r = await cloudFreeSpace();
+      showToast(`Liberados ${formatBytes(r.bytes)} (${r.files} archivos)`);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <fieldset className="fieldset" style={{ marginTop: 12 }}>
+      <legend>Música bajada de la nube</legend>
+      <p className="hint">
+        Las canciones que este equipo no tiene se bajan del maestro cuando hacen falta (al escucharlas, al editar sus
+        cortes o al sonar) y se guardan aquí.
+      </p>
+      <div className="field-row">
+        <label className="field" style={{ flex: 1 }}>
+          <span className="field-label">Carpeta</span>
+          <input type="text" readOnly value={dir} title={dir} />
+        </label>
+        <button type="button" className="btn" onClick={() => void change()}>
+          Cambiar…
+        </button>
+      </div>
+      <div className="field-row">
+        <span className="hint">{use ? `Ocupa ${formatBytes(use.bytes)} (${use.files} archivos)` : "…"}</span>
+        <button type="button" className="btn" disabled={busy || !use || use.files === 0} onClick={() => void free()}>
+          Liberar espacio
+        </button>
+      </div>
     </fieldset>
   );
 }

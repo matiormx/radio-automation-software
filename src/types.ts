@@ -860,6 +860,10 @@ export interface Settings {
   autoPlayOnStart: boolean;
   /** Renombrar el archivo al cambiar título o artista («Artista - Título») */
   renameFiles?: boolean;
+  /** Qué es este equipo: emite o puesto de trabajo ("" = aún sin elegir) */
+  stationMode?: "" | "broadcast" | "workstation";
+  /** Carpeta para la música que se baja de la nube ("" = la de datos) */
+  cloudMediaDir?: string;
   /** Pasar a la siguiente pista (o reanudar) si hay silencio */
   silenceDetection: boolean;
   /** Umbral de silencio en dBFS (RMS); por debajo se considera silencio */

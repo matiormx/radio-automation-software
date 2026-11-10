@@ -847,8 +847,9 @@ impl TrackResolved {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let missing =
-            t.file.trim().is_empty() || !Path::new(t.file.trim()).is_file();
+        // Las de la nube cuentan como disponibles: se bajan al necesitarlas.
+        let missing = t.file.trim().is_empty()
+            || (!Path::new(t.file.trim()).is_file() && !crate::cloudsync::is_cloud_file(Path::new(t.file.trim())));
         Self {
             id: t.id,
             title: t.title,

@@ -148,6 +148,7 @@ fn canonical(v: &Value) -> String {
 }
 
 pub fn on_startup(app: &AppHandle, dir: &Path) {
+    set_media_override(&crate::settings::read_settings_public(&dir.to_path_buf()).cloud_media_dir);
     let cfg: SyncCfg = fs::read_to_string(dir.join(CFG_FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let sh = Arc::new(Shared {
         dir: dir.to_path_buf(),
@@ -290,8 +291,20 @@ fn sources_sig(dir: &Path) -> String {
 
 // ------------------------------------------------------------ datos locales
 
+/// Carpeta elegida para la música de la nube (None = la de datos).
+static MEDIA_OVERRIDE: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
 fn media_dir(dir: &Path) -> PathBuf {
+    if let Some(p) = MEDIA_OVERRIDE.read().ok().and_then(|g| g.clone()) {
+        return p;
+    }
     dir.join(MEDIA_DIR)
+}
+
+fn set_media_override(p: &str) {
+    if let Ok(mut g) = MEDIA_OVERRIDE.write() {
+        *g = if p.trim().is_empty() { None } else { Some(PathBuf::from(p.trim())) };
+    }
 }
 
 /// sha256 del archivo de una canción, si se conoce.
@@ -968,6 +981,167 @@ fn download_one(ag: &ureq::Agent, auth: &str, api: &str, hash: &str, path: &Path
         return Err("El archivo bajado no coincide con su huella; se volverá a bajar".into());
     }
     fs::rename(&part, path).map_err(|e| e.to_string())
+}
+
+// ------------------------------------------------------------ bajo demanda
+
+/// ¿Es un archivo de la nube (bajado o por bajar) de este equipo?
+pub fn is_cloud_file(path: &Path) -> bool {
+    let Some(sh) = SHARED.get() else { return false };
+    path.parent() == Some(media_dir(&sh.dir).as_path())
+        && path.file_stem().and_then(|s| s.to_str()).map(is_sha).unwrap_or(false)
+}
+
+static ON_DEMAND: Mutex<()> = Mutex::new(());
+
+/// La canción se necesita ya (escuchar, editar cortes, que suene): si es de
+/// la nube y no está aquí, se baja en el momento. true = el archivo está.
+pub fn ensure_local(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    if !is_cloud_file(path) {
+        return false;
+    }
+    let Some(sh) = SHARED.get() else { return false };
+    let Some(join) = crate::cloud::read_join(&sh.dir) else { return false };
+    let _g = ON_DEMAND.lock().unwrap_or_else(|e| e.into_inner());
+    if path.is_file() {
+        return true; // lo bajó otro mientras esperábamos
+    }
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(String::from) else { return false };
+    let _ = fs::create_dir_all(media_dir(&sh.dir));
+    let auth = format!("Bearer {}", join.token);
+    match download_one(&agent(), &auth, &join.api, &stem, path, sh) {
+        Ok(()) => {
+            let _ = sh.app.emit("library://changed", ());
+            true
+        }
+        Err(e) => {
+            crate::crashlog::note(&format!("No se pudo bajar del maestro {}: {e}", path.display()));
+            false
+        }
+    }
+}
+
+/// Cuánto ocupa aquí la música bajada de la nube.
+fn local_usage(dir: &Path) -> (usize, u64) {
+    let mut n = 0;
+    let mut bytes = 0;
+    if let Ok(rd) = fs::read_dir(media_dir(dir)) {
+        for e in rd.flatten() {
+            if let Ok(m) = e.metadata() {
+                if m.is_file() {
+                    n += 1;
+                    bytes += m.len();
+                }
+            }
+        }
+    }
+    (n, bytes)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalUsage {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+#[tauri::command]
+pub fn cloud_local_usage(state: State<'_, AppState>) -> LocalUsage {
+    let (files, bytes) = local_usage(&state.data_dir);
+    LocalUsage { files, bytes }
+}
+
+/// Borra la música bajada de la nube (solo esa carpeta: nunca los archivos
+/// propios). Lo que se esté usando ahora se queda. Se vuelve a bajar sola
+/// cuando haga falta.
+#[tauri::command]
+pub fn cloud_free_space(state: State<'_, AppState>) -> LocalUsage {
+    let dir = media_dir(&state.data_dir);
+    let mut files = 0;
+    let mut bytes = 0;
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let Ok(m) = e.metadata() else { continue };
+            if m.is_file() && fs::remove_file(&p).is_ok() {
+                files += 1;
+                bytes += m.len();
+            }
+        }
+    }
+    if let Some(sh) = SHARED.get() {
+        let _ = sh.app.emit("library://changed", ());
+    }
+    LocalUsage { files, bytes }
+}
+
+/// Cambia la carpeta de la música de la nube. Lo ya bajado se mueve allí en
+/// segundo plano y la biblioteca se actualiza al terminar («cloud://moved»).
+/// La interfaz guarda la carpeta en los ajustes (cloudMediaDir).
+#[tauri::command]
+pub fn cloud_set_media_dir(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    let dir = state.data_dir.clone();
+    let new = if path.trim().is_empty() { dir.join(MEDIA_DIR) } else { PathBuf::from(path.trim()) };
+    fs::create_dir_all(&new).map_err(|e| format!("No se pudo usar esa carpeta: {e}"))?;
+    let probe = new.join(".omnicaster-prueba");
+    fs::write(&probe, b"ok").map_err(|e| format!("No se puede escribir en esa carpeta: {e}"))?;
+    let _ = fs::remove_file(&probe);
+    let old = media_dir(&dir);
+    set_media_override(&path);
+    if old == new {
+        return Ok(new.to_string_lossy().into_owned());
+    }
+    let app = SHARED.get().map(|s| s.app.clone());
+    let new2 = new.clone();
+    let _ = std::thread::Builder::new().name("miradio-cloud-move".into()).spawn(move || {
+        let mut moved = 0usize;
+        if let Ok(rd) = fs::read_dir(&old) {
+            for e in rd.flatten() {
+                let from = e.path();
+                if !from.is_file() {
+                    continue;
+                }
+                let to = new2.join(e.file_name());
+                let ok = fs::rename(&from, &to).is_ok()
+                    || (fs::copy(&from, &to).is_ok() && fs::remove_file(&from).is_ok());
+                if ok {
+                    moved += 1;
+                }
+            }
+        }
+        // La biblioteca apunta a la carpeta nueva.
+        {
+            let _g = crate::library::lock_library();
+            let mut lib = crate::library::read_library_internal(&dir);
+            let mut changed = false;
+            for t in lib.iter_mut() {
+                let p = PathBuf::from(&t.file);
+                if p.parent() == Some(old.as_path()) {
+                    if let Some(name) = p.file_name() {
+                        t.file = new2.join(name).to_string_lossy().into_owned();
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = crate::library::write_library(&dir, &lib);
+            }
+        }
+        if let Some(app) = app {
+            let _ = app.emit("cloud://moved", moved);
+            let _ = app.emit("library://changed", ());
+        }
+    });
+    Ok(new.to_string_lossy().into_owned())
+}
+
+/// Carpeta que se usa ahora para la música de la nube.
+#[tauri::command]
+pub fn cloud_media_dir(state: State<'_, AppState>) -> String {
+    media_dir(&state.data_dir).to_string_lossy().into_owned()
 }
 
 // ------------------------------------------------------------ comandos

@@ -89,7 +89,8 @@ impl DecodeCache {
                 .name("miradio-decode".into())
                 .spawn(move || {
                     let path = Path::new(&file);
-                    let res = if file.trim().is_empty() || !path.is_file() {
+                    // De la nube y no está aquí: se baja ahora.
+                    let res = if file.trim().is_empty() || !crate::cloudsync::ensure_local(path) {
                         Err("el archivo no está disponible".to_string())
                     } else {
                         decode_file(path, rate)

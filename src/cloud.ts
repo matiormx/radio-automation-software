@@ -214,3 +214,18 @@ class CloudNode {
 }
 
 export const cloudNode = new CloudNode();
+
+/** Música bajada de la nube en este equipo. */
+export function cloudLocalUsage(): Promise<{ files: number; bytes: number }> {
+  return invoke("cloud_local_usage");
+}
+export function cloudFreeSpace(): Promise<{ files: number; bytes: number }> {
+  return invoke("cloud_free_space");
+}
+/** Cambia la carpeta (lo ya bajado se mueve en segundo plano). Devuelve la carpeta. */
+export function cloudSetMediaDir(path: string): Promise<string> {
+  return invoke("cloud_set_media_dir", { path });
+}
+export function cloudMediaDir(): Promise<string> {
+  return invoke("cloud_media_dir");
+}
