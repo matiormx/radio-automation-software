@@ -39,6 +39,7 @@ pub const MEDIA_DIR: &str = "maestro-musica";
 const PASS_SECS: u64 = 20;
 /// Campos de la ficha que dependen de cada equipo: no viajan.
 const LOCAL_FIELDS: [&str; 7] = ["file", "fileName", "cover", "coverChecked", "audioChecked", "tagsV", "analysisSig"];
+// La carátula («cover») no viaja como ruta: viaja la imagen («media:<sha256>.<ext>»).
 /// Elementos que aplica la ventana principal.
 const APP_KINDS: [&str; 4] = ["playlist", "program", "event", "campaign"];
 
@@ -335,11 +336,25 @@ fn media_of(file: &str, mdir: &Path, hashes: &HashMap<String, (u64, u64, String)
     }
 }
 
-fn track_value(t: &Track, mdir: &Path, hashes: &HashMap<String, (u64, u64, String)>) -> Value {
+fn track_value(
+    t: &Track,
+    mdir: &Path,
+    hashes: &HashMap<String, (u64, u64, String)>,
+    img: &mut dyn FnMut(&str) -> Option<String>,
+) -> Value {
     let mut v = serde_json::to_value(t).unwrap_or(Value::Null);
     if let Value::Object(m) = &mut v {
         for f in LOCAL_FIELDS {
             m.remove(f);
+        }
+        // Carátula: la imagen, por su huella (para los equipos sin el archivo).
+        let cover = t.cover.trim();
+        if cover.starts_with("media:") {
+            m.insert("cover".into(), Value::String(cover.to_string()));
+        } else if !cover.is_empty() {
+            if let Some(r) = img(cover) {
+                m.insert("cover".into(), Value::String(r));
+            }
         }
         let media = media_of(&t.file, mdir, hashes);
         if !media.is_empty() {
@@ -494,7 +509,7 @@ fn collect_local(sh: &Shared, need: &mut HashMap<String, PathBuf>) -> HashMap<St
     let mdir = media_dir(dir);
     let hashes = crate::cloudmedia::known_hashes(dir);
     for t in crate::library::read_library_internal(dir) {
-        let v = track_value(&t, &mdir, &hashes);
+        let v = track_value(&t, &mdir, &hashes, &mut |p| image_ref(sh, p, need));
         add("track", t.id.clone(), v);
     }
     for b in crate::library::read_blocks(dir) {
@@ -539,7 +554,7 @@ struct Incoming {
 /// Aplica lo que llega del maestro. Devuelve cuántos elementos cambió aquí.
 fn apply(sh: &Shared, join: &crate::cloud::JoinFile, mut incoming: Vec<Incoming>) -> Result<(), String> {
     // Las imágenes de programas, eventos y campañas: a este equipo.
-    for it in incoming.iter_mut().filter(|i| APP_KINDS.contains(&i.kind.as_str()) && i.kind != "playlist") {
+    for it in incoming.iter_mut().filter(|i| (APP_KINDS.contains(&i.kind.as_str()) && i.kind != "playlist") || i.kind == "track") {
         images_in(sh, join, &mut it.data);
     }
     if incoming.is_empty() {
@@ -576,6 +591,8 @@ fn apply(sh: &Shared, join: &crate::cloud::JoinFile, mut incoming: Vec<Incoming>
                 let ext = it.data.get("ext").and_then(|x| x.as_str()).unwrap_or("").to_string();
                 let Ok(mut t) = serde_json::from_value::<Track>(it.data.clone()) else { continue };
                 t.id = it.id.clone();
+                // Carátula que llega (ya bajada a este equipo, o aún «media:» si falló).
+                let remote_cover = t.cover.trim().to_string();
                 let target = if media.len() == 64 {
                     mdir.join(if ext.is_empty() { media.clone() } else { format!("{media}.{ext}") }).to_string_lossy().into_owned()
                 } else {
@@ -589,8 +606,13 @@ fn apply(sh: &Shared, join: &crate::cloud::JoinFile, mut incoming: Vec<Incoming>
                         let keep = media.is_empty() || local_media.is_empty() && !old.file.is_empty() && Path::new(&old.file).exists() || local_media == media;
                         t.file = if keep { old.file.clone() } else { target };
                         t.file_name = old.file_name.clone();
-                        t.cover = old.cover.clone();
-                        t.cover_checked = old.cover_checked;
+                        if remote_cover.is_empty() {
+                            t.cover = old.cover.clone();
+                            t.cover_checked = old.cover_checked;
+                        } else {
+                            t.cover = remote_cover.clone();
+                            t.cover_checked = true;
+                        }
                         t.audio_checked = old.audio_checked;
                         t.tags_v = old.tags_v;
                         t.analysis_sig = if keep { old.analysis_sig.clone() } else { String::new() };
@@ -604,8 +626,8 @@ fn apply(sh: &Shared, join: &crate::cloud::JoinFile, mut incoming: Vec<Incoming>
                     None => {
                         t.file = target;
                         t.file_name.clear();
-                        t.cover.clear();
-                        t.cover_checked = false;
+                        t.cover = remote_cover.clone();
+                        t.cover_checked = !remote_cover.is_empty();
                         t.audio_checked = false;
                         t.analysis_sig.clear();
                         pos.insert(t.id.clone(), lib.len());
@@ -1204,14 +1226,14 @@ mod tests {
         let t = Track { id: "t1".into(), title: "Hola".into(), file: format!("/musica/x.flac"), lufs: Some(-14.2), ..Default::default() };
         let mut hashes = HashMap::new();
         hashes.insert("/musica/x.flac".to_string(), (0u64, 0u64, sha.clone()));
-        let v = track_value(&t, &mdir, &hashes);
+        let v = track_value(&t, &mdir, &hashes, &mut |_| None);
         assert_eq!(v["media"], json!(sha));
         assert_eq!(v["ext"], json!("flac"));
         assert!(v.get("file").is_none());
         // Otro equipo: mismo contenido, archivo en la carpeta de la nube.
         let mut t2: Track = serde_json::from_value(v.clone()).unwrap();
         t2.file = mdir.join(format!("{sha}.flac")).to_string_lossy().into_owned();
-        let v2 = track_value(&t2, &mdir, &HashMap::new());
+        let v2 = track_value(&t2, &mdir, &HashMap::new(), &mut |_| None);
         assert_eq!(digest(&v), digest(&v2));
     }
 }

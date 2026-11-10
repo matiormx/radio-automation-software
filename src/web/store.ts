@@ -236,7 +236,8 @@ function toTrack(id: string, d: Data): Track {
     id,
     file: media.length === 64 ? `cloud:${media}${ext ? `.${ext}` : ""}` : "",
     missing: media.length !== 64,
-    cover: "",
+    // Carátula desde la nube («media:<sha256>.<ext>», la de todo el álbum)
+    cover: typeof d.cover === "string" && d.cover.startsWith("media:") ? d.cover : "",
     format: ext || undefined,
   } as Track;
 }
