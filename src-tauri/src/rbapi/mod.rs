@@ -63,6 +63,9 @@ pub struct Published {
     pub list_name: String,
     /// Eventos (programador) activados
     pub scheduler: bool,
+    /// Programa en directo (botón LIVE) activado, y su nombre
+    pub live: bool,
+    pub live_program: String,
     /// Salidas de emision, en orden
     pub encoders: Vec<PubEncoder>,
 }
@@ -978,6 +981,16 @@ pub fn handle(core: &Core, method: &str, url: &str, bearer: Option<&str>) -> Rep
             },
             "songrequestlist" => Reply::Xml(200, rb::doc("<SongRequest>", "SongRequest", &[])),
             "mic" if !q.contains_key("on") => Reply::Text(200, "0".into()),
+            // Programa en directo: 1 = LIVE activado, 0 = no (como «mic»).
+            // Con fn=name, el nombre del programa (vacío si no hay).
+            "live" => {
+                let p = &core.now.lock().unwrap_or_else(|e| e.into_inner()).p;
+                if q.get("fn").map(|s| s.as_str()) == Some("name") {
+                    Reply::Text(200, if p.live { p.live_program.clone() } else { String::new() })
+                } else {
+                    Reply::Text(200, if p.live { "1" } else { "0" }.into())
+                }
+            }
             "streamarchivestatus" => Reply::Text(200, "0".into()),
             "schedulecontrol" if q.get("type").map(|s| s.as_str()) == Some("state") && !q.contains_key("set") => {
                 let on = core.now.lock().unwrap_or_else(|e| e.into_inner()).p.scheduler;

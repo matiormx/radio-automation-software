@@ -3375,6 +3375,10 @@ export default function App() {
       volume: settingsRef.current.masterVolume ?? 1,
       listName: playlistsRef.current.find((pl) => pl.id === activeIdRef.current)?.name ?? "",
       scheduler: settingsRef.current.eventsEnabled !== false && !settingsRef.current.liveMode,
+      live: !!settingsRef.current.liveMode,
+      liveProgram: settingsRef.current.liveMode
+        ? (settingsRef.current.programs ?? []).find((p) => p.id === settingsRef.current.liveProgramId)?.name ?? ""
+        : "",
       encoders: (() => {
         const st = streamStatusRef.current;
         return settingsRef.current.streaming.icecast.map((c) => {

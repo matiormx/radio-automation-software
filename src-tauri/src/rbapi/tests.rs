@@ -62,6 +62,8 @@ fn playing(core: &Arc<Core>, file: &str) {
         volume: 0.8,
         list_name: "Mañana".into(),
         scheduler: true,
+        live: false,
+        live_program: String::new(),
         encoders: vec![PubEncoder { name: "ngradio - mp3".into(), status: "active".into(), host: "h".into(), port: 8000, mount: "/live".into(), codec: "mp3".into(), bitrate_kbps: 128, sample_rate: 44100, channels: 2, enabled: true, ..Default::default() }],
     });
 }
@@ -183,6 +185,15 @@ fn lists_like_radioboss() {
     let (_, x) = get(&core, &format!("/?action=getencoder&id=0&{AUTH}"));
     assert!(x.contains("Server=\"h:8000/live\" Password=\"\""), "nunca la clave: {x}");
     assert_eq!(get(&core, &format!("/?action=mic&{AUTH}")), (200, "0".to_string()));
+    // Programa en directo: 0 hasta que se activa LIVE
+    assert_eq!(get(&core, &format!("/?action=live&{AUTH}")), (200, "0".to_string()));
+    {
+        let mut n = core.now.lock().unwrap();
+        n.p.live = true;
+        n.p.live_program = "La Mañana".into();
+    }
+    assert_eq!(get(&core, &format!("/?action=live&{AUTH}")), (200, "1".to_string()));
+    assert_eq!(get(&core, &format!("/?action=live&fn=name&{AUTH}")), (200, "La Mañana".to_string()));
     assert_eq!(get(&core, &format!("/?action=streamarchivestatus&{AUTH}")), (200, "0".to_string()));
     assert_eq!(get(&core, &format!("/?action=schedulecontrol&type=state&{AUTH}")), (200, "on".to_string()));
     let (_, x) = get(&core, &format!("/?action=library&{AUTH}"));
