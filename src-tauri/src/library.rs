@@ -713,8 +713,10 @@ fn is_legacy_intro_marker(mix_point: f64, intro_point: f64, duration: f64) -> bo
 /// carpeta interna, y un marcador de intro guardado como mix pasa a ser
 /// el punto de intro. La migracion se guarda con la siguiente escritura.
 /// «A\0B\0» -> «A, B» (varios valores de una etiqueta).
-fn multi_value(v: &str) -> String {
-    v.split('\0').map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
+/// Varios valores en una etiqueta: unos programas los separan con un nulo y
+/// otros con un carácter de control (p. ej. U+0007). Quedan «A, B».
+pub(crate) fn multi_value(v: &str) -> String {
+    v.split(|c: char| c.is_control()).map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
 }
 
 pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
@@ -724,6 +726,9 @@ pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
             .unwrap_or_default()
             .into_iter()
             .map(|mut t| {
+                if t.artist.chars().any(char::is_control) {
+                    t.artist = multi_value(&t.artist);
+                }
                 if t.file.is_empty() && !t.file_name.is_empty() {
                     t.file = data_dir
                         .join(LEGACY_MUSIC_DIR)
