@@ -458,32 +458,46 @@ fn upload_images(sh: &Shared, join: &crate::cloud::JoinFile, need: &HashMap<Stri
     }
     let ag = agent();
     let auth = format!("Bearer {}", join.token);
-    let v = ag
-        .post(&format!("{}/v1/media/missing", join.api))
-        .set("Authorization", &auth)
-        .set("Content-Type", "application/json")
-        .send_string(&json!({ "hashes": ask }).to_string())
-        .map_err(net_err)
-        .and_then(body_json)?;
-    let missing: HashSet<String> = v["missing"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-    for h in ask {
-        if missing.contains(h) {
-            let path = &need[h];
-            let bytes = fs::read(path).map_err(|e| e.to_string())?;
-            let ctype = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
-                Some("png") => "image/png",
-                Some("webp") => "image/webp",
-                Some("gif") => "image/gif",
-                _ => "image/jpeg",
-            };
-            ag.put(&format!("{}/v1/media/{h}", join.api))
-                .set("Authorization", &auth)
-                .set("Content-Type", ctype)
-                .send_bytes(&bytes)
-                .map_err(net_err)?;
-        }
-        if let Ok(mut g) = sh.img_uploaded.lock() {
-            g.insert(h.clone());
+    let mut failed = 0usize;
+    for part in ask.chunks(400) {
+        let v = ag
+            .post(&format!("{}/v1/media/missing", join.api))
+            .set("Authorization", &auth)
+            .set("Content-Type", "application/json")
+            .send_string(&json!({ "hashes": part }).to_string())
+            .map_err(net_err)
+            .and_then(body_json)?;
+        let missing: HashSet<String> =
+            v["missing"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+        for h in part {
+            if missing.contains(*h) {
+                let path = &need[*h];
+                let ctype = match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+                    Some("png") => "image/png",
+                    Some("webp") => "image/webp",
+                    Some("gif") => "image/gif",
+                    _ => "image/jpeg",
+                };
+                // Una imagen que falla (borrada, sin permiso…) no frena el resto.
+                let sent = fs::read(path).map_err(|e| e.to_string()).and_then(|bytes| {
+                    ag.put(&format!("{}/v1/media/{h}", join.api))
+                        .set("Authorization", &auth)
+                        .set("Content-Type", ctype)
+                        .send_bytes(&bytes)
+                        .map(|_| ())
+                        .map_err(net_err)
+                });
+                if let Err(e) = sent {
+                    failed += 1;
+                    if failed <= 3 {
+                        crate::crashlog::note(&format!("No se pudo subir la imagen {}: {e}", path.display()));
+                    }
+                    continue;
+                }
+            }
+            if let Ok(mut g) = sh.img_uploaded.lock() {
+                g.insert((*h).clone());
+            }
         }
     }
     Ok(())
@@ -806,19 +820,42 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
     let mut sent = 0u64;
     if role != "backup" && !push.is_empty() {
         // Primero las imágenes que citan (para que estén cuando llegue el dato).
-        upload_images(sh, join, &need_images)?;
+        if let Err(e) = upload_images(sh, join, &need_images) {
+            crate::crashlog::note(&format!("Imágenes para el maestro: {e} (las fichas se mandan igual)"));
+        }
         // Primero lo pequeño (bloques, programas…), después las canciones.
         push.sort_by_key(|(k, _, _)| if k.starts_with("track:") { 1 } else { 0 });
         let hashes: HashMap<String, String> = push.iter().map(|(k, _, h)| (k.clone(), h.clone())).collect();
-        for chunk in push.chunks(500) {
+        // Tandas de 100; si el maestro rechaza una (demasiado grande, un dato
+        // raro…), se parte en dos hasta aislar el elemento que falla, que se
+        // salta (queda anotado y se reintenta en la próxima pasada).
+        let mut queue: Vec<&[(String, Value, String)]> = push.chunks(100).rev().collect();
+        let mut skipped = 0usize;
+        while let Some(chunk) = queue.pop() {
             let body = json!({ "items": chunk.iter().map(|x| x.1.clone()).collect::<Vec<_>>() });
-            let v = ag
+            let res = ag
                 .post(&format!("{}/v1/sync/items", join.api))
                 .set("Authorization", &auth)
                 .set("Content-Type", "application/json")
-                .send_string(&body.to_string())
-                .map_err(net_err)
-                .and_then(body_json)?;
+                .send_string(&body.to_string());
+            let v = match res {
+                Ok(r) => body_json(r)?,
+                Err(ureq::Error::Status(code, r)) if code != 401 => {
+                    let why = net_err(ureq::Error::Status(code, r));
+                    if chunk.len() > 1 {
+                        let (a, b) = chunk.split_at(chunk.len() / 2);
+                        queue.push(b);
+                        queue.push(a);
+                    } else {
+                        skipped += 1;
+                        if skipped <= 3 {
+                            crate::crashlog::note(&format!("El maestro rechazó {}: {why}", chunk[0].0));
+                        }
+                    }
+                    continue;
+                }
+                Err(e) => return Err(net_err(e)),
+            };
             for it in v.get("items").and_then(|x| x.as_array()).cloned().unwrap_or_default() {
                 let k = key(it["kind"].as_str().unwrap_or(""), it["id"].as_str().unwrap_or(""));
                 let version = it["version"].as_u64().unwrap_or(0);
