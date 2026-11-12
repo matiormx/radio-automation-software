@@ -2068,6 +2068,44 @@ export default function App() {
     },
     [mutateView, showToast],
   );
+  // Solo se guardan las N últimas emitidas en la lista que suena.
+  useEffect(() => {
+    const keep = settings.keepPlayed ?? 0;
+    if (keep <= 0 || workstation || !dataLoadedRef.current || !active || playingRow < 0) return;
+    if (playingRow <= keep) return;
+    const listId = active.id;
+    const currentId = rows[playingRow]?.id;
+    const t = window.setTimeout(() => {
+      void mutateById(listId, (ids) => {
+        // Posición real (en la lista guardada) de la fila que suena: las
+        // pistas que faltan o están inhabilitadas no tienen fila.
+        const byId = new Map(tracksRef.current.map((x) => [x.id, x]));
+        const visible = (id: string) => {
+          const x = byId.get(id);
+          return !!x && !x.disabled;
+        };
+        let row = -1;
+        let cur = -1;
+        for (let k = 0; k < ids.length; k += 1) {
+          if (!visible(ids[k])) continue;
+          row += 1;
+          if (row === playingRow) {
+            cur = k;
+            break;
+          }
+        }
+        if (cur < 0 || ids[cur] !== currentId) return ids; // la lista cambió entretanto
+        let from = cur;
+        for (let left = keep; from > 0 && left > 0; ) {
+          from -= 1;
+          if (visible(ids[from])) left -= 1;
+        }
+        return from > 0 ? ids.slice(from) : ids;
+      });
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [settings.keepPlayed, playingRow, active?.id, workstation]);
+
   useEffect(() => {
     if (!removeAfter) return;
     const currentId = playingRow >= 0 && active?.id === removeAfter.listId ? rows[playingRow]?.id : undefined;

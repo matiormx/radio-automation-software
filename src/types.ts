@@ -870,6 +870,8 @@ export interface Settings {
   silenceThresholdDb: number;
   /** Canciones ya emitidas que siguen visibles (opacas) en la lista */
   pastVisible: number;
+  /** Canciones emitidas que se conservan en la lista que suena (0 = todas). */
+  keepPlayed?: number;
   /** Idiomas habilitados para las canciones (codigos) */
   languages: string[];
   /** Probabilidad (%) de que el AutoDJ elija cada idioma; sin datos = sin filtro */
@@ -954,6 +956,7 @@ export const DEFAULT_SETTINGS: Settings = {
   silenceDetection: false,
   silenceThresholdDb: -55,
   pastVisible: 5,
+  keepPlayed: 0,
   languages: ["es", "en", "pt", "de", "fr"],
   languageWeights: {},
   notifications: [],

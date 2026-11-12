@@ -118,6 +118,9 @@ pub struct Settings {
     /// Motor de audio: "web" o "native" (beta).
     /// Canciones emitidas que siguen visibles en la lista.
     pub past_visible: u32,
+    /// Cuántas canciones ya emitidas se conservan en la lista que suena
+    /// (0 = todas). Las más antiguas se quitan de la lista (no de la biblioteca).
+    pub keep_played: u32,
     /// Idiomas habilitados para clasificar canciones (codigos)
     pub languages: Vec<String>,
     /// Probabilidad (%) de cada idioma en el AutoDJ; "" = sin idioma
@@ -937,6 +940,7 @@ impl Default for Settings {
             silence_detection: false,
             silence_threshold_db: -55.0,
             past_visible: 5,
+            keep_played: 0,
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),
             notifications: Vec::new(),

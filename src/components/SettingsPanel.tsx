@@ -669,6 +669,23 @@ function GeneralTab({
             Las que ya sonaron se ven en gris por encima de la actual; las más antiguas se ocultan.
           </span>
         </label>
+        <label className="field">
+          <span className="field-label">Canciones emitidas que se guardan en la lista</span>
+          <select
+            value={s.keepPlayed ?? 0}
+            onChange={(e) => onChange({ ...s, keepPlayed: Number(e.target.value) })}
+          >
+            <option value={0}>Todas (no borrar)</option>
+            {[1, 5, 10, 20, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                Las últimas {n}
+              </option>
+            ))}
+          </select>
+          <span className="hint">
+            Las más antiguas se quitan de la lista que suena (siguen en la biblioteca). Así la lista no crece sin fin.
+          </span>
+        </label>
         {s.silenceDetection && (
           <label className="field">
             <span className="field-label">
