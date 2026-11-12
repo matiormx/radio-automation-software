@@ -16,6 +16,7 @@ const CATEGORY: Record<string, string> = {
   reverb: "Reverb",
   varios: "Varios",
   medidor: "Medidor",
+  voz: "Voz",
 };
 
 /**

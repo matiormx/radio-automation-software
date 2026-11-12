@@ -27,7 +27,7 @@ pub struct CatalogItem {
     pub name: &'static str,
     pub vendor: &'static str,
     pub description: &'static str,
-    /// "dinamica", "eq", "reverb", "varios", "medidor"
+    /// "dinamica", "eq", "reverb", "varios", "medidor", "voz"
     pub category: &'static str,
     pub license: &'static str,
     pub homepage: &'static str,
@@ -93,6 +93,17 @@ pub const CATALOG: &[CatalogItem] = &[
         license: "AGPL",
         homepage: "https://zl-audio.github.io/",
         repo: "ZL-Audio/ZLCompressor",
+        platforms: &["windows", "linux"],
+    },
+    CatalogItem {
+        id: "rnnoise",
+        name: "Supresor de ruido (RNNoise)",
+        vendor: "werman",
+        description: "Quita en tiempo real el ruido de fondo del micrófono (ventilador, tráfico, teclado) con una red neuronal. Pensado para voz: úsalo en el canal del micro o de las llamadas, no en la música.",
+        category: "voz",
+        license: "GPL",
+        homepage: "https://github.com/werman/noise-suppression-for-voice",
+        repo: "werman/noise-suppression-for-voice",
         platforms: &["windows", "linux"],
     },
     CatalogItem {

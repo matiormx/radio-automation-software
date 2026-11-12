@@ -27,6 +27,8 @@ PLUGINS = {
     "dragonfly": "michaelwillis/dragonfly-reverb",
     "zl-eq": "ZL-Audio/ZLEqualizer",
     "zl-comp": "ZL-Audio/ZLCompressor",
+    # win-rnnoise.zip / linux-rnnoise.zip (VST3 mono y estéreo dentro)
+    "rnnoise": "werman/noise-suppression-for-voice",
 }
 
 OS_WORDS = {
@@ -63,7 +65,7 @@ def candidates(assets, os_name):
         n = a["name"].lower().replace("airwindows", "airw")
         if not n.endswith(ARCHIVES):
             continue
-        if not any(w in n for w in OS_WORDS[os_name]):
+        if not (any(w in n for w in OS_WORDS[os_name]) or (os_name == "windows" and n.startswith("win-"))):
             continue
         if any(b in n for b in BAD):
             continue
