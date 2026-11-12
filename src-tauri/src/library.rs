@@ -305,6 +305,11 @@ pub(crate) fn cover_abs(data_dir: &Path, cover: &str) -> String {
     if cover.trim().is_empty() {
         return String::new();
     }
+    // Ruta completa (p. ej. la carátula bajada de la nube): tal cual.
+    let full = Path::new(cover.trim());
+    if full.is_absolute() && full.is_file() {
+        return full.to_string_lossy().into_owned();
+    }
     let Some(name) = Path::new(cover.trim()).file_name() else {
         return String::new();
     };

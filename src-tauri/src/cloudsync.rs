@@ -523,7 +523,11 @@ fn collect_local(sh: &Shared, need: &mut HashMap<String, PathBuf>) -> HashMap<St
     let mdir = media_dir(dir);
     let hashes = crate::cloudmedia::known_hashes(dir);
     for t in crate::library::read_library_internal(dir) {
-        let v = track_value(&t, &mdir, &hashes, &mut |p| image_ref(sh, p, need));
+        // La carátula se guarda como nombre dentro de «covers»: se busca allí.
+        let v = track_value(&t, &mdir, &hashes, &mut |p| {
+            let abs = crate::library::cover_abs(dir, p);
+            image_ref(sh, if abs.is_empty() { p } else { &abs }, need)
+        });
         add("track", t.id.clone(), v);
     }
     for b in crate::library::read_blocks(dir) {
