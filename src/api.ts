@@ -401,6 +401,11 @@ export function vstScan(): Promise<VstScanResult> {
   return invoke("vst_scan");
 }
 
+/** La lista de la última búsqueda (al instante); si no hay, busca. */
+export function vstList(): Promise<VstScanResult> {
+  return invoke("vst_list");
+}
+
 /** Abre la ventana del plugin de una ranura (lo carga si hace falta). */
 /** Copia los ajustes guardados de un plugin a otra ranura (al copiar un FX). */
 export function vstCopyState(from: string, to: string): Promise<void> {

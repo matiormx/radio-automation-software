@@ -429,6 +429,7 @@ fn install(app: &AppHandle, data_dir: &Path, id: &str) -> Result<String, String>
         entry.installed_at = now();
         entry.pending = None;
         write_state(data_dir, &st);
+        crate::engine::forget_vst_list(data_dir);
         let _ = std::fs::remove_dir_all(&work);
         Ok(format!("{} {} instalado", item.name, version))
     } else {
@@ -472,6 +473,7 @@ pub fn apply_pending(data_dir: &Path) {
     }
     if changed {
         write_state(data_dir, &st);
+        crate::engine::forget_vst_list(data_dir);
     }
 }
 
@@ -587,6 +589,7 @@ pub fn vstpkg_remove(app: AppHandle, id: String) -> Result<String, String> {
     }
     let _ = std::fs::remove_dir_all(data_dir.join("vstpkg-tmp").join(&id));
     write_state(&data_dir, &st);
+    crate::engine::forget_vst_list(&data_dir);
     if busy.is_empty() {
         Ok("Plugin quitado".into())
     } else {

@@ -296,6 +296,7 @@ pub fn run() {
             engine::engine_inputs,
             engine::engine_feed,
             engine::vst_scan,
+            engine::vst_list,
             engine::vst_editor,
             engine::vst_copy_state,
             engine::vst_latencies,

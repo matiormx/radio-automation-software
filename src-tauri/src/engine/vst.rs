@@ -92,7 +92,7 @@ impl Host {
 }
 
 /// Plugin encontrado en el equipo.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {
     pub name: String,
@@ -102,7 +102,7 @@ pub struct Found {
 }
 
 /// Carpeta donde se buscan plugins.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Folder {
     pub path: String,
@@ -113,7 +113,7 @@ pub struct Folder {
     pub count: usize,
 }
 
-#[derive(Serialize, Clone, Debug, Default)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub folders: Vec<Folder>,

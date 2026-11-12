@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CompressorSettings, InsertSettings, LevelerSettings } from "../types";
-import { pickVstFile, vstScan } from "../api";
+import { pickVstFile, vstList } from "../api";
 import { levelerOf } from "../leveler";
 
 /** Controles compartidos de la mesa (ventana Mixer y Ajustes → Sonido). */
@@ -364,7 +364,7 @@ export function PluginPicker({
   const [error, setError] = useState("");
   useEffect(() => {
     let alive = true;
-    void vstScan()
+    void vstList()
       .then((r) => {
         if (!alive) return;
         const hide = new Set(vstHiddenNow.map((h) => h.toLowerCase()));

@@ -566,8 +566,34 @@ pub async fn engine_return_pcm(state: State<'_, EngineState>) -> Result<tauri::i
 /// Plugins VST3 instalados en el equipo (rutas estandar).
 #[tauri::command]
 pub async fn vst_scan(state: State<'_, crate::AppState>) -> Result<vst::ScanResult, String> {
-    let extra = crate::settings::read_settings_public(&state.data_dir).vst.extra_folders;
-    tauri::async_runtime::spawn_blocking(move || vst::scan(extra)).await.map_err(|e| e.to_string())
+    let dir = state.data_dir.clone();
+    let extra = crate::settings::read_settings_public(&dir).vst.extra_folders;
+    let res = tauri::async_runtime::spawn_blocking(move || vst::scan(extra)).await.map_err(|e| e.to_string())?;
+    // Se recuerda: la lista para añadir un plugin sale al instante.
+    if !res.plugins.is_empty() || !res.folders.is_empty() {
+        if let Ok(json) = serde_json::to_vec(&res) {
+            let _ = std::fs::write(dir.join(VST_CACHE), json);
+        }
+    }
+    Ok(res)
+}
+
+const VST_CACHE: &str = "vst-scan.json";
+
+/// La lista de la última búsqueda (si no hay, se busca). Para elegir un
+/// plugin no hace falta volver a recorrer el disco: se actualiza en Ajustes
+/// › Plugins, o sola al instalar o quitar uno de los recomendados.
+#[tauri::command]
+pub async fn vst_list(state: State<'_, crate::AppState>) -> Result<vst::ScanResult, String> {
+    if let Some(res) = std::fs::read(state.data_dir.join(VST_CACHE)).ok().and_then(|b| serde_json::from_slice::<vst::ScanResult>(&b).ok()) {
+        return Ok(res);
+    }
+    vst_scan(state).await
+}
+
+/// Olvida la lista guardada (al instalar o quitar plugins).
+pub fn forget_vst_list(data_dir: &std::path::Path) {
+    let _ = std::fs::remove_file(data_dir.join(VST_CACHE));
 }
 
 /// Latencia (muestras a 48 kHz) de cada plugin cargado, por id de ranura.
