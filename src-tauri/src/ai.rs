@@ -573,6 +573,47 @@ fn run_opencode(command: &str, model: &str, prompt: &str) -> Result<String, Stri
     }
 }
 
+/// Pregunta al motor configurado (Ollama, OpenCode o la nube) y devuelve el
+/// JSON que conteste. Lo usan otras funciones de IA (el asistente de canciones).
+pub(crate) fn ask_json(data_dir: &Path, ai: &crate::settings::AiSettings, system: &str, user: &str) -> Result<Value, String> {
+    match ai.provider.trim() {
+        "cloud" => {
+            let content = cloud_chat(&ai.cloud_url, &ai.cloud_key, &ai.cloud_model, &cloud_session(data_dir), system, user)?;
+            extract_json(&content)
+        }
+        "opencode" => {
+            let message = format!("{system}\n\n{user}\n\nRecuerda: responde SOLO el objeto JSON y no uses herramientas.");
+            let content = run_opencode(&opencode_command(&ai.opencode_path), &ai.model, &message)?;
+            extract_json(&content)
+        }
+        _ => {
+            let model = ai.model.trim();
+            if model.is_empty() {
+                return Err("Elige un modelo de Ollama en Ajustes > IA".to_string());
+            }
+            let request = json!({
+                "model": model, "stream": false, "format": "json",
+                "messages": [ { "role": "system", "content": system }, { "role": "user", "content": user } ],
+                "options": { "temperature": 0.3 }
+            });
+            let endpoint = format!("{}/api/chat", base_url(&ai.url));
+            let response = ureq::post(&endpoint)
+                .timeout(Duration::from_secs(180))
+                .set("Content-Type", "application/json")
+                .send_string(&request.to_string())
+                .map_err(|e| http_error("Ollama", e))?;
+            let body = response.into_string().map_err(|e| format!("Ollama devolvio una respuesta no valida: {e}"))?;
+            let value: Value = serde_json::from_str(&body).map_err(|e| format!("Ollama devolvio una respuesta no valida: {e}"))?;
+            let content = value
+                .pointer("/message/content")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("response").and_then(Value::as_str))
+                .ok_or_else(|| "Ollama no devolvio contenido".to_string())?;
+            extract_json(content)
+        }
+    }
+}
+
 fn suggest(
     data_dir: &Path,
     ffmpeg: Option<&Path>,

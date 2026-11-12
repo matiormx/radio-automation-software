@@ -3045,6 +3045,7 @@ impl StreamingSink {
 
 fn push_pcm(shared: &Arc<Mutex<EngineInner>>, data: &[u8]) -> Result<(), String> {
     crate::liverec::feed(data);
+    crate::aidj::feed(data);
     let mut inner = shared
         .lock()
         .map_err(|_| "El motor de emisión no responde".to_string())?;

@@ -78,6 +78,8 @@ import { cloudGet, cloudNode } from "./cloud";
 import { TrackEditor } from "./components/TrackEditor";
 import { Welcome } from "./components/Welcome";
 import { StudioLive } from "./components/StudioLive";
+import { AiDj, type AiDjContext } from "./components/AiDj";
+import { aiListenSet, aiListenStatus } from "./api";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -608,6 +610,9 @@ export default function App() {
   const dataLoadedRef = useRef(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showStudioLive, setShowStudioLive] = useState(false);
+  const [showAiDj, setShowAiDj] = useState(false);
+  /** Pregunta que el asistente hace solo al abrirse (al terminar el directo) */
+  const [aiAutoAsk, setAiAutoAsk] = useState<string | undefined>(undefined);
   const pendingCloudRef = useRef<unknown[]>([]);
   const restoringRef = useRef(false);
   const [mixer, setMixer] = useState<SoundMixer | null>(null);
@@ -2053,6 +2058,71 @@ export default function App() {
   // Quitar la que esta sonando: sigue sonando hasta el final, la siguiente
   // ya esta preparada y la fila desaparece en cuanto entra la siguiente.
   const [removeAfter, setRemoveAfter] = useState<{ listId: string; trackId: string } | null>(null);
+  // ---- Asistente de canciones (IA)
+  const aiContext = (): AiDjContext => {
+    const known = new Map(tracksRef.current.map((t) => [t.id, t]));
+    const label = (id: string | undefined) => {
+      const t = id ? known.get(id) : undefined;
+      return t ? `${t.title} — ${t.artist}` : "";
+    };
+    const since = Date.now() / 1000 - 3 * 3600;
+    const recent = historyRef.current.filter((h) => h.playedAt >= since).map((h) => h.trackId);
+    if (workstation) {
+      const l = cloudNode.live;
+      if (!l) return { nowPlaying: "", upcoming: [], recentIds: recent };
+      const up = l.ids.slice(Math.max(0, l.row + 1), l.row + 6);
+      return { nowPlaying: label(l.ids[l.row]), upcoming: up.map(label).filter(Boolean), recentIds: [...recent, ...l.ids.slice(Math.max(0, l.row - 20), l.row + 15)] };
+    }
+    const r = rowsRef.current;
+    const at = playingRowRef.current;
+    const up = r.slice(Math.max(0, at + 1), at + 6);
+    return {
+      nowPlaying: at >= 0 && r[at] ? `${r[at].title} — ${r[at].artist}` : "",
+      upcoming: up.map((x) => `${x.title} — ${x.artist}`),
+      recentIds: [...recent, ...r.slice(Math.max(0, at - 20), at + 15).map((x) => x.id)],
+    };
+  };
+  const aiInsert = async (id: string, where: "next" | "end") => {
+    if (workstation) {
+      const l = cloudNode.live;
+      if (!l) throw new Error("No llega el estado del estudio (¿está conectado a la nube?)");
+      await cloudNode.remote({ cmd: "liveInsert", id, at: where === "next" && l.row >= 0 ? l.row + 1 : l.ids.length });
+      return;
+    }
+    if (!tracksRef.current.some((t) => t.id === id)) throw new Error("Esa canción ya no está en la biblioteca");
+    await mutateList((ids) => {
+      const known = new Map(tracksRef.current.map((t) => [t.id, t]));
+      const vis: number[] = [];
+      ids.forEach((x, k) => {
+        const t = known.get(x);
+        if (t && !t.disabled) vis.push(k);
+      });
+      const row = playingRowRef.current;
+      const at = where === "next" && row >= 0 ? (vis[row + 1] ?? ids.length) : ids.length;
+      return placeIds(ids, [id], at, activeIdRef.current);
+    });
+  };
+  // Escucha del directo: encendida mientras el directo está activo (si se quiere).
+  const listenOn = !!settings.ai?.listenLive && !!settings.liveMode && !workstation;
+  const listenWasOn = useRef(false);
+  useEffect(() => {
+    void aiListenSet(listenOn).catch(() => undefined);
+    if (listenWasOn.current && !listenOn && settings.ai?.listenLive && !settings.liveMode) {
+      // Termina el directo: si se ha oído algo, el asistente propone según lo hablado.
+      window.setTimeout(() => {
+        void aiListenStatus()
+          .then((s) => {
+            if (s.text.trim()) {
+              setAiAutoAsk("");
+              setShowAiDj(true);
+            }
+          })
+          .catch(() => undefined);
+      }, 1500);
+    }
+    listenWasOn.current = listenOn;
+  }, [listenOn]);
+
   const removeRow = useCallback(
     (i: number) => {
       const listId = viewIdRef.current;
@@ -4599,6 +4669,17 @@ export default function App() {
               Puesto de trabajo
             </span>
           )}
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              setAiAutoAsk(undefined);
+              setShowAiDj(true);
+            }}
+            title="Asistente de canciones: pide lo que quieres que suene y la IA propone canciones de tu biblioteca"
+          >
+            IA
+          </button>
           {workstation && (
             <button type="button" className="btn btn-sm btn-accent" onClick={() => setShowStudioLive(true)} title="Ver y manejar lo que suena en el estudio">
               Directo del estudio
@@ -5010,6 +5091,20 @@ export default function App() {
         />
       )}
 
+      {showAiDj && (
+        <AiDj
+          ai={settings.ai ?? DEFAULT_SETTINGS.ai}
+          context={aiContext}
+          insert={aiInsert}
+          canNext={workstation ? !!cloudNode.live && cloudNode.live.row >= 0 : playingRow >= 0}
+          autoAsk={aiAutoAsk}
+          onClose={() => {
+            setShowAiDj(false);
+            setAiAutoAsk(undefined);
+          }}
+          showToast={showToast}
+        />
+      )}
       {showStudioLive && <StudioLive tracks={tracks} onClose={() => setShowStudioLive(false)} showToast={showToast} />}
 
       {showWelcome && (

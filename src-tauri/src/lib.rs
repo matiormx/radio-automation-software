@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::{Emitter, Manager};
 
 pub mod ai;
+pub mod aidj;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
@@ -197,6 +198,10 @@ pub fn run() {
             remote::remote_smb,
             ai::ai_models,
             ai::ai_suggest_metadata,
+            aidj::ai_pick,
+            aidj::ai_listen_set,
+            aidj::ai_listen_status,
+            aidj::ai_listen_clear,
             ai::ai_opencode_version,
             ai::ai_window_payload_set,
             ai::ai_window_payload,

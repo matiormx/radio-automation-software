@@ -117,6 +117,43 @@ export function aiOpencodeVersion(opencodePath = ""): Promise<string> {
   return invoke<string>("ai_opencode_version", { opencodePath });
 }
 
+export interface AiPick {
+  id: string;
+  title: string;
+  artist: string;
+  durationSecs: number;
+  reason: string;
+}
+export interface AiPickReply {
+  reply: string;
+  picks: AiPick[];
+  heard: string;
+}
+export interface AiChatMsg {
+  role: "user" | "assistant";
+  text: string;
+}
+export function aiPick(
+  ai: AiSettings,
+  req: { message: string; history: AiChatMsg[]; nowPlaying: string; upcoming: string[]; recentIds: string[]; useTranscript: boolean },
+): Promise<AiPickReply> {
+  return invoke<AiPickReply>("ai_pick", { ai: { ...ai, provider: ai.provider ?? "ollama" }, req });
+}
+export interface AiListenStatus {
+  active: boolean;
+  text: string;
+  error: string;
+}
+export function aiListenSet(active: boolean): Promise<AiListenStatus> {
+  return invoke<AiListenStatus>("ai_listen_set", { active });
+}
+export function aiListenStatus(): Promise<AiListenStatus> {
+  return invoke<AiListenStatus>("ai_listen_status");
+}
+export function aiListenClear(): Promise<void> {
+  return invoke<void>("ai_listen_clear");
+}
+
 export function aiSuggestMetadata(
   id: string,
   ai: AiSettings,

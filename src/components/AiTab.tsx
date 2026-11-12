@@ -320,6 +320,35 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
       </fieldset>
 
+      <fieldset className="fieldset">
+        <legend>Asistente de canciones</legend>
+        <p className="hint">
+          En la barra de arriba, el botón <strong>«IA»</strong> abre un chat: pide lo que quieres
+          sonar («algo tranquilo sobre la esperanza, en español») y propone canciones de tu
+          biblioteca que no hayan sonado hace poco, con un clic para ponerlas de siguiente.
+        </p>
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={!!ai.listenLive}
+            onChange={(e) => setAi({ listenLive: e.target.checked })}
+          />
+          Escuchar el directo para que el asistente sepa de qué se está hablando
+        </label>
+        <p className="hint">
+          Mientras el directo está activo, cada medio minuto se pasa a texto lo que sale al aire
+          (Whisper, en este equipo; el audio no sale de él). Al terminar el directo, el asistente
+          propone canciones según lo hablado.
+        </p>
+        {ai.listenLive && (
+          <p className="form-error">
+            ⚠ Gasta bastante procesador: en equipos de 4 núcleos con vídeo o muchos plugins puede
+            provocar cortes. Funciona a prioridad mínima, pero si notas el audio entrecortado,
+            desactívalo. La primera vez descarga el modelo de voz (~142 MB).
+          </p>
+        )}
+      </fieldset>
+
       {provider === "cloud" ? (
         <fieldset className="fieldset">
           <legend>Cómo preparar el servicio en la nube</legend>

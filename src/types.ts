@@ -179,6 +179,8 @@ export interface AiSettings {
   cloudKey?: string;
   /** Modelo del servicio en la nube (p. ej. "gpt-4o-mini") */
   cloudModel?: string;
+  /** Escuchar el directo para que el asistente sepa de qué se habla (gasta CPU) */
+  listenLive?: boolean;
 }
 
 /** Propuesta de metadatos generada por la IA para una cancion. */

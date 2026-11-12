@@ -299,6 +299,22 @@ pub fn listen(data_dir: &Path, ffmpeg: &Path, file: &str, duration: f64) -> Resu
     Ok(None)
 }
 
+/// Pasa a texto un WAV mono de 16 kHz (la escucha del directo). Idioma
+/// automático; a prioridad mínima y con pocos hilos.
+pub fn transcribe(data_dir: &Path, wav: &Path) -> Result<String, String> {
+    let _guard = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+    let (cli, model) = ensure(data_dir)?;
+    let threads = std::thread::available_parallelism().map(|n| (n.get() / 3).clamp(1, 3)).unwrap_or(2);
+    let mut wc = low_priority(&cli);
+    wc.arg("-m")
+        .arg(&model)
+        .arg("-f")
+        .arg(wav)
+        .args(["-l", "auto", "-nt", "-nf", "-bs", "1", "-bo", "1", "-t", &threads.to_string()]);
+    let (stdout, _) = run_quiet(wc, RUN_LIMIT)?;
+    Ok(clean_text(&stdout))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

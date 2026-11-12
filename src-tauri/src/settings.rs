@@ -267,6 +267,9 @@ pub struct AiSettings {
     /// Modelo del servicio en la nube (p. ej. "gpt-4o-mini" o
     /// "llama-3.3-70b-versatile" en Groq).
     pub cloud_model: String,
+    /// Escuchar el directo (Whisper en este equipo) para que el asistente
+    /// de canciones sepa de qué se habla. Gasta procesador.
+    pub listen_live: bool,
 }
 
 impl Default for AiSettings {
@@ -279,6 +282,7 @@ impl Default for AiSettings {
             cloud_url: String::new(),
             cloud_key: String::new(),
             cloud_model: "gpt-4o-mini".to_string(),
+            listen_live: false,
         }
     }
 }
