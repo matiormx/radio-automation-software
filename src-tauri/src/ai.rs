@@ -37,7 +37,7 @@ Reglas:
 - reason: una frase breve en español que explique la decision.
 No inventes datos que no se puedan deducir de los metadatos."#;
 
-const INSTRUMENTAL: &str = "\u{0}instrumental";
+pub(crate) const INSTRUMENTAL: &str = "\u{0}instrumental";
 
 /// Quita las marcas de tiempo de una letra sincronizada ([00:12.34]) y
 /// deja un fragmento (las primeras estrofas bastan para el idioma).
@@ -66,7 +66,7 @@ fn clean_lyrics(text: &str) -> String {
 /// Letra de la cancion: primero la que trae el archivo (USLT, LYRICS…); si no
 /// hay, la de LRCLIB (lrclib.net, base de datos libre de letras, sin clave).
 /// Devuelve (letra, de dónde salió); vacía si no se encuentra.
-fn lyrics_for(file: &str, title: &str, artist: &str, album: &str, duration: f64) -> (String, &'static str) {
+pub(crate) fn lyrics_for(file: &str, title: &str, artist: &str, album: &str, duration: f64) -> (String, &'static str) {
     use lofty::file::TaggedFileExt;
     use lofty::tag::ItemKey;
     if let Ok(tagged) = lofty::read_from_path(file) {

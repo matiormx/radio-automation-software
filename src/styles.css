@@ -4998,3 +4998,6 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .ai-dj-pick-t { flex: 1; min-width: 0; }
 .ai-dj-input { display: flex; gap: 8px; }
 .ai-dj-input .input { flex: 1; }
+.energy-curve { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.energy-row { display: grid; grid-template-columns: 110px 1fr 170px auto; gap: 6px; align-items: center; }
+@media (max-width: 560px) { .energy-row { grid-template-columns: 1fr 1fr; } }

@@ -121,6 +121,8 @@ pub struct Settings {
     /// Cuántas canciones ya emitidas se conservan en la lista que suena
     /// (0 = todas). Las más antiguas se quitan de la lista (no de la biblioteca).
     pub keep_played: u32,
+    /// Curva de energía del día para el AutoDJ (usa la ficha IA de cada canción).
+    pub energy_curve: EnergyCurve,
     /// Idiomas habilitados para clasificar canciones (codigos)
     pub languages: Vec<String>,
     /// Probabilidad (%) de cada idioma en el AutoDJ; "" = sin idioma
@@ -270,6 +272,8 @@ pub struct AiSettings {
     /// Escuchar el directo (Whisper en este equipo) para que el asistente
     /// de canciones sepa de qué se habla. Gasta procesador.
     pub listen_live: bool,
+    /// Rellenar solas (en segundo plano) las fichas IA de las canciones nuevas.
+    pub enrich_auto: bool,
 }
 
 impl Default for AiSettings {
@@ -283,6 +287,7 @@ impl Default for AiSettings {
             cloud_key: String::new(),
             cloud_model: "gpt-4o-mini".to_string(),
             listen_live: false,
+            enrich_auto: false,
         }
     }
 }
@@ -945,6 +950,7 @@ impl Default for Settings {
             silence_threshold_db: -55.0,
             past_visible: 5,
             keep_played: 0,
+            energy_curve: EnergyCurve::default(),
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),
             notifications: Vec::new(),
@@ -1245,6 +1251,88 @@ pub fn artists_of(artist: &str) -> Vec<String> {
     }
 }
 
+/// Un tramo de la curva de energía: desde `start` (HH:MM) hasta el siguiente.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EnergyPoint {
+    pub start: String,
+    /// 1 (muy tranquila) a 5 (muy enérgica)
+    pub energy: u8,
+    pub label: String,
+}
+
+/// Curva de energía del día: el AutoDJ busca canciones con la energía de la
+/// franja a la hora en que sonarán y, con `smooth`, sin saltos de más de un
+/// punto entre una canción y la siguiente.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EnergyCurve {
+    pub enabled: bool,
+    pub smooth: bool,
+    pub points: Vec<EnergyPoint>,
+}
+
+impl Default for EnergyCurve {
+    fn default() -> Self {
+        let p = |start: &str, energy: u8, label: &str| EnergyPoint { start: start.into(), energy, label: label.into() };
+        Self {
+            enabled: false,
+            smooth: true,
+            points: vec![
+                p("06:00", 2, "Amanecer de alabanza"),
+                p("09:00", 4, "Actividad"),
+                p("13:30", 2, "Almuerzo"),
+                p("16:00", 3, "Tarde chillout"),
+                p("20:00", 2, "Atardecer"),
+                p("22:00", 1, "Noche para descansar"),
+            ],
+        }
+    }
+}
+
+fn hhmm(s: &str) -> Option<u32> {
+    let (h, m) = s.trim().split_once(':')?;
+    let (h, m): (u32, u32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+impl EnergyCurve {
+    /// Energía buscada a ese minuto del día (0 = sin curva).
+    pub fn target_at(&self, minute: u32) -> u8 {
+        let mut pts: Vec<(u32, u8)> = self.points.iter().filter_map(|p| Some((hhmm(&p.start)?, p.energy.clamp(1, 5)))).collect();
+        if !self.enabled || pts.is_empty() {
+            return 0;
+        }
+        pts.sort();
+        // El último tramo del día sigue hasta el primero del día siguiente.
+        pts.iter().rev().find(|(m, _)| *m <= minute).or(pts.last()).map(|p| p.1).unwrap_or(0)
+    }
+}
+
+/// Minuto del día (hora local) de un instante unix.
+fn local_minute(epoch: u64) -> u32 {
+    use chrono::{Local, TimeZone, Timelike};
+    Local
+        .timestamp_opt(epoch as i64, 0)
+        .single()
+        .map(|d| d.hour() * 60 + d.minute())
+        .unwrap_or(0)
+}
+
+/// Lo que «cuesta» poner una canción de energía `e` (0 = sin ficha) si se
+/// busca `target` y la anterior tenía `prev`. Menos es mejor.
+fn energy_cost(e: u8, target: u8, prev: u8, smooth: bool) -> u32 {
+    if target == 0 {
+        return 0;
+    }
+    // Sin ficha: ni premio ni castigo fuerte (va detrás de las que encajan).
+    let mut c = if e == 0 { 3 } else { 2 * (e as i32 - target as i32).unsigned_abs() };
+    if smooth && e > 0 && prev > 0 {
+        c += 4 * (e as i32 - prev as i32).unsigned_abs().saturating_sub(1);
+    }
+    c
+}
+
 /// Eleccion del AutoDJ (sin estado: se puede probar).
 #[allow(clippy::too_many_arguments)]
 pub fn pick_tracks(
@@ -1404,13 +1492,22 @@ pub fn pick_tracks(
 
     // Pasada 1: respetando artistas consecutivos. Pasada 2: relajada
     // (biblioteca pequena).
+    // Curva de energía: hora a la que sonará cada una y energía de la anterior.
+    let curve = &s.energy_curve;
+    let energy_of = |id: &str| -> u8 { by_id.get(id).map(|t| t.energy).unwrap_or(0) };
+    let dur_of = |id: &str| -> f64 { by_id.get(id).map(|t| t.duration_secs).unwrap_or(0.0) };
+    let prev_energy0 = playlist_track_ids.iter().rev().map(|id| energy_of(id)).find(|e| *e > 0).unwrap_or(0);
+
     let mut result: Vec<String> = Vec::new();
     for relax in [false, true] {
         let mut picked: Vec<String> = Vec::new();
         let mut tail = tail_artists.clone();
         let mut used: HashSet<&str> = HashSet::new();
+        // Lo nuevo entra detrás de lo que queda en la lista (unos minutos).
+        let mut at = now as f64 + (s.autopilot_min_upcoming as f64) * 60.0;
+        let mut prev_energy = prev_energy0;
         while picked.len() < count as usize {
-            let eligible: Vec<&Candidate> = candidates
+            let mut eligible: Vec<&Candidate> = candidates
                 .iter()
                 .filter(|c| !used.contains(c.id.as_str()))
                 .filter(|c| {
@@ -1419,6 +1516,11 @@ pub fn pick_tracks(
                         || tail.last().map(|a| !a.iter().any(|x| artist_of(&c.id).contains(x))).unwrap_or(true)
                 })
                 .collect();
+            let target = if curve.enabled { curve.target_at(local_minute(at as u64)) } else { 0 };
+            if target > 0 {
+                // Primero las reglas de repetición; luego lo que encaja con la curva.
+                eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_cost(energy_of(&c.id), target, prev_energy, curve.smooth), c.salt));
+            }
             let Some(first) = eligible.first() else { break };
             let mut chosen: &Candidate = first;
             if !weights.is_empty() {
@@ -1452,6 +1554,11 @@ pub fn pick_tracks(
             used.insert(chosen.id.as_str());
             picked.push(chosen.id.clone());
             tail.push(artist_of(&chosen.id));
+            at += dur_of(&chosen.id).max(60.0);
+            let e = energy_of(&chosen.id);
+            if e > 0 {
+                prev_energy = e;
+            }
         }
         if result.len() < picked.len() {
             result = picked;
@@ -1661,5 +1768,39 @@ mod cap_tests {
         assert_eq!(v.capped(&d).height, 1080);
         let off = VideoSettings { max_height: 0, ..Default::default() };
         assert_eq!(off.capped(&o).height, 1080);
+    }
+}
+
+#[cfg(test)]
+mod energy_tests {
+    use super::*;
+
+    fn tr(id: &str, energy: u8) -> Track {
+        Track { id: id.into(), title: id.into(), artist: format!("art-{id}"), duration_secs: 200.0, energy, library: "a".into(), ..Default::default() }
+    }
+
+    #[test]
+    fn curve_target_wraps_midnight() {
+        let c = EnergyCurve { enabled: true, ..Default::default() };
+        assert_eq!(c.target_at(7 * 60), 2);
+        assert_eq!(c.target_at(10 * 60), 4);
+        assert_eq!(c.target_at(23 * 60), 1);
+        assert_eq!(c.target_at(3 * 60), 1); // madrugada: sigue la noche
+        assert_eq!(EnergyCurve::default().target_at(600), 0); // apagada
+    }
+
+    #[test]
+    fn picks_energy_of_the_hour_smoothly() {
+        let mut s = Settings::default();
+        s.energy_curve = EnergyCurve {
+            enabled: true,
+            smooth: true,
+            points: vec![EnergyPoint { start: "00:00".into(), energy: 5, label: String::new() }],
+        };
+        let library: Vec<Track> = (0..40).map(|i| tr(&format!("t{i}"), (i % 5 + 1) as u8)).collect();
+        // Viene de una canción de energía 1: no salta directamente a 5.
+        let p = pick_tracks(&s, &library, &[], &["t0".to_string()], 4, None, None, 1_000_000);
+        let e: Vec<u8> = p.iter().map(|id| library.iter().find(|t| &t.id == id).unwrap().energy).collect();
+        assert_eq!(e, vec![2, 3, 4, 5], "{e:?}");
     }
 }

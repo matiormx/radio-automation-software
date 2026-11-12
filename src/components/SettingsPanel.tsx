@@ -12,7 +12,7 @@ import type {
   StreamStatus,
   Track,
 } from "../types";
-import { DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
+import { DEFAULT_ENERGY_CURVE, DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
 import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
 import { RemoteTab } from "./RemoteTab";
 import { MobileTab } from "./MobileTab";
@@ -1018,6 +1018,8 @@ function AutoDjTab({
         </label>
       </fieldset>
 
+      <EnergyCurveField s={s} onChange={onChange} />
+
       <fieldset className="fieldset">
         <legend>Piloto automático</legend>
         <MinField
@@ -1558,6 +1560,65 @@ function AudioBufferField({ settings: s, onChange }: { settings: Settings; onCha
           Se aplica al reiniciar OmniCaster.
         </span>
       </label>
+    </fieldset>
+  );
+}
+
+const ENERGY_NAMES = ["", "1 · Muy tranquila", "2 · Suave", "3 · Media", "4 · Animada", "5 · Muy enérgica"];
+
+/** Curva de energía del día (AutoDJ): franjas con su energía. */
+function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings) => void }) {
+  const curve = s.energyCurve ?? DEFAULT_ENERGY_CURVE;
+  const set = (c: Partial<typeof curve>) => onChange({ ...s, energyCurve: { ...curve, ...c } });
+  const setPoint = (i: number, p: Partial<(typeof curve.points)[number]>) =>
+    set({ points: curve.points.map((x, k) => (k === i ? { ...x, ...p } : x)) });
+  const sorted = [...curve.points].map((p, i) => ({ p, i })).sort((a, b) => a.p.start.localeCompare(b.p.start));
+  return (
+    <fieldset className="fieldset">
+      <legend>Energía del día</legend>
+      <label className="check-field">
+        <input type="checkbox" checked={curve.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+        El AutoDJ sigue una curva de energía según la hora
+      </label>
+      <p className="hint">
+        Cada franja va desde su hora hasta la siguiente (la última sigue de madrugada). Usa la
+        energía de la ficha IA de cada canción (Ajustes › IA › Fichas de la biblioteca); las que
+        aún no la tienen siguen sonando, con menos prioridad.
+      </p>
+      {curve.enabled && (
+        <>
+          <label className="check-field">
+            <input type="checkbox" checked={curve.smooth} onChange={(e) => set({ smooth: e.target.checked })} />
+            Cambios suaves: no saltar más de un punto de energía entre una canción y la siguiente
+          </label>
+          <div className="energy-curve">
+            {sorted.map(({ p, i }) => (
+              <div key={i} className="energy-row">
+                <input className="input" type="time" value={p.start} onChange={(e) => setPoint(i, { start: e.target.value })} />
+                <input className="input" placeholder="Nombre" value={p.label} onChange={(e) => setPoint(i, { label: e.target.value })} />
+                <select value={p.energy} onChange={(e) => setPoint(i, { energy: Number(e.target.value) })}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {ENERGY_NAMES[n]}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-sm" onClick={() => set({ points: curve.points.filter((_, k) => k !== i) })} title="Quitar franja">
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <p>
+            <button type="button" className="btn btn-sm" onClick={() => set({ points: [...curve.points, { start: "12:00", energy: 3, label: "" }] })}>
+              Añadir franja
+            </button>{" "}
+            <button type="button" className="btn btn-sm" onClick={() => set({ points: DEFAULT_ENERGY_CURVE.points })}>
+              Volver a la propuesta
+            </button>
+          </p>
+        </>
+      )}
     </fieldset>
   );
 }

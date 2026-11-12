@@ -154,6 +154,23 @@ export function aiListenClear(): Promise<void> {
   return invoke<void>("ai_listen_clear");
 }
 
+export interface AiEnrichStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  session: number;
+  error: string;
+}
+export function aiEnrichStart(ai: AiSettings): Promise<AiEnrichStatus> {
+  return invoke<AiEnrichStatus>("ai_enrich_start", { ai: { ...ai, provider: ai.provider ?? "ollama" } });
+}
+export function aiEnrichStop(): Promise<void> {
+  return invoke<void>("ai_enrich_stop");
+}
+export function aiEnrichStatus(): Promise<AiEnrichStatus> {
+  return invoke<AiEnrichStatus>("ai_enrich_status");
+}
+
 export function aiSuggestMetadata(
   id: string,
   ai: AiSettings,

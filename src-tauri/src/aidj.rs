@@ -76,13 +76,14 @@ pub struct PickReply {
 const PLAN_PROMPT: &str = r#"Eres el asistente musical del operador de una emisora de radio. Te pide qué canción poner.
 Convierte la petición (y, si lo hay, lo que se ha hablado en el directo) en criterios de búsqueda para la biblioteca de la emisora.
 Devuelve SOLO un objeto JSON válido, sin texto adicional, con esta forma:
-{"genres":["..."],"languages":["es"],"tags":["..."],"keywords":["..."],"artists":["..."],"yearFrom":0,"yearTo":0,"maxSecs":0,"minSecs":0,"mood":"..."}
+{"genres":["..."],"languages":["es"],"tags":["..."],"keywords":["..."],"artists":["..."],"yearFrom":0,"yearTo":0,"maxSecs":0,"minSecs":0,"energy":0,"mood":"..."}
 Reglas:
 - genres y tags: elige SOLO de los valores de la biblioteca que se te dan (copiados tal cual). Pocos y relevantes.
 - languages: códigos ISO 639-1 de la lista dada.
 - keywords: 3 a 10 palabras sueltas en el idioma de la biblioteca que podrían aparecer en títulos, álbumes o etiquetas de canciones adecuadas (temas, sinónimos). Sin frases.
 - artists: solo si la petición nombra artistas o los pide parecidos.
 - yearFrom/yearTo/maxSecs/minSecs: 0 si no importa.
+- energy: energía buscada de 1 (muy tranquila) a 5 (muy enérgica); 0 si no importa.
 - mood: una frase corta con el ambiente buscado.
 Si algo no se pide, déjalo vacío."#;
 
@@ -183,7 +184,17 @@ fn score(t: &Track, plan: &Value, kw: &[String], genres: &HashSet<String>, langs
             sc += 2.0;
         }
     }
-    let hay = fold(&format!("{} {} {} {} {}", t.title, t.album, t.genre, t.tags.join(" "), t.artist));
+    let hay = fold(&format!("{} {} {} {} {} {} {}", t.title, t.album, t.genre, t.tags.join(" "), t.artist, t.mood, t.themes.join(" ")));
+    let themes = fold(&t.themes.join(" "));
+    for k in kw {
+        if !k.is_empty() && themes.contains(k.as_str()) {
+            sc += 2.0; // de qué habla la letra pesa más
+        }
+    }
+    let want = num(plan, "energy").round() as i32;
+    if (1..=5).contains(&want) && t.energy > 0 {
+        sc += 2.0 - (t.energy as i32 - want).abs() as f64;
+    }
     for k in kw {
         if !k.is_empty() && hay.contains(k.as_str()) {
             sc += 2.0;
@@ -273,6 +284,15 @@ fn pick(data_dir: &Path, ai: &AiSettings, req: &PickRequest) -> Result<PickReply
             }
             if !t.tags.is_empty() {
                 s += &format!(" | etiquetas: {}", t.tags.join(", "));
+            }
+            if t.energy > 0 {
+                s += &format!(" | energía {}/5", t.energy);
+            }
+            if !t.mood.is_empty() {
+                s += &format!(" | ánimo: {}", t.mood);
+            }
+            if !t.themes.is_empty() {
+                s += &format!(" | temas: {}", t.themes.join(", "));
             }
             s += &format!(" | {}", mmss(t.duration_secs));
             s

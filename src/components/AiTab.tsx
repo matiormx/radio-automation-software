@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { aiModels, aiOpencodeVersion } from "../api";
-import { DEFAULT_SETTINGS, type Settings } from "../types";
+import { aiEnrichStart, aiEnrichStatus, aiEnrichStop, aiModels, aiOpencodeVersion, type AiEnrichStatus } from "../api";
+import { DEFAULT_SETTINGS, type AiSettings, type Settings } from "../types";
 
 interface Props {
   settings: Settings;
@@ -320,6 +320,8 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
       </fieldset>
 
+      <EnrichBox ai={{ ...ai, provider }} enrichAuto={!!ai.enrichAuto} setAuto={(v) => setAi({ enrichAuto: v })} showToast={showToast} />
+
       <fieldset className="fieldset">
         <legend>Asistente de canciones</legend>
         <p className="hint">
@@ -450,5 +452,71 @@ function ModelSelect({
         ✎
       </button>
     </div>
+  );
+}
+
+/** Fichas IA de la biblioteca: energía, ánimo y temas de cada canción. */
+function EnrichBox({
+  ai,
+  enrichAuto,
+  setAuto,
+  showToast,
+}: {
+  ai: AiSettings;
+  enrichAuto: boolean;
+  setAuto: (v: boolean) => void;
+  showToast: (m: string) => void;
+}) {
+  const [st, setSt] = useState<AiEnrichStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => void aiEnrichStatus().then((s) => alive && setSt(s)).catch(() => undefined);
+    tick();
+    const t = window.setInterval(tick, 4000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, []);
+  const pct = st && st.total > 0 ? Math.round((st.done / st.total) * 100) : 0;
+  return (
+    <fieldset className="fieldset">
+      <legend>Fichas de la biblioteca (energía, ánimo y temas)</legend>
+      <p className="hint">
+        La IA describe cada canción: energía del 1 al 5, ánimo y de qué habla la letra. Las usan el
+        AutoDJ (energía del día, en Ajustes › AutoDJ) y el asistente de canciones. Se hace una vez por
+        canción, de 10 en 10, y la nube las reparte a los demás equipos: mejor desde un{" "}
+        <strong>puesto de trabajo</strong>, así el del estudio no gasta nada.
+      </p>
+      {st && (
+        <p>
+          <strong>
+            {st.done} de {st.total}
+          </strong>{" "}
+          canciones con ficha ({pct} %){st.running ? ` · procesando… (${st.session} en esta tanda)` : ""}
+        </p>
+      )}
+      {st?.error && <div className="form-error">{st.error}</div>}
+      <p>
+        {st?.running ? (
+          <button type="button" className="btn btn-sm" onClick={() => void aiEnrichStop().then(() => showToast("Se detendrá al terminar el grupo actual"))}>
+            Detener
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-accent"
+            disabled={!!st && st.done >= st.total}
+            onClick={() => void aiEnrichStart(ai).then(setSt).catch((e) => showToast(String(e)))}
+          >
+            {st && st.done > 0 ? "Seguir con las que faltan" : "Procesar la biblioteca"}
+          </button>
+        )}
+      </p>
+      <label className="check-field">
+        <input type="checkbox" checked={enrichAuto} onChange={(e) => setAuto(e.target.checked)} />
+        Procesar solas las canciones nuevas (en este equipo, cada 30 minutos)
+      </label>
+    </fieldset>
   );
 }

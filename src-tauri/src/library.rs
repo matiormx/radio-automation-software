@@ -124,6 +124,19 @@ pub struct Track {
     /// Cuándo entró en la biblioteca (segundos unix; 0 = antes de guardarse)
     #[serde(default)]
     pub added_at: u64,
+    /// Ficha IA: energía 1 (muy tranquila) a 5 (muy enérgica); 0 = sin analizar.
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub energy: u8,
+    /// Ficha IA: ánimo en pocas palabras («adoración íntima», «festiva»…)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mood: String,
+    /// Ficha IA: de qué habla la letra (gratitud, esperanza, familia…)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<String>,
+}
+
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
 }
 
 fn now_secs() -> u64 {
@@ -848,6 +861,9 @@ pub struct TrackResolved {
     pub album_artist: String,
     pub chapters: Vec<Chapter>,
     pub added_at: u64,
+    pub energy: u8,
+    pub mood: String,
+    pub themes: Vec<String>,
 }
 
 impl TrackResolved {
@@ -896,6 +912,9 @@ impl TrackResolved {
             language: t.language,
             chapters: t.chapters,
             added_at: t.added_at,
+            energy: t.energy,
+            mood: t.mood,
+            themes: t.themes,
         }
     }
 }

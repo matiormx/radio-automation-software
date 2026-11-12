@@ -1,5 +1,35 @@
+export interface EnergyPoint {
+  /** HH:MM */
+  start: string;
+  /** 1 (muy tranquila) a 5 (muy enérgica) */
+  energy: number;
+  label: string;
+}
+export interface EnergyCurve {
+  enabled: boolean;
+  /** Sin saltos de más de un punto entre canciones seguidas */
+  smooth: boolean;
+  points: EnergyPoint[];
+}
+export const DEFAULT_ENERGY_CURVE: EnergyCurve = {
+  enabled: false,
+  smooth: true,
+  points: [
+    { start: "06:00", energy: 2, label: "Amanecer de alabanza" },
+    { start: "09:00", energy: 4, label: "Actividad" },
+    { start: "13:30", energy: 2, label: "Almuerzo" },
+    { start: "16:00", energy: 3, label: "Tarde chillout" },
+    { start: "20:00", energy: 2, label: "Atardecer" },
+    { start: "22:00", energy: 1, label: "Noche para descansar" },
+  ],
+};
+
 export interface Track {
   id: string;
+  /** Ficha IA: energía 1–5 (0/ausente = sin analizar), ánimo y temas */
+  energy?: number;
+  mood?: string;
+  themes?: string[];
   /** Inhabilitada: no suena aunque esté en una lista o un evento */
   disabled?: boolean;
   title: string;
@@ -181,6 +211,8 @@ export interface AiSettings {
   cloudModel?: string;
   /** Escuchar el directo para que el asistente sepa de qué se habla (gasta CPU) */
   listenLive?: boolean;
+  /** Rellenar solas las fichas IA de las canciones nuevas */
+  enrichAuto?: boolean;
 }
 
 /** Propuesta de metadatos generada por la IA para una cancion. */
@@ -874,6 +906,8 @@ export interface Settings {
   pastVisible: number;
   /** Canciones emitidas que se conservan en la lista que suena (0 = todas). */
   keepPlayed?: number;
+  /** Curva de energía del día para el AutoDJ */
+  energyCurve?: EnergyCurve;
   /** Idiomas habilitados para las canciones (codigos) */
   languages: string[];
   /** Probabilidad (%) de que el AutoDJ elija cada idioma; sin datos = sin filtro */

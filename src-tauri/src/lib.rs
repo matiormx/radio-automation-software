@@ -4,6 +4,7 @@ use tauri::{Emitter, Manager};
 
 pub mod ai;
 pub mod aidj;
+pub mod aienrich;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
@@ -155,6 +156,7 @@ pub fn run() {
             // FFmpeg: si falta se descarga solo; si es el de OmniCaster, se mantiene al dia.
             ffmpeg_dl::on_startup(app.handle().clone());
             vstpkg::on_startup(app.handle().clone());
+            aienrich::on_startup(app.handle().clone());
             Ok(())
         })
         // Las ventanas de herramientas se ocultan al cerrarse: al cerrar la
@@ -202,6 +204,9 @@ pub fn run() {
             aidj::ai_listen_set,
             aidj::ai_listen_status,
             aidj::ai_listen_clear,
+            aienrich::ai_enrich_start,
+            aienrich::ai_enrich_stop,
+            aienrich::ai_enrich_status,
             ai::ai_opencode_version,
             ai::ai_window_payload_set,
             ai::ai_window_payload,
