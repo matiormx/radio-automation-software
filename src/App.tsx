@@ -80,7 +80,7 @@ import { Welcome } from "./components/Welcome";
 import { StudioLive } from "./components/StudioLive";
 import { AiDj, type AiDjContext } from "./components/AiDj";
 import { applyAppearance } from "./appearance";
-import { aiListenSet, aiListenStatus } from "./api";
+import { aiListenSet, aiListenStatus, aiPick, type AiPick } from "./api";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -3898,6 +3898,10 @@ export default function App() {
   }, []);
 
   const [libraryHits, setLibraryHits] = useState<Track[]>([]);
+  /** Asistente de canciones desde el control remoto (móvil) */
+  const [aiRemote, setAiRemote] = useState<{ busy: boolean; msgs: { role: "user" | "assistant"; text: string; error?: boolean; picks?: AiPick[] }[] }>({ busy: false, msgs: [] });
+  const aiRemoteRef = useRef(aiRemote);
+  aiRemoteRef.current = aiRemote;
   const [mDiag, setMDiag] = useState<Record<string, MonitorDiagData>>({});
 
   const deckRow = rows[playingRow] ?? null;
@@ -4035,6 +4039,7 @@ export default function App() {
         return "np";
       })(),
       hits: libraryHits.map((t) => ({ id: t.id, title: t.title, artist: t.artist })),
+      ai: { busy: aiRemote.busy, listen: !!settings.ai?.listenLive, msgs: aiRemote.msgs.slice(-12) },
       monitorDiag: mDiag,
       app: mobileUpd,
       pastVisible: settings.pastVisible ?? 5,
@@ -4071,7 +4076,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag, blockCounts]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag, blockCounts, aiRemote, settings.ai?.listenLive]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -4469,6 +4474,30 @@ export default function App() {
         showToast("Lista vaciada desde el móvil" + (keepId ? " (sigue sonando la canción en antena)" : ""));
         break;
       }
+      case "aiAsk": {
+        if (aiRemoteRef.current.busy) return;
+        const message = String(c.message ?? "").slice(0, 1500);
+        const history = aiRemoteRef.current.msgs.filter((m) => !m.error).map((m) => ({ role: m.role, text: m.text }));
+        const shown = message.trim() || "¿Qué pongo ahora, según lo que se ha hablado?";
+        setAiRemote((r) => ({ busy: true, msgs: [...r.msgs, { role: "user", text: shown }] }));
+        const ctx = aiContext();
+        void aiPick(s.ai ?? DEFAULT_SETTINGS.ai, { message, history, nowPlaying: ctx.nowPlaying, upcoming: ctx.upcoming, recentIds: ctx.recentIds, useTranscript: !!s.ai?.listenLive })
+          .then((res) => setAiRemote((r) => ({ busy: false, msgs: [...r.msgs, { role: "assistant", text: res.reply || "Te propongo estas:", picks: res.picks }] })))
+          .catch((e) => setAiRemote((r) => ({ busy: false, msgs: [...r.msgs, { role: "assistant", text: String(e), error: true }] })));
+        break;
+      }
+      case "aiInsert": {
+        const id = String(c.id ?? "");
+        const where = c.where === "next" ? "next" : "end";
+        const t = tracksRef.current.find((x) => x.id === id);
+        void aiInsert(id, where)
+          .then(() => t && showToast(where === "next" ? `«${t.title}» suena a continuación` : `«${t.title}» añadida al final`))
+          .catch((e) => showToast(String(e)));
+        break;
+      }
+      case "aiReset":
+        if (!aiRemoteRef.current.busy) setAiRemote({ busy: false, msgs: [] });
+        break;
       case "librarySearch": {
         const q = String(c.q ?? "").trim().toLowerCase();
         setLibraryHits(

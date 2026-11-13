@@ -437,6 +437,7 @@ function viewList() {
   $("#main").innerHTML = `${listSeg()}<div class="lchips">${lists.map((l) => `<button class="lchip ${l.current ? "on" : ""}" data-list="${esc(l.id)}">${esc(l.name)}</button>`).join("")}</div>
     <h3>${esc(S.listName || "Lista")} · ${all.length} pistas</h3>
     <div class="grid2"><button class="btn" data-addtrk="1">+ Añadir</button><button class="btn" data-clear="1" style="border-color:#ff8b8e;color:#ff8b8e">Vaciar</button></div>
+    <button class="btn" data-aiopen="1" style="border-color:var(--accent);color:var(--accent)">✨ Asistente IA: ¿qué pongo?</button>
     ${hidden ? `<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">${hidden} canciones emitidas ocultas · ver</button>`
       : showPast && S.playing > keep ? '<button class="btn" data-past="1" style="padding:9px;font-size:13px;font-weight:500;color:var(--dim)">Ocultar las emitidas</button>' : ""}
     ${rows.length ? rows.map((r) => {
@@ -455,6 +456,7 @@ function viewList() {
       return;
     }
     if (e.target.closest("[data-addtrk]")) return openSearch();
+    if (e.target.closest("[data-aiopen]")) return openAi();
     const b = e.target.closest("[data-i]");
     if (b) sheet(Number(b.dataset.i));
   };
@@ -468,6 +470,60 @@ function viewList() {
 /* Bloques (listas musico) que pilla el piloto automatico */
 function collections() {
   return (S.blocks || []).filter((b) => b.id && b.name);
+}
+
+/* Asistente de canciones (IA): el estudio publica S.ai {busy, listen, msgs} */
+function openAi() {
+  document.getElementById("aidj")?.remove();
+  const el = document.createElement("div");
+  el.id = "aidj";
+  el.className = "ed";
+  el.innerHTML = `<h4>Asistente de canciones</h4>
+    <div id="aimsgs" style="max-height:58vh;overflow-y:auto;margin:8px 0;display:flex;flex-direction:column;gap:8px"></div>
+    <form id="aiform" style="display:flex;gap:6px"><input type="search" id="aiq" placeholder="¿Qué quieres que suene?" style="flex:1"><button class="btn" type="submit" style="width:auto;padding:0 14px">Pedir</button></form>
+    <div class="grid2" style="margin-top:8px"><button class="btn" type="button" data-aiheard="1">Según lo hablado</button><button class="btn" type="button" data-aireset="1">Nueva</button></div>
+    <div style="height:8px"></div><button class="btn" data-aiclose="1">Cerrar</button>`;
+  document.body.appendChild(el);
+  el.querySelector("#aiform").onsubmit = (e) => {
+    e.preventDefault();
+    const q = el.querySelector("#aiq");
+    if (!q.value.trim() || (S.ai && S.ai.busy)) return;
+    cmd({ cmd: "aiAsk", message: q.value });
+    q.value = "";
+    q.blur();
+  };
+  el.onclick = (e) => {
+    if (e.target.closest("[data-aiclose]")) { el.remove(); return; }
+    if (e.target.closest("[data-aireset]")) { cmd({ cmd: "aiReset" }); return; }
+    if (e.target.closest("[data-aiheard]")) { if (!(S.ai && S.ai.busy)) cmd({ cmd: "aiAsk", message: "" }); return; }
+    const b = e.target.closest("[data-aiput]");
+    if (b) {
+      cmd({ cmd: "aiInsert", id: b.dataset.aiput, where: b.dataset.where });
+      b.textContent = "✓";
+      b.disabled = true;
+    }
+  };
+  let last = "";
+  const draw = () => {
+    if (!document.getElementById("aidj")) { clearInterval(window.__aiTimer); return; }
+    const ai = S.ai || { msgs: [] };
+    const heard = el.querySelector("[data-aiheard]");
+    if (heard) heard.style.display = ai.listen ? "" : "none";
+    const key = JSON.stringify([ai.busy, ai.msgs]);
+    if (key === last) return;
+    last = key;
+    const box = el.querySelector("#aimsgs");
+    const msgs = ai.msgs || [];
+    box.innerHTML = (msgs.length ? "" : '<div class="snapnote" style="text-align:center">Pide algo como «algo alegre para empezar la mañana» o «una canción sobre la familia».</div>')
+      + msgs.map((m) => m.role === "user"
+        ? `<div style="align-self:flex-end;background:var(--accent);color:#fff;padding:8px 12px;border-radius:12px;max-width:85%">${esc(m.text)}</div>`
+        : `<div style="align-self:flex-start;max-width:100%;${m.error ? "color:#ff8b8e" : ""}"><div style="margin-bottom:6px">${esc(m.text)}</div>${(m.picks || []).map((p) => `<div class="srhit" style="align-items:flex-start"><div class="t"><div>${esc(p.title)}</div><small>${esc(p.artist)}${p.reason ? " · " + esc(p.reason) : ""}</small></div><div style="display:flex;flex-direction:column;gap:4px"><button class="btn" data-aiput="${esc(p.id)}" data-where="next" style="padding:6px 10px;font-size:13px">Siguiente</button><button class="btn" data-aiput="${esc(p.id)}" data-where="end" style="padding:6px 10px;font-size:13px">Al final</button></div></div>`).join("")}</div>`).join("")
+      + (ai.busy ? '<div class="snapnote">Pensando… (unos segundos)</div>' : "");
+    box.scrollTop = box.scrollHeight;
+  };
+  draw();
+  clearInterval(window.__aiTimer);
+  window.__aiTimer = setInterval(draw, 400);
 }
 
 /* Buscador de canciones para anadir a la lista: publica S.hits */
