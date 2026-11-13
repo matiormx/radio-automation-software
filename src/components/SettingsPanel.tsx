@@ -628,6 +628,35 @@ function GeneralTab({
             </fieldset>
 
       <fieldset className="fieldset">
+        <legend>Apariencia</legend>
+        <label className="field">
+          <span className="field-label">Tamaño de la interfaz</span>
+          <select value={s.uiScale ?? 100} onChange={(e) => onChange({ ...s, uiScale: Number(e.target.value) })}>
+            {[
+              [90, "Pequeño (90 %)"],
+              [100, "Normal"],
+              [110, "Grande (110 %)"],
+              [125, "Más grande (125 %)"],
+              [140, "Muy grande (140 %)"],
+            ].map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Contraste del texto</span>
+          <select value={s.uiContrast ?? "normal"} onChange={(e) => onChange({ ...s, uiContrast: e.target.value as Settings["uiContrast"] })}>
+            <option value="normal">Normal (suave)</option>
+            <option value="alto">Alto: textos secundarios más claros</option>
+            <option value="maximo">Máximo: todo blanco y colores vivos</option>
+          </select>
+        </label>
+        <span className="hint">Se aplica al momento. Útil en pantallas lejanas, por VNC o con poca luz.</span>
+      </fieldset>
+
+      <fieldset className="fieldset">
         <legend>Inicio y automatización</legend>
         <label className="check-field">
           <input

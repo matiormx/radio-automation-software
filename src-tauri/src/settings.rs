@@ -121,6 +121,10 @@ pub struct Settings {
     /// Cuántas canciones ya emitidas se conservan en la lista que suena
     /// (0 = todas). Las más antiguas se quitan de la lista (no de la biblioteca).
     pub keep_played: u32,
+    /// Tamaño de la interfaz en % (100 = normal)
+    pub ui_scale: u32,
+    /// "normal", "alto" o "maximo"
+    pub ui_contrast: String,
     /// Curva de energía del día para el AutoDJ (usa la ficha IA de cada canción).
     pub energy_curve: EnergyCurve,
     /// Idiomas habilitados para clasificar canciones (codigos)
@@ -950,6 +954,8 @@ impl Default for Settings {
             silence_threshold_db: -55.0,
             past_visible: 5,
             keep_played: 0,
+            ui_scale: 100,
+            ui_contrast: "normal".into(),
             energy_curve: EnergyCurve::default(),
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),

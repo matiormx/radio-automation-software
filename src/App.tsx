@@ -79,6 +79,7 @@ import { TrackEditor } from "./components/TrackEditor";
 import { Welcome } from "./components/Welcome";
 import { StudioLive } from "./components/StudioLive";
 import { AiDj, type AiDjContext } from "./components/AiDj";
+import { applyAppearance } from "./appearance";
 import { aiListenSet, aiListenStatus } from "./api";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
@@ -2058,6 +2059,8 @@ export default function App() {
   // Quitar la que esta sonando: sigue sonando hasta el final, la siguiente
   // ya esta preparada y la fila desaparece en cuanto entra la siguiente.
   const [removeAfter, setRemoveAfter] = useState<{ listId: string; trackId: string } | null>(null);
+  useEffect(() => applyAppearance(settings), [settings.uiScale, settings.uiContrast]);
+
   // ---- Asistente de canciones (IA)
   const aiContext = (): AiDjContext => {
     const known = new Map(tracksRef.current.map((t) => [t.id, t]));

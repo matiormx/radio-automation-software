@@ -906,6 +906,10 @@ export interface Settings {
   pastVisible: number;
   /** Canciones emitidas que se conservan en la lista que suena (0 = todas). */
   keepPlayed?: number;
+  /** Tamaño de la interfaz en % (100 = normal) */
+  uiScale?: number;
+  /** Contraste del texto: normal, alto o máximo */
+  uiContrast?: "normal" | "alto" | "maximo";
   /** Curva de energía del día para el AutoDJ */
   energyCurve?: EnergyCurve;
   /** Idiomas habilitados para las canciones (codigos) */

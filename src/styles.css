@@ -5001,3 +5001,30 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .energy-curve { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
 .energy-row { display: grid; grid-template-columns: 110px 1fr 170px auto; gap: 6px; align-items: center; }
 @media (max-width: 560px) { .energy-row { grid-template-columns: 1fr 1fr; } }
+
+/* Apariencia: contraste del texto (Ajustes › General › Apariencia) */
+:root[data-contrast="alto"] {
+  --text: #f1f4f9;
+  --text-dim: #b9c2d0;
+  --text-faint: #97a1b2;
+  --line: #303845;
+  --line-strong: #414b5b;
+  --accent: #5b96ff;
+}
+:root[data-contrast="maximo"] {
+  --bg: #0b0d11;
+  --panel: #161a21;
+  --panel-2: #20262f;
+  --text: #ffffff;
+  --text-dim: #dde3ec;
+  --text-faint: #c3cad6;
+  --line: #3a4352;
+  --line-strong: #4f5a6c;
+  --accent: #6ea4ff;
+  --accent-dim: #3a5d99;
+  --accent-soft: #6ea4ff33;
+  --live: #34e07a;
+  --warn: #ffb020;
+  --danger: #ff5a5a;
+}
+:root[data-contrast] .hint { font-size: 12px; }

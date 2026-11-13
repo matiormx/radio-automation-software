@@ -7,6 +7,7 @@ import { callMainTimeout, onMainState, readStateSnapshot } from "./bridge";
 import { listBlocks, listTracks } from "./api";
 import type { Block, Settings, StationEvent, StreamStatus, Track } from "./types";
 import type { StudioSnapshot } from "./studioCalls";
+import { applyAppearance } from "./appearance";
 
 /** Estado que la ventana principal comparte con las demas. */
 export interface SharedState {
@@ -25,6 +26,7 @@ export interface SharedState {
 export function SettingsWindow() {
   // Se pinta ya con el ultimo estado conocido; la principal lo confirma enseguida.
   const [shared, setShared] = useState<SharedState | null>(() => readStateSnapshot<SharedState>());
+  useEffect(() => applyAppearance(shared?.settings), [shared?.settings?.uiScale, shared?.settings?.uiContrast]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tab, setTab] = useState<SettingsTab>(() => {
