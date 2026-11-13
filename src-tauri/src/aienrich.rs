@@ -98,6 +98,9 @@ fn clean_list(v: &Value) -> Vec<String> {
 
 fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
     let mut fails = 0;
+    // Fallos de red (sin internet, DNS, tiempo agotado): se reintenta sin
+    // rendirse, cada vez más espaciado (hasta 5 min).
+    let mut net_fails: u64 = 0;
     loop {
         if STOP.load(Ordering::Relaxed) {
             break;
@@ -112,6 +115,7 @@ fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
         match crate::ai::ask_json(&data_dir, &ai, PROMPT, &user) {
             Ok(out) => {
                 fails = 0;
+                net_fails = 0;
                 let mut got: HashMap<String, (u8, String, Vec<String>)> = HashMap::new();
                 if let Some(items) = out.get("items").and_then(Value::as_array) {
                     for it in items {
@@ -155,8 +159,18 @@ fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
                 }
             }
             Err(e) => {
-                fails += 1;
-                set_status(|s| s.error = e.clone());
+                let low = e.to_lowercase();
+                let network = ["no se pudo conectar", "dns", "resolve", "timed out", "timeout", "tiempo", "connection", "conexión", "os error", "502", "503", "504", "429"]
+                    .iter()
+                    .any(|k| low.contains(k));
+                if network {
+                    net_fails += 1;
+                    let wait = (30 * net_fails).min(300);
+                    set_status(|s| s.error = format!("Sin conexión con la IA; se reintenta en {wait} s ({e})"));
+                } else {
+                    fails += 1;
+                    set_status(|s| s.error = e.clone());
+                }
             }
         }
         if fails >= 5 {
@@ -164,7 +178,13 @@ fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
             break;
         }
         // Un respiro entre consultas (y más si falla)
-        let wait = if fails > 0 { 20 * fails as u64 } else { 1 };
+        let wait = if net_fails > 0 {
+            (30 * net_fails).min(300)
+        } else if fails > 0 {
+            20 * fails as u64
+        } else {
+            1
+        };
         for _ in 0..wait * 4 {
             if STOP.load(Ordering::Relaxed) {
                 break;
