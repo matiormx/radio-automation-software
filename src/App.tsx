@@ -66,7 +66,7 @@ import type {
   StreamMeta,
   StreamStatus,
 } from "./types";
-import { DEFAULT_SETTINGS, LIVE_RECORD_DEFAULTS, chapterAt, icecastStatsSource, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
+import { DEFAULT_ENERGY_CURVE, DEFAULT_SETTINGS, type EnergyCurve, LIVE_RECORD_DEFAULTS, chapterAt, icecastStatsSource, campaignSchedules, effectiveDuration, eventSchedules, type IntroOverlay } from "./types";
 import { pickIntro } from "./intros";
 import { EMPTY_TRACK, RadioPlayer } from "./audio";
 import { SoundMixer } from "./mixer";
@@ -80,7 +80,7 @@ import { Welcome } from "./components/Welcome";
 import { StudioLive } from "./components/StudioLive";
 import { AiDj, type AiDjContext } from "./components/AiDj";
 import { applyAppearance } from "./appearance";
-import { aiListenSet, aiListenStatus, aiPick, type AiPick } from "./api";
+import { aiEnrichStart, aiEnrichStatus, aiEnrichStop, aiListenSet, aiListenStatus, aiPick, type AiEnrichStatus, type AiPick } from "./api";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   buildCoverJpeg,
@@ -3902,6 +3902,19 @@ export default function App() {
   const [aiRemote, setAiRemote] = useState<{ busy: boolean; msgs: { role: "user" | "assistant"; text: string; error?: boolean; picks?: AiPick[] }[] }>({ busy: false, msgs: [] });
   const aiRemoteRef = useRef(aiRemote);
   aiRemoteRef.current = aiRemote;
+  /** Estado de las fichas IA (para el control remoto) */
+  const [enrichSt, setEnrichSt] = useState<AiEnrichStatus | null>(null);
+  useEffect(() => {
+    if (!settings.mobile?.enabled) return;
+    let alive = true;
+    const tick = () => void aiEnrichStatus().then((st) => alive && setEnrichSt((p) => (JSON.stringify(p) === JSON.stringify(st) ? p : st))).catch(() => undefined);
+    tick();
+    const t = window.setInterval(tick, 6000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [settings.mobile?.enabled]);
   const [mDiag, setMDiag] = useState<Record<string, MonitorDiagData>>({});
 
   const deckRow = rows[playingRow] ?? null;
@@ -4040,6 +4053,14 @@ export default function App() {
       })(),
       hits: libraryHits.map((t) => ({ id: t.id, title: t.title, artist: t.artist })),
       ai: { busy: aiRemote.busy, listen: !!settings.ai?.listenLive, msgs: aiRemote.msgs.slice(-12) },
+      aiCfg: {
+        provider: settings.ai?.provider ?? "ollama",
+        model: (settings.ai?.provider === "cloud" ? settings.ai?.cloudModel : settings.ai?.model) ?? "",
+        listenLive: !!settings.ai?.listenLive,
+        enrichAuto: !!settings.ai?.enrichAuto,
+        curve: settings.energyCurve ?? DEFAULT_ENERGY_CURVE,
+        enrich: enrichSt,
+      },
       monitorDiag: mDiag,
       app: mobileUpd,
       pastVisible: settings.pastVisible ?? 5,
@@ -4076,7 +4097,7 @@ export default function App() {
     };
     // pos.cur no entra: el móvil avanza la barra solo (se reenvía cada 10 s).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag, blockCounts, aiRemote, settings.ai?.listenLive]);
+  }, [mobileCfg?.enabled, deckRow, nextRow, rows, playingRow, paused, pos.total, nextPick, active, autoIds, autopilotOn, audioStreamRunning, videoStreamRunning, audioStreamReady, videoStreamReady, streamBusy, streamStatus, settings.video, vsNow, settings.mixerChannels, settings.radioName, settings.events, settings.campaigns, settings.programs, mobileUpd, settings.pastVisible, blocks, playlists, libraryHits, settings.streaming, settings.mixerBuses, settings.masterVolume, settings.defaultBlockId, settings.audioDevices, mDiag, blockCounts, aiRemote, settings.ai, settings.energyCurve, enrichSt]);
   const mobileUpdRef = useRef(mobileUpd);
   mobileUpdRef.current = mobileUpd;
   const mobileSnapRef = useRef(mobileSnapshot);
@@ -4492,6 +4513,40 @@ export default function App() {
         const t = tracksRef.current.find((x) => x.id === id);
         void aiInsert(id, where)
           .then(() => t && showToast(where === "next" ? `«${t.title}» suena a continuación` : `«${t.title}» añadida al final`))
+          .catch((e) => showToast(String(e)));
+        break;
+      }
+      case "aiCfg": {
+        const ai = { ...(s.ai ?? DEFAULT_SETTINGS.ai) };
+        if (typeof c.listenLive === "boolean") ai.listenLive = c.listenLive;
+        if (typeof c.enrichAuto === "boolean") ai.enrichAuto = c.enrichAuto;
+        if (typeof c.model === "string" && c.model.trim()) {
+          if (ai.provider === "cloud") ai.cloudModel = c.model.trim().slice(0, 120);
+          else ai.model = c.model.trim().slice(0, 120);
+        }
+        updateSettings({ ...s, ai });
+        break;
+      }
+      case "energyCurve": {
+        const raw = (c.curve ?? {}) as Record<string, unknown>;
+        const pts = Array.isArray(raw.points) ? (raw.points as Record<string, unknown>[]) : [];
+        const curve: EnergyCurve = {
+          enabled: raw.enabled === true,
+          smooth: raw.smooth !== false,
+          points: pts.slice(0, 24).map((p) => ({
+            start: /^\d{1,2}:\d{2}$/.test(String(p.start ?? "")) ? String(p.start).padStart(5, "0") : "00:00",
+            energy: Math.max(1, Math.min(5, Math.round(Number(p.energy) || 3))),
+            label: String(p.label ?? "").slice(0, 60),
+          })),
+        };
+        updateSettings({ ...s, energyCurve: curve });
+        break;
+      }
+      case "aiEnrich": {
+        const p = c.action === "stop" ? aiEnrichStop() : aiEnrichStart(s.ai ?? DEFAULT_SETTINGS.ai);
+        void Promise.resolve(p)
+          .then(() => aiEnrichStatus())
+          .then(setEnrichSt)
           .catch((e) => showToast(String(e)));
         break;
       }

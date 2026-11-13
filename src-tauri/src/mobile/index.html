@@ -1375,6 +1375,7 @@ function viewSys() {
     ${ap.available ? `<button class="btn" data-upd="install" ${ap.busy ? "disabled" : ""} style="background:var(--accent);border-color:var(--accent);color:#fff">Actualizar a ${esc(ap.latest)}</button>`
       : `<button class="btn" data-upd="check" ${ap.busy ? "disabled" : ""}>Buscar actualizaciones</button>`}
   </div>
+  ${aiCard()}
   <h3>Equipo</h3><div class="card">
     <div class="stat"><span>Procesador</span>${bar(sys.cpu)}<b>${Math.round(sys.cpu)}%</b></div>
     <div class="stat"><span>Memoria</span>${bar(ram)}<b>${gb(sys.memUsed)}</b></div>
@@ -1389,6 +1390,87 @@ function viewSys() {
     const u = e.target.closest("[data-upd]")?.dataset.upd;
     if (u === "check") return cmd({ cmd: "updCheck" });
     if (u === "install" && confirm("OmniCaster se cerrará y se volverá a abrir para actualizarse: la emisión se cortará unos segundos. ¿Seguir?")) return cmd({ cmd: "updInstall" });
+    const ai = e.target.closest("[data-ai]")?.dataset.ai;
+    if (ai === "listen") return cmd({ cmd: "aiCfg", listenLive: e.target.checked });
+    if (ai === "auto") return cmd({ cmd: "aiCfg", enrichAuto: e.target.checked });
+    if (ai === "curveOn") return cmd({ cmd: "energyCurve", curve: { ...aiCurve(), enabled: e.target.checked } });
+    if (ai === "start" || ai === "stop") return cmd({ cmd: "aiEnrich", action: ai });
+    if (ai === "model") { const v = prompt("Modelo de la IA", (S.aiCfg && S.aiCfg.model) || ""); if (v && v.trim()) cmd({ cmd: "aiCfg", model: v.trim() }); return; }
+    if (ai === "curve") return openCurve();
+  };
+}
+
+/* IA: motor, escucha del directo, fichas y energía del día */
+const PROVIDERS = { ollama: "Ollama (local)", opencode: "OpenCode", cloud: "Servicio en la nube" };
+const ENERGY = ["", "1 · Muy tranquila", "2 · Suave", "3 · Media", "4 · Animada", "5 · Muy enérgica"];
+function aiCurve() {
+  const c = (S.aiCfg && S.aiCfg.curve) || { enabled: false, smooth: true, points: [] };
+  return JSON.parse(JSON.stringify(c));
+}
+function aiCard() {
+  const a = S && S.aiCfg;
+  if (!a) return "";
+  const en = a.enrich;
+  const pct = en && en.total ? Math.round((en.done / en.total) * 100) : 0;
+  const c = a.curve || { points: [] };
+  const pts = [...(c.points || [])].sort((x, y) => x.start.localeCompare(y.start));
+  return `<h3>Inteligencia artificial</h3><div class="card">
+    <div class="line"><span>Motor</span><b>${esc(PROVIDERS[a.provider] || a.provider)}</b></div>
+    <div class="line"><span>Modelo</span><b>${esc(a.model || "—")}</b></div>
+    <button class="btn" data-ai="model" style="padding:8px;font-size:13px">Cambiar modelo</button>
+    <label class="line" style="gap:8px"><span>Escuchar el directo (gasta procesador)</span><input type="checkbox" data-ai="listen" ${a.listenLive ? "checked" : ""}></label>
+  </div>
+  <h3>Fichas de la biblioteca</h3><div class="card">
+    ${en ? `<div class="stat"><span>Con ficha</span><span class="bar"><i style="width:${pct}%;background:var(--ok)"></i></span><b>${pct}%</b></div>
+    <div class="line"><span>${en.done} de ${en.total} canciones${en.running ? ` · procesando (${en.session})` : ""}</span></div>
+    ${en.error ? `<div class="line"><span style="color:#ff8b8e">${esc(en.error)}</span></div>` : ""}
+    ${en.running ? '<button class="btn" data-ai="stop">Detener</button>' : `<button class="btn" data-ai="start" ${en.done >= en.total ? "disabled" : ""}>${en.done ? "Seguir con las que faltan" : "Procesar la biblioteca"}</button>`}` : '<div class="line"><span>Cargando…</span></div>'}
+    <label class="line" style="gap:8px"><span>Procesar solas las nuevas</span><input type="checkbox" data-ai="auto" ${a.enrichAuto ? "checked" : ""}></label>
+  </div>
+  <h3>Energía del día (AutoDJ)</h3><div class="card">
+    <label class="line" style="gap:8px"><span>Seguir la curva de energía</span><input type="checkbox" data-ai="curveOn" ${c.enabled ? "checked" : ""}></label>
+    ${pts.map((p) => `<div class="line"><span>${esc(p.start)} · ${esc(p.label || "")}</span><b>${esc(ENERGY[p.energy] || p.energy)}</b></div>`).join("")}
+    <button class="btn" data-ai="curve" style="padding:8px;font-size:13px">Editar franjas</button>
+  </div>`;
+}
+function openCurve() {
+  const c = aiCurve();
+  if (!c.points.length) c.points = [{ start: "06:00", energy: 2, label: "Amanecer" }];
+  document.getElementById("ed")?.remove();
+  editing = { kind: "__curve" };
+  dragging = true;
+  const el = document.createElement("div");
+  el.id = "ed"; el.className = "ed";
+  const draw = () => {
+    c.points.sort((x, y) => x.start.localeCompare(y.start));
+    el.innerHTML = `<h4>Energía del día</h4>
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" data-k="smooth" ${c.smooth ? "checked" : ""}> Cambios suaves (sin saltos de más de un punto)</label>
+      ${c.points.map((p, i) => `<div class="card" style="margin-top:8px">
+        <div class="row2"><div style="flex:1"><label>Desde</label><input type="time" data-i="${i}" data-f="start" value="${esc(p.start)}"></div>
+        <div style="flex:2"><label>Nombre</label><input type="text" data-i="${i}" data-f="label" value="${esc(p.label || "")}"></div></div>
+        <label>Energía</label><select data-i="${i}" data-f="energy">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === p.energy ? "selected" : ""}>${ENERGY[n]}</option>`).join("")}</select>
+        <button class="btn" data-del="${i}" style="margin-top:6px;padding:6px;font-size:13px;color:#ff8b8e;border-color:#ff8b8e">Quitar franja</button></div>`).join("")}
+      <div style="height:8px"></div><button class="btn" data-add="1">Añadir franja</button>
+      <div class="grid2" style="margin-top:8px"><button class="btn" data-save="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button><button class="btn" data-close="1">Cancelar</button></div>`;
+  };
+  draw();
+  document.body.appendChild(el);
+  const done = () => { el.remove(); editing = null; dragging = false; };
+  el.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.k === "smooth") { c.smooth = t.checked; return; }
+    const i = Number(t.dataset.i);
+    if (!Number.isFinite(i) || !c.points[i]) return;
+    const f = t.dataset.f;
+    c.points[i][f] = f === "energy" ? Number(t.value) : t.value;
+    if (f === "start") draw();
+  });
+  el.onclick = (e) => {
+    if (e.target.closest("[data-close]")) return done();
+    if (e.target.closest("[data-add]")) { c.points.push({ start: "12:00", energy: 3, label: "" }); return draw(); }
+    const d = e.target.closest("[data-del]");
+    if (d) { c.points.splice(Number(d.dataset.del), 1); return draw(); }
+    if (e.target.closest("[data-save]")) { cmd({ cmd: "energyCurve", curve: c }); done(); }
   };
 }
 
