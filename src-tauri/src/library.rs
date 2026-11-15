@@ -89,6 +89,10 @@ pub struct Track {
     /// 0 = sin fade out.
     #[serde(default)]
     pub fade_out_start: f64,
+    /// Las marcas (intro, mix, fade out) las puso el análisis automático:
+    /// se pueden recalcular. Al guardarlas a mano deja de estarlo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub markers_auto: bool,
     /// Firma del archivo analizado (tamaño + fecha).
     #[serde(default)]
     pub analysis_sig: String,
@@ -1953,6 +1957,7 @@ pub fn save_track_markers(
     } else {
         0.0
     };
+    t.markers_auto = false;
     write_library(&state.data_dir, &tracks)
 }
 

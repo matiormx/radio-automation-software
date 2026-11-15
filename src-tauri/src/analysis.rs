@@ -214,6 +214,55 @@ fn auto_trim(peaks: &[f32], duration: f64) -> (f64, Option<f64>) {
     (start, trim_end)
 }
 
+/// Marcas automáticas a partir de la envolvente (picos cada 50 ms):
+/// - mix: donde empieza la cola final (más de 12 dB por debajo del cuerpo de
+///   la canción); ahí entra la siguiente mientras esta se apaga sola.
+/// - fade out: si esa cola es larga (aplausos, final eterno), se apaga
+///   desde 2 s después del mix.
+/// Devuelve (mix, fade_out); 0 = sin marca (se usa el cruce normal).
+fn auto_mix_fade(peaks: &[f32], start: f64, end: f64) -> (f64, f64) {
+    let per = (0.5 / FRAME_SECS).round() as usize; // ventanas de 0,5 s
+    let a = (start / FRAME_SECS) as usize;
+    let b = ((end / FRAME_SECS) as usize).min(peaks.len());
+    if b <= a + per * 20 {
+        return (0.0, 0.0); // menos de 10 s: nada
+    }
+    let db = |p: f32| 20.0 * (p.max(1e-6)).log10();
+    let wins: Vec<f32> = peaks[a..b].chunks(per).map(|c| db(c.iter().cloned().fold(0.0, f32::max))).collect();
+    let mut sorted = wins.clone();
+    sorted.sort_by(|x, y| x.total_cmp(y));
+    let body = sorted[(sorted.len() * 3) / 4];
+    let quiet = body - 12.0;
+    let mut k = wins.len();
+    while k > 0 && wins[k - 1] < quiet {
+        k -= 1;
+    }
+    let tail_start = start + k as f64 * 0.5;
+    let tail = end - tail_start;
+    if tail < 1.0 || tail > 25.0 {
+        return (0.0, 0.0); // final seco (o rarísimo): cruce normal
+    }
+    let mix = round3(tail_start);
+    let fade = if tail > 8.0 { round3(tail_start + 2.0) } else { 0.0 };
+    (mix, fade)
+}
+
+#[cfg(test)]
+mod marker_tests {
+    #[test]
+    fn mix_at_start_of_quiet_tail() {
+        // 60 s fuertes + 5 s de cola suave
+        let mut p = vec![0.8f32; 1200];
+        p.extend(vec![0.05f32; 100]);
+        let (mix, fade) = super::auto_mix_fade(&p, 0.0, 65.0);
+        assert!((mix - 60.0).abs() <= 0.5, "{mix}");
+        assert_eq!(fade, 0.0);
+        // Final seco: sin marca
+        let (m2, _) = super::auto_mix_fade(&vec![0.8f32; 1300], 0.0, 65.0);
+        assert_eq!(m2, 0.0);
+    }
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisOut {
@@ -245,13 +294,15 @@ pub async fn analyze_track(
         return Err("El techo de pico debe estar entre -6 y 0 dBTP".to_string());
     }
 
-    let file = {
+    let (file, title, artist, album, markers_free) = {
         let tracks = read_library_internal(&state.data_dir);
         let t = tracks
             .iter()
             .find(|t| t.id == id)
             .ok_or_else(|| "La cancion ya no existe en la biblioteca".to_string())?;
-        t.file.trim().to_string()
+        // Marcas automáticas solo si no las ha puesto nadie a mano.
+        let free = t.markers_auto || (t.intro_point <= 0.0 && t.mix_point <= 0.0 && t.fade_out_start <= 0.0);
+        (t.file.trim().to_string(), t.title.clone(), t.artist.clone(), t.album.clone(), free)
     };
     let path = Path::new(&file);
     if file.is_empty() || !path.is_file() {
@@ -259,6 +310,9 @@ pub async fn analyze_track(
     }
 
     let scan = scan_file(path)?;
+    // Intro: dónde empieza a cantar (letra sincronizada de LRCLIB). Fuera del
+    // cerrojo de la biblioteca: es una consulta por internet.
+    let sung = if markers_free { crate::ai::first_sung_secs(&title, &artist, &album, scan.duration) } else { None };
 
     let _guard = crate::library::lock_library();
     let mut tracks = read_library_internal(&state.data_dir);
@@ -290,6 +344,16 @@ pub async fn analyze_track(
     if !t.trim_manual {
         t.trim_start = auto_start;
         t.trim_end = auto_end;
+    }
+    if markers_free && (t.markers_auto || (t.intro_point <= 0.0 && t.mix_point <= 0.0 && t.fade_out_start <= 0.0)) {
+        let end = t.trim_end.unwrap_or(scan.duration);
+        let (mix, fade) = auto_mix_fade(&scan.peaks, t.trim_start, end);
+        // Intro: solo si hay más de 3 s antes de la voz (y antes del minuto).
+        let intro = sung.filter(|s| *s > t.trim_start + 3.0 && *s < 60.0 && *s < end).map(|s| round3(s - 0.3)).unwrap_or(0.0);
+        t.intro_point = intro;
+        t.mix_point = mix;
+        t.fade_out_start = fade;
+        t.markers_auto = intro > 0.0 || mix > 0.0 || fade > 0.0;
     }
     t.analysis_sig = file_signature(path);
     t.analyzed_at = now_epoch();

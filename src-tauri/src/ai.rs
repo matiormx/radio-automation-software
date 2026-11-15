@@ -138,6 +138,58 @@ pub(crate) fn lyrics_for(file: &str, title: &str, artist: &str, album: &str, dur
     (String::new(), "")
 }
 
+/// Segundo en que empieza a cantar (primera línea de la letra sincronizada
+/// de LRCLIB). None si no hay letra sincronizada o es instrumental.
+pub(crate) fn first_sung_secs(title: &str, artist: &str, album: &str, duration: f64) -> Option<f64> {
+    if title.trim().is_empty() || artist.trim().is_empty() {
+        return None;
+    }
+    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/matiormx/radio-automation-software)");
+    let mut get = ureq::get("https://lrclib.net/api/get")
+        .timeout(Duration::from_secs(6))
+        .set("User-Agent", agent)
+        .query("track_name", title.trim())
+        .query("artist_name", artist.trim());
+    if !album.trim().is_empty() {
+        get = get.query("album_name", album.trim());
+    }
+    if duration > 0.0 {
+        get = get.query("duration", &format!("{}", duration.round() as u64));
+    }
+    let v: Value = get.call().ok()?.into_string().ok().and_then(|t| serde_json::from_str(&t).ok())?;
+    if v.get("instrumental").and_then(Value::as_bool).unwrap_or(false) {
+        return None;
+    }
+    first_line_time(v.get("syncedLyrics")?.as_str()?)
+}
+
+/// «[01:02.34] texto» -> 62.34 (la primera línea con texto)
+fn first_line_time(synced: &str) -> Option<f64> {
+    for line in synced.lines() {
+        let l = line.trim();
+        let Some(rest) = l.strip_prefix('[') else { continue };
+        let Some(close) = rest.find(']') else { continue };
+        let (ts, text) = (&rest[..close], rest[close + 1..].trim());
+        if text.is_empty() {
+            continue;
+        }
+        let (m, s) = ts.split_once(':')?;
+        let secs = m.trim().parse::<f64>().ok()? * 60.0 + s.trim().parse::<f64>().ok()?;
+        return secs.is_finite().then_some(secs);
+    }
+    None
+}
+
+#[cfg(test)]
+mod first_line_tests {
+    #[test]
+    fn parses_first_sung_line() {
+        assert_eq!(super::first_line_time("[00:00.00] \n[00:14.52] Hola mundo\n[00:20.00] x"), Some(14.52));
+        assert_eq!(super::first_line_time("[01:02.5]Texto"), Some(62.5));
+        assert_eq!(super::first_line_time("sin marcas"), None);
+    }
+}
+
 fn base_url(url: &str) -> String {
     let mut base = url.trim().trim_end_matches('/').to_string();
     if base.is_empty() {
