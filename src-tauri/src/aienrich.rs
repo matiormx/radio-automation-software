@@ -212,9 +212,14 @@ pub fn start(app: &AppHandle, data_dir: PathBuf, ai: AiSettings) {
 }
 
 #[tauri::command]
-pub fn ai_enrich_start(app: AppHandle, state: State<'_, AppState>, ai: AiSettings) -> EnrichStatus {
-    start(&app, state.data_dir.clone(), ai);
-    ai_enrich_status(state)
+pub async fn ai_enrich_start(app: AppHandle, state: State<'_, AppState>, ai: AiSettings) -> Result<EnrichStatus, String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        start(&app, dir.clone(), ai);
+        status_now(&dir)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -223,11 +228,16 @@ pub fn ai_enrich_stop() {
 }
 
 #[tauri::command]
-pub fn ai_enrich_status(state: State<'_, AppState>) -> EnrichStatus {
+pub async fn ai_enrich_status(state: State<'_, AppState>) -> Result<EnrichStatus, String> {
+    let dir = state.data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || status_now(&dir)).await.map_err(|e| e.to_string())
+}
+
+fn status_now(dir: &Path) -> EnrichStatus {
     let mut s = STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     s.running = RUNNING.load(Ordering::Relaxed);
     if !s.running {
-        let (done, total) = counts(&state.data_dir);
+        let (done, total) = counts(dir);
         s.done = done;
         s.total = total;
     }
@@ -242,7 +252,7 @@ pub fn on_startup(app: AppHandle) {
         let Some(state) = app.try_state::<AppState>() else { continue };
         let dir = state.data_dir.clone();
         let s = crate::settings::read_settings_public(&dir.to_path_buf());
-        if s.ai.enrich_auto && !RUNNING.load(Ordering::Relaxed) {
+        if s.ai.enabled && s.ai.enrich_auto && !RUNNING.load(Ordering::Relaxed) {
             let (done, total) = counts(&dir);
             if done < total {
                 start(&app, dir, s.ai.clone());

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Settings } from "../types";
-import { pickVstFolder, vstScan, type VstScanResult } from "../api";
+import { pickVstFolder, vstList, vstScan, type VstScanResult } from "../api";
 import { VstRecommended } from "./VstRecommended";
 
 /**
@@ -17,11 +17,13 @@ export function VstSettings({ settings, onChange }: { settings: Settings; onChan
 
   const set = (patch: Partial<typeof vst>) => onChange({ ...settings, vst: { ...vst, ...patch } });
 
-  const scan = useCallback(async () => {
+  // fresh = recorrer el disco (botón o carpetas nuevas); si no, la última lista
+  // guardada, que sale al instante y no carga ningún plugin.
+  const scan = useCallback(async (fresh = true) => {
     setBusy(true);
     setError("");
     try {
-      setRes(await vstScan());
+      setRes(await (fresh ? vstScan() : vstList()));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -31,8 +33,10 @@ export function VstSettings({ settings, onChange }: { settings: Settings; onChan
 
   // Se vuelve a buscar cuando cambian las carpetas (los ajustes ya se guardaron).
   const foldersKey = vst.extraFolders.join("|");
+  const firstKey = useRef(foldersKey);
   useEffect(() => {
-    const t = window.setTimeout(() => void scan(), 400);
+    const fresh = foldersKey !== firstKey.current;
+    const t = window.setTimeout(() => void scan(fresh), fresh ? 400 : 0);
     return () => window.clearTimeout(t);
   }, [foldersKey, scan]);
 

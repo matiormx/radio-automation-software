@@ -62,7 +62,13 @@ export function SettingsWindow() {
         });
       }),
     );
-    offs.push(listen("library://changed", () => void refreshLibrary()));
+    let libTimer = 0;
+    offs.push(
+      listen("library://changed", () => {
+        window.clearTimeout(libTimer);
+        libTimer = window.setTimeout(() => void refreshLibrary(), 2000);
+      }),
+    );
     // Pide el estado real; si la principal esta ocupada, reintenta en vez de esperar.
     let alive = true;
     let got = false;

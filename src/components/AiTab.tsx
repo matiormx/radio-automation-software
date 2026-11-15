@@ -131,6 +131,19 @@ export function AiTab({ settings, onChange, showToast }: Props) {
   return (
     <>
       <fieldset className="fieldset">
+        <legend>Funciones de IA en este equipo</legend>
+        <label className="check-field">
+          <input type="checkbox" checked={!!ai.enabled} onChange={(e) => setAi({ enabled: e.target.checked })} />
+          Activar el asistente de canciones, las fichas de la biblioteca y la escucha del directo
+        </label>
+        <p className="hint">
+          Apagado de serie: consumen recursos. Las fichas ya hechas siguen sirviendo al AutoDJ aunque esté
+          apagado, y el asistente de la nube (cloud.ngradio.es/asistente) funciona sin este equipo. El análisis
+          de metadatos de abajo (botón de IA en el editor de pistas) funciona siempre.
+        </p>
+      </fieldset>
+
+      <fieldset className="fieldset">
         <legend>Análisis de metadatos con IA local</legend>
         <label className="field">
           <span className="field-label">Motor</span>
@@ -320,6 +333,8 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
       </fieldset>
 
+      {ai.enabled && (
+        <>
       <EnrichBox ai={{ ...ai, provider }} enrichAuto={!!ai.enrichAuto} setAuto={(v) => setAi({ enrichAuto: v })} showToast={showToast} />
 
       <fieldset className="fieldset">
@@ -350,6 +365,8 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           </p>
         )}
       </fieldset>
+        </>
+      )}
 
       {provider === "cloud" ? (
         <fieldset className="fieldset">

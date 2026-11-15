@@ -737,9 +737,38 @@ pub(crate) fn multi_value(v: &str) -> String {
     v.split(|c: char| c.is_control()).map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
 }
 
+/// Última biblioteca leída (o escrita), con la huella del archivo: muchas
+/// partes del programa la leen a menudo y con miles de canciones leer y
+/// descifrar el JSON cada vez gasta procesador. Si el archivo no ha cambiado,
+/// se devuelve la copia en memoria.
+type LibCache = (PathBuf, u64, Option<std::time::SystemTime>, std::sync::Arc<Vec<Track>>);
+static LIB_CACHE: Mutex<Option<LibCache>> = Mutex::new(None);
+
+fn lib_stamp(file: &Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+    fs::metadata(file).ok().map(|m| (m.len(), m.modified().ok()))
+}
+
 pub fn read_library_internal(data_dir: &Path) -> Vec<Track> {
     let file = data_dir.join(LIBRARY_FILE);
-    match fs::read(&file) {
+    let stamp = lib_stamp(&file);
+    if let Some((len, mtime)) = stamp {
+        if let Some((p, l, m, v)) = LIB_CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if *p == file && *l == len && *m == mtime && mtime.is_some() {
+                return (**v).clone();
+            }
+        }
+    }
+    let t0 = std::time::Instant::now();
+    let out = read_library_uncached(data_dir, &file);
+    crate::perflog::count_ms("leer biblioteca (disco)", t0.elapsed());
+    if let Some((len, mtime)) = stamp {
+        *LIB_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((file, len, mtime, std::sync::Arc::new(out.clone())));
+    }
+    out
+}
+
+fn read_library_uncached(data_dir: &Path, file: &Path) -> Vec<Track> {
+    match fs::read(file) {
         Ok(bytes) => serde_json::from_slice::<Vec<Track>>(&bytes)
             .unwrap_or_default()
             .into_iter()
@@ -783,10 +812,18 @@ pub(crate) fn lock_library() -> MutexGuard<'static, ()> {
 }
 
 pub(crate) fn write_library(data_dir: &Path, tracks: &[Track]) -> Result<(), String> {
+    let t0 = std::time::Instant::now();
     let tmp = data_dir.join("library.json.tmp");
-    let json = serde_json::to_vec_pretty(tracks).map_err(|e| e.to_string())?;
+    // Compacto: con miles de canciones el «bonito» ocupa y tarda bastante más.
+    let json = serde_json::to_vec(tracks).map_err(|e| e.to_string())?;
     fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, data_dir.join(LIBRARY_FILE)).map_err(|e| e.to_string())
+    let file = data_dir.join(LIBRARY_FILE);
+    fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+    // Lo recién escrito es lo que se leerá después.
+    let mut c = LIB_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *c = lib_stamp(&file).map(|(len, mtime)| (file, len, mtime, std::sync::Arc::new(tracks.to_vec())));
+    crate::perflog::count_ms("guardar biblioteca", t0.elapsed());
+    Ok(())
 }
 
 /// "Artista - Tema.mp3" -> (titulo, artista) por defecto

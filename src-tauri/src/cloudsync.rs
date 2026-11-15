@@ -207,7 +207,10 @@ fn worker(sh: Arc<Shared>) {
             continue;
         };
         set_status(&sh, |s| s.phase = "syncing".into());
-        match pass(&sh, &join, &mut last_sig) {
+        let t0 = std::time::Instant::now();
+        let r = pass(&sh, &join, &mut last_sig);
+        crate::perflog::count_ms("sincronizar con la nube", t0.elapsed());
+        match r {
             Ok(()) => set_status(&sh, |s| {
                 s.phase = "ok".into();
                 s.error.clear();
@@ -888,6 +891,9 @@ fn pass(sh: &Shared, join: &crate::cloud::JoinFile, last_sig: &mut String) -> Re
     }
     save_state(dir, &st)?;
     *last_sig = sources_sig(dir);
+    if sent > 0 || received > 0 {
+        crate::perflog::note(&format!("Nube: {received} cambios recibidos, {sent} enviados"));
+    }
     set_status(sh, |s| {
         s.version = st.cursor;
         s.items = st.items.len();

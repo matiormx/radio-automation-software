@@ -278,6 +278,9 @@ pub struct AiSettings {
     pub listen_live: bool,
     /// Rellenar solas (en segundo plano) las fichas IA de las canciones nuevas.
     pub enrich_auto: bool,
+    /// Interruptor general de las funciones de IA de este equipo (asistente,
+    /// fichas, escucha del directo). Apagado de serie: gastan recursos.
+    pub enabled: bool,
 }
 
 impl Default for AiSettings {
@@ -292,6 +295,7 @@ impl Default for AiSettings {
             cloud_model: "gpt-4o-mini".to_string(),
             listen_live: false,
             enrich_auto: false,
+            enabled: false,
         }
     }
 }

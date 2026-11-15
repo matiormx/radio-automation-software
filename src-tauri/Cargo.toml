@@ -56,6 +56,10 @@ tauri-plugin-updater = "2"
 # Una sola instancia: abrir MiRadio otra vez trae al frente la que ya esta abierta
 tauri-plugin-single-instance = "2"
 
+# Registro de rendimiento: CPU por hilo en Windows.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+
 # Linux (X11): ventana a capturar por su título y pared del ratón.
 [target.'cfg(target_os = "linux")'.dependencies]
 x11-dl = "2"

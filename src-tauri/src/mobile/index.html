@@ -456,7 +456,14 @@ function viewList() {
       return;
     }
     if (e.target.closest("[data-addtrk]")) return openSearch();
-    if (e.target.closest("[data-aiopen]")) return openAi();
+    if (e.target.closest("[data-aiopen]")) {
+      if (S.aiCfg && !S.aiCfg.enabled) {
+        if (S.aiCfg.cloudAssistant) location.href = S.aiCfg.cloudAssistant;
+        else alert("La IA está apagada en el equipo del estudio (Sistema › Inteligencia artificial).");
+        return;
+      }
+      return openAi();
+    }
     const b = e.target.closest("[data-i]");
     if (b) sheet(Number(b.dataset.i));
   };
@@ -1391,6 +1398,7 @@ function viewSys() {
     if (u === "check") return cmd({ cmd: "updCheck" });
     if (u === "install" && confirm("OmniCaster se cerrará y se volverá a abrir para actualizarse: la emisión se cortará unos segundos. ¿Seguir?")) return cmd({ cmd: "updInstall" });
     const ai = e.target.closest("[data-ai]")?.dataset.ai;
+    if (ai === "on") return cmd({ cmd: "aiCfg", enabled: e.target.checked });
     if (ai === "listen") return cmd({ cmd: "aiCfg", listenLive: e.target.checked });
     if (ai === "auto") return cmd({ cmd: "aiCfg", enrichAuto: e.target.checked });
     if (ai === "curveOn") return cmd({ cmd: "energyCurve", curve: { ...aiCurve(), enabled: e.target.checked } });
@@ -1414,7 +1422,11 @@ function aiCard() {
   const pct = en && en.total ? Math.round((en.done / en.total) * 100) : 0;
   const c = a.curve || { points: [] };
   const pts = [...(c.points || [])].sort((x, y) => x.start.localeCompare(y.start));
+  if (!a.enabled) return `<h3>Inteligencia artificial</h3><div class="card">
+    <label class="line" style="gap:8px"><span>IA en el equipo del estudio (apagada: ahorra procesador)</span><input type="checkbox" data-ai="on"></label>
+    ${a.cloudAssistant ? `<div class="line"><span class="snapnote">El asistente de la nube funciona igual: ${esc(a.cloudAssistant)}</span></div>` : ""}</div>`;
   return `<h3>Inteligencia artificial</h3><div class="card">
+    <label class="line" style="gap:8px"><span>IA en el equipo del estudio</span><input type="checkbox" data-ai="on" checked></label>
     <div class="line"><span>Motor</span><b>${esc(PROVIDERS[a.provider] || a.provider)}</b></div>
     <div class="line"><span>Modelo</span><b>${esc(a.model || "—")}</b></div>
     <button class="btn" data-ai="model" style="padding:8px;font-size:13px">Cambiar modelo</button>

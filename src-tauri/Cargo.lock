@@ -2404,6 +2404,7 @@ dependencies = [
  "ureq",
  "uuid",
  "vst3-host",
+ "windows-sys 0.60.2",
  "x11-dl",
  "zip",
 ]

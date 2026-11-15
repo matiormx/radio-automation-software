@@ -2106,7 +2106,8 @@ export default function App() {
     });
   };
   // Escucha del directo: encendida mientras el directo está activo (si se quiere).
-  const listenOn = !!settings.ai?.listenLive && !!settings.liveMode && !workstation;
+  const aiOn = !!settings.ai?.enabled;
+  const listenOn = aiOn && !!settings.ai?.listenLive && !!settings.liveMode && !workstation;
   const listenWasOn = useRef(false);
   useEffect(() => {
     void aiListenSet(listenOn).catch(() => undefined);
@@ -3905,16 +3906,16 @@ export default function App() {
   /** Estado de las fichas IA (para el control remoto) */
   const [enrichSt, setEnrichSt] = useState<AiEnrichStatus | null>(null);
   useEffect(() => {
-    if (!settings.mobile?.enabled) return;
+    if (!settings.mobile?.enabled || !settings.ai?.enabled) return;
     let alive = true;
     const tick = () => void aiEnrichStatus().then((st) => alive && setEnrichSt((p) => (JSON.stringify(p) === JSON.stringify(st) ? p : st))).catch(() => undefined);
     tick();
-    const t = window.setInterval(tick, 6000);
+    const t = window.setInterval(tick, 15000);
     return () => {
       alive = false;
       window.clearInterval(t);
     };
-  }, [settings.mobile?.enabled]);
+  }, [settings.mobile?.enabled, settings.ai?.enabled]);
   const [mDiag, setMDiag] = useState<Record<string, MonitorDiagData>>({});
 
   const deckRow = rows[playingRow] ?? null;
@@ -4054,6 +4055,8 @@ export default function App() {
       hits: libraryHits.map((t) => ({ id: t.id, title: t.title, artist: t.artist })),
       ai: { busy: aiRemote.busy, listen: !!settings.ai?.listenLive, msgs: aiRemote.msgs.slice(-12) },
       aiCfg: {
+        enabled: !!settings.ai?.enabled,
+        cloudAssistant: cloudNode.status.join?.api ? `${cloudNode.status.join.api.replace(/\/$/, "")}/asistente` : "",
         provider: settings.ai?.provider ?? "ollama",
         model: (settings.ai?.provider === "cloud" ? settings.ai?.cloudModel : settings.ai?.model) ?? "",
         listenLive: !!settings.ai?.listenLive,
@@ -4497,6 +4500,10 @@ export default function App() {
       }
       case "aiAsk": {
         if (aiRemoteRef.current.busy) return;
+        if (!s.ai?.enabled) {
+          setAiRemote((r) => ({ busy: false, msgs: [...r.msgs, { role: "user", text: String(c.message ?? "") || "…" }, { role: "assistant", text: "La IA está desactivada en el equipo del estudio (Ajustes › IA). También puedes usar el asistente de la nube: cloud.ngradio.es/asistente", error: true }] }));
+          return;
+        }
         const message = String(c.message ?? "").slice(0, 1500);
         const history = aiRemoteRef.current.msgs.filter((m) => !m.error).map((m) => ({ role: m.role, text: m.text }));
         const shown = message.trim() || "¿Qué pongo ahora, según lo que se ha hablado?";
@@ -4518,6 +4525,7 @@ export default function App() {
       }
       case "aiCfg": {
         const ai = { ...(s.ai ?? DEFAULT_SETTINGS.ai) };
+        if (typeof c.enabled === "boolean") ai.enabled = c.enabled;
         if (typeof c.listenLive === "boolean") ai.listenLive = c.listenLive;
         if (typeof c.enrichAuto === "boolean") ai.enrichAuto = c.enrichAuto;
         if (typeof c.model === "string" && c.model.trim()) {
@@ -4668,7 +4676,12 @@ export default function App() {
   // recargan); listas, programas, eventos y campañas los aplica esta ventana.
   useEffect(() => {
     type In = { kind: string; id: string; deleted: boolean; data: unknown };
-    const offLib = listen("cloud://library", () => void refreshTracksAndBlocks());
+    // Varios avisos seguidos (la nube aplica por tandas): una sola recarga.
+    let libTimer = 0;
+    const offLib = listen("cloud://library", () => {
+      window.clearTimeout(libTimer);
+      libTimer = window.setTimeout(() => void refreshTracksAndBlocks(), 1500);
+    });
     const offApply = listen<In[]>("cloud://apply", (e) => {
       const items = Array.isArray(e.payload) ? e.payload : [];
       // Sin los ajustes cargados se guardarían los de fábrica encima de los
@@ -4756,7 +4769,7 @@ export default function App() {
               Puesto de trabajo
             </span>
           )}
-          <button
+          {aiOn && <button
             type="button"
             className="btn btn-sm"
             onClick={() => {
@@ -4766,7 +4779,7 @@ export default function App() {
             title="Asistente de canciones: pide lo que quieres que suene y la IA propone canciones de tu biblioteca"
           >
             IA
-          </button>
+          </button>}
           {workstation && (
             <button type="button" className="btn btn-sm btn-accent" onClick={() => setShowStudioLive(true)} title="Ver y manejar lo que suena en el estudio">
               Directo del estudio
@@ -5178,7 +5191,7 @@ export default function App() {
         />
       )}
 
-      {showAiDj && (
+      {showAiDj && aiOn && (
         <AiDj
           ai={settings.ai ?? DEFAULT_SETTINGS.ai}
           context={aiContext}

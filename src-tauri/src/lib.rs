@@ -5,6 +5,7 @@ use tauri::{Emitter, Manager};
 pub mod ai;
 pub mod aidj;
 pub mod aienrich;
+pub mod perflog;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
@@ -132,6 +133,7 @@ pub fn run() {
             fs::create_dir_all(&data_dir)?;
             // Registro de errores internos y aviso si la vez anterior se cerró mal
             crashlog::init(data_dir.clone());
+            perflog::start(data_dir.clone());
             // El sonido por delante de todo lo demás del equipo
             rt::boost_process();
             // Importacion preparada desde Ajustes: se aplica antes de leer nada.
@@ -188,7 +190,11 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
+            perflog::logs_dir,
+            perflog::logs_tail,
+            perflog::logs_open,
             system_power,
             sysmon::sys_stats,
             remote::remote_status,
@@ -344,7 +350,14 @@ pub fn run() {
             cloudsync::cloud_set_media_dir,
             cloudsync::cloud_media_dir,
             crashlog::crash_note
-        ])
+        ]);
+            // Cada orden se cuenta (registro de rendimiento: si algo se llama
+            // en bucle, se ve allí).
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                perflog::count(invoke.message.command());
+                handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error al iniciar OmniCaster")
         .run(|_app, event| {

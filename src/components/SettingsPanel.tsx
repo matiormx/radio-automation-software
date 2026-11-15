@@ -13,7 +13,7 @@ import type {
   Track,
 } from "../types";
 import { DEFAULT_ENERGY_CURVE, DEFAULT_SETTINGS, campaignSchedules, effectiveDuration } from "../types";
-import { IS_LINUX, confirmAsk, requestQuit, trackUrl } from "../api";
+import { IS_LINUX, confirmAsk, logsOpen, logsTail, requestQuit, trackUrl } from "../api";
 import { RemoteTab } from "./RemoteTab";
 import { MobileTab } from "./MobileTab";
 import { NetworkTab } from "./NetworkTab";
@@ -626,6 +626,32 @@ function GeneralTab({
           </div>
         </div>
             </fieldset>
+
+      <fieldset className="fieldset">
+        <legend>Diagnóstico</legend>
+        <p className="hint">
+          OmniCaster apunta en <strong>rendimiento.log</strong> qué gasta el procesador (por partes y por hilos) y qué
+          órdenes se repiten, cada vez que pasa del 30 % y un resumen cada 10 minutos; los fallos van en errores.log.
+          Si algo va lento, copia el registro y mándalo.
+        </p>
+        <p>
+          <button
+            type="button"
+            className="btn btn-sm btn-accent"
+            onClick={() =>
+              void logsTail()
+                .then((t) => navigator.clipboard.writeText(t))
+                .then(() => alert("Registro copiado: pégalo en el chat o en un correo."))
+                .catch((e) => alert(String(e)))
+            }
+          >
+            Copiar el registro
+          </button>{" "}
+          <button type="button" className="btn btn-sm" onClick={() => void logsOpen().catch((e) => alert(String(e)))}>
+            Abrir la carpeta
+          </button>
+        </p>
+      </fieldset>
 
       <fieldset className="fieldset">
         <legend>Apariencia</legend>

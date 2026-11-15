@@ -401,6 +401,14 @@ export function vstScan(): Promise<VstScanResult> {
   return invoke("vst_scan");
 }
 
+/** Registro de rendimiento y de errores */
+export function logsTail(): Promise<string> {
+  return invoke("logs_tail");
+}
+export function logsOpen(): Promise<void> {
+  return invoke("logs_open");
+}
+
 /** La lista de la última búsqueda (al instante); si no hay, busca. */
 export function vstList(): Promise<VstScanResult> {
   return invoke("vst_list");

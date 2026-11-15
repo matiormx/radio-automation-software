@@ -213,6 +213,8 @@ export interface AiSettings {
   listenLive?: boolean;
   /** Rellenar solas las fichas IA de las canciones nuevas */
   enrichAuto?: boolean;
+  /** Interruptor general de la IA en este equipo (apagado de serie) */
+  enabled?: boolean;
 }
 
 /** Propuesta de metadatos generada por la IA para una cancion. */

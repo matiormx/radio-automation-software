@@ -36,7 +36,13 @@ export function LibraryWindow() {
   useEffect(() => {
     const offs: Array<Promise<() => void>> = [];
     offs.push(onMainState<SharedState>(setShared));
-    offs.push(listen("library://changed", () => void refresh()));
+    let libTimer = 0;
+    offs.push(
+      listen("library://changed", () => {
+        window.clearTimeout(libTimer);
+        libTimer = window.setTimeout(() => void refresh(), 1000);
+      }),
+    );
     // Pausar, reanudar o cancelar desde el aviso de la ventana principal.
     offs.push(
       listen<"pause" | "resume" | "cancel">("library://control", (e) => {
