@@ -1,7 +1,7 @@
 import { DeezerSearch } from "./DeezerSearch";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
-import type { AiSettings, Block, HistoryEntry, PlaylistImportReport, Track, TrackPatch } from "../types";
+import type { AiSettings, Block, HistoryEntry, HourWindow, PlaylistImportReport, Track, TrackPatch } from "../types";
 import {
   updateTrack,
   setTrackCover,
@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
 import { NavArrows } from "./NavArrows";
+import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { beginDrag, registerDropZone } from "../dnd";
 import { GalleryHeader, MusicGallery, matchesSel } from "./MusicGallery";
 import { ExplorerView } from "./ExplorerView";
@@ -137,6 +138,7 @@ interface EditState {
   energy: number;
   mood: string;
   themesText: string;
+  hours: HourWindow[];
   blocks: string[];
   /** Lista desde la que se abrió (para ‹ › entre canciones) */
   navIds: string[];
@@ -667,7 +669,7 @@ function MusicBrowserBase({
     return ids.includes(id) ? ids : [id];
   };
   const editKey = (e: Omit<EditState, "orig" | "busy" | "navIds">) =>
-    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.blocks, e.coverChange]);
+    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.hours, e.blocks, e.coverChange]);
   const makeEdit = (t: Track, navIds: string[]): EditState => {
     const e = {
       id: t.id,
@@ -682,6 +684,7 @@ function MusicBrowserBase({
       energy: t.energy ?? 0,
       mood: t.mood ?? "",
       themesText: (t.themes ?? []).join(", "),
+      hours: (t.hours ?? []).map((h) => ({ ...h })),
       blocks: [...t.blocks],
       cover: t.cover,
       coverChange: null,
@@ -717,6 +720,7 @@ function MusicBrowserBase({
         language: edit.language,
         disabled: edit.disabled,
         energy: edit.energy,
+        hours: edit.hours.map((h) => ({ id: h.id, days: h.days, start: h.start, end: h.end })),
         mood: edit.mood.trim(),
         themes: edit.themesText
           .split(",")
@@ -1775,6 +1779,28 @@ function MusicBrowserBase({
                   onChange={(e) => setEdit({ ...edit, themesText: e.target.value })}
                 />
               </label>
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={edit.hours.length > 0}
+                  onChange={(e) =>
+                    setEdit({
+                      ...edit,
+                      hours: e.target.checked ? [{ ...newScheduleBlock("stream"), start: "06:00", end: "22:00" }].map((b) => ({ id: b.id, days: b.days, start: b.start ?? "06:00", end: b.end ?? "22:00" })) : [],
+                    })
+                  }
+                />
+                Solo a ciertas horas (el AutoDJ no la pone fuera de estas franjas)
+              </label>
+              {edit.hours.length > 0 && (
+                <ScheduleEditor
+                  mode="stream"
+                  blocks={edit.hours.map((h) => ({ id: h.id, days: h.days, times: [], start: h.start, end: h.end }))}
+                  onChange={(blocks) =>
+                    setEdit({ ...edit, hours: blocks.map((b) => ({ id: b.id, days: b.days, start: b.start ?? "06:00", end: b.end ?? "22:00" })) })
+                  }
+                />
+              )}
               <label className="check" title="Sigue en la biblioteca, pero no suena aunque esté en una lista o en un evento, y el AutoDJ no la elige">
                 <input type="checkbox" checked={edit.disabled} onChange={(e) => setEdit({ ...edit, disabled: e.target.checked })} />
                 Inhabilitada: no suena aunque esté en una lista o en un evento

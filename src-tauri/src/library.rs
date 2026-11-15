@@ -133,6 +133,47 @@ pub struct Track {
     /// Ficha IA: de qué habla la letra (gratitud, esperanza, familia…)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub themes: Vec<String>,
+    /// Horario permitido: solo suena (AutoDJ) en estas franjas. Vacío = siempre.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hours: Vec<HourWindow>,
+}
+
+/// Franja permitida de una canción: días (1 = lunes … 7 = domingo) y de
+/// `start` a `end` (HH:MM; si `end` <= `start`, cruza la medianoche).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HourWindow {
+    pub id: String,
+    pub days: Vec<u8>,
+    pub start: String,
+    pub end: String,
+}
+
+fn hm(s: &str) -> Option<u32> {
+    let (h, m) = s.trim().split_once(':')?;
+    let (h, m): (u32, u32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+impl HourWindow {
+    /// ¿Se puede emitir el día `wd` (1–7) al minuto `min` del día?
+    pub fn allows(&self, wd: u8, min: u32) -> bool {
+        let (Some(a), Some(b)) = (hm(&self.start), hm(&self.end)) else { return true };
+        let day_ok = |d: u8| self.days.is_empty() || self.days.contains(&d);
+        if a < b {
+            day_ok(wd) && min >= a && min < b
+        } else {
+            // Cruza la medianoche: la parte de antes de las 24:00 es del día
+            // marcado; la de después, del día siguiente.
+            let prev = if wd == 1 { 7 } else { wd - 1 };
+            (day_ok(wd) && min >= a) || (day_ok(prev) && min < b)
+        }
+    }
+}
+
+/// ¿Puede sonar la canción en ese momento? (sin franjas, siempre)
+pub fn hours_allow(hours: &[HourWindow], wd: u8, min: u32) -> bool {
+    hours.is_empty() || hours.iter().any(|w| w.allows(wd, min))
 }
 
 fn is_zero_u8(v: &u8) -> bool {
@@ -901,6 +942,7 @@ pub struct TrackResolved {
     pub energy: u8,
     pub mood: String,
     pub themes: Vec<String>,
+    pub hours: Vec<HourWindow>,
 }
 
 impl TrackResolved {
@@ -952,6 +994,7 @@ impl TrackResolved {
             energy: t.energy,
             mood: t.mood,
             themes: t.themes,
+            hours: t.hours,
         }
     }
 }
@@ -1322,6 +1365,9 @@ pub struct TrackPatch {
     pub mood: Option<String>,
     #[serde(default)]
     pub themes: Option<Vec<String>>,
+    /// Horario permitido (vacío = siempre)
+    #[serde(default)]
+    pub hours: Option<Vec<HourWindow>>,
 }
 
 /// Edita los metadatos de una cancion. Las etiquetas del archivo no se
@@ -1450,6 +1496,9 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<Optio
         }
         if let Some(m) = patch.mood {
             t.mood = m.trim().chars().take(40).collect();
+        }
+        if let Some(h) = patch.hours {
+            t.hours = h.into_iter().filter(|w| hm(&w.start).is_some() && hm(&w.end).is_some()).take(12).collect();
         }
         if let Some(th) = patch.themes {
             t.themes = th.iter().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).take(6).collect();
@@ -1638,6 +1687,7 @@ pub struct TrackDetails {
     pub energy: u8,
     pub mood: String,
     pub themes: Vec<String>,
+    pub hours: Vec<HourWindow>,
     pub missing: bool,
     pub file_size: u64,
     pub format: String,
@@ -1743,6 +1793,7 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         energy: t.energy,
         mood: t.mood.clone(),
         themes: t.themes.clone(),
+        hours: t.hours.clone(),
     })
 }
 
@@ -2578,5 +2629,29 @@ mod tests {
         // Sin mix o sin duracion conocida, tampoco.
         assert!(!is_legacy_intro_marker(0.0, 0.0, 180.0));
         assert!(!is_legacy_intro_marker(2.0, 0.0, 0.0));
+    }
+}
+
+#[cfg(test)]
+mod hours_tests {
+    use super::*;
+
+    fn w(days: &[u8], a: &str, b: &str) -> HourWindow {
+        HourWindow { id: "x".into(), days: days.to_vec(), start: a.into(), end: b.into() }
+    }
+
+    #[test]
+    fn windows_by_day_and_time() {
+        let morning = w(&[1, 2, 3, 4, 5], "06:00", "12:00");
+        assert!(morning.allows(1, 6 * 60));
+        assert!(!morning.allows(1, 12 * 60));
+        assert!(!morning.allows(6, 8 * 60)); // sábado no
+        let night = w(&[5], "22:00", "02:00"); // viernes noche
+        assert!(night.allows(5, 23 * 60));
+        assert!(night.allows(6, 60)); // madrugada del sábado
+        assert!(!night.allows(5, 60)); // madrugada del viernes no
+        assert!(hours_allow(&[], 3, 0));
+        assert!(hours_allow(&[morning.clone(), night], 6, 30));
+        assert!(!hours_allow(&[morning], 7, 9 * 60));
     }
 }

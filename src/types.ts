@@ -24,8 +24,18 @@ export const DEFAULT_ENERGY_CURVE: EnergyCurve = {
   ],
 };
 
+/** Franja permitida de una canción (días 1–7 y de start a end) */
+export interface HourWindow {
+  id: string;
+  days: number[];
+  start: string;
+  end: string;
+}
+
 export interface Track {
   id: string;
+  /** Horario permitido: el AutoDJ solo la pone en estas franjas (vacío = siempre) */
+  hours?: HourWindow[];
   /** Ficha IA: energía 1–5 (0/ausente = sin analizar), ánimo y temas */
   energy?: number;
   mood?: string;
@@ -194,6 +204,7 @@ export interface TrackPatch {
   energy?: number;
   mood?: string;
   themes?: string[];
+  hours?: HourWindow[];
 }
 
 /** Configuracion del analisis de metadatos con IA local (Ollama/OpenCode) o en la nube. */
@@ -251,6 +262,7 @@ export interface TrackDetails {
   energy: number;
   mood: string;
   themes: string[];
+  hours: HourWindow[];
   missing: boolean;
   fileSize: number;
   format: string;

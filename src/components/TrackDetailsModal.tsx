@@ -33,6 +33,27 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+const DAY_L = ["", "L", "M", "X", "J", "V", "S", "D"];
+
+/** «L–V 06:00–12:00 · S 10:00–14:00» (vacío: siempre) */
+function hoursText(hours: { days: number[]; start: string; end: string }[]): string {
+  if (!hours || hours.length === 0) return "Siempre";
+  return hours
+    .map((h) => {
+      const d = [...h.days].sort();
+      const days =
+        d.length === 7 || d.length === 0
+          ? "Todos los días"
+          : d.join(",") === "1,2,3,4,5"
+            ? "L–V"
+            : d.join(",") === "6,7"
+              ? "S–D"
+              : d.map((x) => DAY_L[x]).join(" ");
+      return `${days} ${h.start}–${h.end}`;
+    })
+    .join(" · ");
+}
+
 export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate }: TrackDetailsModalProps) {
   const [details, setDetails] = useState<TrackDetails | null>(null);
   const [error, setError] = useState("");
@@ -183,6 +204,8 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                     "Sin ficha"
                   )}
                 </span>
+                <span className="prop-k">Horario</span>
+                <span className="prop-v">{hoursText(details.hours)}</span>
                 <span className="prop-k">Ánimo</span>
                 <span className="prop-v">{details.mood || "—"}</span>
                 <span className="prop-k">Temas</span>

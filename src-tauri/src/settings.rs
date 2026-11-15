@@ -1319,6 +1319,16 @@ impl EnergyCurve {
     }
 }
 
+/// Día de la semana (1 = lunes … 7 = domingo) y minuto del día, hora local.
+fn local_day_minute(epoch: u64) -> (u8, u32) {
+    use chrono::{Datelike, Local, TimeZone, Timelike};
+    Local
+        .timestamp_opt(epoch as i64, 0)
+        .single()
+        .map(|d| (d.weekday().number_from_monday() as u8, d.hour() * 60 + d.minute()))
+        .unwrap_or((1, 0))
+}
+
 /// Minuto del día (hora local) de un instante unix.
 fn local_minute(epoch: u64) -> u32 {
     use chrono::{Local, TimeZone, Timelike};
@@ -1517,9 +1527,13 @@ pub fn pick_tracks(
         let mut at = now as f64 + (s.autopilot_min_upcoming as f64) * 60.0;
         let mut prev_energy = prev_energy0;
         while picked.len() < count as usize {
+            // Horario permitido de cada canción, a la hora en que sonará
+            // (regla fija: no se relaja).
+            let (wd, min) = local_day_minute(at as u64);
             let mut eligible: Vec<&Candidate> = candidates
                 .iter()
                 .filter(|c| !used.contains(c.id.as_str()))
+                .filter(|c| by_id.get(c.id.as_str()).map(|t| crate::library::hours_allow(&t.hours, wd, min)).unwrap_or(true))
                 .filter(|c| {
                     relax
                         || !s.avoid_consecutive_artist
