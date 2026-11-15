@@ -557,7 +557,7 @@ export function PlaylistZone({
       )}
 
       {detailsId && (
-        <TrackDetailsModal trackId={detailsId} onClose={() => setDetailsId("")} />
+        <TrackDetailsModal trackId={detailsId} navIds={rows.map((r) => r.id)} onNavigate={setDetailsId} onClose={() => setDetailsId("")} />
       )}
     </section>
   );

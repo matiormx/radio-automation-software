@@ -561,7 +561,7 @@ export default function App() {
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [cutsTrackId, setCutsTrackId] = useState("");
-  const [pendingEdit, setPendingEdit] = useState<{ id: string; n: number } | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<{ id: string; n: number; ids?: string[] } | null>(null);
   const [streamBusy, setStreamBusy] = useState(false);
   // Menu de clic derecho para asignar bloques (desde el plato «al aire»).
   const [blockMenu, setBlockMenu] = useState<{ trackId: string; x: number; y: number } | null>(null);
@@ -2033,7 +2033,7 @@ export default function App() {
     (index: number) => {
       const row = viewRowsRef.current[index];
       if (!row) return;
-      setPendingEdit({ id: row.id, n: Date.now() });
+      setPendingEdit({ id: row.id, n: Date.now(), ids: viewRowsRef.current.map((r) => r.id) });
     },
     [],
   );

@@ -3,11 +3,15 @@ import type { TrackDetails } from "../types";
 import { closeOnBackdrop } from "../backdrop";
 import { getTrackDetails, trackUrl } from "../api";
 import { IconEdit, IconNote } from "../icons";
+import { NavArrows } from "./NavArrows";
 
 interface TrackDetailsModalProps {
   trackId: string;
   onClose: () => void;
   onEdit?: (id: string) => void;
+  /** Lista desde la que se abrió y cómo pasar a otra canción (‹ ›) */
+  navIds?: string[];
+  onNavigate?: (id: string) => void;
 }
 
 function fmtTime(secs: number): string {
@@ -29,13 +33,13 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModalProps) {
+export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate }: TrackDetailsModalProps) {
   const [details, setDetails] = useState<TrackDetails | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
-    setDetails(null);
+    // Al pasar de una canción a otra se deja la anterior hasta que llega la nueva (sin parpadeo).
     setError("");
     void getTrackDetails(trackId)
       .then((d) => {
@@ -60,6 +64,19 @@ export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModa
       >
         <div className="modal-head">
           <h3>Detalles de la canción</h3>
+          {navIds && onNavigate ? (
+            <NavArrows
+              ids={navIds}
+              id={trackId}
+              keys="plain"
+              onStep={(d) => {
+                const next = navIds[navIds.indexOf(trackId) + d];
+                if (next) onNavigate(next);
+              }}
+            />
+          ) : (
+            <span style={{ flex: 1 }} />
+          )}
           <button type="button" className="ghost-btn" onClick={onClose}>
             Cerrar
           </button>

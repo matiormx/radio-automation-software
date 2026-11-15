@@ -5030,3 +5030,6 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 :root[data-contrast] .hint { font-size: 12px; }
 .energy-dots { color: var(--accent); letter-spacing: 1px; }
 .energy-dots .off { color: var(--line-strong); }
+.modal-head .nav-arrows { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.nav-arrows .ghost-btn { font-size: 20px; line-height: 1; padding: 2px 10px; }
+.nav-arrows .nav-pos { font-size: 12px; color: var(--text-dim); min-width: 64px; text-align: center; }

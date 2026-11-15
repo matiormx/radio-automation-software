@@ -16,6 +16,7 @@ import {
   isVideoFile,
 } from "../api";
 import { TrackDetailsModal } from "./TrackDetailsModal";
+import { NavArrows } from "./NavArrows";
 import { beginDrag, registerDropZone } from "../dnd";
 import { GalleryHeader, MusicGallery, matchesSel } from "./MusicGallery";
 import { ExplorerView } from "./ExplorerView";
@@ -108,7 +109,7 @@ interface MusicBrowserProps {
   onTrackSaved: () => Promise<void>;
   onEditCuts: (track: Track) => void;
   /** Peticion de edicion de metadatos desde otra zona de la app */
-  pendingEdit: { id: string; n: number } | null;
+  pendingEdit: { id: string; n: number; ids?: string[] } | null;
   onPendingEditDone: () => void;
   /** Asigna una cancion a una lista (arrastrando desde la lista de emision). */
   onAssignTrackBlock?: (trackId: string, blockId: string) => void;
@@ -137,6 +138,10 @@ interface EditState {
   mood: string;
   themesText: string;
   blocks: string[];
+  /** Lista desde la que se abrió (para ‹ › entre canciones) */
+  navIds: string[];
+  /** Cómo estaba al abrir (para guardar solo si se ha cambiado algo) */
+  orig: string;
   busy: boolean;
   /** Caratula actual (ruta) */
   cover: string;
@@ -261,6 +266,7 @@ function MusicBrowserBase({
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [propsId, setPropsId] = useState("");
+  const [propsNav, setPropsNav] = useState<string[]>([]);
   const [imp, setImp] = useState<ImportState | null>(null);
   const [newBlock, setNewBlock] = useState("");
   // Alta de listas y grupos: un boton discreto con menu y un campo al elegir.
@@ -655,35 +661,15 @@ function MusicBrowserBase({
     setSelectedId(track.id);
   };
 
-  // Edicion de metadatos solicitada desde la lista de emision.
-  useEffect(() => {
-    if (!pendingEdit) return;
-    const t = tracks.find((x) => x.id === pendingEdit.id);
-    if (t) {
-      setEdit({
-        id: t.id,
-        title: t.title,
-        artist: t.artist,
-        album: t.album,
-        genre: t.genre,
-        year: t.year,
-        tagsText: t.tags.join(", "),
-      language: t.language ?? "",
-        disabled: !!t.disabled,
-        energy: t.energy ?? 0,
-        mood: t.mood ?? "",
-        themesText: (t.themes ?? []).join(", "),
-        blocks: [...t.blocks],
-        busy: false,
-        cover: t.cover,
-        coverChange: null,
-      });
-    }
-    onPendingEditDone();
-  }, [pendingEdit, tracks, onPendingEditDone]);
-
-  const openEditor = (t: Track) => {
-    setEdit({
+  // Lista desde la que se abre una canción: la de la biblioteca que se ve.
+  const navFor = (id: string): string[] => {
+    const ids = filtered.map((x) => x.id);
+    return ids.includes(id) ? ids : [id];
+  };
+  const editKey = (e: Omit<EditState, "orig" | "busy" | "navIds">) =>
+    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.blocks, e.coverChange]);
+  const makeEdit = (t: Track, navIds: string[]): EditState => {
+    const e = {
       id: t.id,
       title: t.title,
       artist: t.artist,
@@ -697,13 +683,28 @@ function MusicBrowserBase({
       mood: t.mood ?? "",
       themesText: (t.themes ?? []).join(", "),
       blocks: [...t.blocks],
-      busy: false,
       cover: t.cover,
       coverChange: null,
-    });
+    };
+    return { ...e, busy: false, navIds, orig: editKey(e) };
   };
 
-  const saveEdit = async () => {
+  // Edicion de metadatos solicitada desde la lista de emision.
+  useEffect(() => {
+    if (!pendingEdit) return;
+    const t = tracks.find((x) => x.id === pendingEdit.id);
+    if (t) {
+      setEdit(makeEdit(t, pendingEdit.ids && pendingEdit.ids.includes(t.id) ? pendingEdit.ids : navFor(t.id)));
+    }
+    onPendingEditDone();
+  }, [pendingEdit, tracks, onPendingEditDone]);
+
+  const openEditor = (t: Track, navIds?: string[]) => {
+    setEdit(makeEdit(t, navIds ?? navFor(t.id)));
+  };
+
+  /** Guarda; con `next`, en vez de cerrar pasa a esa canción. */
+  const saveEdit = async (next?: Track) => {
     if (!edit) return;
     setEdit({ ...edit, busy: true });
     try {
@@ -733,12 +734,28 @@ function MusicBrowserBase({
       if (cc?.kind === "clear") await clearTrackCover(edit.id);
       else if (cc) await setTrackCover(edit.id, cc.source);
       await onTrackSaved();
-      setEdit(null);
-      showToast(note || "Canción actualizada");
+      if (next) {
+        setEdit(makeEdit(next, edit.navIds));
+        showToast(note || `«${edit.title.trim() || "Sin título"}» guardada`);
+      } else {
+        setEdit(null);
+        showToast(note || "Canción actualizada");
+      }
     } catch (e) {
       showToast(`No se pudo guardar: ${String(e)}`);
       setEdit((s) => (s ? { ...s, busy: false } : s));
     }
+  };
+
+  /** ‹ › en el editor: guarda (si hay cambios) y pasa a la anterior/siguiente. */
+  const editStep = (dir: -1 | 1) => {
+    if (!edit || edit.busy) return;
+    const i = edit.navIds.indexOf(edit.id);
+    const nextId = i >= 0 ? edit.navIds[i + dir] : undefined;
+    const t = nextId ? tracks.find((x) => x.id === nextId) : undefined;
+    if (!t) return;
+    if (editKey(edit) !== edit.orig) void saveEdit(t);
+    else setEdit(makeEdit(t, edit.navIds));
   };
 
   const doRelink = async (id: string) => {
@@ -755,6 +772,7 @@ function MusicBrowserBase({
   };
 
   const openProperties = (t: Track) => {
+    setPropsNav(navFor(t.id));
     setPropsId(t.id);
   };
 
@@ -1585,11 +1603,13 @@ function MusicBrowserBase({
       {propsId && (
         <TrackDetailsModal
           trackId={propsId}
+          navIds={propsNav}
+          onNavigate={setPropsId}
           onClose={() => setPropsId("")}
           onEdit={(id) => {
             const t = tracks.find((x) => x.id === id);
             setPropsId("");
-            if (t) openEditor(t);
+            if (t) openEditor(t, propsNav.includes(id) ? propsNav : undefined);
           }}
         />
       )}
@@ -1632,6 +1652,7 @@ function MusicBrowserBase({
           >
             <div className="modal-head">
               <h3>Editar canción</h3>
+              <NavArrows ids={edit.navIds} id={edit.id} busy={edit.busy} onStep={editStep} hint="Guarda los cambios y pasa a la" />
               <button type="button" className="ghost-btn" onClick={() => setEdit(null)}>
                 Cerrar
               </button>
