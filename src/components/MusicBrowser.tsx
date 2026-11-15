@@ -133,6 +133,9 @@ interface EditState {
   tagsText: string;
   language: string;
   disabled: boolean;
+  energy: number;
+  mood: string;
+  themesText: string;
   blocks: string[];
   busy: boolean;
   /** Caratula actual (ruta) */
@@ -667,6 +670,9 @@ function MusicBrowserBase({
         tagsText: t.tags.join(", "),
       language: t.language ?? "",
         disabled: !!t.disabled,
+        energy: t.energy ?? 0,
+        mood: t.mood ?? "",
+        themesText: (t.themes ?? []).join(", "),
         blocks: [...t.blocks],
         busy: false,
         cover: t.cover,
@@ -687,6 +693,9 @@ function MusicBrowserBase({
       tagsText: t.tags.join(", "),
       language: t.language ?? "",
       disabled: !!t.disabled,
+      energy: t.energy ?? 0,
+      mood: t.mood ?? "",
+      themesText: (t.themes ?? []).join(", "),
       blocks: [...t.blocks],
       busy: false,
       cover: t.cover,
@@ -706,6 +715,12 @@ function MusicBrowserBase({
         year: edit.year.trim(),
         language: edit.language,
         disabled: edit.disabled,
+        energy: edit.energy,
+        mood: edit.mood.trim(),
+        themes: edit.themesText
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
         tags: edit.tagsText
           .split(",")
           .map((s) => s.trim())
@@ -1712,6 +1727,31 @@ function MusicBrowserBase({
                   value={edit.tagsText}
                   placeholder="separadas por comas: navidad, instrumental"
                   onChange={(e) => setEdit({ ...edit, tagsText: e.target.value })}
+                />
+              </label>
+              <div className="field-row">
+                <label className="field">
+                  <span className="field-label">Energía (IA)</span>
+                  <select value={edit.energy} onChange={(e) => setEdit({ ...edit, energy: Number(e.target.value) })}>
+                    <option value={0}>Sin ficha</option>
+                    <option value={1}>1 · Muy tranquila</option>
+                    <option value={2}>2 · Suave</option>
+                    <option value={3}>3 · Media</option>
+                    <option value={4}>4 · Animada</option>
+                    <option value={5}>5 · Muy enérgica</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Ánimo (IA)</span>
+                  <input value={edit.mood} placeholder="adoración íntima, festiva…" onChange={(e) => setEdit({ ...edit, mood: e.target.value })} />
+                </label>
+              </div>
+              <label className="field">
+                <span className="field-label">Temas de la letra (IA)</span>
+                <input
+                  value={edit.themesText}
+                  placeholder="separados por comas: gratitud, esperanza, familia"
+                  onChange={(e) => setEdit({ ...edit, themesText: e.target.value })}
                 />
               </label>
               <label className="check" title="Sigue en la biblioteca, pero no suena aunque esté en una lista o en un evento, y el AutoDJ no la elige">

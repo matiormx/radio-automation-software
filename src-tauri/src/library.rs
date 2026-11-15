@@ -1315,6 +1315,13 @@ pub struct TrackPatch {
     /// Inhabilitada: no suena aunque esté en una lista o en un evento
     #[serde(default)]
     pub disabled: Option<bool>,
+    /// Ficha IA (se puede corregir a mano): energía 0–5, ánimo y temas
+    #[serde(default)]
+    pub energy: Option<u8>,
+    #[serde(default)]
+    pub mood: Option<String>,
+    #[serde(default)]
+    pub themes: Option<Vec<String>>,
 }
 
 /// Edita los metadatos de una cancion. Las etiquetas del archivo no se
@@ -1437,6 +1444,15 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<Optio
         }
         if let Some(d) = patch.disabled {
             t.disabled = d;
+        }
+        if let Some(e) = patch.energy {
+            t.energy = e.min(5);
+        }
+        if let Some(m) = patch.mood {
+            t.mood = m.trim().chars().take(40).collect();
+        }
+        if let Some(th) = patch.themes {
+            t.themes = th.iter().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).take(6).collect();
         }
         if rename && before != (t.title.clone(), t.artist.clone()) {
             if let Err(e) = rename_to_metadata(data_dir, t) {
@@ -1619,6 +1635,9 @@ pub struct TrackDetails {
     pub blocks: Vec<String>,
     pub block_names: Vec<String>,
     pub tags: Vec<String>,
+    pub energy: u8,
+    pub mood: String,
+    pub themes: Vec<String>,
     pub missing: bool,
     pub file_size: u64,
     pub format: String,
@@ -1721,6 +1740,9 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         mix_point: t.mix_point,
         fade_out_start: t.fade_out_start,
         cover: cover_abs(&state.data_dir, &t.cover),
+        energy: t.energy,
+        mood: t.mood.clone(),
+        themes: t.themes.clone(),
     })
 }
 

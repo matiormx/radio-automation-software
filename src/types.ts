@@ -191,6 +191,9 @@ export interface TrackPatch {
   tags?: string[];
   language?: string;
   disabled?: boolean;
+  energy?: number;
+  mood?: string;
+  themes?: string[];
 }
 
 /** Configuracion del analisis de metadatos con IA local (Ollama/OpenCode) o en la nube. */
@@ -240,6 +243,10 @@ export interface TrackDetails {
   blocks: string[];
   blockNames: string[];
   tags: string[];
+  /** Ficha IA */
+  energy: number;
+  mood: string;
+  themes: string[];
   missing: boolean;
   fileSize: number;
   format: string;

@@ -5028,3 +5028,5 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
   --danger: #ff5a5a;
 }
 :root[data-contrast] .hint { font-size: 12px; }
+.energy-dots { color: var(--accent); letter-spacing: 1px; }
+.energy-dots .off { color: var(--line-strong); }

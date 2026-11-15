@@ -155,6 +155,33 @@ export function TrackDetailsModal({ trackId, onClose, onEdit }: TrackDetailsModa
                     "—"
                   )}
                 </span>
+                <span className="prop-k">Energía</span>
+                <span className="prop-v">
+                  {details.energy > 0 ? (
+                    <span title="Ficha IA: 1 muy tranquila · 5 muy enérgica">
+                      <span className="energy-dots">{"●".repeat(details.energy)}<span className="off">{"●".repeat(5 - details.energy)}</span></span>{" "}
+                      {["", "Muy tranquila", "Suave", "Media", "Animada", "Muy enérgica"][details.energy]}
+                    </span>
+                  ) : (
+                    "Sin ficha"
+                  )}
+                </span>
+                <span className="prop-k">Ánimo</span>
+                <span className="prop-v">{details.mood || "—"}</span>
+                <span className="prop-k">Temas</span>
+                <span className="prop-v">
+                  {details.themes.length > 0 ? (
+                    <span className="props-chips">
+                      {details.themes.map((th) => (
+                        <span key={th} className="chip chip-tag">
+                          {th}
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </span>
                 <span className="prop-k">Etiquetas</span>
                 <span className="prop-v">
                   {details.tags.length > 0 ? (
