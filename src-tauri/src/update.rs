@@ -143,7 +143,12 @@ mod win {
         let p = wide(std::ffi::OsStr::new(params));
         let r = unsafe { ShellExecuteW(0, op.as_ptr(), f.as_ptr(), p.as_ptr(), std::ptr::null(), 1) };
         if r <= 32 {
-            Err(format!("código {r}"))
+            Err(match r {
+                5 => "Windows no dejó abrir el instalador (código 5): no se aceptó el permiso de administrador o el antivirus lo bloqueó. Si estás conectado por VNC, el aviso de permiso a veces no se ve: actualiza delante del equipo o descarga el instalador y ábrelo a mano.".to_string(),
+                2 | 3 => format!("No se encontró el instalador descargado (código {r}): vuelve a intentarlo."),
+                8 => "No hay memoria suficiente para abrir el instalador (código 8).".to_string(),
+                _ => format!("código {r}"),
+            })
         } else {
             Ok(())
         }
