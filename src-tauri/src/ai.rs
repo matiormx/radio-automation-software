@@ -24,15 +24,25 @@ pub struct AiSuggestion {
     pub tags: Vec<String>,
     pub confidence: f64,
     pub reason: String,
+    /// Ficha: energía 1–5 (0 = no se sabe), ánimo y temas de la letra
+    #[serde(default)]
+    pub energy: u8,
+    #[serde(default)]
+    pub mood: String,
+    #[serde(default)]
+    pub themes: Vec<String>,
 }
 
-const SYSTEM_PROMPT: &str = r#"Eres un catalogador musical para una emisora de radio.
+const SYSTEM_PROMPT: &str = r#"Eres un catalogador musical para una emisora de radio cristiana y familiar.
 Analiza los metadatos de una cancion y devuelve SOLO un objeto JSON valido, sin texto adicional, con esta forma:
-{"language":"es","genre":"Pop","tags":["balada","acustico"],"confidence":0.8,"reason":"..."}
+{"language":"es","genre":"Alabanza","tags":["en vivo","balada"],"energy":2,"mood":"adoración íntima","themes":["entrega","gratitud"],"confidence":0.8,"reason":"..."}
 Reglas:
 - language: codigo ISO 639-1 de dos letras del idioma principal de la LETRA. Si se da la letra, el idioma sale de ella y no del titulo: el titulo o el artista pueden estar en otro idioma (traducciones, versiones, titulos en ingles de canciones cantadas en español). Si no hay letra pero se da el idioma detectado en la voz del audio (Whisper), usalo cuando su seguridad sea alta y el fragmento oido lo confirme. Si es instrumental o no puedes determinarlo, usa "".
-- genre: estilo musical breve en español. Si se ofrecen estilos preferidos, elige uno de ellos cuando encaje.
-- tags: entre 0 y 5 etiquetas cortas y utiles (instrumental, bailable, acustico, navidad, etc.).
+- genre: estilo musical breve en español que sirva para programar: Alabanza, Adoración, Pop cristiano, Rock cristiano, Balada, Gospel, Urbano cristiano, Worship, Infantil, Instrumental… Si se ofrecen estilos preferidos, elige uno de ellos cuando encaje. Nunca «Unknown», «Miscellaneous», «Other» ni el nombre del sello.
+- tags: entre 0 y 5 etiquetas cortas, en minúsculas y que SEAN CIERTAS para esta canción: formato (en vivo, acústico, instrumental, remix, versión), ocasión (navidad, semana santa, día de la madre, boda), público (infantil, juvenil) o carácter (bailable, congregacional). No pongas «navidad» ni «instrumental» si no lo es: mejor ninguna etiqueta que una falsa. No repitas el estilo ni los temas.
+- energy: entero de 1 a 5 según cómo SUENA: 1 muy tranquila/íntima, 2 suave (balada, adoración pausada), 3 media (medio tiempo), 4 animada, 5 muy enérgica (fiesta, rápida). Si no se puede deducir, 0.
+- mood: ánimo en 1 a 4 palabras en español (adoración íntima, alabanza festiva, reflexiva, alegre, esperanzadora…).
+- themes: 1 a 4 temas de la LETRA en minúsculas, una o dos palabras (gratitud, esperanza, entrega, familia, perdón, gozo, fe, amor de Dios…). Vacío si es instrumental o no hay forma de saberlo.
 - confidence: numero entre 0 y 1. Baja la confianza si no hay letra y solo tienes el titulo, o si no estas seguro.
 - reason: una frase breve en español que explique la decision.
 No inventes datos que no se puedan deducir de los metadatos."#;
@@ -260,12 +270,38 @@ fn parse_suggestion(parsed: Value) -> AiSuggestion {
         .take(300)
         .collect::<String>();
 
+    let energy = parsed
+        .get("energy")
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+        .map(|e| e.round().clamp(0.0, 5.0) as u8)
+        .unwrap_or(0);
+    let mood: String = parsed.get("mood").and_then(Value::as_str).unwrap_or("").trim().chars().take(40).collect();
+    let themes: Vec<String> = parsed
+        .get("themes")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty() && s.chars().count() <= 30)
+                .take(4)
+                .collect()
+        })
+        .unwrap_or_default();
+    // Estilos que no sirven para programar
+    let genre = match genre.to_lowercase().as_str() {
+        "unknown" | "miscellaneous" | "other" | "otros" | "otro" | "desconocido" | "varios" => String::new(),
+        _ => genre,
+    };
     AiSuggestion {
         language,
         genre,
         tags,
         confidence,
         reason,
+        energy,
+        mood,
+        themes,
     }
 }
 

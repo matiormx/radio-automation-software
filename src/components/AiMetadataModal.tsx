@@ -42,6 +42,8 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Sustituir las etiquetas por las nuevas (si no, se añaden a las que ya hay) */
+  const [replaceTags, setReplaceTags] = useState(true);
 
   const allSelected = rows.length > 0 && selected.size === rows.length;
   const selectedRows = useMemo(
@@ -134,9 +136,11 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
       const patch: TrackPatch = {};
       if (suggestion.language) patch.language = suggestion.language;
       if (suggestion.genre) patch.genre = suggestion.genre;
-      if (suggestion.tags.length > 0) {
-        patch.tags = mergeTags(row.track.tags, suggestion.tags);
-      }
+      if (replaceTags) patch.tags = suggestion.tags;
+      else if (suggestion.tags.length > 0) patch.tags = mergeTags(row.track.tags, suggestion.tags);
+      if (suggestion.energy && suggestion.energy > 0) patch.energy = suggestion.energy;
+      if (suggestion.mood) patch.mood = suggestion.mood;
+      if (suggestion.themes && suggestion.themes.length > 0) patch.themes = suggestion.themes;
       if (Object.keys(patch).length === 0) continue;
       try {
         await updateTrack(row.track.id, patch);
@@ -152,6 +156,9 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
                     language: patch.language ?? item.track.language,
                     genre: patch.genre ?? item.track.genre,
                     tags: patch.tags ?? item.track.tags,
+                    energy: patch.energy ?? item.track.energy,
+                    mood: patch.mood ?? item.track.mood,
+                    themes: patch.themes ?? item.track.themes,
                   },
                 }
               : item,
@@ -263,7 +270,8 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
         </div>
         <div className="modal-body">
           <p className="hint">
-            La IA propondrá idioma, estilo y etiquetas a partir de los metadatos de cada canción.
+            La IA propondrá idioma, estilo, etiquetas, energía (1–5), ánimo y temas de la letra a partir de los
+            metadatos y la letra de cada canción. La energía la usa el AutoDJ (energía del día) y el asistente.
             Revisa las propuestas y acepta solo las que quieras guardar. No se modifica nada hasta
             que pulses «Aceptar seleccionadas». Esta ventana se puede minimizar: el análisis
             sigue en segundo plano y al aceptar la biblioteca se refresca sola.
@@ -282,6 +290,10 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
             <span className="hint">
               {selected.size} de {rows.length} seleccionada{rows.length === 1 ? "" : "s"}
             </span>
+            <label className="check-field" title="Desmárcalo para conservar las etiquetas que ya tiene y solo añadir las nuevas">
+              <input type="checkbox" checked={replaceTags} disabled={busy} onChange={(e) => setReplaceTags(e.target.checked)} />
+              Sustituir etiquetas
+            </label>
             <span className="spacer" />
             <button
               type="button"
@@ -339,6 +351,7 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
                         {row.track.language
                           ? `${languageFlag(row.track.language)} ${languageName(row.track.language)}`
                           : "sin idioma"}
+                        {row.track.energy ? ` · energía ${row.track.energy}` : ""}
                       </span>
                     </div>
                     <div className="ai-row-proposal">
@@ -363,6 +376,21 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
                                 : "sin confianza"}
                             </span>
                           </div>
+                          {(suggestion.energy || suggestion.mood || (suggestion.themes ?? []).length > 0) && (
+                            <div className="ai-tags">
+                              {suggestion.energy ? (
+                                <span className="ai-badge" title="Energía: 1 muy tranquila · 5 muy enérgica">
+                                  energía {suggestion.energy}
+                                </span>
+                              ) : null}
+                              {suggestion.mood && <span className="ai-badge">{suggestion.mood}</span>}
+                              {(suggestion.themes ?? []).map((th) => (
+                                <span className="ai-badge ai-theme" key={`t-${th}`}>
+                                  {th}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {suggestion.tags.length > 0 && (
                             <div className="ai-tags">
                               {suggestion.tags.map((tag) => (

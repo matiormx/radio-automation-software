@@ -5033,3 +5033,4 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .modal-head .nav-arrows { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .nav-arrows .ghost-btn { font-size: 20px; line-height: 1; padding: 2px 10px; }
 .nav-arrows .nav-pos { font-size: 12px; color: var(--text-dim); min-width: 64px; text-align: center; }
+.ai-badge.ai-theme { border-style: dashed; }

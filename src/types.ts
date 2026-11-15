@@ -228,6 +228,10 @@ export interface AiSuggestion {
   /** 0 a 1; el modelo puede devolver 0 si no esta seguro */
   confidence: number;
   reason: string;
+  /** Ficha: energía 1–5 (0 = no se sabe), ánimo y temas */
+  energy?: number;
+  mood?: string;
+  themes?: string[];
 }
 
 export interface TrackDetails {
