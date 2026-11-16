@@ -40,8 +40,39 @@ pub fn valid_source(url: &str) -> bool {
         || (Path::new(url.trim()).is_file())
 }
 
+/// FFmpeg leyendo de la entrada estándar (lo que le pasa el lector HLS).
+fn pipe_args(rate: u32) -> Vec<String> {
+    let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-fflags", "+discardcorrupt", "-i", "pipe:0", "-vn", "-f", "f32le", "-ac", "2", "-ar"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    a.push(rate.to_string());
+    a.push("pipe:1".into());
+    a
+}
+
 /// Lanza FFmpeg leyendo `url`; devuelve el proceso y su salida PCM.
+/// Las listas HLS (.m3u8) las descarga nuestro lector, trozo a trozo y en
+/// orden (sin repetir ni saltar), y FFmpeg solo descodifica.
 pub fn spawn(ffmpeg: &Path, url: &str, rate: u32) -> Result<(Child, ChildStdout), String> {
+    let lower = url.to_ascii_lowercase();
+    if (lower.starts_with("http://") || lower.starts_with("https://")) && lower.contains(".m3u8") {
+        match crate::hls::open(url.trim()) {
+            Ok((pl, media)) if !pl.encrypted && !pl.segments.is_empty() => {
+                let mut cmd = Command::new(ffmpeg);
+                cmd.args(pipe_args(rate)).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+                crate::streaming::configure_no_window(&mut cmd);
+                let mut child = cmd.spawn().map_err(|e| format!("No se pudo ejecutar FFmpeg: {e}"))?;
+                let out = child.stdout.take().ok_or("FFmpeg sin salida")?;
+                let stdin = child.stdin.take().ok_or("FFmpeg sin entrada")?;
+                let stop = Arc::new(AtomicBool::new(false));
+                let _ = std::thread::Builder::new().name("miradio-hls".into()).spawn(move || crate::hls::feed(media, pl, stdin, stop));
+                return Ok((child, out));
+            }
+            Ok(_) => {} // cifrada o vacía: que la lea FFmpeg
+            Err(e) => crate::perflog::note(&format!("HLS: lector propio no disponible ({e}); se usa FFmpeg")),
+        }
+    }
     let mut cmd = Command::new(ffmpeg);
     cmd.args(ffmpeg_args(url, rate)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     crate::streaming::configure_no_window(&mut cmd);

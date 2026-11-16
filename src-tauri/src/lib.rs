@@ -6,6 +6,7 @@ pub mod ai;
 pub mod aidj;
 pub mod aienrich;
 pub mod perflog;
+pub mod hls;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
