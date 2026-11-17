@@ -5141,3 +5141,12 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .erange-lvl:hover { border-color: var(--accent); color: var(--text); }
 .erange-on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .erange-txt { font-size: 11px; color: var(--text-dim); margin-left: 6px; min-width: 150px; white-space: nowrap; }
+/* Menú contextual: opción única (tipo de medio) con botón redondo */
+.ctx-radio {
+  width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--text-dim); box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-right: 2px;
+}
+.ctx-radio::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: transparent; }
+.ctx-radio-on { border-color: var(--accent); }
+.ctx-radio-on::after { background: var(--accent); }
+.ctx-radio-some::after { background: var(--text-faint); width: 6px; height: 2px; border-radius: 1px; }

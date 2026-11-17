@@ -1657,6 +1657,50 @@ pub fn clean_language(lang: &str) -> String {
     }
 }
 
+/// Cambios de varias canciones a la vez (selección múltiple de la
+/// biblioteca): añadir o quitar una lista, tipo de medio, inhabilitar.
+#[tauri::command]
+pub fn tracks_bulk(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    add_block: Option<String>,
+    remove_block: Option<String>,
+    media_type: Option<String>,
+    disabled: Option<bool>,
+) -> Result<usize, String> {
+    let add = add_block.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let remove = remove_block.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mt = media_type.map(|m| clean_media_type(&m));
+    let wanted: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+    let _guard = lock_library();
+    let mut tracks = read_library_internal(&state.data_dir);
+    let mut changed = 0;
+    for t in tracks.iter_mut().filter(|t| wanted.contains(t.id.as_str())) {
+        let before = (t.blocks.clone(), t.media_type.clone(), t.disabled);
+        if let Some(r) = &remove {
+            t.blocks.retain(|b| b != r);
+        }
+        if let Some(a) = &add {
+            if !t.blocks.contains(a) {
+                t.blocks.push(a.clone());
+            }
+        }
+        if let Some(m) = &mt {
+            t.media_type = m.clone();
+        }
+        if let Some(d) = disabled {
+            t.disabled = d;
+        }
+        if (t.blocks.clone(), t.media_type.clone(), t.disabled) != before {
+            changed += 1;
+        }
+    }
+    if changed > 0 {
+        write_library(&state.data_dir, &tracks)?;
+    }
+    Ok(changed)
+}
+
 /// Idioma de varias canciones a la vez (vacio = sin especificar).
 #[tauri::command]
 pub fn set_tracks_language(state: State<'_, AppState>, ids: Vec<String>, language: String) -> Result<usize, String> {

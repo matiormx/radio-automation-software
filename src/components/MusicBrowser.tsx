@@ -5,6 +5,7 @@ import type { AiSettings, Block, HistoryEntry, HourWindow, MediaType, PlaylistIm
 import { MEDIA_TYPES, mediaTypeLabel } from "../types";
 import {
   updateTrack,
+  tracksBulk,
   setTrackCover,
   clearTrackCover,
   pickCoverImage,
@@ -170,6 +171,8 @@ interface ImportState {
 
 interface CtxMenu {
   track: Track;
+  /** Canciones a las que se aplica (varias si había una selección múltiple) */
+  ids: string[];
   x: number;
   y: number;
 }
@@ -272,6 +275,10 @@ function MusicBrowserBase({
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "title", dir: 1 });
   const [selectedId, setSelectedId] = useState("");
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
+  /** Selección múltiple (Ctrl+clic, Mayús+clic, Ctrl+A) */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const anchorRef = useRef("");
+  const [confirmDel, setConfirmDel] = useState(false);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [propsId, setPropsId] = useState("");
   const [propsNav, setPropsNav] = useState<string[]>([]);
@@ -667,6 +674,29 @@ function MusicBrowserBase({
 
   const closeCtx = useCallback(() => setCtx(null), []);
 
+  // Al cambiar de vista se olvida la selección múltiple.
+  useEffect(() => {
+    setPicked(new Set());
+  }, [mode, selection]);
+
+  // Ctrl+A: seleccionar todas las de la vista; Esc: quitar la selección.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (edit || ctx || propsId) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && mode !== "explorer") {
+        e.preventDefault();
+        const list = mode === "history" ? playedTracks.map((p) => p.track) : filtered;
+        setPicked(new Set(list.map((t) => t.id)));
+      } else if (e.key === "Escape" && picked.size > 0) {
+        setPicked(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   useEffect(() => {
     if (!ctx) return;
     const onKey = (e: KeyboardEvent) => {
@@ -683,8 +713,18 @@ function MusicBrowserBase({
   const openCtx = (track: Track, x: number, y: number) => {
     const w = 216;
     const h = 214;
+    // Con varias seleccionadas (y pinchando en una de ellas), el menú vale para todas.
+    const many = picked.has(track.id) && picked.size > 1;
+    const order = (mode === "history" ? playedTracks.map((p) => p.track) : filtered).map((t) => t.id);
+    const ids = many ? order.filter((id) => picked.has(id)) : [track.id];
+    if (!many) {
+      setPicked(new Set([track.id]));
+      anchorRef.current = track.id;
+    }
+    setConfirmDel(false);
     setCtx({
       track,
+      ids: ids.length ? ids : [track.id],
       x: Math.max(6, Math.min(x, window.innerWidth - w - 6)),
       y: Math.max(6, Math.min(y, window.innerHeight - h - 6)),
     });
@@ -813,6 +853,18 @@ function MusicBrowserBase({
   const toggleCtxBlock = async (blockId: string) => {
     const track = ctx?.track;
     if (!track) return;
+    if (ctx.ids.length > 1) {
+      // Varias: si ya están todas, se quitan; si no, se añaden a todas.
+      const all = ctx.ids.every((id) => tracks.find((t) => t.id === id)?.blocks.includes(blockId));
+      try {
+        await tracksBulk(ctx.ids, all ? { removeBlock: blockId } : { addBlock: blockId });
+        await onTrackSaved();
+        setCtx(null);
+      } catch (error) {
+        showToast(`No se pudo cambiar la lista: ${String(error)}`);
+      }
+      return;
+    }
     const next = track.blocks.includes(blockId)
       ? track.blocks.filter((id) => id !== blockId)
       : [...track.blocks, blockId];
@@ -826,10 +878,9 @@ function MusicBrowserBase({
   };
 
   const setCtxMediaType = async (mediaType: MediaType) => {
-    const track = ctx?.track;
-    if (!track) return;
+    if (!ctx) return;
     try {
-      await updateTrack(track.id, { mediaType });
+      await tracksBulk(ctx.ids, { mediaType });
       await onTrackSaved();
       setCtx(null);
     } catch (error) {
@@ -981,14 +1032,39 @@ function MusicBrowserBase({
 
 
   // Fila de cancion (biblioteca o historial): misma interaccion en ambas listas.
-  const rowFor = (t: Track, last?: ReactNode) => (
+  const rowFor = (t: Track, last?: ReactNode, list: Track[] = filtered) => (
     <div
                   key={t.id}
-                  className={`brow ${selectedId === t.id ? "brow-on" : ""} ${t.missing ? "brow-missing" : ""}`}
+                  className={`brow ${selectedId === t.id || picked.has(t.id) ? "brow-on" : ""} ${t.missing ? "brow-missing" : ""}`}
                   role="listitem"
                   onPointerDown={(e) => beginDrag(e, { kind: "track", trackId: t.id, label: `${t.title}${t.artist ? ` — ${t.artist}` : ""}` })}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (e.ctrlKey || e.metaKey) {
+                      // Ctrl+clic: añadir o quitar de la selección
+                      setPicked((p) => {
+                        const n = new Set(p.size ? p : selectedId ? [selectedId] : []);
+                        if (n.has(t.id)) n.delete(t.id);
+                        else n.add(t.id);
+                        return n;
+                      });
+                      anchorRef.current = t.id;
+                      setSelectedId(t.id);
+                      return;
+                    }
+                    if (e.shiftKey && anchorRef.current) {
+                      // Mayús+clic: todo lo que hay entre la anterior y esta
+                      const ids = list.map((x) => x.id);
+                      const a = ids.indexOf(anchorRef.current);
+                      const b = ids.indexOf(t.id);
+                      if (a >= 0 && b >= 0) {
+                        setPicked(new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)));
+                        setSelectedId(t.id);
+                        return;
+                      }
+                    }
+                    setPicked(new Set([t.id]));
+                    anchorRef.current = t.id;
                     setSelectedId(t.id);
                     onPreviewTrack?.(t);
                   }}
@@ -1529,7 +1605,10 @@ function MusicBrowserBase({
           </div>
 
           {mode === "history" ? (
-            <div className="browser-rows" role="list" onClick={() => setSelectedId("")}>
+            <div className="browser-rows" role="list" onClick={() => {
+              setSelectedId("");
+              setPicked(new Set());
+            }}>
               {playedTracks.length === 0 ? (
                 <div className="empty-note">
                   Todavía no ha sonado ninguna canción. Aquí se verán las últimas que se han
@@ -1547,6 +1626,7 @@ function MusicBrowserBase({
                         minute: "2-digit",
                       })}
                     </span>,
+                    playedTracks.map((x) => x.track),
                   ),
                 )
               )}
@@ -1561,7 +1641,10 @@ function MusicBrowserBase({
             <div
               className="browser-rows"
               role="list"
-              onClick={() => setSelectedId("")}
+              onClick={() => {
+                setSelectedId("");
+                setPicked(new Set());
+              }}
               onScroll={(e) => {
                 const el = e.currentTarget;
                 if (el.scrollTop + el.clientHeight < el.scrollHeight - 240) return;
@@ -1594,107 +1677,154 @@ function MusicBrowserBase({
             onClick={(e) => e.stopPropagation()}
             role="menu"
           >
-            <div className="ctx-title" title={ctx.track.title}>{ctx.track.title}</div>
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                onAdd(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconPlus size={13} /> Añadir a la lista
-            </button>
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                // Preescucha a peticion (funciona con la automatica apagada).
-                onPreviewNow?.(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconPlay size={13} /> Preescucha
-            </button>
-            <div className="ctx-title">Añadir a una lista</div>
-            <div className="ctx-blocks">
-              {blocks.length === 0 && <span className="hint">No hay listas creadas.</span>}
-              {blocks.map((block) => {
-                const inside = ctx.track.blocks.includes(block.id);
-                return (
+            {(() => {
+              const many = ctx.ids.length > 1;
+              const sel = many ? tracks.filter((t) => ctx.ids.includes(t.id)) : [ctx.track];
+              const inBlock = (id: string) => {
+                const n = sel.filter((t) => t.blocks.includes(id)).length;
+                return n === 0 ? "" : n === sel.length ? "✓" : "–";
+              };
+              const typeMark = (id: string) => {
+                const n = sel.filter((t) => (t.mediaType ?? "") === id).length;
+                return n === 0 ? "" : n === sel.length ? "✓" : "–";
+              };
+              const allDisabled = sel.every((t) => t.disabled);
+              return (
+                <>
+                  <div className="ctx-title" title={many ? undefined : ctx.track.title}>
+                    {many ? `${ctx.ids.length} canciones seleccionadas` : ctx.track.title}
+                  </div>
                   <button
-                    key={block.id}
                     type="button"
                     className="ctx-item"
-                    onClick={() => void toggleCtxBlock(block.id)}
+                    onClick={() => {
+                      for (const t of sel) onAdd(t);
+                      closeCtx();
+                    }}
                   >
-                    <span className="plrow-block-check">{inside ? "✓" : ""}</span>
-                    {block.name}
+                    <IconPlus size={13} /> Añadir a la lista{many ? ` (${sel.length})` : ""}
                   </button>
-                );
-              })}
-            </div>
-            <div className="ctx-title">Tipo de medio</div>
-            <div className="ctx-blocks">
-              {MEDIA_TYPES.map((m) => (
-                <button key={m.id} type="button" className="ctx-item" onClick={() => void setCtxMediaType(m.id)}>
-                  <span className="plrow-block-check">{(ctx.track.mediaType ?? "") === m.id ? "✓" : ""}</span>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            <div className="ctx-sep" />
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                void openProperties(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconTag size={13} /> Propiedades
-            </button>
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                openEditor(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconEdit size={13} /> Editar metadatos
-            </button>
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                onEditCuts(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconWave size={13} /> Cortes y puntos
-            </button>
-            <button
-              type="button"
-              className="ctx-item"
-              onClick={() => {
-                void doRelink(ctx.track.id);
-                closeCtx();
-              }}
-            >
-              <IconLink size={13} /> Relinkar archivo
-            </button>
-            <div className="ctx-sep" />
-            <button
-              type="button"
-              className="ctx-item ctx-danger"
-              onClick={() => {
-                onDelete(ctx.track);
-                closeCtx();
-              }}
-            >
-              <IconTrash size={13} /> Quitar de la biblioteca
-            </button>
+                  {!many && (
+                    <button
+                      type="button"
+                      className="ctx-item"
+                      onClick={() => {
+                        // Preescucha a peticion (funciona con la automatica apagada).
+                        onPreviewNow?.(ctx.track);
+                        closeCtx();
+                      }}
+                    >
+                      <IconPlay size={13} /> Preescucha
+                    </button>
+                  )}
+                  <div className="ctx-title">Añadir a una lista</div>
+                  <div className="ctx-blocks">
+                    {blocks.length === 0 && <span className="hint">No hay listas creadas.</span>}
+                    {blocks.map((block) => (
+                      <button key={block.id} type="button" className="ctx-item" onClick={() => void toggleCtxBlock(block.id)}>
+                        <span className="plrow-block-check">{inBlock(block.id)}</span>
+                        {block.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="ctx-title">Tipo de medio</div>
+                  <div className="ctx-blocks">
+                    {MEDIA_TYPES.map((m) => (
+                      <button key={m.id} type="button" className="ctx-item" onClick={() => void setCtxMediaType(m.id)}>
+                        <span className={`ctx-radio ${typeMark(m.id) === "✓" ? "ctx-radio-on" : typeMark(m.id) ? "ctx-radio-some" : ""}`} />
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="ctx-sep" />
+                  {!many && (
+                    <button
+                      type="button"
+                      className="ctx-item"
+                      onClick={() => {
+                        void openProperties(ctx.track);
+                        closeCtx();
+                      }}
+                    >
+                      <IconTag size={13} /> Propiedades
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      // Con varias, se editan una a una pasando con ‹ › (Alt+← →).
+                      openEditor(sel[0], many ? ctx.ids : undefined);
+                      closeCtx();
+                    }}
+                  >
+                    <IconEdit size={13} /> {many ? "Editar metadatos una a una" : "Editar metadatos"}
+                  </button>
+                  {!many && (
+                    <>
+                      <button
+                        type="button"
+                        className="ctx-item"
+                        onClick={() => {
+                          onEditCuts(ctx.track);
+                          closeCtx();
+                        }}
+                      >
+                        <IconWave size={13} /> Cortes y puntos
+                      </button>
+                      <button
+                        type="button"
+                        className="ctx-item"
+                        onClick={() => {
+                          void doRelink(ctx.track.id);
+                          closeCtx();
+                        }}
+                      >
+                        <IconLink size={13} /> Relinkar archivo
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={async () => {
+                      try {
+                        await tracksBulk(ctx.ids, { disabled: !allDisabled });
+                        await onTrackSaved();
+                      } catch (e) {
+                        showToast(String(e));
+                      }
+                      closeCtx();
+                    }}
+                  >
+                    {allDisabled ? "Habilitar" : "Inhabilitar"}
+                    {many ? ` (${sel.length})` : ""}
+                  </button>
+                  <div className="ctx-sep" />
+                  <button
+                    type="button"
+                    className="ctx-item ctx-danger"
+                    onClick={() => {
+                      // Varias: se pide una segunda pulsación para confirmar.
+                      if (many && !confirmDel) {
+                        setConfirmDel(true);
+                        return;
+                      }
+                      for (const t of sel) onDelete(t);
+                      setPicked(new Set());
+                      closeCtx();
+                    }}
+                  >
+                    <IconTrash size={13} />{" "}
+                    {many
+                      ? confirmDel
+                        ? `Pulsa otra vez para quitar ${sel.length} canciones`
+                        : `Quitar ${sel.length} canciones de la biblioteca`
+                      : "Quitar de la biblioteca"}
+                  </button>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -487,6 +487,16 @@ const commands: Record<string, (a: Args) => unknown | Promise<unknown>> = {
       if (add && !b.includes(add)) b = [...b, add];
       return { ...d, blocks: b };
     }),
+  tracks_bulk: (a) =>
+    patchTracks((a.ids as string[]) ?? [], (d) => {
+      let b = ((d.blocks as string[]) ?? []).slice();
+      if (a.removeBlock) b = b.filter((x) => x !== str(a.removeBlock));
+      if (a.addBlock && !b.includes(str(a.addBlock))) b.push(str(a.addBlock));
+      const out: Data = { ...d, blocks: b };
+      if (typeof a.mediaType === "string") out.mediaType = a.mediaType;
+      if (typeof a.disabled === "boolean") out.disabled = a.disabled;
+      return out;
+    }).then(() => 0),
   set_tracks_language: (a) => patchTracks((a.ids as string[]) ?? [], (d) => ({ ...d, language: str(a.language) })),
   set_track_library: (a) => patchTracks((a.ids as string[]) ?? [], (d) => ({ ...d, library: a.library === "b" ? "b" : "a" })),
   delete_track: async (a) => {

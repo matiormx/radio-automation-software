@@ -206,6 +206,14 @@ export function notifyTest(notification: NotificationRule): Promise<string> {
   return invoke<string>("notify_test", { notification });
 }
 
+/** Cambios a varias canciones a la vez (lista, tipo de medio, inhabilitar). */
+export function tracksBulk(
+  ids: string[],
+  change: { addBlock?: string; removeBlock?: string; mediaType?: string; disabled?: boolean },
+): Promise<number> {
+  return invoke<number>("tracks_bulk", { ids, ...change });
+}
+
 export function setTracksLanguage(ids: string[], language: string): Promise<number> {
   return invoke<number>("set_tracks_language", { ids, language });
 }
