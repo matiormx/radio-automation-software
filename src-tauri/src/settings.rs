@@ -1360,22 +1360,56 @@ fn local_minute(epoch: u64) -> u32 {
         .unwrap_or(0)
 }
 
+/// Nivel de energía que toca ahora dentro del rango `(lo, hi)`, viendo las
+/// energías de lo que ya está en la lista (`seq`, la última al final).
+/// Va de uno en uno como una ola: se queda unas canciones (1–3) en un nivel,
+/// sube o baja uno, rebota en los bordes y a veces da la vuelta antes.
+/// Si viene de fuera del rango, se acerca de uno en uno (con `smooth`).
+fn wave_level(seq: &[u8], (lo, hi): (u8, u8), smooth: bool, salt: u64) -> u8 {
+    let Some(&prev) = seq.last() else { return lo };
+    if prev < lo {
+        return if smooth { prev + 1 } else { lo };
+    }
+    if prev > hi {
+        return if smooth { prev - 1 } else { hi };
+    }
+    if lo == hi {
+        return lo;
+    }
+    let run = seq.iter().rev().take_while(|e| **e == prev).count() as u64;
+    // Sentido: el del último cambio (sin cambios aún, hacia arriba).
+    let up = seq.iter().rev().find(|e| **e != prev).map(|e| *e < prev).unwrap_or(true);
+    let mut h = salt ^ (seq.len() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    h ^= h >> 31;
+    h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    h ^= h >> 29;
+    let hold = 1 + h % 3;
+    if run < hold {
+        return prev;
+    }
+    let flip = (h >> 8) % 4 == 0; // una de cada cuatro, da la vuelta antes
+    let step = |up: bool| -> Option<u8> {
+        let n = if up { prev.checked_add(1)? } else { prev.checked_sub(1)? };
+        (lo..=hi).contains(&n).then_some(n)
+    };
+    let first = if flip { !up } else { up };
+    step(first).or_else(|| step(!first)).unwrap_or(prev)
+}
+
 /// Lo que «cuesta» poner una canción de energía `e` (0 = sin ficha) si se
-/// busca el rango `(lo, hi)` y la anterior tenía `prev`. Menos es mejor:
-/// dentro del rango todas valen igual (se reparte al azar); sin ficha, detrás;
-/// fuera del rango, solo si no queda otra (y la más cercana antes).
-fn energy_cost(e: u8, (lo, hi): (u8, u8), prev: u8, smooth: bool) -> u32 {
+/// busca el rango `(lo, hi)`, ahora toca el nivel `want` y la anterior tenía
+/// `prev`. Menos es mejor: primero el nivel que toca, luego el resto del
+/// rango, después las sin ficha y, solo si no queda otra, las de fuera.
+fn energy_cost(e: u8, (lo, hi): (u8, u8), want: u8, prev: u8, smooth: bool) -> u32 {
     if lo == 0 {
         return 0;
     }
     let mut c = if e == 0 {
-        3
-    } else if e < lo {
-        2 + 2 * u32::from(lo - e)
-    } else if e > hi {
-        2 + 2 * u32::from(e - hi)
+        5
     } else {
-        0
+        let d = 2 * (e as i32 - want as i32).unsigned_abs();
+        // De fuera del rango, solo el paso hacia él que toca ahora no penaliza.
+        if (e < lo || e > hi) && e != want { 10 + d } else { d }
     };
     if smooth && e > 0 && prev > 0 {
         c += 4 * (e as i32 - prev as i32).unsigned_abs().saturating_sub(1);
@@ -1551,7 +1585,12 @@ pub fn pick_tracks(
     let curve = &s.energy_curve;
     let energy_of = |id: &str| -> u8 { by_id.get(id).map(|t| t.energy).unwrap_or(0) };
     let dur_of = |id: &str| -> f64 { by_id.get(id).map(|t| t.duration_secs).unwrap_or(0.0) };
-    let prev_energy0 = playlist_track_ids.iter().rev().map(|id| energy_of(id)).find(|e| *e > 0).unwrap_or(0);
+    // Energías de lo que ya hay en la lista (para seguir la ola de energía).
+    let seq0: Vec<u8> = {
+        let mut v: Vec<u8> = playlist_track_ids.iter().rev().map(|id| energy_of(id)).filter(|e| *e > 0).take(12).collect();
+        v.reverse();
+        v
+    };
 
     let mut result: Vec<String> = Vec::new();
     for relax in [false, true] {
@@ -1560,7 +1599,7 @@ pub fn pick_tracks(
         let mut used: HashSet<&str> = HashSet::new();
         // Lo nuevo entra detrás de lo que queda en la lista (unos minutos).
         let mut at = now as f64 + (s.autopilot_min_upcoming as f64) * 60.0;
-        let mut prev_energy = prev_energy0;
+        let mut seq = seq0.clone();
         while picked.len() < count as usize {
             // Horario permitido de cada canción, a la hora en que sonará
             // (regla fija: no se relaja).
@@ -1578,7 +1617,9 @@ pub fn pick_tracks(
             let target = if curve.enabled { curve.target_at(local_minute(at as u64)) } else { (0, 0) };
             if target.0 > 0 {
                 // Primero las reglas de repetición; luego lo que encaja con la curva.
-                eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_cost(energy_of(&c.id), target, prev_energy, curve.smooth), c.salt));
+                let prev_energy = seq.last().copied().unwrap_or(0);
+                let want = wave_level(&seq, target, curve.smooth, salt);
+                eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_cost(energy_of(&c.id), target, want, prev_energy, curve.smooth), c.salt));
             }
             let Some(first) = eligible.first() else { break };
             let mut chosen: &Candidate = first;
@@ -1616,7 +1657,7 @@ pub fn pick_tracks(
             at += dur_of(&chosen.id).max(60.0);
             let e = energy_of(&chosen.id);
             if e > 0 {
-                prev_energy = e;
+                seq.push(e);
             }
         }
         if result.len() < picked.len() {
@@ -1847,9 +1888,10 @@ mod energy_tests {
         assert_eq!(c.target_at(3 * 60), (1, 2)); // madrugada: sigue la noche
         assert_eq!(EnergyCurve::default().target_at(600), (0, 0)); // apagada
         // Rango: dentro vale todo igual; fuera, solo como último recurso
-        assert_eq!(energy_cost(3, (3, 5), 0, false), 0);
-        assert_eq!(energy_cost(5, (3, 5), 0, false), 0);
-        assert!(energy_cost(2, (3, 5), 0, false) > energy_cost(0, (3, 5), 0, false));
+        // Rango: primero el nivel que toca; fuera, solo como último recurso
+        assert_eq!(energy_cost(4, (3, 5), 4, 0, false), 0);
+        assert!(energy_cost(5, (3, 5), 4, 0, false) < energy_cost(0, (3, 5), 4, 0, false));
+        assert!(energy_cost(0, (3, 5), 4, 0, false) < energy_cost(2, (3, 5), 4, 0, false));
     }
 
     #[test]
@@ -1865,5 +1907,42 @@ mod energy_tests {
         let p = pick_tracks(&s, &library, &[], &["t0".to_string()], 4, None, None, 1_000_000);
         let e: Vec<u8> = p.iter().map(|id| library.iter().find(|t| &t.id == id).unwrap().energy).collect();
         assert_eq!(e, vec![2, 3, 4, 5], "{e:?}");
+    }
+
+    #[test]
+    fn wave_goes_one_step_at_a_time() {
+        // Desde 3, dentro de 3–5: nunca salta dos niveles ni sale del rango,
+        // y en una tanda larga pasa por los tres niveles.
+        for salt in 0..20u64 {
+            let mut seq = vec![3u8];
+            for _ in 0..30 {
+                let n = wave_level(&seq, (3, 5), true, salt);
+                assert!((3..=5).contains(&n));
+                assert!((n as i32 - *seq.last().unwrap() as i32).abs() <= 1, "{seq:?} -> {n}");
+                seq.push(n);
+            }
+            for lvl in 3..=5 {
+                assert!(seq.contains(&lvl), "salt {salt}: {seq:?}");
+            }
+        }
+        // Desde fuera se acerca de uno en uno
+        assert_eq!(wave_level(&[1], (3, 5), true, 0), 2);
+        assert_eq!(wave_level(&[], (3, 5), true, 0), 3);
+    }
+
+    #[test]
+    fn picks_follow_the_wave_in_range() {
+        let mut s = Settings::default();
+        s.energy_curve = EnergyCurve {
+            enabled: true,
+            smooth: true,
+            points: vec![EnergyPoint { start: "00:00".into(), energy: 3, energy_max: 5, label: String::new() }],
+        };
+        let library: Vec<Track> = (0..200).map(|i| tr(&format!("t{i}"), (i % 5 + 1) as u8)).collect();
+        let p = pick_tracks(&s, &library, &[], &[], 20, None, None, 1_000_000);
+        let e: Vec<u8> = p.iter().map(|id| library.iter().find(|t| &t.id == id).unwrap().energy).collect();
+        assert!(e.iter().all(|x| (3..=5).contains(x)), "{e:?}");
+        assert!(e.windows(2).all(|w| (w[0] as i32 - w[1] as i32).abs() <= 1), "{e:?}");
+        assert!(e.contains(&5) && e.contains(&3), "{e:?}");
     }
 }
