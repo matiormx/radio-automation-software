@@ -5150,3 +5150,6 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .ctx-radio-on { border-color: var(--accent); }
 .ctx-radio-on::after { background: var(--accent); }
 .ctx-radio-some::after { background: var(--text-faint); width: 6px; height: 2px; border-radius: 1px; }
+.ai-help > summary { cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; color: var(--text-dim); padding: 2px 0; }
+.ai-help[open] > summary { margin-bottom: 6px; }
+.ai-help-list { margin: 4px 0 8px 18px; padding: 0; font-size: 12px; line-height: 1.6; color: var(--text-dim); overflow-wrap: anywhere; }

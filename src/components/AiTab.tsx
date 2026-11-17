@@ -369,28 +369,25 @@ export function AiTab({ settings, onChange, showToast }: Props) {
       )}
 
       {provider === "cloud" ? (
-        <fieldset className="fieldset">
-          <legend>Cómo preparar el servicio en la nube</legend>
+        // Ayuda plegada: solo se abre sola si aún no hay clave.
+        <details className="fieldset ai-help" open={!(ai.cloudKey ?? "").trim()}>
+          <summary>¿Dónde consigo una clave (API key)?</summary>
+          <p className="hint">Crea una clave en uno de estos servicios y pégala arriba en «Clave»:</p>
+          <ul className="ai-help-list">
+            <li><strong>OpenRouter</strong> — openrouter.ai/keys (los modelos «:free» no cuestan nada)</li>
+            <li><strong>Groq</strong> — console.groq.com/keys (gratis)</li>
+            <li><strong>Gemini</strong> — aistudio.google.com (gratis)</li>
+            <li><strong>Cerebras</strong> — cloud.cerebras.ai/keys</li>
+            <li><strong>Mistral</strong> — console.mistral.ai</li>
+            <li><strong>OpenCode Go/Zen</strong> — opencode.ai (con <code>glm-5.3-flash</code> cuesta céntimos por miles de canciones; los modelos «-free» de Zen no funcionan fuera de OpenCode)</li>
+            <li><strong>DeepSeek</strong> — platform.deepseek.com</li>
+            <li><strong>OpenAI</strong> — platform.openai.com/api-keys</li>
+          </ul>
           <p className="hint">
-            Crea una API key en tu servicio y pégala arriba:
+            Después pulsa «Probar conexión»: se llena la lista de modelos y eliges uno. Solo se envían los datos de
+            texto de cada canción (título, artista, letra…), nunca el audio.
           </p>
-          <pre className="ai-command">OpenRouter · openrouter.ai/keys · los “:free” no gastan nada
-Groq · console.groq.com/keys · Gemini · aistudio.google.com
-Cerebras · cloud.cerebras.ai/keys · Mistral · console.mistral.ai
-OpenCode (Zen/Go) · plataforma.opencode.ai · glm-5.3-flash
-DeepSeek · platform.deepseek.com · OpenAI · platform.openai.com/api-keys</pre>
-          <p className="hint">
-            Ojo con la capa gratis del Zen de OpenCode: los modelos «-free» solo responden desde el
-            propio OpenCode (otros clientes reciben 403). Desde OmniCaster salen tarificados por uso —
-            con <code>glm-5.3-flash</code> cuesta centavos por miles de canciones.
-          </p>
-          <p className="hint">
-            La dirección acepta cualquier servicio que siga el formato de OpenAI. El modelo va
-            tal como lo llama el servicio (se llena la lista al probar la conexión). Cada
-            análisis manda solo los metadatos de la canción y tarda un par de segundos; los
-            servicios gratuitos (Groq, Gemini) casi nunca se quedan cortos para catalogar.
-          </p>
-        </fieldset>
+        </details>
       ) : provider === "ollama" ? (
         <fieldset className="fieldset">
           <legend>Cómo preparar Ollama</legend>
