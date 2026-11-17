@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Block, Playlist, PlaylistRow } from "../types";
+import { mediaTypeLabel } from "../types";
 import { trackUrl } from "../api";
 import { IconUp, IconDown, IconX, IconPlus, IconNote, IconPlay, IconTag, IconWave, IconNext } from "../icons";
 import { TrackDetailsModal } from "./TrackDetailsModal";
@@ -378,6 +379,20 @@ export function PlaylistZone({
                   <span className="plrow-title">{r.title}</span>
                   {r.video && <span className="badge-video">VÍDEO</span>}
                   {autoIds.has(r.id) && <span className="badge-auto">AUTO</span>}
+                  {r.mediaType ? (
+                    <span className="badge-energy badge-mtype">{mediaTypeLabel(r.mediaType).toUpperCase()}</span>
+                  ) : (r.energy ?? 0) > 0 ? (
+                    <span className="badge-energy" title={`Energía ${r.energy} de 5 (ficha IA)`}>
+                      <span className="energy-dots">
+                        {"●".repeat(r.energy!)}
+                        <span className="off">{"●".repeat(5 - r.energy!)}</span>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="badge-energy badge-noenergy" title="Sin energía asignada (falta la ficha IA)">
+                      sin energía
+                    </span>
+                  )}
                   {i === playingRow && <span className="badge-live">AL AIRE</span>}
                   {i === nextRow && <span className="badge-next">SIGUIENTE</span>}
                   {i === leavingRow && <span className="badge-leaving">SALE AL TERMINAR</span>}

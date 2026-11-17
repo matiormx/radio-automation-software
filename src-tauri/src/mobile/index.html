@@ -1411,6 +1411,8 @@ function viewSys() {
 /* IA: motor, escucha del directo, fichas y energía del día */
 const PROVIDERS = { ollama: "Ollama (local)", opencode: "OpenCode", cloud: "Servicio en la nube" };
 const ENERGY = ["", "1 · Muy tranquila", "2 · Suave", "3 · Media", "4 · Animada", "5 · Muy enérgica"];
+/** «3 a 5» o «4 · Animada» si es un solo nivel */
+const eRange = (p) => { const hi = p.energyMax || p.energy; return hi > p.energy ? `${p.energy} a ${hi}` : (ENERGY[p.energy] || p.energy); };
 function aiCurve() {
   const c = (S.aiCfg && S.aiCfg.curve) || { enabled: false, smooth: true, points: [] };
   return JSON.parse(JSON.stringify(c));
@@ -1441,7 +1443,7 @@ function aiCard() {
   </div>
   <h3>Energía del día (AutoDJ)</h3><div class="card">
     <label class="line" style="gap:8px"><span>Seguir la curva de energía</span><input type="checkbox" data-ai="curveOn" ${c.enabled ? "checked" : ""}></label>
-    ${pts.map((p) => `<div class="line"><span>${esc(p.start)} · ${esc(p.label || "")}</span><b>${esc(ENERGY[p.energy] || p.energy)}</b></div>`).join("")}
+    ${pts.map((p) => `<div class="line"><span>${esc(p.start)} · ${esc(p.label || "")}</span><b>${esc(eRange(p))}</b></div>`).join("")}
     <button class="btn" data-ai="curve" style="padding:8px;font-size:13px">Editar franjas</button>
   </div>`;
 }
@@ -1460,7 +1462,8 @@ function openCurve() {
       ${c.points.map((p, i) => `<div class="card" style="margin-top:8px">
         <div class="row2"><div style="flex:1"><label>Desde</label><input type="time" data-i="${i}" data-f="start" value="${esc(p.start)}"></div>
         <div style="flex:2"><label>Nombre</label><input type="text" data-i="${i}" data-f="label" value="${esc(p.label || "")}"></div></div>
-        <label>Energía</label><select data-i="${i}" data-f="energy">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === p.energy ? "selected" : ""}>${ENERGY[n]}</option>`).join("")}</select>
+        <div class="row2"><div style="flex:1"><label>Energía desde</label><select data-i="${i}" data-f="energy">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === p.energy ? "selected" : ""}>${ENERGY[n]}</option>`).join("")}</select></div>
+        <div style="flex:1"><label>hasta</label><select data-i="${i}" data-f="energyMax">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === (p.energyMax || p.energy) ? "selected" : ""}>${ENERGY[n]}</option>`).join("")}</select></div></div>
         <button class="btn" data-del="${i}" style="margin-top:6px;padding:6px;font-size:13px;color:#ff8b8e;border-color:#ff8b8e">Quitar franja</button></div>`).join("")}
       <div style="height:8px"></div><button class="btn" data-add="1">Añadir franja</button>
       <div class="grid2" style="margin-top:8px"><button class="btn" data-save="1" style="background:var(--accent);border-color:var(--accent);color:#fff">Guardar</button><button class="btn" data-close="1">Cancelar</button></div>`;
@@ -1474,12 +1477,15 @@ function openCurve() {
     const i = Number(t.dataset.i);
     if (!Number.isFinite(i) || !c.points[i]) return;
     const f = t.dataset.f;
-    c.points[i][f] = f === "energy" ? Number(t.value) : t.value;
+    const pt = c.points[i];
+    if (f === "energy") { pt.energy = Number(t.value); pt.energyMax = Math.max(pt.energy, pt.energyMax || pt.energy); return draw(); }
+    if (f === "energyMax") { pt.energyMax = Number(t.value); pt.energy = Math.min(pt.energy, pt.energyMax); return draw(); }
+    pt[f] = t.value;
     if (f === "start") draw();
   });
   el.onclick = (e) => {
     if (e.target.closest("[data-close]")) return done();
-    if (e.target.closest("[data-add]")) { c.points.push({ start: "12:00", energy: 3, label: "" }); return draw(); }
+    if (e.target.closest("[data-add]")) { c.points.push({ start: "12:00", energy: 3, energyMax: 3, label: "" }); return draw(); }
     const d = e.target.closest("[data-del]");
     if (d) { c.points.splice(Number(d.dataset.del), 1); return draw(); }
     if (e.target.closest("[data-save]")) { cmd({ cmd: "energyCurve", curve: c }); done(); }

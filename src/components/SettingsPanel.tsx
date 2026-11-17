@@ -1637,8 +1637,9 @@ function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings
       </label>
       <p className="hint">
         Cada franja va desde su hora hasta la siguiente (la última sigue de madrugada). Usa la
-        energía de la ficha IA de cada canción (Ajustes › IA › Fichas de la biblioteca); las que
-        aún no la tienen siguen sonando, con menos prioridad.
+        energía de la ficha IA de cada canción (Ajustes › IA › Fichas de la biblioteca). Dentro del
+        rango de la franja todas valen igual y se reparten al azar; las de fuera solo suenan si no
+        queda ninguna dentro. Las que aún no tienen ficha van detrás de las del rango.
       </p>
       {curve.enabled && (
         <>
@@ -1651,13 +1652,37 @@ function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings
               <div key={i} className="energy-row">
                 <input className="input" type="time" value={p.start} onChange={(e) => setPoint(i, { start: e.target.value })} />
                 <input className="input" placeholder="Nombre" value={p.label} onChange={(e) => setPoint(i, { label: e.target.value })} />
-                <select value={p.energy} onChange={(e) => setPoint(i, { energy: Number(e.target.value) })}>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {ENERGY_NAMES[n]}
-                    </option>
-                  ))}
-                </select>
+                <span className="energy-range" title="Elige al azar entre todas las canciones de este rango; las de fuera solo si no queda ninguna dentro">
+                  <span className="hint">de</span>
+                  <select
+                    value={p.energy}
+                    onChange={(e) => {
+                      const lo = Number(e.target.value);
+                      const hi = p.energyMax || p.energy;
+                      setPoint(i, { energy: lo, energyMax: Math.max(lo, hi) });
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {ENERGY_NAMES[n]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="hint">a</span>
+                  <select
+                    value={p.energyMax || p.energy}
+                    onChange={(e) => {
+                      const hi = Number(e.target.value);
+                      setPoint(i, { energy: Math.min(p.energy, hi), energyMax: hi });
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {ENERGY_NAMES[n]}
+                      </option>
+                    ))}
+                  </select>
+                </span>
                 <button type="button" className="btn btn-sm" onClick={() => set({ points: curve.points.filter((_, k) => k !== i) })} title="Quitar franja">
                   ✕
                 </button>
@@ -1665,7 +1690,7 @@ function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings
             ))}
           </div>
           <p>
-            <button type="button" className="btn btn-sm" onClick={() => set({ points: [...curve.points, { start: "12:00", energy: 3, label: "" }] })}>
+            <button type="button" className="btn btn-sm" onClick={() => set({ points: [...curve.points, { start: "12:00", energy: 3, energyMax: 3, label: "" }] })}>
               Añadir franja
             </button>{" "}
             <button type="button" className="btn btn-sm" onClick={() => set({ points: DEFAULT_ENERGY_CURVE.points })}>

@@ -1,8 +1,10 @@
 export interface EnergyPoint {
   /** HH:MM */
   start: string;
-  /** 1 (muy tranquila) a 5 (muy enérgica) */
+  /** Energía mínima: 1 (muy tranquila) a 5 (muy enérgica) */
   energy: number;
+  /** Energía máxima (0/ausente = la misma que la mínima) */
+  energyMax?: number;
   label: string;
 }
 export interface EnergyCurve {
@@ -15,12 +17,12 @@ export const DEFAULT_ENERGY_CURVE: EnergyCurve = {
   enabled: false,
   smooth: true,
   points: [
-    { start: "06:00", energy: 2, label: "Amanecer de alabanza" },
-    { start: "09:00", energy: 4, label: "Actividad" },
-    { start: "13:30", energy: 2, label: "Almuerzo" },
-    { start: "16:00", energy: 3, label: "Tarde chillout" },
-    { start: "20:00", energy: 2, label: "Atardecer" },
-    { start: "22:00", energy: 1, label: "Noche para descansar" },
+    { start: "06:00", energy: 2, energyMax: 3, label: "Amanecer de alabanza" },
+    { start: "09:00", energy: 3, energyMax: 5, label: "Actividad" },
+    { start: "13:30", energy: 2, energyMax: 3, label: "Almuerzo" },
+    { start: "16:00", energy: 3, energyMax: 4, label: "Tarde chillout" },
+    { start: "20:00", energy: 2, energyMax: 3, label: "Atardecer" },
+    { start: "22:00", energy: 1, energyMax: 2, label: "Noche para descansar" },
   ],
 };
 
@@ -330,6 +332,10 @@ export interface PlaylistRow {
   blocks: string[];
   /** Metadatos propios de esta emision (anuncio, evento…), si los hay */
   meta?: StreamMeta | null;
+  /** Ficha IA: energía 1–5 (0 = sin asignar) */
+  energy?: number;
+  /** Tipo de medio ("" = música) */
+  mediaType?: MediaType;
 }
 
 export type CampaignKind = "ads" | "jingle";

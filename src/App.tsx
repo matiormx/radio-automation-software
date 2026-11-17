@@ -434,6 +434,8 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
         blocks: t.blocks,
         video: isVideoFile(t.file),
         meta,
+        energy: t.energy ?? 0,
+        mediaType: t.mediaType ?? "",
       },
     ];
   });
@@ -4544,6 +4546,7 @@ export default function App() {
           points: pts.slice(0, 24).map((p) => ({
             start: /^\d{1,2}:\d{2}$/.test(String(p.start ?? "")) ? String(p.start).padStart(5, "0") : "00:00",
             energy: Math.max(1, Math.min(5, Math.round(Number(p.energy) || 3))),
+            energyMax: Math.max(0, Math.min(5, Math.round(Number(p.energyMax) || 0))),
             label: String(p.label ?? "").slice(0, 60),
           })),
         };

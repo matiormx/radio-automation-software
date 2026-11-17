@@ -1266,9 +1266,17 @@ pub fn artists_of(artist: &str) -> Vec<String> {
 #[serde(rename_all = "camelCase", default)]
 pub struct EnergyPoint {
     pub start: String,
-    /// 1 (muy tranquila) a 5 (muy enérgica)
+    /// Energía mínima de la franja: 1 (muy tranquila) a 5 (muy enérgica)
     pub energy: u8,
+    /// Energía máxima (0 = la misma que la mínima). Todo lo que cae entre
+    /// las dos vale igual; lo de fuera solo si no queda nada dentro.
+    #[serde(skip_serializing_if = "is_zero_u8")]
+    pub energy_max: u8,
     pub label: String,
+}
+
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
 }
 
 /// Curva de energía del día: el AutoDJ busca canciones con la energía de la
@@ -1284,17 +1292,17 @@ pub struct EnergyCurve {
 
 impl Default for EnergyCurve {
     fn default() -> Self {
-        let p = |start: &str, energy: u8, label: &str| EnergyPoint { start: start.into(), energy, label: label.into() };
+        let p = |start: &str, energy: u8, energy_max: u8, label: &str| EnergyPoint { start: start.into(), energy, energy_max, label: label.into() };
         Self {
             enabled: false,
             smooth: true,
             points: vec![
-                p("06:00", 2, "Amanecer de alabanza"),
-                p("09:00", 4, "Actividad"),
-                p("13:30", 2, "Almuerzo"),
-                p("16:00", 3, "Tarde chillout"),
-                p("20:00", 2, "Atardecer"),
-                p("22:00", 1, "Noche para descansar"),
+                p("06:00", 2, 3, "Amanecer de alabanza"),
+                p("09:00", 3, 5, "Actividad"),
+                p("13:30", 2, 3, "Almuerzo"),
+                p("16:00", 3, 4, "Tarde chillout"),
+                p("20:00", 2, 3, "Atardecer"),
+                p("22:00", 1, 2, "Noche para descansar"),
             ],
         }
     }
@@ -1307,15 +1315,23 @@ fn hhmm(s: &str) -> Option<u32> {
 }
 
 impl EnergyCurve {
-    /// Energía buscada a ese minuto del día (0 = sin curva).
-    pub fn target_at(&self, minute: u32) -> u8 {
-        let mut pts: Vec<(u32, u8)> = self.points.iter().filter_map(|p| Some((hhmm(&p.start)?, p.energy.clamp(1, 5)))).collect();
+    /// Rango de energía buscado a ese minuto del día ((0, 0) = sin curva).
+    pub fn target_at(&self, minute: u32) -> (u8, u8) {
+        let mut pts: Vec<(u32, u8, u8)> = self
+            .points
+            .iter()
+            .filter_map(|p| {
+                let lo = p.energy.clamp(1, 5);
+                let hi = if p.energy_max == 0 { lo } else { p.energy_max.clamp(1, 5) };
+                Some((hhmm(&p.start)?, lo.min(hi), lo.max(hi)))
+            })
+            .collect();
         if !self.enabled || pts.is_empty() {
-            return 0;
+            return (0, 0);
         }
         pts.sort();
         // El último tramo del día sigue hasta el primero del día siguiente.
-        pts.iter().rev().find(|(m, _)| *m <= minute).or(pts.last()).map(|p| p.1).unwrap_or(0)
+        pts.iter().rev().find(|p| p.0 <= minute).or(pts.last()).map(|p| (p.1, p.2)).unwrap_or((0, 0))
     }
 }
 
@@ -1340,13 +1356,22 @@ fn local_minute(epoch: u64) -> u32 {
 }
 
 /// Lo que «cuesta» poner una canción de energía `e` (0 = sin ficha) si se
-/// busca `target` y la anterior tenía `prev`. Menos es mejor.
-fn energy_cost(e: u8, target: u8, prev: u8, smooth: bool) -> u32 {
-    if target == 0 {
+/// busca el rango `(lo, hi)` y la anterior tenía `prev`. Menos es mejor:
+/// dentro del rango todas valen igual (se reparte al azar); sin ficha, detrás;
+/// fuera del rango, solo si no queda otra (y la más cercana antes).
+fn energy_cost(e: u8, (lo, hi): (u8, u8), prev: u8, smooth: bool) -> u32 {
+    if lo == 0 {
         return 0;
     }
-    // Sin ficha: ni premio ni castigo fuerte (va detrás de las que encajan).
-    let mut c = if e == 0 { 3 } else { 2 * (e as i32 - target as i32).unsigned_abs() };
+    let mut c = if e == 0 {
+        3
+    } else if e < lo {
+        2 + 2 * u32::from(lo - e)
+    } else if e > hi {
+        2 + 2 * u32::from(e - hi)
+    } else {
+        0
+    };
     if smooth && e > 0 && prev > 0 {
         c += 4 * (e as i32 - prev as i32).unsigned_abs().saturating_sub(1);
     }
@@ -1545,8 +1570,8 @@ pub fn pick_tracks(
                         || tail.last().map(|a| !a.iter().any(|x| artist_of(&c.id).contains(x))).unwrap_or(true)
                 })
                 .collect();
-            let target = if curve.enabled { curve.target_at(local_minute(at as u64)) } else { 0 };
-            if target > 0 {
+            let target = if curve.enabled { curve.target_at(local_minute(at as u64)) } else { (0, 0) };
+            if target.0 > 0 {
                 // Primero las reglas de repetición; luego lo que encaja con la curva.
                 eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_cost(energy_of(&c.id), target, prev_energy, curve.smooth), c.salt));
             }
@@ -1811,11 +1836,15 @@ mod energy_tests {
     #[test]
     fn curve_target_wraps_midnight() {
         let c = EnergyCurve { enabled: true, ..Default::default() };
-        assert_eq!(c.target_at(7 * 60), 2);
-        assert_eq!(c.target_at(10 * 60), 4);
-        assert_eq!(c.target_at(23 * 60), 1);
-        assert_eq!(c.target_at(3 * 60), 1); // madrugada: sigue la noche
-        assert_eq!(EnergyCurve::default().target_at(600), 0); // apagada
+        assert_eq!(c.target_at(7 * 60), (2, 3));
+        assert_eq!(c.target_at(10 * 60), (3, 5));
+        assert_eq!(c.target_at(23 * 60), (1, 2));
+        assert_eq!(c.target_at(3 * 60), (1, 2)); // madrugada: sigue la noche
+        assert_eq!(EnergyCurve::default().target_at(600), (0, 0)); // apagada
+        // Rango: dentro vale todo igual; fuera, solo como último recurso
+        assert_eq!(energy_cost(3, (3, 5), 0, false), 0);
+        assert_eq!(energy_cost(5, (3, 5), 0, false), 0);
+        assert!(energy_cost(2, (3, 5), 0, false) > energy_cost(0, (3, 5), 0, false));
     }
 
     #[test]
@@ -1824,7 +1853,7 @@ mod energy_tests {
         s.energy_curve = EnergyCurve {
             enabled: true,
             smooth: true,
-            points: vec![EnergyPoint { start: "00:00".into(), energy: 5, label: String::new() }],
+            points: vec![EnergyPoint { start: "00:00".into(), energy: 5, energy_max: 0, label: String::new() }],
         };
         let library: Vec<Track> = (0..40).map(|i| tr(&format!("t{i}"), (i % 5 + 1) as u8)).collect();
         // Viene de una canción de energía 1: no salta directamente a 5.
