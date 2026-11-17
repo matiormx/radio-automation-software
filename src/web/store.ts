@@ -312,7 +312,7 @@ async function waveform(id: string, buckets: number): Promise<Waveform> {
       const ctx = new Ctx();
       try {
         const audio = await ctx.decodeAudioData(buf);
-        const n = Math.max(80, Math.min(4000, buckets));
+        const n = Math.max(80, Math.min(20000, buckets));
         const peaks = new Array<number>(n).fill(0);
         const chans = [...Array(audio.numberOfChannels).keys()].map((c) => audio.getChannelData(c));
         const len = audio.length;

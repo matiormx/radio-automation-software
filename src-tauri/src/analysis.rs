@@ -402,7 +402,8 @@ pub async fn track_waveform(
         return Err("El archivo de la cancion no esta disponible".to_string());
     }
     let scan = scan_file(path)?;
-    let wanted = buckets.unwrap_or(900).clamp(80, 4000);
+    // Hasta la resolución completa del análisis (una muestra cada 50 ms) para el zoom.
+    let wanted = buckets.unwrap_or(900).clamp(80, 20000).min(scan.peaks.len().max(80));
     let peaks = downsample(&scan.peaks, wanted);
     Ok(Waveform {
         duration_secs: scan.duration,
