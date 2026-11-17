@@ -2,7 +2,7 @@ import { DeezerSearch } from "./DeezerSearch";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
 import type { AiSettings, Block, HistoryEntry, HourWindow, MediaType, PlaylistImportReport, Track, TrackPatch } from "../types";
-import { MEDIA_TYPES } from "../types";
+import { MEDIA_TYPES, mediaTypeLabel } from "../types";
 import {
   updateTrack,
   setTrackCover,
@@ -92,6 +92,10 @@ import {
 type Mode = "blocks" | "music" | "explorer" | "tags" | "history";
 type SortKey = "title" | "album" | "genre" | "duration";
 const NONE = "__none";
+/** Selecciones especiales de la vista Etiquetas: energía (0–5) y tipo de medio */
+const ENERGY_SEL = "__energy:";
+const TYPE_SEL = "__type:";
+const ENERGY_LABELS = ["Sin energía", "Muy tranquila", "Suave", "Media", "Animada", "Muy enérgica"];
 
 interface MusicBrowserProps {
   tracks: Track[];
@@ -544,6 +548,17 @@ function MusicBrowserBase({
 
 
   const noTagCount = useMemo(() => tracks.filter((t) => t.tags.length === 0).length, [tracks]);
+  // Energía (ficha IA) de la música, para revisar a mano: [0 = sin energía, 1…5]
+  const energyCounts = useMemo(() => {
+    const c = [0, 0, 0, 0, 0, 0];
+    for (const t of tracks) if (!t.mediaType && !t.disabled) c[Math.max(0, Math.min(5, t.energy ?? 0))]++;
+    return c;
+  }, [tracks]);
+  const typeCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tracks) if (t.mediaType) m.set(t.mediaType, (m.get(t.mediaType) ?? 0) + 1);
+    return m;
+  }, [tracks]);
 
   // Canciones ya emitidas, de la mas reciente a la mas antigua.
   const playedTracks = useMemo(() => {
@@ -573,10 +588,18 @@ function MusicBrowserBase({
             ? list.filter((t) => t.blocks.length === 0)
             : list.filter((t) => t.blocks.includes(selection));
       } else if (mode === "tags") {
-        list =
-          selection === NONE
-            ? list.filter((t) => t.tags.length === 0)
-            : list.filter((t) => t.tags.includes(selection));
+        if (selection.startsWith(ENERGY_SEL)) {
+          const lvl = Number(selection.slice(ENERGY_SEL.length));
+          list = list.filter((t) => !t.mediaType && !t.disabled && (t.energy ?? 0) === lvl);
+        } else if (selection.startsWith(TYPE_SEL)) {
+          const ty = selection.slice(TYPE_SEL.length);
+          list = list.filter((t) => (t.mediaType ?? "") === ty);
+        } else {
+          list =
+            selection === NONE
+              ? list.filter((t) => t.tags.length === 0)
+              : list.filter((t) => t.tags.includes(selection));
+        }
       }
     }
 
@@ -944,7 +967,14 @@ function MusicBrowserBase({
   const selectionLabel = (() => {
     if (!selection) return "Toda la música";
     if (mode === "blocks") return selection === NONE ? "Sin lista" : blockNames.get(selection) ?? "Lista";
-    if (mode === "tags") return selection === NONE ? "Sin etiquetas" : selection;
+    if (mode === "tags") {
+      if (selection.startsWith(ENERGY_SEL)) {
+        const lvl = Number(selection.slice(ENERGY_SEL.length));
+        return lvl === 0 ? "Sin energía" : `Energía ${ENERGY_LABELS[lvl]}`;
+      }
+      if (selection.startsWith(TYPE_SEL)) return mediaTypeLabel(selection.slice(TYPE_SEL.length));
+      return selection === NONE ? "Sin etiquetas" : selection;
+    }
     if (mode === "history") return "Últimas canciones emitidas";
     return selection;
   })();
@@ -1386,6 +1416,43 @@ function MusicBrowserBase({
                   <span className="nav-count">{noTagCount}</span>
                 </button>
               )}
+              <div className="nav-section">Energía (ficha IA)</div>
+              {[0, 1, 2, 3, 4, 5].map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  className={`nav-item ${selection === ENERGY_SEL + lvl ? "nav-item-on" : ""}`}
+                  onClick={() => setSelection(ENERGY_SEL + lvl)}
+                  title={lvl === 0 ? "Música sin energía asignada: para revisarla a mano" : undefined}
+                >
+                  <span className="nav-name">
+                    {lvl === 0 ? (
+                      <em>Sin energía</em>
+                    ) : (
+                      <>
+                        <span className="energy-dots">
+                          {"●".repeat(lvl)}
+                          <span className="off">{"●".repeat(5 - lvl)}</span>
+                        </span>{" "}
+                        {ENERGY_LABELS[lvl]}
+                      </>
+                    )}
+                  </span>
+                  <span className="nav-count">{energyCounts[lvl]}</span>
+                </button>
+              ))}
+              {typeCounts.size > 0 && <div className="nav-section">Tipo de medio</div>}
+              {MEDIA_TYPES.filter((m) => m.id && typeCounts.has(m.id)).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`nav-item ${selection === TYPE_SEL + m.id ? "nav-item-on" : ""}`}
+                  onClick={() => setSelection(TYPE_SEL + m.id)}
+                >
+                  <span className="nav-name">{m.label}</span>
+                  <span className="nav-count">{typeCounts.get(m.id)}</span>
+                </button>
+              ))}
             </>
           )}
         </aside>

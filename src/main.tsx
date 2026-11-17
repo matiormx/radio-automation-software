@@ -9,6 +9,8 @@ import { ChatWindow } from "./ChatWindow";
 import { AiWindow } from "./AiWindow";
 import { fitToScreen, toolKind } from "./bridge";
 import "./styles.css";
+import { uiStateRestore, uiStateSave } from "./api";
+import { IS_WEB } from "./platform";
 
 const kind = toolKind();
 // Sin el menu contextual del navegador (Atrás, Actualizar, Imprimir...): la
@@ -21,6 +23,13 @@ window.addEventListener("contextmenu", (e) => {
 // En pantallas pequeñas la ventana principal se maximiza para que quepa todo.
 if (!kind) void fitToScreen(undefined, true);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+// Ventana principal: tras importar una copia se recupera el estado de la
+// interfaz (antes de pintar); después se guarda para las próximas copias.
+const ready = !kind && !IS_WEB ? uiStateRestore().finally(() => {
+  void uiStateSave();
+  window.setInterval(() => void uiStateSave(), 10 * 60 * 1000);
+}) : Promise.resolve();
+
+void ready.then(() => ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>{kind === "settings" ? <SettingsWindow /> : kind === "mixer" ? <MixerWindow /> : kind === "library" ? <LibraryWindow /> : kind === "videoout" ? <VideoOutWindow /> : kind === "videonp" ? <VideoOutWindow programOnly /> : kind === "chat" ? <ChatWindow /> : kind === "ai" ? <AiWindow /> : <App />}</React.StrictMode>,
-);
+));

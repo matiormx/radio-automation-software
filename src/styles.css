@@ -5132,3 +5132,4 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .badge-energy .energy-dots { letter-spacing: 0.5px; }
 .badge-noenergy { font-size: 9px; color: var(--text-faint); border: 1px dashed var(--line-strong); border-radius: 3px; padding: 0 4px; }
 .badge-mtype { font-size: 8.5px; font-weight: 700; letter-spacing: 0.6px; color: #ffb84d; background: #ffb84d1f; border-radius: 3px; padding: 1px 5px; }
+.nav-section { margin: 10px 8px 3px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-faint); }

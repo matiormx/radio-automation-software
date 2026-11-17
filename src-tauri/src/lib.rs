@@ -315,6 +315,8 @@ pub fn run() {
             video::video_capture_devices,
             netstream::netstream_url,
             backup::backup_export,
+            backup::ui_state_save,
+            backup::ui_state_take,
             backup::backup_inspect,
             backup::backup_import,
             backup::backup_last_import_log,

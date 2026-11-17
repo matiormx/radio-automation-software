@@ -756,7 +756,36 @@ export async function pickAnyFolder(): Promise<string | null> {
   return typeof p === "string" ? p : null;
 }
 
-export function backupExport(dest: string, includeAudio: boolean): Promise<BackupExportResult> {
+/** Estado de la interfaz guardado en el navegador interno (va en la copia de seguridad). */
+const UI_KEYS = /^(miradio\.|mx-)/;
+
+export async function uiStateSave(): Promise<void> {
+  const out: Record<string, string> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && UI_KEYS.test(k) && k !== "miradio.bridge.state") out[k] = localStorage.getItem(k) ?? "";
+    }
+  } catch {
+    return;
+  }
+  await invoke("ui_state_save", { json: JSON.stringify(out) }).catch(() => undefined);
+}
+
+/** Tras importar una copia, vuelve a poner el estado de la interfaz que traía. */
+export async function uiStateRestore(): Promise<void> {
+  const raw = await invoke<string | null>("ui_state_take").catch(() => null);
+  if (!raw) return;
+  try {
+    const o = JSON.parse(raw) as Record<string, string>;
+    for (const [k, v] of Object.entries(o)) if (UI_KEYS.test(k)) localStorage.setItem(k, v);
+  } catch {
+    /* sin estado */
+  }
+}
+
+export async function backupExport(dest: string, includeAudio: boolean): Promise<BackupExportResult> {
+  await uiStateSave();
   return invoke<BackupExportResult>("backup_export", { dest, includeAudio });
 }
 

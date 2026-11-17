@@ -45,7 +45,41 @@ fn skipped(rel: &str) -> bool {
             | "IndexedDB"
             | "audio-cache"
             | "convert-tmp"
+            // Programas que se bajan solos (FFmpeg, Whisper…): no son datos,
+            // pesan mucho y cada equipo tiene los suyos.
+            | "ffmpeg"
+            | "bin"
+            | "whisper"
+            | "whisper-bin.zip"
+            | "vst-preinstall"
+            | "vstpkg-tmp"
+            // Música bajada de la nube: solo con «incluir la música».
+            | crate::cloudsync::MEDIA_DIR
+            | UI_RESTORE
     ) || rel.ends_with(".tmp")
+        || rel.ends_with(".part")
+}
+
+/// Estado de la interfaz (orden de las listas, paneles, anchos…), que vive
+/// en el navegador interno: la app lo guarda aquí para que vaya en la copia.
+const UI_STATE: &str = "ui-state.json";
+/// Tras importar, la app lo recoge al arrancar y lo vuelve a poner.
+const UI_RESTORE: &str = "ui-state-restore.json";
+
+/// Guarda el estado de la interfaz (lo llama la app al arrancar y cada rato).
+#[tauri::command]
+pub fn ui_state_save(state: tauri::State<'_, AppState>, json: String) -> Result<(), String> {
+    serde_json::from_str::<Value>(&json).map_err(|e| e.to_string())?;
+    fs::write(state.data_dir.join(UI_STATE), json).map_err(|e| e.to_string())
+}
+
+/// Estado de la interfaz que trajo una importación (una sola vez).
+#[tauri::command]
+pub fn ui_state_take(state: tauri::State<'_, AppState>) -> Option<String> {
+    let p = state.data_dir.join(UI_RESTORE);
+    let s = fs::read_to_string(&p).ok();
+    let _ = fs::remove_file(&p);
+    s
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -97,6 +131,21 @@ fn walk(dir: &Path, base: &Path, out: &mut Vec<(PathBuf, String)>) {
         if p.is_dir() {
             walk(&p, base, out);
         } else if p.is_file() {
+            out.push((p, rel));
+        }
+    }
+}
+
+/// Como `walk`, sin saltarse nada (para carpetas elegidas a propósito).
+fn walk_all(dir: &Path, base: &Path, out: &mut Vec<(PathBuf, String)>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let Ok(rel) = p.strip_prefix(base) else { continue };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if p.is_dir() {
+            walk_all(&p, base, out);
+        } else if p.is_file() && !rel.ends_with(".part") && !rel.ends_with(".tmp") {
             out.push((p, rel));
         }
     }
@@ -170,6 +219,13 @@ fn export_core(data_dir: &Path, dest: &Path, include_audio: bool) -> Result<Expo
 fn export_with(data_dir: &Path, dest: &Path, include_audio: bool, prog: &dyn Fn(u64, u64)) -> Result<ExportResult, String> {
     let mut files = Vec::new();
     walk(data_dir, data_dir, &mut files);
+    // La música bajada de la nube (si está en la carpeta de datos) va con la música.
+    if include_audio {
+        let md = data_dir.join(crate::cloudsync::MEDIA_DIR);
+        let mut extra = Vec::new();
+        walk_all(&md, data_dir, &mut extra);
+        files.extend(extra);
+    }
 
     // Musica: archivos de la biblioteca que viven fuera de la carpeta de datos.
     let mut audio: Vec<(PathBuf, String)> = Vec::new();
@@ -552,7 +608,7 @@ pub fn apply_pending(data_dir: &Path) {
             let _ = fs::remove_file(p);
         }
         let mut new_files = Vec::new();
-        walk(&tmp, &tmp, &mut new_files);
+        walk_all(&tmp, &tmp, &mut new_files);
         for (p, rel) in &new_files {
             let target = data_dir.join(rel);
             if let Some(parent) = target.parent() {
@@ -561,6 +617,11 @@ pub fn apply_pending(data_dir: &Path) {
             fs::rename(p, &target).or_else(|_| fs::copy(p, &target).map(|_| ())).map_err(|e| e.to_string())?;
         }
         let _ = fs::remove_dir_all(&tmp);
+        // El estado de la interfaz de la copia se pone al arrancar la app.
+        let ui = data_dir.join(UI_STATE);
+        if ui.is_file() {
+            let _ = fs::rename(&ui, data_dir.join(UI_RESTORE));
+        }
         Ok(())
     })();
     match res {

@@ -104,9 +104,12 @@ export function BackupTab({ showToast }: Props) {
         <div>
           <h4>Copia de seguridad</h4>
           <p className="hint">
-            Guarda todo OmniCaster en un único archivo .zip: biblioteca y bloques, listas, historial, programas, eventos,
-            campañas, ajustes (mesa, emisión, API, notificaciones…), carátulas y logo. Sirve para recuperarlo o para
-            pasarlo a otro equipo.
+            Guarda todo OmniCaster en un único archivo .zip: biblioteca (con fichas IA, energía, tipo de medio,
+            horarios, cortes y puntos), listas y bloques, historial, programas, eventos, campañas, todos los ajustes
+            (mesa y plugins con su configuración, emisión, nube, IA, curva de energía, AutoDJ, control remoto, API,
+            apariencia, notificaciones…), carátulas, fotos de artistas, logo y la disposición de la pantalla. Sirve
+            para recuperarlo o para pasarlo a otro equipo. No incluye los programas que se bajan solos (FFmpeg,
+            Whisper) ni los plugins instalados en el sistema.
           </p>
         </div>
       </div>
@@ -115,7 +118,7 @@ export function BackupTab({ showToast }: Props) {
         <legend>Crear copia</legend>
         <label className="check-field">
           <input type="checkbox" checked={withAudio} onChange={(e) => setWithAudio(e.target.checked)} />
-          Incluir también la música (los archivos de audio de la biblioteca)
+          Incluir también la música (los archivos de audio de la biblioteca y la música bajada de la nube)
         </label>
         <p className="hint">
           Sin la música la copia ocupa poco; las canciones se buscan en las mismas rutas (o en las que indiques al
@@ -129,7 +132,7 @@ export function BackupTab({ showToast }: Props) {
         </div>
         {lastExport && <p className="hint">{lastExport}</p>}
         <p className="hint">
-          La copia incluye las claves de emisión y de la API: guárdala en un sitio seguro.
+          La copia incluye las claves de emisión, de la nube, de la IA y de la API: guárdala en un sitio seguro.
         </p>
       </fieldset>
 
