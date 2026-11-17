@@ -2,7 +2,7 @@ import { CloudTab } from "./CloudTab";
 import { ApiTab } from "./ApiTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { BackupTab } from "./BackupTab";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Block,
   Campaign,
@@ -1628,7 +1628,52 @@ function AudioBufferField({ settings: s, onChange }: { settings: Settings; onCha
   );
 }
 
-const ENERGY_NAMES = ["", "1 · Muy tranquila", "2 · Suave", "3 · Media", "4 · Animada", "5 · Muy enérgica"];
+
+const ENERGY_SHORT = ["", "Muy tranquila", "Suave", "Media", "Animada", "Muy enérgica"];
+
+/**
+ * Rango de energía de una franja: cinco niveles; se pulsa uno y luego otro
+ * (o se arrastra de uno a otro) para elegir desde dónde hasta dónde.
+ */
+function EnergyRangePicker({ lo, hi, onChange }: { lo: number; hi: number; onChange: (lo: number, hi: number) => void }) {
+  const anchor = useRef<number | null>(null);
+  const set = (a: number, b: number) => onChange(Math.min(a, b), Math.max(a, b));
+  useEffect(() => {
+    const up = () => (anchor.current = null);
+    window.addEventListener("pointerup", up);
+    return () => window.removeEventListener("pointerup", up);
+  }, []);
+  return (
+    <span className="erange" title="Pulsa un nivel y luego otro (o arrastra) para elegir el rango">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          className={`erange-lvl ${n >= lo && n <= hi ? "erange-on" : ""}`}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            if (lo === hi && n !== lo) {
+              // Ya había uno solo: se amplía hasta este
+              set(lo, n);
+              anchor.current = lo;
+            } else {
+              set(n, n);
+              anchor.current = n;
+            }
+          }}
+          onPointerEnter={() => {
+            if (anchor.current != null) set(anchor.current, n);
+          }}
+          aria-pressed={n >= lo && n <= hi}
+          aria-label={`Energía ${n}: ${ENERGY_SHORT[n]}`}
+        >
+          {n}
+        </button>
+      ))}
+      <span className="erange-txt">{lo === hi ? ENERGY_SHORT[lo] : `${ENERGY_SHORT[lo]} → ${ENERGY_SHORT[hi]}`}</span>
+    </span>
+  );
+}
 
 /** Curva de energía del día (AutoDJ): franjas con su energía. */
 function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings) => void }) {
@@ -1661,37 +1706,11 @@ function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings
               <div key={i} className="energy-row">
                 <input className="input" type="time" value={p.start} onChange={(e) => setPoint(i, { start: e.target.value })} />
                 <input className="input" placeholder="Nombre" value={p.label} onChange={(e) => setPoint(i, { label: e.target.value })} />
-                <span className="energy-range" title="Elige al azar entre todas las canciones de este rango; las de fuera solo si no queda ninguna dentro">
-                  <span className="hint">de</span>
-                  <select
-                    value={p.energy}
-                    onChange={(e) => {
-                      const lo = Number(e.target.value);
-                      const hi = p.energyMax || p.energy;
-                      setPoint(i, { energy: lo, energyMax: Math.max(lo, hi) });
-                    }}
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        {ENERGY_NAMES[n]}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="hint">a</span>
-                  <select
-                    value={p.energyMax || p.energy}
-                    onChange={(e) => {
-                      const hi = Number(e.target.value);
-                      setPoint(i, { energy: Math.min(p.energy, hi), energyMax: hi });
-                    }}
-                  >
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>
-                        {ENERGY_NAMES[n]}
-                      </option>
-                    ))}
-                  </select>
-                </span>
+                <EnergyRangePicker
+                  lo={p.energy}
+                  hi={p.energyMax || p.energy}
+                  onChange={(lo, hi) => setPoint(i, { energy: lo, energyMax: hi })}
+                />
                 <button type="button" className="btn btn-sm" onClick={() => set({ points: curve.points.filter((_, k) => k !== i) })} title="Quitar franja">
                   ✕
                 </button>
