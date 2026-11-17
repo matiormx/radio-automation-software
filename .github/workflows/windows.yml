@@ -40,7 +40,7 @@ jobs:
     outputs:
       release_id: ${{ steps.release.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Crear la Release (borrador)
         id: release
@@ -83,7 +83,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Comprobar la clave de firma de actualizaciones
         shell: pwsh
@@ -95,7 +95,7 @@ jobs:
             exit 1
           }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -148,7 +148,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # apt en pasos separados, con límite de tiempo y, si falla, las últimas
       # líneas como aviso (se ven en el resumen de la ejecución).
@@ -195,7 +195,7 @@ jobs:
             tail -n 15 apt.log | sed 's/^/::error::/'; exit 1
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
