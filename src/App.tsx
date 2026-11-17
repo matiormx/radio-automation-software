@@ -834,6 +834,7 @@ export default function App() {
       void appFeed.start();
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
+      nat.fadeInNext = s.fadeInNext === true;
       nat.loop = false;
       nat.silenceSkip = s.silenceDetection;
       nat.silenceThresholdDb = s.silenceThresholdDb ?? -55;
@@ -1306,6 +1307,7 @@ export default function App() {
     const p = playerRef.current;
     if (p) {
       p.fadeSeconds = settings.fadeSeconds;
+      p.fadeInNext = settings.fadeInNext === true;
       p.loop = false;
       p.silenceSkip = settings.silenceDetection;
       p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
@@ -1315,6 +1317,7 @@ export default function App() {
     }
   }, [
     settings.fadeSeconds,
+    settings.fadeInNext,
     settings.masterVolume,
     settings.silenceDetection,
     settings.silenceThresholdDb,

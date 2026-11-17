@@ -97,6 +97,10 @@ pub struct Settings {
     /// Control desde el móvil (página web en la red del estudio)
     pub mobile: crate::mobile::MobileConfig,
     pub fade_seconds: u32,
+    /// Al cruzar, la siguiente entra con fundido (subiendo desde cero). Por
+    /// defecto entra a volumen completo y solo baja la que sale: así no se
+    /// apaga el arranque de las canciones enérgicas.
+    pub fade_in_next: bool,
     /// Margen de las tarjetas de sonido (ms): búfer de la tarjeta y colchón de
     /// las secundarias. Más = menos cortes con el equipo cargado, más retardo.
     pub audio_buffer_ms: u32,
@@ -949,6 +953,7 @@ impl Default for Settings {
             remote: RemoteSettings::default(),
             mobile: crate::mobile::MobileConfig::default(),
             fade_seconds: 6,
+            fade_in_next: false,
             audio_buffer_ms: 40,
             auto_play_on_start: false,
             rename_files: true,

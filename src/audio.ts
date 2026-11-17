@@ -106,6 +106,8 @@ export class RadioPlayer {
   private static readonly SILENCE_SECONDS = 3;
 
   fadeSeconds = 6;
+  /** La siguiente entra con fundido; si no, a volumen completo y solo baja la que sale. */
+  fadeInNext = false;
   loop = false;
   silenceSkip = false;
   /** Umbral de silencio (dBFS, RMS). */
@@ -934,7 +936,7 @@ export class RadioPlayer {
       } else {
         const overlap = Math.min(fadeTarget, available);
         gain.gain.setValueAtTime(0.001, startAt);
-        gain.gain.linearRampToValueAtTime(1, startAt + overlap);
+        gain.gain.linearRampToValueAtTime(1, startAt + (this.fadeInNext ? overlap : 0.03));
         if (keepCurrent) {
           // Punto de mezcla: la pista actual sigue sonando (su intro queda
           // debajo de la siguiente) hasta que se acaba.

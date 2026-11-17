@@ -936,6 +936,8 @@ export interface Settings {
   remote?: RemoteSettings;
   mobile?: MobileSettings;
   fadeSeconds: number;
+  /** Al cruzar, la siguiente entra con fundido (si no, a volumen completo y solo baja la que sale) */
+  fadeInNext?: boolean;
   /** Margen de las tarjetas de sonido (ms); más = menos cortes, más retardo */
   audioBufferMs?: number;
   /** Reproducir la lista automaticamente al abrir la app */

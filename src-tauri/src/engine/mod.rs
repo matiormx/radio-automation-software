@@ -119,7 +119,14 @@ pub enum Op {
     Next,
     Prev,
     Seek { secs: f64 },
-    Options { fade_seconds: f64, loop_playlist: bool, silence_skip: bool, silence_threshold_db: f64 },
+    Options {
+        fade_seconds: f64,
+        loop_playlist: bool,
+        silence_skip: bool,
+        silence_threshold_db: f64,
+        #[serde(default)]
+        fade_in: bool,
+    },
     Volume { value: f32 },
     Mixer { config: MixConfig },
     /// Activa el envio de medidores por tira (ventana Mixer abierta)
@@ -220,8 +227,9 @@ impl Engine {
             Op::Volume { value } => lock(&self.shared).core.set_volume(value),
             Op::Meters { on } => self.meters.store(on, Ordering::SeqCst),
             Op::LiveGain { key, db } => lock(&self.shared).core.plan.live_gain(&key, db),
-            Op::Options { fade_seconds, loop_playlist, silence_skip, silence_threshold_db } => {
+            Op::Options { fade_seconds, loop_playlist, silence_skip, silence_threshold_db, fade_in } => {
                 player.fade_seconds = fade_seconds.clamp(0.0, 30.0);
+                player.fade_in = fade_in;
                 player.loop_playlist = loop_playlist;
                 player.silence_skip = silence_skip;
                 player.silence_threshold_db = silence_threshold_db.clamp(-90.0, -10.0);

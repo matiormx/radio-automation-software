@@ -65,7 +65,7 @@ export class NativePlayer {
   private unlisten: UnlistenFn | null = null;
   private ready: Promise<void>;
   private disposed = false;
-  private opts = { fadeSeconds: 6, loopPlaylist: false, silenceSkip: false, silenceThresholdDb: -55 };
+  private opts = { fadeSeconds: 6, loopPlaylist: false, silenceSkip: false, silenceThresholdDb: -55, fadeIn: false };
   private optsQueued = false;
   private playlist: Track[] = [];
 
@@ -102,6 +102,10 @@ export class NativePlayer {
 
   set fadeSeconds(v: number) {
     this.setOpt({ fadeSeconds: v });
+  }
+
+  set fadeInNext(v: boolean) {
+    this.setOpt({ fadeIn: v });
   }
 
   set loop(v: boolean) {

@@ -703,6 +703,15 @@ function GeneralTab({
         <label className="check-field">
           <input
             type="checkbox"
+            checked={s.fadeInNext === true}
+            onChange={(e) => onChange({ ...s, fadeInNext: e.target.checked })}
+          />
+          En la transición, la siguiente canción entra con fundido (desactivado: entra a volumen completo y solo baja la
+          que sale, así no se apaga el arranque de las canciones enérgicas)
+        </label>
+        <label className="check-field">
+          <input
+            type="checkbox"
             checked={s.silenceDetection}
             onChange={(e) => onChange({ ...s, silenceDetection: e.target.checked })}
           />

@@ -158,6 +158,9 @@ enum Pending {
 
 pub struct Player {
     pub fade_seconds: f64,
+    /// La siguiente entra con fundido; si no, a volumen completo (con un
+    /// arranque de 30 ms para que no chasquee) y solo baja la que sale.
+    pub fade_in: bool,
     pub loop_playlist: bool,
     pub silence_skip: bool,
     pub silence_threshold_db: f64,
@@ -183,6 +186,7 @@ impl Default for Player {
     fn default() -> Self {
         Player {
             fade_seconds: 6.0,
+            fade_in: false,
             loop_playlist: false,
             silence_skip: false,
             silence_threshold_db: -55.0,
@@ -681,7 +685,8 @@ impl Player {
             overlap = 0.0;
         } else {
             overlap = fade_target.min(available);
-            gain.schedule(start_at, 0.001, start_at + core.frames(overlap), 1.0);
+            let rise = if self.fade_in { overlap } else { 0.03 };
+            gain.schedule(start_at, 0.001, start_at + core.frames(rise), 1.0);
             if !keep_current {
                 let fade_end = now + core.frames(overlap);
                 let stop = now + core.frames(overlap + 0.1);
