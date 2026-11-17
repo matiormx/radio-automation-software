@@ -219,7 +219,7 @@ fn agent() -> ureq::Agent {
 
 /// Espejo de OmniCaster: los VST3 de cada plugin ya preparados por sistema
 /// (los publica el flujo «Plugins recomendados» de este repositorio).
-const MIRROR: &str = "https://github.com/matiormx/radio-automation-software/releases/download/plugins";
+const MIRROR: &str = "https://github.com/nges-malaga/radio-automation-software/releases/download/plugins";
 
 #[derive(Deserialize)]
 struct MFile {

@@ -94,7 +94,7 @@ pub(crate) fn lyrics_for(file: &str, title: &str, artist: &str, album: &str, dur
     if title.trim().is_empty() || artist.trim().is_empty() {
         return (String::new(), "");
     }
-    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/matiormx/radio-automation-software)");
+    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/nges-malaga/radio-automation-software)");
     let pick = |v: &Value| -> Option<(String, &'static str)> {
         if v.get("instrumental").and_then(|x| x.as_bool()).unwrap_or(false) {
             return Some((INSTRUMENTAL.to_string(), "LRCLIB"));
@@ -144,7 +144,7 @@ pub(crate) fn first_sung_secs(title: &str, artist: &str, album: &str, duration: 
     if title.trim().is_empty() || artist.trim().is_empty() {
         return None;
     }
-    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/matiormx/radio-automation-software)");
+    let agent = concat!("OmniCaster/", env!("CARGO_PKG_VERSION"), " (https://github.com/nges-malaga/radio-automation-software)");
     let mut get = ureq::get("https://lrclib.net/api/get")
         .timeout(Duration::from_secs(6))
         .set("User-Agent", agent)

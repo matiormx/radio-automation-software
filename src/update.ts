@@ -6,7 +6,7 @@ import type { AppUpdateInfo } from "./types";
 
 /** Pagina de descargas, por si la actualizacion automatica no se puede usar. */
 export const RELEASES_PAGE =
-  "https://github.com/matiormx/radio-automation-software/releases/latest";
+  "https://github.com/nges-malaga/radio-automation-software/releases/latest";
 
 /** Actualizacion encontrada en la ultima busqueda, lista para instalar. */
 let pending: Update | null = null;

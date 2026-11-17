@@ -80,7 +80,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxQ0QxQkNBNDNBNjY2RTMKUldUalpxWkR5aHZOY2ZGV2R0WlBvYVBsZ2VzOHgxOERRY3NLekF6d1dSaW9VWDREQ1YxOWdPTjAK",
       "endpoints": [
-        "https://github.com/matiormx/radio-automation-software/releases/latest/download/latest.json"
+        "https://github.com/nges-malaga/radio-automation-software/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

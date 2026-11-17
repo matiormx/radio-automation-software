@@ -10,7 +10,7 @@ tareas y sin nada más. Si OmniCaster se cierra o se cuelga, se vuelve a abrir.
 2. Entra como administrador y ejecuta:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/matiormx/radio-automation-software/main/scripts/linux/instalar-quiosco.sh -o instalar-quiosco.sh
+   curl -fsSL https://raw.githubusercontent.com/nges-malaga/radio-automation-software/main/scripts/linux/instalar-quiosco.sh -o instalar-quiosco.sh
    sudo bash instalar-quiosco.sh
    ```
 

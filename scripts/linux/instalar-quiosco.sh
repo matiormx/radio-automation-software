@@ -4,7 +4,7 @@
 # OmniCaster y no abre nada más.
 #
 # Uso (como root):
-#   curl -fsSL https://raw.githubusercontent.com/matiormx/radio-automation-software/main/scripts/linux/instalar-quiosco.sh -o instalar-quiosco.sh
+#   curl -fsSL https://raw.githubusercontent.com/nges-malaga/radio-automation-software/main/scripts/linux/instalar-quiosco.sh -o instalar-quiosco.sh
 #   sudo bash instalar-quiosco.sh
 #
 # Opciones (variables de entorno):
@@ -24,7 +24,7 @@ set -euo pipefail
 KIOSK_USER="${KIOSK_USER:-radio}"
 CABLES="${CABLES:-4}"
 PLUGINS="${PLUGINS-lsp airwindows dragonfly}"
-REPO="matiormx/radio-automation-software"
+REPO="nges-malaga/radio-automation-software"
 APP_DIR="/opt/miradio"
 APP="$APP_DIR/OmniCaster.AppImage"
 
