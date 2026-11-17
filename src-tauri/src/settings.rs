@@ -1443,6 +1443,11 @@ pub fn pick_tracks(
         if is_intro(t) || t.disabled {
             continue;
         }
+        // Jingles, programas, podcasts y comerciales solo entran si están en
+        // una lista elegida a propósito, nunca en la rotación general.
+        if !t.media_type.is_empty() && pick_blocks.is_empty() {
+            continue;
+        }
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
             continue;
         }

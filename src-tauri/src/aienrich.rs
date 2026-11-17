@@ -52,8 +52,8 @@ static STATUS: Mutex<EnrichStatus> = Mutex::new(EnrichStatus { running: false, d
 
 fn counts(data_dir: &Path) -> (usize, usize) {
     let lib = crate::library::read_library_internal(data_dir);
-    let total = lib.iter().filter(|t| !t.disabled).count();
-    let done = lib.iter().filter(|t| !t.disabled && t.energy > 0).count();
+    let total = lib.iter().filter(|t| !t.disabled && t.media_type.is_empty()).count();
+    let done = lib.iter().filter(|t| !t.disabled && t.media_type.is_empty() && t.energy > 0).count();
     (done, total)
 }
 
@@ -106,7 +106,7 @@ fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
             break;
         }
         let lib = crate::library::read_library_internal(&data_dir);
-        let todo: Vec<Track> = lib.into_iter().filter(|t| !t.disabled && t.energy == 0 && !t.title.trim().is_empty()).take(BATCH).collect();
+        let todo: Vec<Track> = lib.into_iter().filter(|t| !t.disabled && t.media_type.is_empty() && t.energy == 0 && !t.title.trim().is_empty()).take(BATCH).collect();
         if todo.is_empty() {
             break;
         }

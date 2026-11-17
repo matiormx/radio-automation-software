@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TrackDetails } from "../types";
+import { mediaTypeLabel } from "../types";
 import { closeOnBackdrop } from "../backdrop";
 import { getTrackDetails, trackUrl } from "../api";
 import { IconEdit, IconNote } from "../icons";
@@ -130,6 +131,8 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
               </div>
 
               <div className="prop-grid">
+                <span className="prop-k">Tipo</span>
+                <span className="prop-v">{mediaTypeLabel(details.mediaType)}</span>
                 <span className="prop-k">Álbum</span>
                 <span className="prop-v">{details.album || "—"}</span>
                 <span className="prop-k">Estilo</span>

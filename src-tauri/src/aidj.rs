@@ -223,7 +223,7 @@ fn score(t: &Track, plan: &Value, kw: &[String], genres: &HashSet<String>, langs
 }
 
 fn pick(data_dir: &Path, ai: &AiSettings, req: &PickRequest) -> Result<PickReply, String> {
-    let lib: Vec<Track> = read_library_internal(data_dir).into_iter().filter(|t| !t.disabled && !t.file.trim().is_empty()).collect();
+    let lib: Vec<Track> = read_library_internal(data_dir).into_iter().filter(|t| !t.disabled && t.media_type.is_empty() && !t.file.trim().is_empty()).collect();
     if lib.is_empty() {
         return Err("La biblioteca está vacía".to_string());
     }

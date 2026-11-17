@@ -32,8 +32,23 @@ export interface HourWindow {
   end: string;
 }
 
+/** Tipo de medio: "" = música */
+export type MediaType = "" | "jingle" | "program" | "podcast" | "commercial";
+
+export const MEDIA_TYPES: { id: MediaType; label: string }[] = [
+  { id: "", label: "Música" },
+  { id: "jingle", label: "Jingle" },
+  { id: "program", label: "Programa" },
+  { id: "podcast", label: "Podcast" },
+  { id: "commercial", label: "Comercial" },
+];
+
+export const mediaTypeLabel = (t?: string): string => MEDIA_TYPES.find((m) => m.id === (t ?? ""))?.label ?? "Música";
+
 export interface Track {
   id: string;
+  /** Tipo de medio (vacío = música). Solo la música sale en la vista Música. */
+  mediaType?: MediaType;
   /** Horario permitido: el AutoDJ solo la pone en estas franjas (vacío = siempre) */
   hours?: HourWindow[];
   /** Ficha IA: energía 1–5 (0/ausente = sin analizar), ánimo y temas */
@@ -205,6 +220,7 @@ export interface TrackPatch {
   mood?: string;
   themes?: string[];
   hours?: HourWindow[];
+  mediaType?: MediaType;
 }
 
 /** Configuracion del analisis de metadatos con IA local (Ollama/OpenCode) o en la nube. */
@@ -263,6 +279,7 @@ export interface TrackDetails {
   mood: string;
   themes: string[];
   hours: HourWindow[];
+  mediaType: MediaType;
   missing: boolean;
   fileSize: number;
   format: string;

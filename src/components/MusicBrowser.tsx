@@ -1,7 +1,8 @@
 import { DeezerSearch } from "./DeezerSearch";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
-import type { AiSettings, Block, HistoryEntry, HourWindow, PlaylistImportReport, Track, TrackPatch } from "../types";
+import type { AiSettings, Block, HistoryEntry, HourWindow, MediaType, PlaylistImportReport, Track, TrackPatch } from "../types";
+import { MEDIA_TYPES } from "../types";
 import {
   updateTrack,
   setTrackCover,
@@ -139,6 +140,7 @@ interface EditState {
   mood: string;
   themesText: string;
   hours: HourWindow[];
+  mediaType: MediaType;
   blocks: string[];
   /** Lista desde la que se abrió (para ‹ › entre canciones) */
   navIds: string[];
@@ -512,6 +514,9 @@ function MusicBrowserBase({
     }
   };
 
+  // La vista Música solo enseña música (no jingles, programas, podcasts ni comerciales).
+  const musicTracks = useMemo(() => tracks.filter((t) => !t.mediaType), [tracks]);
+
   const artists = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tracks) {
@@ -558,7 +563,7 @@ function MusicBrowserBase({
   }, [history, tracks]);
 
   const filtered = useMemo(() => {
-    let list = tracks;
+    let list = mode === "music" ? musicTracks : tracks;
     if (selection) {
       if (mode === "music") {
         list = list.filter((t) => matchesSel(t, selection));
@@ -599,7 +604,7 @@ function MusicBrowserBase({
       if (d === 0) d = a.artist.localeCompare(b.artist, "es");
       return d * dir;
     });
-  }, [tracks, mode, selection, query, sort]);
+  }, [tracks, musicTracks, mode, selection, query, sort]);
 
   // Coloca la seleccion en disco y abre (o trae al frente) su ventana. El
   // analisis trabaja ahi: si se minimiza, sigue en segundo plano.
@@ -669,7 +674,7 @@ function MusicBrowserBase({
     return ids.includes(id) ? ids : [id];
   };
   const editKey = (e: Omit<EditState, "orig" | "busy" | "navIds">) =>
-    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.hours, e.blocks, e.coverChange]);
+    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.hours, e.mediaType, e.blocks, e.coverChange]);
   const makeEdit = (t: Track, navIds: string[]): EditState => {
     const e = {
       id: t.id,
@@ -685,6 +690,7 @@ function MusicBrowserBase({
       mood: t.mood ?? "",
       themesText: (t.themes ?? []).join(", "),
       hours: (t.hours ?? []).map((h) => ({ ...h })),
+      mediaType: t.mediaType ?? "",
       blocks: [...t.blocks],
       cover: t.cover,
       coverChange: null,
@@ -721,6 +727,7 @@ function MusicBrowserBase({
         disabled: edit.disabled,
         energy: edit.energy,
         hours: edit.hours.map((h) => ({ id: h.id, days: h.days, start: h.start, end: h.end })),
+        mediaType: edit.mediaType,
         mood: edit.mood.trim(),
         themes: edit.themesText
           .split(",")
@@ -792,6 +799,18 @@ function MusicBrowserBase({
       setCtx(null);
     } catch (error) {
       showToast(`No se pudo cambiar la lista: ${String(error)}`);
+    }
+  };
+
+  const setCtxMediaType = async (mediaType: MediaType) => {
+    const track = ctx?.track;
+    if (!track) return;
+    try {
+      await updateTrack(track.id, { mediaType });
+      await onTrackSaved();
+      setCtx(null);
+    } catch (error) {
+      showToast(`No se pudo cambiar el tipo: ${String(error)}`);
     }
   };
 
@@ -1116,7 +1135,7 @@ function MusicBrowserBase({
         </div>
       ) : mode === "music" && !selection ? (
         <div className="browser-body browser-body-full">
-          <MusicGallery tracks={tracks} query={query} onOpen={openMusic} />
+          <MusicGallery tracks={musicTracks} query={query} onOpen={openMusic} />
         </div>
       ) : (
       <div
@@ -1404,7 +1423,7 @@ function MusicBrowserBase({
         >
           {mode === "music" ? (
             <GalleryHeader
-              tracks={tracks}
+              tracks={musicTracks}
               selection={selection}
               count={filtered.length}
               backTo={musicBack[musicBack.length - 1] ?? ""}
@@ -1547,6 +1566,15 @@ function MusicBrowserBase({
                   </button>
                 );
               })}
+            </div>
+            <div className="ctx-title">Tipo de medio</div>
+            <div className="ctx-blocks">
+              {MEDIA_TYPES.map((m) => (
+                <button key={m.id} type="button" className="ctx-item" onClick={() => void setCtxMediaType(m.id)}>
+                  <span className="plrow-block-check">{(ctx.track.mediaType ?? "") === m.id ? "✓" : ""}</span>
+                  {m.label}
+                </button>
+              ))}
             </div>
             <div className="ctx-sep" />
             <button
@@ -1735,17 +1763,29 @@ function MusicBrowserBase({
                   <input value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} />
                 </label>
               </div>
-              <label className="field">
-                <span className="field-label">Idioma</span>
-                <select value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })}>
-                  <option value="">Sin indicar</option>
-                  {[...new Set([...languages, ...(edit.language ? [edit.language] : [])])].map((c) => (
-                    <option key={c} value={c}>
-                      {languageFlag(c)} {languageName(c)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="field-row">
+                <label className="field" title="Solo la música sale en la vista Música, en el AutoDJ general y en OmniCaster Music">
+                  <span className="field-label">Tipo de medio</span>
+                  <select value={edit.mediaType} onChange={(e) => setEdit({ ...edit, mediaType: e.target.value as MediaType })}>
+                    {MEDIA_TYPES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Idioma</span>
+                  <select value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })}>
+                    <option value="">Sin indicar</option>
+                    {[...new Set([...languages, ...(edit.language ? [edit.language] : [])])].map((c) => (
+                      <option key={c} value={c}>
+                        {languageFlag(c)} {languageName(c)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label className="field">
                 <span className="field-label">Etiquetas</span>
                 <input

@@ -140,6 +140,18 @@ pub struct Track {
     /// Horario permitido: solo suena (AutoDJ) en estas franjas. Vacío = siempre.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hours: Vec<HourWindow>,
+    /// Tipo de medio: vacío = música; «jingle», «program», «podcast» o
+    /// «commercial». Solo la música sale en la vista Música y en Subsonic.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub media_type: String,
+}
+
+pub const MEDIA_TYPES: [&str; 4] = ["jingle", "program", "podcast", "commercial"];
+
+/// Normaliza el tipo de medio («music» y desconocidos = vacío).
+pub fn clean_media_type(v: &str) -> String {
+    let v = v.trim().to_lowercase();
+    if MEDIA_TYPES.contains(&v.as_str()) { v } else { String::new() }
 }
 
 /// Franja permitida de una canción: días (1 = lunes … 7 = domingo) y de
@@ -947,6 +959,7 @@ pub struct TrackResolved {
     pub mood: String,
     pub themes: Vec<String>,
     pub hours: Vec<HourWindow>,
+    pub media_type: String,
 }
 
 impl TrackResolved {
@@ -999,6 +1012,7 @@ impl TrackResolved {
             mood: t.mood,
             themes: t.themes,
             hours: t.hours,
+            media_type: t.media_type,
         }
     }
 }
@@ -1372,6 +1386,9 @@ pub struct TrackPatch {
     /// Horario permitido (vacío = siempre)
     #[serde(default)]
     pub hours: Option<Vec<HourWindow>>,
+    /// Tipo de medio ("" = música)
+    #[serde(default)]
+    pub media_type: Option<String>,
 }
 
 /// Edita los metadatos de una cancion. Las etiquetas del archivo no se
@@ -1503,6 +1520,9 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<Optio
         }
         if let Some(h) = patch.hours {
             t.hours = h.into_iter().filter(|w| hm(&w.start).is_some() && hm(&w.end).is_some()).take(12).collect();
+        }
+        if let Some(mt) = patch.media_type {
+            t.media_type = clean_media_type(&mt);
         }
         if let Some(th) = patch.themes {
             t.themes = th.iter().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).take(6).collect();
@@ -1692,6 +1712,7 @@ pub struct TrackDetails {
     pub mood: String,
     pub themes: Vec<String>,
     pub hours: Vec<HourWindow>,
+    pub media_type: String,
     pub missing: bool,
     pub file_size: u64,
     pub format: String,
@@ -1798,6 +1819,7 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         mood: t.mood.clone(),
         themes: t.themes.clone(),
         hours: t.hours.clone(),
+        media_type: t.media_type.clone(),
     })
 }
 
