@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
-import { closeOnBackdrop } from "../backdrop";
-import {
-  analyzeTrack,
-  autoTrackTrim,
-  getTrackWaveform,
-  moveTracksBlock,
-  saveTrackTrim,
-} from "../api";
-import type { AnalysisResult, Block, Track, Waveform } from "../types";
+import type { DragEvent } from "react";
+import { analyzeTrack, moveTracksBlock } from "../api";
+import type { AnalysisResult, Block, Track } from "../types";
 import { effectiveDuration } from "../types";
 import { IconWave, IconX } from "../icons";
 import type { SoundMixer } from "../mixer";
 import { WindowControls } from "./WindowControls";
+import { TrackEditor } from "./TrackEditor";
+import { mediaRule, mediaTypeLabel, useMediaTypes } from "../mediaTypes";
 
-type Mode = "folders" | "artists" | "blocks" | "genres" | "tags";
+type Mode = "folders" | "artists" | "blocks" | "genres" | "tags" | "types";
 type Side = "a" | "b";
 
 const MODES: { id: Mode; label: string }[] = [
@@ -23,6 +18,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: "blocks", label: "Listas" },
   { id: "genres", label: "Estilos" },
   { id: "tags", label: "Etiquetas" },
+  { id: "types", label: "Tipos" },
 ];
 
 const NO_FOLDER = "";
@@ -48,13 +44,6 @@ function matchesSearch(t: Track, q: string): boolean {
     .join(" ")
     .toLowerCase();
   return hay.includes(q);
-}
-
-function fmtTime(secs: number): string {
-  if (!Number.isFinite(secs) || secs < 0) return "0:00";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function fmtTrim(secs: number): string {
@@ -90,7 +79,7 @@ interface PaneProps {
   onMove: (ids: string[], to: Side) => void;
   onAnalyze: (ids: string[]) => void;
   onTrim: (id: string) => void;
-  onPick: (side: Side) => void;
+  onPick: () => void;
   busy: boolean;
   errors: Map<string, string>;
   skipAnalyzed: boolean;
@@ -172,6 +161,10 @@ function Pane({
     if (mode === "genres") {
       return tracks.filter((t) => (t.genre.trim() || "Sin estilo") === pick);
     }
+    if (mode === "types") {
+      const id = pick === "__music__" ? "" : pick;
+      return tracks.filter((t) => (t.mediaType ?? "") === id);
+    }
     return tracks.filter((t) => t.tags.includes(pick));
   }, [tracks, mode, pick]);
 
@@ -219,6 +212,13 @@ function Pane({
       map.set(name, (map.get(name) ?? 0) + 1);
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "es"));
+  }, [tracks]);
+
+  const mtypes = useMediaTypes();
+  const typeCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of tracks) map.set(t.mediaType ?? "", (map.get(t.mediaType ?? "") ?? 0) + 1);
+    return map;
   }, [tracks]);
 
   const tags = useMemo(() => {
@@ -324,6 +324,24 @@ function Pane({
         </button>
       ));
     }
+    if (mode === "types") {
+      return mtypes.map((m) => {
+        const key = m.id || "__music__";
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`nside-item ${pick === key ? "nside-on" : ""}`}
+            onClick={() => choose(key)}
+          >
+            <span className="nside-name">
+              <span className="ntype-dot" style={{ background: m.color }} /> {m.label}
+            </span>
+            <span className="nside-count">{typeCounts.get(m.id) ?? 0}</span>
+          </button>
+        );
+      });
+    }
     if (mode === "tags") {
       if (tags.length === 0) return <span className="side-hint">Sin etiquetas todavía.</span>;
       return tags.map(([name, count]) => (
@@ -381,7 +399,7 @@ function Pane({
       <div className="npane-head">
         <strong title={title}>{title}</strong>
         <span className="npane-count">{visible.length} canciones</span>
-        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onPick("a")}>
+        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onPick()}>
           Importar
         </button>
       </div>
@@ -460,6 +478,19 @@ function Pane({
                   <div className="nrow-main">
                     <span className="nrow-title">{t.title || t.originalName || "Sin título"}</span>
                     <span className="nrow-sub">
+                      {t.mediaType ? (
+                        <span
+                          className="ntype-chip"
+                          style={{ color: mediaRule(t.mediaType).color, background: `${mediaRule(t.mediaType).color}22` }}
+                        >
+                          {mediaTypeLabel(t.mediaType)}
+                        </span>
+                      ) : (t.energy ?? 0) > 0 ? (
+                        <span className="energy-dots ntype-energy" title={`Energía ${t.energy} de 5`}>
+                          {"●".repeat(t.energy!)}
+                          <span className="off">{"●".repeat(5 - t.energy!)}</span>
+                        </span>
+                      ) : null}
                       {t.artist || "Artista desconocido"}
                       {t.missing && <em> · archivo no disponible</em>}
                       {t.trimManual && <em> · recorte manual</em>}
@@ -478,7 +509,7 @@ function Pane({
                   <button
                     type="button"
                     className="nact"
-                    title="Ajustar inicio y final"
+                    title="Cortes y puntos (inicio, final, intro, mix y fade)"
                     onClick={(e) => {
                       e.stopPropagation();
                       onTrim(t.id);
@@ -535,7 +566,7 @@ function Pane({
           title={other.blockId ? undefined : "Elige una lista en la otra columna"}
           onClick={() => onMove(Array.from(selected), side === "a" ? "b" : "a")}
         >
-          {side === "a" ? `A «${other.blockId ? other.label : "…"}» →` : `← A «${other.blockId ? other.label : "…"}»`}
+          {side === "a" ? `Pasar a «${other.blockId ? other.label : "…"}» →` : `← Pasar a «${other.blockId ? other.label : "…"}»`}
         </button>
       </div>
     </section>
@@ -547,355 +578,6 @@ function effectiveDurationLabel(tracks: Track[]): string {
   const h = Math.floor(total / 3600);
   const m = Math.round((total % 3600) / 60);
   return h > 0 ? `${h} h ${m} min` : `${m} min`;
-}
-
-interface TrimEditorProps {
-  track: Track;
-  mixer: PreviewPlayer | null;
-  active: boolean;
-  onClose: () => void;
-  onSaved: (track: Track) => void;
-  showToast: (msg: string) => void;
-}
-
-function TrimEditor({ track, mixer, active, onClose, onSaved, showToast }: TrimEditorProps) {
-  const [wave, setWave] = useState<Waveform | null>(null);
-  const [error, setError] = useState("");
-  const [start, setStart] = useState(track.trimStart);
-  const [end, setEnd] = useState(track.trimEnd ?? track.durationSecs);
-  const [drag, setDrag] = useState<"start" | "end" | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [playPos, setPlayPos] = useState(-1);
-  const [previewing, setPreviewing] = useState(false);
-  const previewingRef = useRef(false);
-  const previewToken = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    setWave(null);
-    setError("");
-    void getTrackWaveform(track.id, 900)
-      .then((w) => {
-        if (!alive) return;
-        setWave(w);
-        const s = Math.min(track.trimStart, Math.max(0, w.durationSecs - 0.3));
-        const e = Math.min(w.durationSecs, track.trimEnd ?? w.durationSecs);
-        setStart(s);
-        setEnd(Math.max(s + 0.3, e));
-      })
-      .catch((e) => {
-        if (alive) setError(String(e));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [track.id]);
-
-  useEffect(() => {
-    return () => {
-      mixer?.stopPreview();
-    };
-  }, [mixer]);
-
-  useEffect(() => {
-    if (active) return;
-    previewToken.current += 1;
-    previewingRef.current = false;
-    setPreviewing(false);
-    setPlayPos(-1);
-    mixer?.stopPreview();
-  }, [active, mixer]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !wave) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = Math.max(1, Math.round(w * dpr));
-    canvas.height = Math.max(1, Math.round(h * dpr));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    const mid = h / 2;
-    const dur = wave.durationSecs || 1;
-    const xOf = (secs: number) => (secs / dur) * w;
-    const n = wave.peaks.length;
-    for (let i = 0; i < n; i++) {
-      const x = (i / n) * w;
-      const p = Math.pow(Math.min(1, wave.peaks[i]), 0.6);
-      const amp = Math.max(0.6, p * (h * 0.44));
-      const inside = i / n >= start / dur && i / n <= end / dur;
-      ctx.strokeStyle = inside ? "#5b9cff" : "#38445a";
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, mid - amp);
-      ctx.lineTo(x + 0.5, mid + amp);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "rgba(4, 7, 12, 0.58)";
-    ctx.fillRect(0, 0, xOf(start), h);
-    ctx.fillRect(xOf(end), 0, w - xOf(end), h);
-
-    const handle = (secs: number, color: string) => {
-      const x = xOf(secs);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x + 7, 0);
-      ctx.lineTo(x, 9);
-      ctx.closePath();
-      ctx.fill();
-    };
-    handle(start, "#59d98c");
-    handle(end, "#ffb84d");
-
-    if (playPos >= 0) {
-      const x = xOf(playPos);
-      ctx.strokeStyle = "#ffffffcc";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-  }, [wave, start, end, playPos]);
-
-  const duration = wave?.durationSecs ?? track.durationSecs;
-
-  const secsAt = (clientX: number): number => {
-    const canvas = canvasRef.current;
-    if (!canvas || !wave) return 0;
-    const r = canvas.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    return ratio * wave.durationSecs;
-  };
-
-  const pointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (!wave) return;
-    const secs = secsAt(e.clientX);
-    const tol = Math.max(0.08, wave.durationSecs / 220);
-    if (Math.abs(secs - start) <= tol) {
-      setDrag("start");
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } else if (Math.abs(secs - end) <= tol) {
-      setDrag("end");
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } else {
-      if (previewingRef.current) {
-        previewToken.current += 1;
-        previewingRef.current = false;
-        setPreviewing(false);
-        mixer?.stopPreview();
-      }
-      setPlayPos(secs);
-    }
-  };
-
-  const pointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (!drag || !wave) return;
-    const secs = secsAt(e.clientX);
-    if (drag === "start") setStart(Math.max(0, Math.min(end - 0.3, secs)));
-    else setEnd(Math.min(wave.durationSecs, Math.max(start + 0.3, secs)));
-  };
-
-  const pointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (drag) {
-      setDrag(null);
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-  };
-
-  const stopPreview = () => {
-    previewToken.current += 1;
-    previewingRef.current = false;
-    setPreviewing(false);
-    setPlayPos(-1);
-    mixer?.stopPreview();
-  };
-
-  const preview = async () => {
-    if (!mixer) {
-      showToast("La mesa de sonido todavía no está disponible");
-      return;
-    }
-    if (previewingRef.current) {
-      stopPreview();
-      return;
-    }
-    const token = ++previewToken.current;
-    previewingRef.current = true;
-    setPreviewing(true);
-    setPlayPos(start);
-    try {
-      await mixer.playPreview(
-        track.file,
-        start,
-        end,
-        (position) => {
-          if (previewingRef.current) setPlayPos(position);
-        },
-        () => {
-          if (token !== previewToken.current) return;
-          previewingRef.current = false;
-          setPreviewing(false);
-          setPlayPos(-1);
-        },
-      );
-    } catch (e) {
-      if (token !== previewToken.current) return;
-      previewingRef.current = false;
-      setPreviewing(false);
-      setPlayPos(-1);
-      showToast(`No se pudo escuchar: ${String(e)}`);
-    }
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await saveTrackTrim(track.id, start, end);
-      onSaved({
-        ...track,
-        trimStart: start,
-        trimEnd: end >= duration - 0.02 ? null : end,
-        trimManual: true,
-      });
-      showToast("Recorte guardado");
-      onClose();
-    } catch (e) {
-      showToast(`No se pudo guardar el recorte: ${String(e)}`);
-      setSaving(false);
-    }
-  };
-
-  const useAuto = async () => {
-    try {
-      await autoTrackTrim(track.id);
-      const s = track.autoTrimStart;
-      const e = track.autoTrimEnd ?? duration;
-      setStart(s);
-      setEnd(e);
-      onSaved({ ...track, trimStart: s, trimEnd: track.autoTrimEnd, trimManual: false });
-      showToast("Recorte automático restablecido");
-    } catch (e) {
-      showToast(String(e));
-    }
-  };
-
-  return (
-    <div className="modal-backdrop norm-modal" {...closeOnBackdrop(onClose)}>
-      <div className="modal modal-wide trim-modal" onClick={(e) => e.stopPropagation()}>
-        <header className="modal-head">
-          <h3>Inicio y final de la pista</h3>
-          <button type="button" className="ghost-btn" onClick={onClose}>
-            <IconX size={16} />
-          </button>
-        </header>
-        <div className="modal-body">
-          <div className="trim-title">
-            <strong>{track.title}</strong>
-            <span>{track.artist || "Artista desconocido"}</span>
-            <span className="trim-meta">
-              {track.lufs != null ? `${track.lufs.toFixed(1)} LUFS · ${fmtGain(track.gainDb)} dB` : "Sin analizar"}
-            </span>
-          </div>
-
-          {error && <div className="form-error">{error}</div>}
-          {!wave && !error && <div className="trim-loading">Calculando la onda…</div>}
-          {wave && (
-            <>
-              <canvas
-                ref={canvasRef}
-                className="trim-canvas"
-                onPointerDown={pointerDown}
-                onPointerMove={pointerMove}
-                onPointerUp={pointerUp}
-                onPointerCancel={pointerUp}
-              />
-              <div className="trim-legend">
-                <span><i className="dot dot-green" /> Inicio {fmtTrim(start)}</span>
-                <span><i className="dot dot-amber" /> Final {fmtTrim(end)}</span>
-                <span>{fmtTime(end - start)} de música</span>
-              </div>
-            </>
-          )}
-
-          <div className="trim-controls">
-            <label>
-              Inicio (s)
-              <input
-                type="number"
-                min={0}
-                max={Math.max(0, end - 0.3)}
-                step="0.01"
-                value={start.toFixed(2)}
-                onChange={(e) => setStart(Math.max(0, Math.min(end - 0.3, Number(e.target.value) || 0)))}
-              />
-            </label>
-            <label>
-              Final (s)
-              <input
-                type="number"
-                min={start + 0.3}
-                max={duration}
-                step="0.01"
-                value={end.toFixed(2)}
-                onChange={(e) =>
-                  setEnd(Math.min(duration, Math.max(start + 0.3, Number(e.target.value) || 0)))
-                }
-              />
-            </label>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => void preview()}
-              disabled={!wave || !mixer}
-            >
-              {previewing ? "Escuchar / parar" : "Escuchar"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={useAuto}
-              disabled={track.analyzedAt === 0}
-              title="Volver al recorte calculado por el analizador"
-            >
-              Automático
-            </button>
-          </div>
-
-          <div className="trim-note">
-            El archivo no se modifica: el reproductor empieza y termina en estas marcas. El margen
-            automático conserva 0,10 s a cada lado.
-          </div>
-
-          <div className="edit-actions">
-            <button type="button" className="btn btn-sm" onClick={onClose}>
-              Cancelar
-            </button>
-            <span className="spacer" />
-            <button type="button" className="btn btn-accent btn-sm" onClick={() => void save()} disabled={saving || !wave}>
-              Guardar recorte
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 interface RunningState {
@@ -915,8 +597,7 @@ interface NormalizerProps {
   onStatus: (status: NormalizerStatus | null) => void;
   apiRef: { current: NormalizerApi | null };
   onRefresh: () => Promise<void>;
-  onPick: (side: Side) => void;
-  onMove: (ids: string[], to: Side) => Promise<number>;
+  onPick: () => void;
   onTarget: (lufs: number, peak: number) => void;
   showToast: (msg: string) => void;
   mixer: PreviewPlayer | null;
@@ -1141,6 +822,7 @@ export function Normalizer({
 
   const applySavedTrim = (t: Track) => {
     setAll((prev) => prev.map((x) => (x.id === t.id ? t : x)));
+    void onRefresh();
   };
 
   return (
@@ -1357,10 +1039,9 @@ export function Normalizer({
       </div>
 
       {trimTrack && (
-        <TrimEditor
+        <TrackEditor
           track={trimTrack}
           mixer={mixer}
-          active={!hidden}
           onClose={() => setTrimId("")}
           onSaved={applySavedTrim}
           showToast={showToast}

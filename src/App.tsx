@@ -26,7 +26,6 @@ import {
   convertVideos,
   isVideoFile,
   needsVideoConversion,
-  setTracksLibrary,
   pickImageFile,
   setBrandingLogo,
   trackUrl,
@@ -907,9 +906,6 @@ export default function App() {
       const event = settings.events[index];
       if (!event.enabled || event.kind !== "auto") continue;
       if (event.sourceKind === "block" && !blocks.some((b) => b.id === event.sourceId)) continue;
-      if (event.sourceKind === "library" && event.sourceId !== "a" && event.sourceId !== "b") {
-        continue;
-      }
       const start = eventStartAt(event, now);
       if (!start) continue;
       const at = start.getTime();
@@ -1639,9 +1635,7 @@ export default function App() {
           ? ` en «${blockName}»`
           : playlistAt !== undefined
             ? " y añadidas a la lista"
-            : library === "b"
-              ? " a la biblioteca B"
-              : "";
+            : "";
         const parts: string[] = [];
         if (res.added) parts.push(res.added === 1 ? "1 canción nueva" : `${res.added} canciones nuevas`);
         if (res.existing) parts.push(res.existing === 1 ? "1 que ya estaba" : `${res.existing} que ya estaban`);
@@ -1743,19 +1737,6 @@ export default function App() {
     if (paths && paths.length > 0) await doImport(paths);
   }, [doImport]);
 
-  const pickFilesFor = useCallback(
-    async (library: "a" | "b") => {
-      const paths = await pickAudioFiles();
-      if (paths && paths.length > 0) await doImport(paths, library);
-    },
-    [doImport],
-  );
-
-  const moveTracks = useCallback(async (ids: string[], to: "a" | "b") => {
-    const moved = await setTracksLibrary(ids, to);
-    setTracks(await listTracks());
-    return moved;
-  }, []);
 
   const removeTrack = useCallback(
     async (t: Track) => {
@@ -3624,8 +3605,7 @@ export default function App() {
     launchEvent: (event: StationEvent) => launchEvent(event),
     muteCaller: (muted: boolean) => muteCaller(muted),
     refreshLibrary: () => refreshTracksAndBlocks(),
-    pickFilesFor: (side: "a" | "b") => pickFilesFor(side),
-    moveTracks: (ids: string[], to: "a" | "b") => moveTracks(ids, to),
+    pickFiles: () => pickFiles(),
     playPreview: async (file: string, start: number, end: number) => {
       const mixer = mixerRef.current;
       if (!mixer) throw new Error("La mesa de sonido todavía no está lista");
@@ -5162,8 +5142,7 @@ export default function App() {
           onStatus={setNormStatus}
           apiRef={normApiRef}
           onRefresh={refreshTracksAndBlocks}
-          onPick={(side) => void pickFilesFor(side)}
-          onMove={moveTracks}
+          onPick={() => void pickFiles()}
           onTarget={(lufs, peak) =>
             updateSettings({ ...settings, targetLufs: lufs, truePeakDb: peak })
           }

@@ -141,8 +141,6 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                 <span className="prop-v">{details.year || "—"}</span>
                 <span className="prop-k">Duración</span>
                 <span className="prop-v">{fmtTime(details.durationSecs)}</span>
-                <span className="prop-k">Biblioteca</span>
-                <span className="prop-v">{details.library === "b" ? "B" : "A"}</span>
                 <span className="prop-k">Normalización</span>
                 <span className="prop-v">
                   {details.lufs != null

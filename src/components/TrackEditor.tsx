@@ -5,11 +5,14 @@ import { IconX, IconPlay, IconPause, IconTrash, IconPrev, IconNext } from "../ic
 import type { Track, Waveform } from "../types";
 import type { SoundMixer } from "../mixer";
 
+/** Lo que el editor necesita para la preescucha. */
+type PreviewLike = Pick<SoundMixer, "playPreview" | "stopPreview">;
+
 type MarkerId = "start" | "end" | "intro" | "mix" | "fade";
 
 interface TrackEditorProps {
   track: Track;
-  mixer: SoundMixer | null;
+  mixer: PreviewLike | null;
   onClose: () => void;
   onSaved: (track: Track) => void;
   showToast: (msg: string) => void;

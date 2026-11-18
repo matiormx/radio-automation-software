@@ -99,7 +99,7 @@ function daysText(event: StationEvent): string {
 
 function sourceLabel(event: StationEvent, blocks: Block[]): string {
   if (event.sourceKind === "library") {
-    return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
+    return "Toda la biblioteca";
   }
   return blocks.find((b) => b.id === event.sourceId)?.name ?? "Lista eliminada";
 }
@@ -293,10 +293,7 @@ export function EventsTab({
           setError("Elige un lista para la franja.");
           return;
         }
-        if (draft.sourceKind === "library" && draft.sourceId !== "a" && draft.sourceId !== "b") {
-          setError("Elige la Biblioteca A o la B.");
-          return;
-        }
+        if (draft.sourceKind === "library" && !draft.sourceId) draft.sourceId = "a";
       } else if (draft.trackMode === "random" || draft.trackMode === "latest") {
         if (draft.sourceKind === "block" && !blocks.some((b) => b.id === draft.sourceId)) {
           setError("Elige la lista del que saldrán las pistas.");
@@ -813,12 +810,8 @@ function EventEditor({
                   ))}
                 </select>
               ) : (
-                <select
-                  value={draft.sourceId}
-                  onChange={(e) => set({ sourceId: e.target.value })}
-                >
-                  <option value="a">Biblioteca A</option>
-                  <option value="b">Biblioteca B</option>
+                <select value="a" onChange={() => set({ sourceId: "a" })}>
+                  <option value="a">Toda la biblioteca</option>
                 </select>
               )}
             </label>
@@ -952,7 +945,7 @@ function RandomFields({
   byId: Map<string, Track>;
 }) {
   const num = (value: number | undefined, fallback: number) => (Number.isFinite(value) ? (value as number) : fallback);
-  const source = draft.sourceKind === "block" ? `block:${draft.sourceId}` : `library:${draft.sourceId === "b" ? "b" : "a"}`;
+  const source = draft.sourceKind === "block" ? `block:${draft.sourceId}` : "library:a";
   const recent = [...(draft.pickLog ?? [])].sort((a, b) => b.at - a.at).slice(0, 6);
   const rule = (
     key: "noRepeatSlotDays" | "noRepeatEventDays" | "noRepeatAirMins",
@@ -992,10 +985,7 @@ function RandomFields({
               set({ sourceKind: kind === "block" ? "block" : "library", sourceId: id });
             }}
           >
-            <optgroup label="Biblioteca">
-              <option value="library:a">Biblioteca A</option>
-              <option value="library:b">Biblioteca B</option>
-            </optgroup>
+            <option value="library:a">Toda la biblioteca</option>
             {blocks.length > 0 && (
               <optgroup label="Lista">
                 {blocks.map((block) => (

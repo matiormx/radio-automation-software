@@ -119,12 +119,7 @@ export function LibraryWindow() {
           await refresh();
           await callMain("refreshLibrary").catch(() => undefined);
         }}
-        onPick={(side) => void callMain("pickFilesFor", side).catch((e) => showToast(String(e)))}
-        onMove={async (ids, to) => {
-          const n = await callMain<number>("moveTracks", ids, to);
-          await refresh();
-          return n;
-        }}
+        onPick={() => void callMain("pickFiles").catch((e) => showToast(String(e)))}
         onTarget={(lufs, peak) => {
           if (s) void callMain("updateSettings", { ...s, targetLufs: lufs, truePeakDb: peak });
         }}

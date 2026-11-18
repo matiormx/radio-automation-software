@@ -698,7 +698,7 @@ pub struct StationEvent {
     pub schedules: Vec<ScheduleBlock>,
     /// "block" o "library"
     pub source_kind: String,
-    /// id de bloque o "a"/"b"
+    /// id de lista (con "library": toda la biblioteca)
     pub source_id: String,
     pub track_id: String,
     pub max_wait_secs: u32,
@@ -1547,7 +1547,6 @@ pub fn pick_tracks(
     // Un evento activo puede sustituirlos por un bloque concreto o por una
     // de las dos bibliotecas.
     let mut pick_blocks = pick_block_ids(s);
-    let mut pick_library: Option<String> = None;
     match scope_kind.as_deref() {
         Some("block") => {
             pick_blocks.clear();
@@ -1555,12 +1554,8 @@ pub fn pick_tracks(
                 pick_blocks.insert(id.to_string());
             }
         }
-        Some("library") => {
-            pick_blocks.clear();
-            if let Some(id) = scope_id.as_deref().filter(|id| *id == "a" || *id == "b") {
-                pick_library = Some(id.to_string());
-            }
-        }
+        // Toda la biblioteca (ya no hay bibliotecas A y B).
+        Some("library") => pick_blocks.clear(),
         _ => {}
     }
 
@@ -1619,11 +1614,6 @@ pub fn pick_tracks(
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
             continue;
         }
-        if let Some(lib) = pick_library.as_deref() {
-            if t.library != lib {
-                continue;
-            }
-        }
         if in_playlist.contains(t.id.as_str()) {
             continue; // nada duplicado dentro de la misma lista
         }
@@ -1647,7 +1637,7 @@ pub fn pick_tracks(
     // entera antes que dejar la lista sin gas.
     if candidates.is_empty()
         && in_scope.is_empty()
-        && (!pick_blocks.is_empty() || pick_library.is_some())
+        && !pick_blocks.is_empty()
     {
         for t in library {
             if in_playlist.contains(t.id.as_str()) || is_intro(t) {

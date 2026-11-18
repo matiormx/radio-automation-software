@@ -1085,7 +1085,6 @@ function MusicBrowserBase({
                         </span>
                       )}
                       {isVideoFile(t.file) && <span className="badge-video">VÍDEO</span>}
-                      {t.library === "b" && <span className="chip chip-lib">B</span>}
                       {qualityBadge(t)}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
                       {t.disabled && <span className="badge-missing">inhabilitada</span>}
