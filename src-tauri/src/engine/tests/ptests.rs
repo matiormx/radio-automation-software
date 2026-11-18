@@ -212,3 +212,40 @@ fn intro_overlay_sounds_over_the_intro_gap() {
     let (p3, v3) = s.at(7.0);
     assert!((p3 - 0.2).abs() < 0.01 && v3 == 1, "el intro termino {p3} {v3}");
 }
+
+#[test]
+fn jingle_plays_whole_without_fades() {
+    // Jingle de 5 s con un fade out marcado: suena entero a volumen completo
+    // y la siguiente entra a su final, sin cruce de 2 s.
+    let mut j = track("j", 5.0);
+    j.media_type = "jingle".into();
+    j.fade_out_start = 3.0;
+    let mut s = Sim::new(vec![(j, tone(5.0, 0.5)), (track("b", 20.0), tone(20.0, 0.25))]);
+    s.p.fade_seconds = 2.0;
+    s.p.play_at(0, &mut s.core, &mut s.ld);
+    s.run(4.8);
+    assert_eq!(s.indexes(), vec![-1, 0], "aún en el jingle");
+    let (peak, voices) = s.at(4.5);
+    assert_eq!(voices, 1);
+    assert!((peak - 0.5).abs() < 0.02, "jingle sin bajar {peak}");
+    s.run(1.0);
+    assert_eq!(s.indexes(), vec![-1, 0, 1]);
+    // La siguiente entra a volumen completo
+    let (peak, _) = s.at(5.5);
+    assert!((peak - 0.25).abs() < 0.02, "b entera {peak}");
+}
+
+#[test]
+fn jingle_enters_full_even_with_fade_in() {
+    let mut j = track("j", 10.0);
+    j.media_type = "jingle".into();
+    let mut s = Sim::new(vec![(track("a", 10.0), tone(10.0, 0.5)), (j, tone(10.0, 0.25))]);
+    s.p.fade_seconds = 4.0;
+    s.p.fade_in = true;
+    s.p.play_at(0, &mut s.core, &mut s.ld);
+    s.run(7.0); // cruce a los 6 s
+    assert_eq!(s.indexes(), vec![-1, 0, 1]);
+    // A los 6,5 s el jingle ya suena entero (no subiendo durante 4 s)
+    let x = s.level.iter().find(|l| l.0 >= 6.5).unwrap();
+    assert!(x.1 >= 0.25, "jingle a volumen completo {}", x.1);
+}

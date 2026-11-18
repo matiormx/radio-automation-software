@@ -56,6 +56,8 @@ pub struct TrackInfo {
     pub mix_point: f64,
     pub fade_out_start: f64,
     pub duration_secs: f64,
+    /// Tipo de medio ("" = música; «jingle»…). Los jingles no llevan fundidos.
+    pub media_type: String,
     /// Intro superpuesto (audio de un bloque de intros) sobre esta pista
     pub intro_overlay: Option<Overlay>,
 }
@@ -540,7 +542,14 @@ impl Player {
     }
 
     fn fade_out_of(&self, idx: i64) -> f64 {
+        if self.is_jingle(idx) {
+            return 0.0; // los jingles suenan enteros, sin bajar
+        }
         self.playlist.get(idx.max(0) as usize).map(|t| t.fade_out_start.max(0.0)).unwrap_or(0.0)
+    }
+
+    fn is_jingle(&self, idx: i64) -> bool {
+        idx >= 0 && self.playlist.get(idx as usize).is_some_and(|t| t.media_type == "jingle")
     }
 
     fn next_index(&self) -> i64 {
@@ -628,11 +637,20 @@ impl Player {
         }
 
         // Punto de mezcla: la siguiente entra ahi y la actual sigue sonando.
+        // Un jingle no se funde: suena entero y la siguiente entra a su final
+        // (o en su punto Mix, si lo tiene), sin bajarlo.
+        let jingle = self.is_jingle(self.index);
         let mix = self.usable_mix_point(&d);
-        let cross_at = if mix > 0.0 { mix } else { d.end - self.fade_seconds };
+        let cross_at = if mix > 0.0 {
+            mix
+        } else if jingle {
+            d.end - 0.05
+        } else {
+            d.end - self.fade_seconds
+        };
         if !fading && self.index >= 0 && self.fade_seconds > 0.0 && pos >= cross_at && next >= 0 && next != self.index {
             self.report_early(&d, if mix > 0.0 { "Cruce por punto Mix" } else { "Cruce" }, pos);
-            self.begin_crossfade(next as usize, mix > 0.0, remaining, core, ld);
+            self.begin_crossfade(next as usize, mix > 0.0 || jingle, remaining, core, ld);
             return;
         }
 
@@ -685,7 +703,8 @@ impl Player {
             overlap = 0.0;
         } else {
             overlap = fade_target.min(available);
-            let rise = if self.fade_in { overlap } else { 0.03 };
+            // Un jingle entra siempre a volumen completo.
+            let rise = if self.fade_in && track.media_type != "jingle" { overlap } else { 0.03 };
             gain.schedule(start_at, 0.001, start_at + core.frames(rise), 1.0);
             if !keep_current {
                 let fade_end = now + core.frames(overlap);

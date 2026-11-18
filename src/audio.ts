@@ -636,7 +636,7 @@ export class RadioPlayer {
   /** Punto de fade out de la pista: desde ahi baja hasta el final. */
   private fadeOutOf(index: number): number {
     const track = this.playlist[index];
-    if (!track) return 0;
+    if (!track || track.mediaType === "jingle") return 0; // los jingles suenan enteros
     const point = track.fadeOutStart ?? 0;
     return point > 0 ? point : 0;
   }
@@ -850,8 +850,11 @@ export class RadioPlayer {
 
     // Punto de mezcla: la siguiente cancion entra en ese punto y la actual
     // sigue sonando (su intro queda debajo). Sin punto, se cruza al final.
+    // Un jingle no se funde: suena entero y la siguiente entra a su final
+    // (o en su punto Mix), sin bajarlo.
+    const jingle = this.playlist[this.index]?.mediaType === "jingle";
     const mixPoint = this.usableMixPoint(this.index, deck);
-    const crossfadeAt = mixPoint > 0 ? mixPoint : deck.end - this.fadeSeconds;
+    const crossfadeAt = mixPoint > 0 ? mixPoint : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
     if (
       !this.fading &&
       this.index >= 0 &&
@@ -861,7 +864,7 @@ export class RadioPlayer {
       nextIdx !== this.index
     ) {
       this.reportEarlyChange(deck, mixPoint > 0 ? "Cruce por punto Mix" : "Cruce", pos);
-      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0);
+      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || jingle);
       return;
     }
 
@@ -936,7 +939,8 @@ export class RadioPlayer {
       } else {
         const overlap = Math.min(fadeTarget, available);
         gain.gain.setValueAtTime(0.001, startAt);
-        gain.gain.linearRampToValueAtTime(1, startAt + (this.fadeInNext ? overlap : 0.03));
+        const fadeIn = this.fadeInNext && nextTrack.mediaType !== "jingle";
+        gain.gain.linearRampToValueAtTime(1, startAt + (fadeIn ? overlap : 0.03));
         if (keepCurrent) {
           // Punto de mezcla: la pista actual sigue sonando (su intro queda
           // debajo de la siguiente) hasta que se acaba.
