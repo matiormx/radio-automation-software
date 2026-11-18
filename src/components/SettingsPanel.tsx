@@ -187,6 +187,37 @@ function MinField({
   );
 }
 
+/** Diagnóstico: registro de rendimiento y errores (Sistema › Mantenimiento). */
+function DiagnosticsSection({ showToast }: { showToast: (msg: string) => void }) {
+  return (
+    <fieldset className="fieldset">
+      <legend>Diagnóstico</legend>
+      <Help>
+        OmniCaster apunta en <strong>rendimiento.log</strong> qué gasta el procesador (por partes y por hilos) y qué
+        órdenes se repiten, cada vez que pasa del 30 % y un resumen cada 10 minutos; los fallos van en errores.log. Si
+        algo va lento, copia el registro y mándalo.
+      </Help>
+      <p>
+        <button
+          type="button"
+          className="btn btn-sm btn-accent"
+          onClick={() =>
+            void logsTail()
+              .then((t) => navigator.clipboard.writeText(t))
+              .then(() => showToast("Registro copiado: pégalo en el chat o en un correo"))
+              .catch((e) => showToast(String(e)))
+          }
+        >
+          Copiar el registro
+        </button>{" "}
+        <button type="button" className="btn btn-sm" onClick={() => void logsOpen().catch((e) => showToast(String(e)))}>
+          Abrir la carpeta de registros
+        </button>
+      </p>
+    </fieldset>
+  );
+}
+
 /** Menú lateral de Ajustes, por áreas de trabajo de la emisora. */
 const NAV_GROUPS: { title: string; items: { id: SettingsTab; label: string; sub: string; linux?: boolean }[] }[] = [
   {
@@ -233,7 +264,7 @@ const NAV_GROUPS: { title: string; items: { id: SettingsTab; label: string; sub:
   {
     title: "Sistema",
     items: [
-      { id: "backup", label: "Copia y actualizaciones", sub: "Copias de seguridad y versiones" },
+      { id: "backup", label: "Mantenimiento", sub: "Actualizaciones, copias de seguridad y diagnóstico" },
       { id: "remote", label: "Acceso remoto", sub: "VNC, WireGuard y carpeta compartida", linux: true },
       { id: "network", label: "Red", sub: "IP, DNS, Wi-Fi y nombre del equipo", linux: true },
     ],
@@ -447,8 +478,9 @@ export function SettingsPanel({
             {tab === "backup" && (
               <>
                 <UpdateSection showToast={showToast} />
-                <FfmpegSection showToast={showToast} />
                 <BackupTab showToast={showToast} />
+                <FfmpegSection showToast={showToast} />
+                <DiagnosticsSection showToast={showToast} />
               </>
             )}
             {tab === "notify" && <NotificationsTab settings={s} onChange={onChange} showToast={showToast} />}
@@ -551,32 +583,6 @@ function GeneralTab({
           </div>
         </div>
             </fieldset>
-
-      <fieldset className="fieldset">
-        <legend>Diagnóstico</legend>
-        <Help>
-          OmniCaster apunta en <strong>rendimiento.log</strong> qué gasta el procesador (por partes y por hilos) y qué
-          órdenes se repiten, cada vez que pasa del 30 % y un resumen cada 10 minutos; los fallos van en errores.log.
-          Si algo va lento, copia el registro y mándalo.
-        </Help>
-        <p>
-          <button
-            type="button"
-            className="btn btn-sm btn-accent"
-            onClick={() =>
-              void logsTail()
-                .then((t) => navigator.clipboard.writeText(t))
-                .then(() => alert("Registro copiado: pégalo en el chat o en un correo."))
-                .catch((e) => alert(String(e)))
-            }
-          >
-            Copiar el registro
-          </button>{" "}
-          <button type="button" className="btn btn-sm" onClick={() => void logsOpen().catch((e) => alert(String(e)))}>
-            Abrir la carpeta
-          </button>
-        </p>
-      </fieldset>
 
       <fieldset className="fieldset">
         <legend>Apariencia</legend>

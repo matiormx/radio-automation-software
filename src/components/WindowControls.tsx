@@ -6,7 +6,7 @@ import { IS_LINUX } from "../api";
  * Botones de ventana propios (la barra de Windows esta oculta): minimizar,
  * maximizar/restaurar y cerrar, al estilo de las apps de Windows 11.
  * En la ventana principal la X minimiza (no se puede cerrar la emisora por
- * descuido); se cierra de verdad desde Ajustes › Copia y actualizaciones.
+ * descuido); se cierra de verdad desde Ajustes › Mantenimiento.
  * En Linux (quiosco, sin barra de tareas) una ventana minimizada no se puede
  * recuperar: la principal no lleva botones y las demás solo cerrar/maximizar.
  */
@@ -110,7 +110,7 @@ export function WindowControls() {
         className="win-btn win-close"
         title={
           isMain
-            ? "Ocultar en la barra de tareas (para cerrar OmniCaster: Ajustes › Copia y actualizaciones)"
+            ? "Ocultar en la barra de tareas (para cerrar OmniCaster: Ajustes › Mantenimiento)"
             : "Cerrar"
         }
         aria-label={isMain ? "Ocultar en la barra de tareas" : "Cerrar"}

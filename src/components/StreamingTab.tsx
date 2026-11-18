@@ -526,7 +526,7 @@ export function StreamingTab({
       </div>
 
       <Help>
-        OmniCaster descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Copia y actualizaciones). Si
+        OmniCaster descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Mantenimiento). Si
         prefieres uno concreto, pon <code>ffmpeg.exe</code> junto a OmniCaster.exe y se usará ese.
       </Help>
 
