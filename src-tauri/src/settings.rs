@@ -228,6 +228,8 @@ pub struct Settings {
     pub ui_scale: u32,
     /// "normal", "alto" o "maximo"
     pub ui_contrast: String,
+    /// Tema: "dark", "light" o "system"
+    pub ui_theme: String,
     /// Curva de energía del día para el AutoDJ (usa la ficha IA de cada canción).
     pub energy_curve: EnergyCurve,
     /// Tipos de medio (Música, Jingle, Programa…) y cómo se tratan.
@@ -1066,6 +1068,7 @@ impl Default for Settings {
             keep_played: 0,
             ui_scale: 100,
             ui_contrast: "normal".into(),
+            ui_theme: "dark".into(),
             energy_curve: EnergyCurve::default(),
             media_types: default_media_types(),
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),

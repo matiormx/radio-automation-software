@@ -2049,7 +2049,7 @@ export default function App() {
   // Quitar la que esta sonando: sigue sonando hasta el final, la siguiente
   // ya esta preparada y la fila desaparece en cuanto entra la siguiente.
   const [removeAfter, setRemoveAfter] = useState<{ listId: string; trackId: string } | null>(null);
-  useEffect(() => applyAppearance(settings), [settings.uiScale, settings.uiContrast]);
+  useEffect(() => applyAppearance(settings), [settings.uiScale, settings.uiContrast, settings.uiTheme]);
 
   // ---- Asistente de canciones (IA)
   const aiContext = (): AiDjContext => {

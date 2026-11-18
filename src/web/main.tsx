@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { WebApp } from "./WebApp";
 import "../styles.css";
+import "../theme-light.css";
 import "./web.css";
 
 

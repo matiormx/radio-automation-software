@@ -83,7 +83,7 @@ export function PlayerBar({
 
       <label className={`pb-switch ${autopilot ? "switch-on" : ""}`} title="Rellena la lista solo, respetando las reglas de rotación">
         <IconBolt size={15} />
-        <span className="pb-switch-label">PILOTO AUTOMÁTICO</span>
+        <span className="pb-switch-label">AUTODJ</span>
         <span className="switch-track"><span className="switch-knob" /></span>
         <input
           type="checkbox"
@@ -192,7 +192,7 @@ export function PlayerBar({
             </button>
           </>
         ) : (
-          <span className="pb-label pb-preview-empty" title="Haz clic en una canción de la biblioteca para escucharla">PREESCUCHA</span>
+          <span className="pb-label pb-preview-empty" title="Haz clic en una canción de la biblioteca para escucharla">CUE</span>
         )}
         <button
           type="button"

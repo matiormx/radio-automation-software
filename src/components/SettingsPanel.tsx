@@ -580,6 +580,14 @@ function GeneralTab({
           </select>
         </label>
         <label className="field">
+          <span className="field-label">Tema</span>
+          <select value={s.uiTheme ?? "dark"} onChange={(e) => onChange({ ...s, uiTheme: e.target.value as Settings["uiTheme"] })}>
+            <option value="dark">Oscuro</option>
+            <option value="light">Claro</option>
+            <option value="system">El del sistema</option>
+          </select>
+        </label>
+        <label className="field">
           <span className="field-label">Contraste del texto</span>
           <select value={s.uiContrast ?? "normal"} onChange={(e) => onChange({ ...s, uiContrast: e.target.value as Settings["uiContrast"] })}>
             <option value="normal">Normal (suave)</option>

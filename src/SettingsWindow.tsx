@@ -26,7 +26,7 @@ export interface SharedState {
 export function SettingsWindow() {
   // Se pinta ya con el ultimo estado conocido; la principal lo confirma enseguida.
   const [shared, setShared] = useState<SharedState | null>(() => readStateSnapshot<SharedState>());
-  useEffect(() => applyAppearance(shared?.settings), [shared?.settings?.uiScale, shared?.settings?.uiContrast]);
+  useEffect(() => applyAppearance(shared?.settings), [shared?.settings?.uiScale, shared?.settings?.uiContrast, shared?.settings?.uiTheme]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [tab, setTab] = useState<SettingsTab>(() => {

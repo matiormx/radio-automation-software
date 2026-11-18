@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { setMediaTypes } from "../mediaTypes";
+import { applyAppearance } from "../appearance";
 import { MusicBrowser } from "../components/MusicBrowser";
 import { TrackEditor } from "../components/TrackEditor";
 import { EventsTab } from "../components/EventsTab";
@@ -217,6 +218,7 @@ export function WebApp() {
     setTracks(tracksNow());
     const [b, p, s] = await Promise.all([listBlocks(), listPlaylists(), getSettings()]);
     setMediaTypes(s.mediaTypes);
+    applyAppearance(s);
     setBlocks(b);
     setPlaylists(p);
     setSettings(s);

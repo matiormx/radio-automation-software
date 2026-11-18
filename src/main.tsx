@@ -9,15 +9,23 @@ import { ChatWindow } from "./ChatWindow";
 import { AiWindow } from "./AiWindow";
 import { fitToScreen, toolKind } from "./bridge";
 import "./styles.css";
+import "./theme-light.css";
 import { uiStateRestore, uiStateSave } from "./api";
 import { IS_WEB } from "./platform";
 import { installMenuFit } from "./ctxfit";
 import { getSettings } from "./api";
 import { setMediaTypes } from "./mediaTypes";
+import { applyAppearance } from "./appearance";
 
 installMenuFit();
 // Ventanas secundarias (biblioteca…): los tipos de medio de los ajustes.
-if (!IS_WEB) void getSettings().then((s) => setMediaTypes(s.mediaTypes)).catch(() => undefined);
+if (!IS_WEB)
+  void getSettings()
+    .then((s) => {
+      setMediaTypes(s.mediaTypes);
+      applyAppearance(s); // tema y contraste también en las ventanas secundarias
+    })
+    .catch(() => undefined);
 
 const kind = toolKind();
 // Sin el menu contextual del navegador (Atrás, Actualizar, Imprimir...): la

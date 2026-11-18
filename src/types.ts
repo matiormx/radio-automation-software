@@ -975,6 +975,8 @@ export interface Settings {
   uiScale?: number;
   /** Contraste del texto: normal, alto o máximo */
   uiContrast?: "normal" | "alto" | "maximo";
+  /** Tema: oscuro (por defecto), claro o el del sistema */
+  uiTheme?: "dark" | "light" | "system";
   /** Curva de energía del día para el AutoDJ */
   energyCurve?: EnergyCurve;
   /** Tipos de medio y su tratamiento */
