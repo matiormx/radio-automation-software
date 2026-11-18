@@ -228,14 +228,28 @@ function Grip({ label, onPointerDown }: { label: string; onPointerDown: (e: Reac
 }
 
 type MonoMode = "off" | "sum" | "left" | "right";
-const MONO_NEXT: Record<MonoMode, MonoMode> = { off: "sum", sum: "left", left: "right", right: "off" };
-const MONO_LABEL: Record<MonoMode, string> = { off: "ST", sum: "L+R", left: "L", right: "R" };
-const MONO_TIPS: Record<MonoMode, string> = {
-  off: "Estéreo",
-  sum: "Mono: suma L+R por los dos lados",
-  left: "Mono: solo el lado izquierdo por los dos lados",
-  right: "Mono: solo el lado derecho por los dos lados",
-};
+/** Nombre de un canal de la tarjeta: los impares son el lado izquierdo de su par. */
+const sideOf = (k: number) => (k % 2 === 1 ? "izquierdo" : "derecho");
+
+/**
+ * Entrada de un canal de tarjeta en una sola lista: un par en estéreo o un
+ * canal suelto en mono (sale por los dos lados). Valor: "s:P" (par P) o
+ * "m:K" (canal K en mono; "m:0" = los dos lados del 1-2 mezclados).
+ */
+function inputSel(mode: MonoMode, channel: number): string {
+  if (mode === "off") return `s:${Math.max(1, channel)}`;
+  // Ajustes antiguos: «solo izquierdo/derecho» del par 1-2 = canal 1 o 2 en mono.
+  if (channel === 0 && mode === "left") return "m:1";
+  if (channel === 0 && mode === "right") return "m:2";
+  return `m:${channel}`;
+}
+
+/** Al pasar de estéreo a mono (o al revés) se mantiene la misma zona de la tarjeta. */
+function toggleMonoPatch(monoOn: boolean, channel: number): { monoMode: MonoMode; channel: number } {
+  if (monoOn) return { monoMode: "off", channel: channel <= 0 ? 1 : Math.ceil(channel / 2) };
+  const pair = Math.max(1, channel);
+  return { monoMode: "sum", channel: pair === 1 ? 0 : (pair - 1) * 2 + 1 };
+}
 
 function fmtPan(pan: number): string {
   const v = Math.round(pan * 100);
@@ -1140,11 +1154,12 @@ function ChannelStrip({
       : ch.input.deviceId === "none"
         ? "Ninguna"
         : (inputs.find((d) => d.id === ch.input.deviceId)?.label ?? "Entrada") +
-          ((ch.input.channel ?? 0) > 0
-            ? monoOn
-              ? ` · c${ch.input.channel}`
-              : ` · ${(ch.input.channel as number) * 2 - 1}-${(ch.input.channel as number) * 2}`
-            : "");
+          (() => {
+            const [kind, n] = inputSel(monoMode, ch.input.channel ?? 0).split(":");
+            const k = Number(n);
+            if (kind === "s") return k > 1 ? ` · ${k * 2 - 1}-${k * 2}` : "";
+            return k > 0 ? ` · ${k} mono` : " · 1+2 mono";
+          })();
   const outputLabel =
     ch.output.kind === "bus"
       ? busName(ch.output.id)
@@ -1208,27 +1223,30 @@ function ChannelStrip({
           </label>
           {ch.input.kind === "device" && ch.input.deviceId !== "none" && (
             <label className="mixer-field">
-              <span>{monoOn ? "Canal (mono)" : "Canales (estéreo)"}</span>
+              <span>Canales de la tarjeta</span>
               <select
-                value={ch.input.channel ?? 0}
-                onChange={(e) => onPatch({ input: { ...ch.input, channel: Number(e.target.value) } })}
+                value={inputSel(monoMode, ch.input.channel ?? 0)}
+                onChange={(e) => {
+                  const [kind, n] = e.target.value.split(":");
+                  onPatch({ monoMode: kind === "m" ? "sum" : "off", input: { ...ch.input, channel: Number(n) } });
+                }}
               >
-                {monoOn ? (
-                  <>
-                    <option value={0}>Mezcla de los dos lados</option>
-                    {Array.from({ length: Math.max(inChannels, ch.input.channel ?? 0) }, (_, k) => (
-                      <option key={k} value={k + 1}>
-                        Canal {k + 1}
-                      </option>
-                    ))}
-                  </>
-                ) : (
-                  Array.from({ length: Math.max(1, Math.ceil(inChannels / 2), ch.input.channel ?? 1) }, (_, k) => (
-                    <option key={k} value={k + 1}>
-                      Canales {k * 2 + 1}-{k * 2 + 2}
+                <optgroup label="Estéreo (los dos lados)">
+                  {Array.from({ length: Math.max(1, Math.ceil(inChannels / 2)) }, (_, k) => (
+                    <option key={`s${k}`} value={`s:${k + 1}`}>
+                      {k * 2 + 1}-{k * 2 + 2} estéreo ({k * 2 + 1} izquierdo, {k * 2 + 2} derecho)
                     </option>
-                  ))
-                )}
+                  ))}
+                </optgroup>
+                <optgroup label="Mono (sale por los dos lados)">
+                  {Array.from({ length: Math.max(2, inChannels) }, (_, k) => (
+                    <option key={`m${k}`} value={`m:${k + 1}`}>
+                      {k + 1} mono (el {sideOf(k + 1)}
+                      {inChannels > 2 ? ` del ${k % 2 === 0 ? `${k + 1}-${k + 2}` : `${k}-${k + 1}`}` : ""})
+                    </option>
+                  ))}
+                  <option value="m:0">1+2 mezclados en mono</option>
+                </optgroup>
               </select>
               <small className="mx-hint">
                 {inputs.find((d) => d.id === ch.input.deviceId)?.channels !== undefined
@@ -1469,11 +1487,22 @@ function ChannelStrip({
         <button
           type="button"
           className={`mx-btn mx-mono ${monoMode !== "off" ? "mx-on" : ""}`}
-          aria-label="Modo de entrada"
-          title={`${MONO_TIPS[monoMode]} · clic: cambiar (estéreo → L+R → L → R)`}
-          onClick={() => onPatch({ monoMode: MONO_NEXT[monoMode] })}
+          aria-label="Estéreo o mono"
+          title={
+            monoOn
+              ? "Mono: la entrada sale igual por los dos lados · clic: pasar a estéreo (los canales se eligen en la fuente)"
+              : "Estéreo · clic: pasar a mono (sale por los dos lados)"
+          }
+          onClick={() => {
+            const t = toggleMonoPatch(monoOn, ch.input.channel ?? 0);
+            onPatch(
+              ch.input.kind === "device"
+                ? { monoMode: t.monoMode, input: { ...ch.input, channel: t.channel } }
+                : { monoMode: monoOn ? "off" : "sum" },
+            );
+          }}
         >
-          {MONO_LABEL[monoMode]}
+          {monoOn ? "MONO" : "ST"}
         </button>
         <button
           type="button"

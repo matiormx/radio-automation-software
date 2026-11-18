@@ -45,6 +45,10 @@ pub struct Host {
     bufs: Mutex<AudioBuffers>,
     /// Retardo que mete el plugin (muestras), segun el propio plugin
     latency: AtomicU32,
+    /// Plugin en mono (no acepta estéreo): entra L+R mezclado y su salida
+    /// sale por los dos lados (si no, la voz se oía solo por la izquierda).
+    mono_in: bool,
+    mono_out: bool,
 }
 
 impl Host {
@@ -75,15 +79,25 @@ impl Host {
         }
         if b.inputs.len() >= 2 {
             for (i, f) in buf[..n * 2].chunks_exact(2).enumerate() {
-                b.inputs[0][i] = f[0];
-                b.inputs[1][i] = f[1];
+                if self.mono_in {
+                    let m = (f[0] + f[1]) * 0.5;
+                    b.inputs[0][i] = m;
+                    b.inputs[1][i] = m;
+                } else {
+                    b.inputs[0][i] = f[0];
+                    b.inputs[1][i] = f[1];
+                }
             }
         }
         if p.process_audio(&mut b).is_err() || b.outputs.len() < 2 {
             return;
         }
+        // Salida solo por la izquierda (plugin mono, o que no rellena el
+        // canal derecho): se copia a los dos lados.
+        let right_dead = self.mono_out || (b.outputs[1][..n].iter().all(|x| *x == 0.0) && b.outputs[0][..n].iter().any(|x| *x != 0.0));
         for (i, f) in buf[..n * 2].chunks_exact_mut(2).enumerate() {
-            let (l, r) = (b.outputs[0][i], b.outputs[1][i]);
+            let l = b.outputs[0][i];
+            let r = if right_dead { l } else { b.outputs[1][i] };
             // Un plugin roto que devuelve NaN no debe llegar a la tarjeta.
             f[0] = if l.is_finite() { l } else { 0.0 };
             f[1] = if r.is_finite() { r } else { 0.0 };
@@ -639,6 +653,28 @@ fn load_one_inner(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
             let _ = plugin.load_state(&data);
         }
     }
+    // Se pide estéreo; si el plugin solo sabe trabajar en mono, se adapta
+    // al procesar (entra L+R y sale por los dos lados).
+    {
+        use vst3_host::audio::SpeakerArrangement as Sa;
+        if let Ok(cur) = plugin.bus_arrangements() {
+            let want_in = vec![Sa::STEREO; cur.inputs.len()];
+            let want_out = vec![Sa::STEREO; cur.outputs.len()];
+            if cur.inputs.first().map(|a| a.channel_count()) != Some(2) || cur.outputs.first().map(|a| a.channel_count()) != Some(2) {
+                let _ = plugin.set_bus_arrangements(&want_in, &want_out);
+            }
+        }
+    }
+    let (mono_in, mono_out) = match plugin.bus_arrangements() {
+        Ok(a) => (
+            a.inputs.first().map(|x| x.channel_count() == 1).unwrap_or(false),
+            a.outputs.first().map(|x| x.channel_count() == 1).unwrap_or(false),
+        ),
+        Err(_) => (false, false),
+    };
+    if mono_in || mono_out {
+        crate::perflog::note(&format!("Plugin «{}» en mono: se reparte a los dos lados", cfg.name));
+    }
     plugin.start_processing().map_err(|e| e.to_string())?;
     let mut bufs = AudioBuffers::new(2, 2, MAX_BLOCK, 48_000.0);
     for ch in bufs.inputs.iter_mut() {
@@ -648,7 +684,7 @@ fn load_one_inner(vst: &mut Vst3Host, cfg: &PluginCfg) -> Result<Host, String> {
         ch.reserve_exact(MAX_BLOCK);
     }
     let latency = AtomicU32::new(plugin.latency_samples());
-    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), name: cfg.name.clone(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency })
+    Ok(Host { id: cfg.id.clone(), path: cfg.path.trim().to_string(), name: cfg.name.clone(), plugin: Arc::new(Mutex::new(plugin)), bufs: Mutex::new(bufs), latency, mono_in, mono_out })
 }
 
 #[cfg(test)]
