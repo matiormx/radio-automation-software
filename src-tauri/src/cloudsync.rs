@@ -350,6 +350,10 @@ fn track_value(
         for f in LOCAL_FIELDS {
             m.remove(f);
         }
+        // Para la nube (OmniCaster Music, Subsonic): si su tipo sale con la música.
+        if !t.media_type.is_empty() {
+            m.insert("inMusic".into(), Value::Bool(crate::settings::media_rule(&t.media_type).in_music));
+        }
         // Carátula: la imagen, por su huella (para los equipos sin el archivo).
         let cover = t.cover.trim();
         if cover.starts_with("media:") {

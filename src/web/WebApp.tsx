@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { setMediaTypes } from "../mediaTypes";
 import { MusicBrowser } from "../components/MusicBrowser";
 import { TrackEditor } from "../components/TrackEditor";
 import { EventsTab } from "../components/EventsTab";
@@ -214,6 +215,7 @@ export function WebApp() {
   const refresh = useCallback(async () => {
     setTracks(tracksNow());
     const [b, p, s] = await Promise.all([listBlocks(), listPlaylists(), getSettings()]);
+    setMediaTypes(s.mediaTypes);
     setBlocks(b);
     setPlaylists(p);
     setSettings(s);

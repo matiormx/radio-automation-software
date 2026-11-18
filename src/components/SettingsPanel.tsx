@@ -32,6 +32,7 @@ import { FfmpegSection } from "./FfmpegSection";
 import { ProgramsTab } from "./ProgramsTab";
 import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
+import { MediaTypesTab } from "./MediaTypesTab";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   NOW_PLAYING_PLACEHOLDERS,
@@ -187,6 +188,7 @@ function MinField({
 export type SettingsTab =
   | "general"
   | "autodj"
+  | "mediatypes"
   | "campaigns"
   | "events"
   | "programs"
@@ -320,6 +322,15 @@ export function SettingsPanel({
             >
               AutoDJ
               <span>Rotación y cola automática</span>
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn ${tab === "mediatypes" ? "settings-nav-on" : ""}`}
+              onClick={() => onTabChange("mediatypes")}
+              title="Música, jingles, programas, comerciales…"
+            >
+              Tipos de medio
+              <span>Música, jingles, programas…</span>
             </button>
             <button
               type="button"
@@ -483,6 +494,7 @@ export function SettingsPanel({
             {tab === "ai" && <AiTab settings={s} onChange={onChange} showToast={showToast} />}
             {tab === "video" && <VideoTab settings={s} onChange={onChange} streamStatus={streamStatus} />}
             {tab === "autodj" && <AutoDjTab settings={s} blocks={blocks} onChange={onChange} />}
+            {tab === "mediatypes" && <MediaTypesTab settings={s} onChange={onChange} />}
             {tab === "campaigns" && (
               <CampaignsTab
                 settings={s}
@@ -708,22 +720,6 @@ function GeneralTab({
           />
           En la transición, la siguiente canción entra con fundido (desactivado: entra a volumen completo y solo baja la
           que sale, así no se apaga el arranque de las canciones enérgicas)
-        </label>
-        <label className="field">
-          <span className="field-label">Al terminar un jingle, programa o comercial</span>
-          <select
-            value={String(s.wholeCrossfade ?? 1)}
-            onChange={(e) => onChange({ ...s, wholeCrossfade: Number(e.target.value) })}
-          >
-            <option value="0">Cambio seco</option>
-            <option value="0.5">Cruce de potencia constante de 0,5 s</option>
-            <option value="1">Cruce de potencia constante de 1 s</option>
-            <option value="2">Cruce de potencia constante de 2 s</option>
-          </select>
-          <small className="hint">
-            Se mezcla con la siguiente sin bajón de volumen. Si le pones un punto Mix o Fade out a mano en Cortes y
-            puntos, manda ese punto.
-          </small>
         </label>
         <label className="check-field">
           <input

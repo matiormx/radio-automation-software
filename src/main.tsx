@@ -12,8 +12,12 @@ import "./styles.css";
 import { uiStateRestore, uiStateSave } from "./api";
 import { IS_WEB } from "./platform";
 import { installMenuFit } from "./ctxfit";
+import { getSettings } from "./api";
+import { setMediaTypes } from "./mediaTypes";
 
 installMenuFit();
+// Ventanas secundarias (biblioteca…): los tipos de medio de los ajustes.
+if (!IS_WEB) void getSettings().then((s) => setMediaTypes(s.mediaTypes)).catch(() => undefined);
 
 const kind = toolKind();
 // Sin el menu contextual del navegador (Atrás, Actualizar, Imprimir...): la

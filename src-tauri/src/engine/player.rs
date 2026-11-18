@@ -108,6 +108,10 @@ fn trim_end_of(t: &TrackInfo, duration: f64) -> f64 {
 }
 
 fn norm_gain_of(t: &TrackInfo) -> f32 {
+    // Tipos de medio sin nivelar (Ajustes › Tipos de medio): tal cual.
+    if !t.media_type.is_empty() && !crate::settings::media_rule(&t.media_type).normalize {
+        return 1.0;
+    }
     match t.gain_db {
         Some(db) if db.is_finite() => (10f64.powf(db / 20.0)).clamp(0.01, 16.0) as f32,
         _ => 1.0,
@@ -166,11 +170,11 @@ pub struct Player {
     /// La siguiente entra con fundido; si no, a volumen completo (con un
     /// arranque de 30 ms para que no chasquee) y solo baja la que sale.
     pub fade_in: bool,
-    /// Cruce de potencia constante (segundos) al terminar un jingle,
-    /// programa o comercial sin puntos a mano; 0 = empalme seco.
-    pub whole_xfade: f64,
-    /// El cruce en marcha es de potencia constante
-    eq_next: bool,
+    /// Solo para pruebas: fuerza la duración del cruce de los tipos sin
+    /// fundidos (si no, la de Ajustes › Tipos de medio).
+    pub whole_xfade: Option<f64>,
+    /// El cruce en marcha es de potencia constante (segundos; 0 = no)
+    eq_next: f64,
     pub loop_playlist: bool,
     pub silence_skip: bool,
     pub silence_threshold_db: f64,
@@ -197,8 +201,8 @@ impl Default for Player {
         Player {
             fade_seconds: 6.0,
             fade_in: false,
-            whole_xfade: 1.0,
-            eq_next: false,
+            whole_xfade: None,
+            eq_next: 0.0,
             loop_playlist: false,
             silence_skip: false,
             silence_threshold_db: -55.0,
@@ -660,11 +664,18 @@ impl Player {
         let jingle = self.whole(self.index);
         let mix = self.usable_mix_point(&d);
         // Sin puntos a mano, un cruce corto de potencia constante (o seco).
-        let eq = jingle && mix <= 0.0 && self.whole_xfade >= 0.1 && self.fade_out_of(self.index) <= 0.0;
+        let eq_secs = if jingle {
+            let rule = self.playlist.get(self.index as usize).map(|t| crate::settings::media_rule(&t.media_type)).unwrap_or_default();
+            let secs = self.whole_xfade.unwrap_or(if rule.transition == "constant" { rule.crossfade } else { 0.0 });
+            if secs >= 0.1 { secs.min(5.0) } else { 0.0 }
+        } else {
+            0.0
+        };
+        let eq = eq_secs > 0.0 && mix <= 0.0 && self.fade_out_of(self.index) <= 0.0;
         let cross_at = if mix > 0.0 {
             mix
         } else if eq {
-            d.end - self.whole_xfade
+            d.end - eq_secs
         } else if jingle {
             d.end - 0.05
         } else {
@@ -672,7 +683,7 @@ impl Player {
         };
         if !fading && self.index >= 0 && self.fade_seconds > 0.0 && pos >= cross_at && next >= 0 && next != self.index {
             self.report_early(&d, if mix > 0.0 { "Cruce por punto Mix" } else { "Cruce" }, pos);
-            self.eq_next = eq;
+            self.eq_next = if eq { eq_secs } else { 0.0 };
             self.begin_crossfade(next as usize, mix > 0.0 || (jingle && !eq), remaining, core, ld);
             return;
         }
@@ -711,8 +722,9 @@ impl Player {
             Load::Ready(p) => p,
         };
         let now = core.now;
-        let eq = std::mem::take(&mut self.eq_next);
-        let fade_target = if eq { self.whole_xfade.min(remaining).max(0.1) } else { self.fade_seconds.min(remaining).max(0.3) };
+        let eq_secs = std::mem::take(&mut self.eq_next);
+        let eq = eq_secs > 0.0;
+        let fade_target = if eq { eq_secs.min(remaining).max(0.1) } else { self.fade_seconds.min(remaining).max(0.3) };
         let available = d.end - self.deck_pos(&d, core);
         let dur = pcm.duration();
         let next_start = trim_start_of(&track).min((dur - 0.2).max(0.0));

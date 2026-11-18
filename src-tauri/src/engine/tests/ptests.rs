@@ -223,7 +223,7 @@ fn jingle_plays_whole_without_fades() {
     j.markers_auto = true;
     let mut s = Sim::new(vec![(j, tone(5.0, 0.5)), (track("b", 20.0), tone(20.0, 0.25))]);
     s.p.fade_seconds = 2.0;
-    s.p.whole_xfade = 0.0; // empalme seco
+    s.p.whole_xfade = Some(0.0); // empalme seco
     s.p.play_at(0, &mut s.core, &mut s.ld);
     s.run(4.8);
     assert_eq!(s.indexes(), vec![-1, 0], "aún en el jingle");
@@ -276,7 +276,7 @@ fn whole_tracks_cross_with_constant_power() {
     b.media_type = "jingle".into();
     let mut s = Sim::new(vec![(a, tone(6.0, 0.5)), (b, tone(6.0, 0.5))]);
     s.p.fade_seconds = 4.0;
-    s.p.whole_xfade = 1.0;
+    s.p.whole_xfade = Some(1.0);
     s.p.play_at(0, &mut s.core, &mut s.ld);
     s.run(4.8);
     assert_eq!(s.indexes(), vec![-1, 0], "no cruza 4 s antes");

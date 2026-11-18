@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TrackDetails } from "../types";
-import { mediaTypeLabel } from "../types";
+import { mediaTypeLabel } from "../mediaTypes";
 import { closeOnBackdrop } from "../backdrop";
 import { getTrackDetails, trackUrl } from "../api";
 import { IconEdit, IconNote } from "../icons";

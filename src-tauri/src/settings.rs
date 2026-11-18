@@ -88,6 +88,105 @@ pub struct VstSettings {
     pub hidden: Vec<String>,
 }
 
+/// Un tipo de medio y su tratamiento. El id "" es la música.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MediaTypeCfg {
+    pub id: String,
+    pub label: String,
+    /// Color de su etiqueta en las listas (#rrggbb)
+    pub color: String,
+    /// Transición al terminar: "music" (como la música: TRANSICIÓN de la
+    /// barra, con fundido), "constant" (cruce corto de potencia constante)
+    /// o "dry" (cambio seco). Los puntos puestos a mano siempre mandan.
+    pub transition: String,
+    /// Duración del cruce de potencia constante (s)
+    pub crossfade: f64,
+    /// Sale en la vista Música, OmniCaster Music y Subsonic
+    pub in_music: bool,
+    /// El AutoDJ lo elige en la rotación general (si no, solo desde listas)
+    pub autodj: bool,
+    /// Lleva ficha IA de energía (y cuenta en «Sin energía»)
+    pub energy: bool,
+    /// Se nivela el volumen (normalización) como la música
+    pub normalize: bool,
+    /// Metadatos al emitirse (vacío = los del archivo), como en los eventos
+    pub meta: Option<StreamMeta>,
+}
+
+impl Default for MediaTypeCfg {
+    fn default() -> Self {
+        MediaTypeCfg {
+            id: String::new(),
+            label: String::new(),
+            color: String::new(),
+            transition: "music".into(),
+            crossfade: 1.0,
+            in_music: true,
+            autodj: true,
+            energy: true,
+            normalize: true,
+            meta: None,
+        }
+    }
+}
+
+pub fn default_media_types() -> Vec<MediaTypeCfg> {
+    let t = |id: &str, label: &str, color: &str, transition: &str, music: bool| MediaTypeCfg {
+        id: id.into(),
+        label: label.into(),
+        color: color.into(),
+        transition: transition.into(),
+        crossfade: 1.0,
+        in_music: music,
+        autodj: music,
+        energy: music,
+        normalize: true,
+        meta: None,
+    };
+    vec![
+        t("", "Música", "#5b9cff", "music", true),
+        t("jingle", "Jingle", "#ffb84d", "constant", false),
+        t("program", "Programa", "#59d98c", "constant", false),
+        t("podcast", "Podcast", "#4dd6ff", "music", false),
+        t("commercial", "Comercial", "#ff7ab6", "constant", false),
+    ]
+}
+
+impl Settings {
+    /// Tratamiento de un tipo de medio (desconocido o vacío = música).
+    pub fn media_rule(&self, id: &str) -> MediaTypeCfg {
+        media_rule_in(&self.media_types, id)
+    }
+}
+
+fn media_rule_in(list: &[MediaTypeCfg], id: &str) -> MediaTypeCfg {
+    let id = if id == "music" { "" } else { id };
+    list.iter()
+        .find(|m| m.id == id)
+        .cloned()
+        .or_else(|| default_media_types().into_iter().find(|m| m.id == id))
+        .or_else(|| list.iter().find(|m| m.id.is_empty()).cloned())
+        .unwrap_or_default()
+}
+
+/// Tipos de medio vigentes, para los módulos sin ajustes a mano (motor,
+/// análisis, nube). Se renueva al leer o guardar los ajustes.
+static MEDIA_RULES: std::sync::RwLock<Vec<MediaTypeCfg>> = std::sync::RwLock::new(Vec::new());
+
+pub fn media_rule(id: &str) -> MediaTypeCfg {
+    let g = MEDIA_RULES.read().unwrap_or_else(|e| e.into_inner());
+    media_rule_in(&g, id)
+}
+
+fn set_media_rules(list: &[MediaTypeCfg]) {
+    if let Ok(mut g) = MEDIA_RULES.write() {
+        if g.as_slice() != list {
+            *g = list.to_vec();
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -101,9 +200,6 @@ pub struct Settings {
     /// defecto entra a volumen completo y solo baja la que sale: así no se
     /// apaga el arranque de las canciones enérgicas.
     pub fade_in_next: bool,
-    /// Cruce de potencia constante (s) al acabar jingles, programas y
-    /// comerciales sin puntos a mano (0 = seco)
-    pub whole_crossfade: f64,
     /// Margen de las tarjetas de sonido (ms): búfer de la tarjeta y colchón de
     /// las secundarias. Más = menos cortes con el equipo cargado, más retardo.
     pub audio_buffer_ms: u32,
@@ -134,6 +230,8 @@ pub struct Settings {
     pub ui_contrast: String,
     /// Curva de energía del día para el AutoDJ (usa la ficha IA de cada canción).
     pub energy_curve: EnergyCurve,
+    /// Tipos de medio (Música, Jingle, Programa…) y cómo se tratan.
+    pub media_types: Vec<MediaTypeCfg>,
     /// Idiomas habilitados para clasificar canciones (codigos)
     pub languages: Vec<String>,
     /// Probabilidad (%) de cada idioma en el AutoDJ; "" = sin idioma
@@ -957,7 +1055,6 @@ impl Default for Settings {
             mobile: crate::mobile::MobileConfig::default(),
             fade_seconds: 6,
             fade_in_next: false,
-            whole_crossfade: 1.0,
             audio_buffer_ms: 40,
             auto_play_on_start: false,
             rename_files: true,
@@ -970,6 +1067,7 @@ impl Default for Settings {
             ui_scale: 100,
             ui_contrast: "normal".into(),
             energy_curve: EnergyCurve::default(),
+            media_types: default_media_types(),
             languages: ["es", "en", "pt", "de", "fr"].iter().map(|s| s.to_string()).collect(),
             language_weights: HashMap::new(),
             notifications: Vec::new(),
@@ -1033,11 +1131,13 @@ fn read_settings(data_dir: &PathBuf) -> Settings {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     crate::ndi::set_limits(s.video.max_height, s.video.ndi_low_bandwidth);
+    set_media_rules(&s.media_types);
     s
 }
 
 fn write_settings(data_dir: &PathBuf, s: &Settings) -> Result<(), String> {
     crate::ndi::set_limits(s.video.max_height, s.video.ndi_low_bandwidth);
+    set_media_rules(&s.media_types);
     let json = serde_json::to_vec_pretty(s).map_err(|e| e.to_string())?;
     std::fs::write(data_dir.join(SETTINGS_FILE), json).map_err(|e| e.to_string())
 }
@@ -1511,9 +1611,9 @@ pub fn pick_tracks(
         if is_intro(t) || t.disabled {
             continue;
         }
-        // Jingles, programas, podcasts y comerciales solo entran si están en
-        // una lista elegida a propósito, nunca en la rotación general.
-        if !t.media_type.is_empty() && pick_blocks.is_empty() {
+        // Los tipos que no van en la rotación general (jingles, programas…)
+        // solo entran si están en una lista elegida a propósito.
+        if !t.media_type.is_empty() && pick_blocks.is_empty() && !s.media_rule(&t.media_type).autodj {
             continue;
         }
         if !pick_blocks.is_empty() && !t.blocks.iter().any(|b| pick_blocks.contains(b)) {
@@ -1948,5 +2048,27 @@ mod energy_tests {
         assert!(e.iter().all(|x| (3..=5).contains(x)), "{e:?}");
         assert!(e.windows(2).all(|w| (w[0] as i32 - w[1] as i32).abs() <= 1), "{e:?}");
         assert!(e.contains(&5) && e.contains(&3), "{e:?}");
+    }
+}
+
+#[cfg(test)]
+mod media_type_tests {
+    use super::*;
+
+    #[test]
+    fn media_rules_fall_back_sensibly() {
+        let mut s = Settings::default();
+        assert_eq!(s.media_rule("jingle").transition, "constant");
+        assert!(!s.media_rule("commercial").in_music);
+        assert!(s.media_rule("").in_music && s.media_rule("music").in_music);
+        // Tipo propio borrado: como la música
+        assert!(s.media_rule("tipo-x1y2").in_music);
+        // Ajustes antiguos sin la lista: los de serie
+        s.media_types.clear();
+        assert_eq!(s.media_rule("program").transition, "constant");
+        // Uno propio
+        s.media_types = default_media_types();
+        s.media_types.push(MediaTypeCfg { id: "cuna".into(), label: "Cuña".into(), transition: "dry".into(), in_music: false, ..Default::default() });
+        assert_eq!(s.media_rule("cuna").transition, "dry");
     }
 }

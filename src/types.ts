@@ -34,18 +34,31 @@ export interface HourWindow {
   end: string;
 }
 
-/** Tipo de medio: "" = música */
-export type MediaType = "" | "jingle" | "program" | "podcast" | "commercial";
+/** Tipo de medio: "" = música; «jingle», «program», «podcast», «commercial» o uno propio */
+export type MediaType = string;
 
-export const MEDIA_TYPES: { id: MediaType; label: string }[] = [
-  { id: "", label: "Música" },
-  { id: "jingle", label: "Jingle" },
-  { id: "program", label: "Programa" },
-  { id: "podcast", label: "Podcast" },
-  { id: "commercial", label: "Comercial" },
-];
-
-export const mediaTypeLabel = (t?: string): string => MEDIA_TYPES.find((m) => m.id === (t ?? ""))?.label ?? "Música";
+/** Un tipo de medio y cómo se trata (Ajustes › Tipos de medio). */
+export interface MediaTypeCfg {
+  /** "" = música */
+  id: string;
+  label: string;
+  /** Color de su etiqueta (#rrggbb) */
+  color: string;
+  /** Al terminar: como la música, cruce corto de potencia constante, o seco */
+  transition: "music" | "constant" | "dry";
+  /** Duración del cruce de potencia constante (s) */
+  crossfade: number;
+  /** Sale en la vista Música, OmniCaster Music y Subsonic */
+  inMusic: boolean;
+  /** El AutoDJ lo elige en la rotación general */
+  autodj: boolean;
+  /** Lleva ficha IA de energía */
+  energy: boolean;
+  /** Se nivela el volumen como la música */
+  normalize: boolean;
+  /** Metadatos al emitirse (vacío = los del archivo) */
+  meta?: StreamMeta | null;
+}
 
 export interface Track {
   id: string;
@@ -940,8 +953,6 @@ export interface Settings {
   fadeSeconds: number;
   /** Al cruzar, la siguiente entra con fundido (si no, a volumen completo y solo baja la que sale) */
   fadeInNext?: boolean;
-  /** Cruce de potencia constante (s) al acabar un jingle, programa o comercial sin puntos a mano (0 = seco; por defecto 1) */
-  wholeCrossfade?: number;
   /** Margen de las tarjetas de sonido (ms); más = menos cortes, más retardo */
   audioBufferMs?: number;
   /** Reproducir la lista automaticamente al abrir la app */
@@ -966,6 +977,8 @@ export interface Settings {
   uiContrast?: "normal" | "alto" | "maximo";
   /** Curva de energía del día para el AutoDJ */
   energyCurve?: EnergyCurve;
+  /** Tipos de medio y su tratamiento */
+  mediaTypes?: MediaTypeCfg[];
   /** Idiomas habilitados para las canciones (codigos) */
   languages: string[];
   /** Probabilidad (%) de que el AutoDJ elija cada idioma; sin datos = sin filtro */

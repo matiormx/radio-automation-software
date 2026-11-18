@@ -92,6 +92,7 @@ import {
   type NowPlayingFields,
 } from "./nowplaying";
 import { MusicBrowser } from "./components/MusicBrowser";
+import { mediaRule, setMediaTypes } from "./mediaTypes";
 import { PlaylistZone } from "./components/PlaylistZone";
 import { DeckZone } from "./components/DeckZone";
 import { VuMeter } from "./components/VuMeter";
@@ -548,6 +549,8 @@ export default function App() {
         : null,
     [liveRun],
   );
+  // Tipos de medio (Ajustes › Tipos de medio) para toda la interfaz
+  useEffect(() => setMediaTypes(settings.mediaTypes), [settings.mediaTypes]);
   // Aviso si la vez anterior se cerró mal (por ejemplo, un plugin)
   useEffect(() => {
     const t = window.setTimeout(() => void showLastCrash(), 2500);
@@ -835,7 +838,6 @@ export default function App() {
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
       nat.fadeInNext = s.fadeInNext === true;
-      nat.wholeCrossfade = s.wholeCrossfade ?? 1;
       nat.loop = false;
       nat.silenceSkip = s.silenceDetection;
       nat.silenceThresholdDb = s.silenceThresholdDb ?? -55;
@@ -991,8 +993,9 @@ export default function App() {
           cover: ch.cover || base.cover,
         }
       : base;
-    const meta = row.meta;
-    if (!hasMeta(meta)) return track;
+    // Metadatos al emitirse: los del evento o campaña; si no, los de su tipo de medio.
+    const meta = hasMeta(row.meta) ? row.meta : mediaRule(base.mediaType).meta;
+    if (!meta || !hasMeta(meta)) return track;
     return {
       ...track,
       title: meta.title?.trim() || track.title,
@@ -1309,7 +1312,6 @@ export default function App() {
     if (p) {
       p.fadeSeconds = settings.fadeSeconds;
       p.fadeInNext = settings.fadeInNext === true;
-      p.wholeCrossfade = settings.wholeCrossfade ?? 1;
       p.loop = false;
       p.silenceSkip = settings.silenceDetection;
       p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
@@ -1320,7 +1322,6 @@ export default function App() {
   }, [
     settings.fadeSeconds,
     settings.fadeInNext,
-    settings.wholeCrossfade,
     settings.masterVolume,
     settings.silenceDetection,
     settings.silenceThresholdDb,

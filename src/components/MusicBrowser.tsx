@@ -2,7 +2,7 @@ import { DeezerSearch } from "./DeezerSearch";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { languageFlag, languageName } from "../languages";
 import type { AiSettings, Block, HistoryEntry, HourWindow, MediaType, PlaylistImportReport, Track, TrackPatch } from "../types";
-import { MEDIA_TYPES, mediaTypeLabel } from "../types";
+import { inMusic, mediaTypeLabel, useMediaTypes, wantsEnergy } from "../mediaTypes";
 import {
   updateTrack,
   tracksBulk,
@@ -526,7 +526,8 @@ function MusicBrowserBase({
   };
 
   // La vista Música solo enseña música (no jingles, programas, podcasts ni comerciales).
-  const musicTracks = useMemo(() => tracks.filter((t) => !t.mediaType), [tracks]);
+  const MEDIA_TYPES = useMediaTypes();
+  const musicTracks = useMemo(() => tracks.filter((t) => inMusic(t.mediaType)), [tracks, MEDIA_TYPES]);
 
   const artists = useMemo(() => {
     const m = new Map<string, number>();
@@ -558,9 +559,9 @@ function MusicBrowserBase({
   // Energía (ficha IA) de la música, para revisar a mano: [0 = sin energía, 1…5]
   const energyCounts = useMemo(() => {
     const c = [0, 0, 0, 0, 0, 0];
-    for (const t of tracks) if (!t.mediaType && !t.disabled) c[Math.max(0, Math.min(5, t.energy ?? 0))]++;
+    for (const t of tracks) if (wantsEnergy(t.mediaType) && !t.disabled) c[Math.max(0, Math.min(5, t.energy ?? 0))]++;
     return c;
-  }, [tracks]);
+  }, [tracks, MEDIA_TYPES]);
   const typeCounts = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tracks) if (t.mediaType) m.set(t.mediaType, (m.get(t.mediaType) ?? 0) + 1);
@@ -597,7 +598,7 @@ function MusicBrowserBase({
       } else if (mode === "tags") {
         if (selection.startsWith(ENERGY_SEL)) {
           const lvl = Number(selection.slice(ENERGY_SEL.length));
-          list = list.filter((t) => !t.mediaType && !t.disabled && (t.energy ?? 0) === lvl);
+          list = list.filter((t) => wantsEnergy(t.mediaType) && !t.disabled && (t.energy ?? 0) === lvl);
         } else if (selection.startsWith(TYPE_SEL)) {
           const ty = selection.slice(TYPE_SEL.length);
           list = list.filter((t) => (t.mediaType ?? "") === ty);

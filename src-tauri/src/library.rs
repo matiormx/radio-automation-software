@@ -146,18 +146,22 @@ pub struct Track {
     pub media_type: String,
 }
 
-pub const MEDIA_TYPES: [&str; 4] = ["jingle", "program", "podcast", "commercial"];
 
-/// Jingles, programas y comerciales: sin fundidos automáticos (suenan
-/// enteros); solo los puntos puestos a mano en el editor de onda.
+/// Tipos sin fundidos automáticos (jingles, programas, comerciales… según
+/// Ajustes › Tipos de medio): suenan enteros y solo cuentan los puntos
+/// puestos a mano en el editor de onda.
 pub fn no_auto_fades(media_type: &str) -> bool {
-    matches!(media_type, "jingle" | "program" | "commercial")
+    !media_type.is_empty() && crate::settings::media_rule(media_type).transition != "music"
 }
 
-/// Normaliza el tipo de medio («music» y desconocidos = vacío).
+/// Normaliza el tipo de medio («music» = vacío; los propios: letras,
+/// números y guiones).
 pub fn clean_media_type(v: &str) -> String {
     let v = v.trim().to_lowercase();
-    if MEDIA_TYPES.contains(&v.as_str()) { v } else { String::new() }
+    if v == "music" || v.len() > 32 || !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return String::new();
+    }
+    v
 }
 
 /// Franja permitida de una canción: días (1 = lunes … 7 = domingo) y de

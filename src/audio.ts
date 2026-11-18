@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { mediaRule, noAutoFades } from "./mediaTypes";
 import type { Track } from "./types";
 import type { SoundMixer } from "./mixer";
 
@@ -43,6 +44,7 @@ function fmtDiag(secs: number): string {
 }
 
 function normGainOf(t: Track): number {
+  if (t.mediaType && !mediaRule(t.mediaType).normalize) return 1; // tipo sin nivelar
   const db = t.gainDb;
   if (db == null || !Number.isFinite(db)) return 1;
   return Math.min(16, Math.max(0.01, 10 ** (db / 20)));
@@ -92,8 +94,6 @@ function eqCurve(up: boolean, from = 1): Float32Array {
   return c;
 }
 
-/** Jingles, programas y comerciales: sin fundidos automáticos. */
-const noAutoFades = (t?: string): boolean => t === "jingle" || t === "program" || t === "commercial";
 
 export class RadioPlayer {
   private ctx: AudioContext | null = null;
@@ -122,8 +122,6 @@ export class RadioPlayer {
   fadeSeconds = 6;
   /** La siguiente entra con fundido; si no, a volumen completo y solo baja la que sale. */
   fadeInNext = false;
-  /** Cruce de potencia constante (s) al acabar un jingle, programa o comercial sin puntos a mano; 0 = seco. */
-  wholeCrossfade = 1;
   loop = false;
   silenceSkip = false;
   /** Umbral de silencio (dBFS, RMS). */
@@ -871,9 +869,11 @@ export class RadioPlayer {
     // (o en su punto Mix), sin bajarlo.
     const jingle = noAutoFades(this.playlist[this.index]?.mediaType);
     const mixPoint = this.usableMixPoint(this.index, deck);
-    const eq = jingle && mixPoint <= 0 && this.wholeCrossfade >= 0.1 && this.fadeOutOf(this.index) <= 0;
+    const rule = mediaRule(this.playlist[this.index]?.mediaType);
+    const eqSecs = jingle && rule.transition === "constant" ? Math.min(5, rule.crossfade) : 0;
+    const eq = eqSecs >= 0.1 && mixPoint <= 0 && this.fadeOutOf(this.index) <= 0;
     const crossfadeAt =
-      mixPoint > 0 ? mixPoint : eq ? deck.end - this.wholeCrossfade : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
+      mixPoint > 0 ? mixPoint : eq ? deck.end - eqSecs : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
     if (
       !this.fading &&
       this.index >= 0 &&
@@ -883,7 +883,7 @@ export class RadioPlayer {
       nextIdx !== this.index
     ) {
       this.reportEarlyChange(deck, mixPoint > 0 ? "Cruce por punto Mix" : "Cruce", pos);
-      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || (jingle && !eq), eq);
+      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || (jingle && !eq), eq ? eqSecs : 0);
       return;
     }
 
@@ -896,8 +896,9 @@ export class RadioPlayer {
     remaining: number,
     nextIdx: number,
     keepCurrent = false,
-    eq = false,
+    eqSecs = 0,
   ) {
+    const eq = eqSecs > 0;
     if (!this.ctx) return;
     if (this.fadeAttemptFor === nextIdx) return;
     const generation = this.playGeneration;
@@ -905,7 +906,7 @@ export class RadioPlayer {
     this.fading = true;
     this.preloadedFor = -1;
     const fadeTarget = eq
-      ? Math.max(0.1, Math.min(this.wholeCrossfade, remaining))
+      ? Math.max(0.1, Math.min(eqSecs, remaining))
       : Math.max(0.3, Math.min(this.fadeSeconds, remaining));
 
     const nextTrack = this.playlist[nextIdx];

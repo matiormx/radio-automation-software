@@ -24,6 +24,11 @@ use crate::AppState;
 
 const BATCH: usize = 10;
 
+/// Solo llevan ficha de energía los tipos que la piden (la música, por defecto).
+fn wants_energy(t: &Track) -> bool {
+    t.media_type.is_empty() || crate::settings::media_rule(&t.media_type).energy
+}
+
 const PROMPT: &str = r#"Eres un programador musical de una emisora de radio cristiana y familiar.
 Para cada canción numerada (con sus metadatos y, si lo hay, un fragmento de la letra) devuelve su ficha.
 Devuelve SOLO un objeto JSON válido, sin texto adicional:
@@ -52,8 +57,8 @@ static STATUS: Mutex<EnrichStatus> = Mutex::new(EnrichStatus { running: false, d
 
 fn counts(data_dir: &Path) -> (usize, usize) {
     let lib = crate::library::read_library_internal(data_dir);
-    let total = lib.iter().filter(|t| !t.disabled && t.media_type.is_empty()).count();
-    let done = lib.iter().filter(|t| !t.disabled && t.media_type.is_empty() && t.energy > 0).count();
+    let total = lib.iter().filter(|t| !t.disabled && wants_energy(t)).count();
+    let done = lib.iter().filter(|t| !t.disabled && wants_energy(t) && t.energy > 0).count();
     (done, total)
 }
 
@@ -106,7 +111,7 @@ fn run(app: AppHandle, data_dir: PathBuf, ai: AiSettings) {
             break;
         }
         let lib = crate::library::read_library_internal(&data_dir);
-        let todo: Vec<Track> = lib.into_iter().filter(|t| !t.disabled && t.media_type.is_empty() && t.energy == 0 && !t.title.trim().is_empty()).take(BATCH).collect();
+        let todo: Vec<Track> = lib.into_iter().filter(|t| !t.disabled && wants_energy(t) && t.energy == 0 && !t.title.trim().is_empty()).take(BATCH).collect();
         if todo.is_empty() {
             break;
         }
