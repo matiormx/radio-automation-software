@@ -81,6 +81,17 @@ export const EMPTY_TRACK: Track = {
 type Slot = "a" | "b" | "c";
 const SLOTS: Slot[] = ["a", "b", "c"];
 
+/** Curva de potencia constante: subida (seno) o bajada (coseno) desde `from`. */
+function eqCurve(up: boolean, from = 1): Float32Array {
+  const n = 64;
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = (i / (n - 1)) * (Math.PI / 2);
+    c[i] = up ? Math.max(0.0001, Math.sin(a)) : Math.max(0.0001, from * Math.cos(a));
+  }
+  return c;
+}
+
 /** Jingles, programas y comerciales: sin fundidos automáticos. */
 const noAutoFades = (t?: string): boolean => t === "jingle" || t === "program" || t === "commercial";
 
@@ -111,6 +122,8 @@ export class RadioPlayer {
   fadeSeconds = 6;
   /** La siguiente entra con fundido; si no, a volumen completo y solo baja la que sale. */
   fadeInNext = false;
+  /** Cruce de potencia constante (s) al acabar un jingle, programa o comercial sin puntos a mano; 0 = seco. */
+  wholeCrossfade = 1;
   loop = false;
   silenceSkip = false;
   /** Umbral de silencio (dBFS, RMS). */
@@ -858,7 +871,9 @@ export class RadioPlayer {
     // (o en su punto Mix), sin bajarlo.
     const jingle = noAutoFades(this.playlist[this.index]?.mediaType);
     const mixPoint = this.usableMixPoint(this.index, deck);
-    const crossfadeAt = mixPoint > 0 ? mixPoint : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
+    const eq = jingle && mixPoint <= 0 && this.wholeCrossfade >= 0.1 && this.fadeOutOf(this.index) <= 0;
+    const crossfadeAt =
+      mixPoint > 0 ? mixPoint : eq ? deck.end - this.wholeCrossfade : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
     if (
       !this.fading &&
       this.index >= 0 &&
@@ -868,7 +883,7 @@ export class RadioPlayer {
       nextIdx !== this.index
     ) {
       this.reportEarlyChange(deck, mixPoint > 0 ? "Cruce por punto Mix" : "Cruce", pos);
-      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || jingle);
+      void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || (jingle && !eq), eq);
       return;
     }
 
@@ -881,6 +896,7 @@ export class RadioPlayer {
     remaining: number,
     nextIdx: number,
     keepCurrent = false,
+    eq = false,
   ) {
     if (!this.ctx) return;
     if (this.fadeAttemptFor === nextIdx) return;
@@ -888,7 +904,9 @@ export class RadioPlayer {
     this.fadeAttemptFor = nextIdx;
     this.fading = true;
     this.preloadedFor = -1;
-    const fadeTarget = Math.max(0.3, Math.min(this.fadeSeconds, remaining));
+    const fadeTarget = eq
+      ? Math.max(0.1, Math.min(this.wholeCrossfade, remaining))
+      : Math.max(0.3, Math.min(this.fadeSeconds, remaining));
 
     const nextTrack = this.playlist[nextIdx];
     const buffer = await this.decodeSafe(nextTrack);
@@ -942,9 +960,14 @@ export class RadioPlayer {
         this.fadeOverlap = 0;
       } else {
         const overlap = Math.min(fadeTarget, available);
-        gain.gain.setValueAtTime(0.001, startAt);
-        const fadeIn = this.fadeInNext && !noAutoFades(nextTrack.mediaType);
-        gain.gain.linearRampToValueAtTime(1, startAt + (fadeIn ? overlap : 0.03));
+        if (eq) {
+          // Potencia constante: sube con un seno mientras la otra baja con un coseno.
+          gain.gain.setValueCurveAtTime(eqCurve(true), startAt, overlap);
+        } else {
+          gain.gain.setValueAtTime(0.001, startAt);
+          const fadeIn = this.fadeInNext && !noAutoFades(nextTrack.mediaType);
+          gain.gain.linearRampToValueAtTime(1, startAt + (fadeIn ? overlap : 0.03));
+        }
         if (keepCurrent) {
           // Punto de mezcla: la pista actual sigue sonando (su intro queda
           // debajo de la siguiente) hasta que se acaba.
@@ -953,8 +976,12 @@ export class RadioPlayer {
           };
         } else {
           deck.gain.gain.cancelScheduledValues(now);
-          deck.gain.gain.setValueAtTime(Math.max(deck.gain.gain.value, 0.001), now);
-          deck.gain.gain.linearRampToValueAtTime(0.001, now + overlap);
+          if (eq) {
+            deck.gain.gain.setValueCurveAtTime(eqCurve(false, Math.max(deck.gain.gain.value, 0.001)), now, overlap);
+          } else {
+            deck.gain.gain.setValueAtTime(Math.max(deck.gain.gain.value, 0.001), now);
+            deck.gain.gain.linearRampToValueAtTime(0.001, now + overlap);
+          }
           try {
             deck.source.stop(now + overlap + 0.1);
           } catch {

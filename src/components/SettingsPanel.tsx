@@ -709,6 +709,22 @@ function GeneralTab({
           En la transición, la siguiente canción entra con fundido (desactivado: entra a volumen completo y solo baja la
           que sale, así no se apaga el arranque de las canciones enérgicas)
         </label>
+        <label className="field">
+          <span className="field-label">Al terminar un jingle, programa o comercial</span>
+          <select
+            value={String(s.wholeCrossfade ?? 1)}
+            onChange={(e) => onChange({ ...s, wholeCrossfade: Number(e.target.value) })}
+          >
+            <option value="0">Cambio seco</option>
+            <option value="0.5">Cruce de potencia constante de 0,5 s</option>
+            <option value="1">Cruce de potencia constante de 1 s</option>
+            <option value="2">Cruce de potencia constante de 2 s</option>
+          </select>
+          <small className="hint">
+            Se mezcla con la siguiente sin bajón de volumen. Si le pones un punto Mix o Fade out a mano en Cortes y
+            puntos, manda ese punto.
+          </small>
+        </label>
         <label className="check-field">
           <input
             type="checkbox"

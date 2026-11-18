@@ -166,6 +166,11 @@ pub struct Player {
     /// La siguiente entra con fundido; si no, a volumen completo (con un
     /// arranque de 30 ms para que no chasquee) y solo baja la que sale.
     pub fade_in: bool,
+    /// Cruce de potencia constante (segundos) al terminar un jingle,
+    /// programa o comercial sin puntos a mano; 0 = empalme seco.
+    pub whole_xfade: f64,
+    /// El cruce en marcha es de potencia constante
+    eq_next: bool,
     pub loop_playlist: bool,
     pub silence_skip: bool,
     pub silence_threshold_db: f64,
@@ -192,6 +197,8 @@ impl Default for Player {
         Player {
             fade_seconds: 6.0,
             fade_in: false,
+            whole_xfade: 1.0,
+            eq_next: false,
             loop_playlist: false,
             silence_skip: false,
             silence_threshold_db: -55.0,
@@ -652,8 +659,12 @@ impl Player {
         // siguiente entra a su final (o en su punto Mix, si lo tiene).
         let jingle = self.whole(self.index);
         let mix = self.usable_mix_point(&d);
+        // Sin puntos a mano, un cruce corto de potencia constante (o seco).
+        let eq = jingle && mix <= 0.0 && self.whole_xfade >= 0.1 && self.fade_out_of(self.index) <= 0.0;
         let cross_at = if mix > 0.0 {
             mix
+        } else if eq {
+            d.end - self.whole_xfade
         } else if jingle {
             d.end - 0.05
         } else {
@@ -661,7 +672,8 @@ impl Player {
         };
         if !fading && self.index >= 0 && self.fade_seconds > 0.0 && pos >= cross_at && next >= 0 && next != self.index {
             self.report_early(&d, if mix > 0.0 { "Cruce por punto Mix" } else { "Cruce" }, pos);
-            self.begin_crossfade(next as usize, mix > 0.0 || jingle, remaining, core, ld);
+            self.eq_next = eq;
+            self.begin_crossfade(next as usize, mix > 0.0 || (jingle && !eq), remaining, core, ld);
             return;
         }
 
@@ -699,7 +711,8 @@ impl Player {
             Load::Ready(p) => p,
         };
         let now = core.now;
-        let fade_target = self.fade_seconds.min(remaining).max(0.3);
+        let eq = std::mem::take(&mut self.eq_next);
+        let fade_target = if eq { self.whole_xfade.min(remaining).max(0.1) } else { self.fade_seconds.min(remaining).max(0.3) };
         let available = d.end - self.deck_pos(&d, core);
         let dur = pcm.duration();
         let next_start = trim_start_of(&track).min((dur - 0.2).max(0.0));
@@ -715,14 +728,22 @@ impl Player {
         } else {
             overlap = fade_target.min(available);
             // Jingles, programas y comerciales entran siempre a volumen completo.
-            let rise = if self.fade_in && !crate::library::no_auto_fades(&track.media_type) { overlap } else { 0.03 };
-            gain.schedule(start_at, 0.001, start_at + core.frames(rise), 1.0);
+            let rise = if eq || (self.fade_in && !crate::library::no_auto_fades(&track.media_type)) { overlap } else { 0.03 };
+            if eq {
+                gain.schedule_eq(start_at, 0.0, start_at + core.frames(rise), 1.0);
+            } else {
+                gain.schedule(start_at, 0.001, start_at + core.frames(rise), 1.0);
+            }
             if !keep_current {
                 let fade_end = now + core.frames(overlap);
                 let stop = now + core.frames(overlap + 0.1);
                 if let Some(v) = core.voices.get_mut(d.voice) {
                     let cur = v.gain.value_at(now);
-                    v.gain.schedule(now, cur.max(0.001), fade_end, 0.0);
+                    if eq {
+                        v.gain.schedule_eq(now, cur.max(0.001), fade_end, 0.0);
+                    } else {
+                        v.gain.schedule(now, cur.max(0.001), fade_end, 0.0);
+                    }
                     v.stop_at = Some(v.stop_at.map(|s| s.min(stop)).unwrap_or(stop));
                 }
             }

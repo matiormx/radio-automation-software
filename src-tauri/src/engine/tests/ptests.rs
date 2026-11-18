@@ -223,6 +223,7 @@ fn jingle_plays_whole_without_fades() {
     j.markers_auto = true;
     let mut s = Sim::new(vec![(j, tone(5.0, 0.5)), (track("b", 20.0), tone(20.0, 0.25))]);
     s.p.fade_seconds = 2.0;
+    s.p.whole_xfade = 0.0; // empalme seco
     s.p.play_at(0, &mut s.core, &mut s.ld);
     s.run(4.8);
     assert_eq!(s.indexes(), vec![-1, 0], "aún en el jingle");
@@ -264,4 +265,37 @@ fn commercial_keeps_manual_fade_out() {
     assert_eq!(s.indexes(), vec![-1, 0], "sin cruce anticipado");
     let x = s.level.iter().find(|l| l.0 >= 8.5).unwrap();
     assert!(x.1 < 0.3, "bajando por su fade out {}", x.1);
+}
+
+#[test]
+fn whole_tracks_cross_with_constant_power() {
+    // Dos jingles seguidos: cruce de 1 s de potencia constante (sin bajón).
+    let mut a = track("a", 6.0);
+    a.media_type = "jingle".into();
+    let mut b = track("b", 6.0);
+    b.media_type = "jingle".into();
+    let mut s = Sim::new(vec![(a, tone(6.0, 0.5)), (b, tone(6.0, 0.5))]);
+    s.p.fade_seconds = 4.0;
+    s.p.whole_xfade = 1.0;
+    s.p.play_at(0, &mut s.core, &mut s.ld);
+    s.run(4.8);
+    assert_eq!(s.indexes(), vec![-1, 0], "no cruza 4 s antes");
+    s.run(2.0);
+    assert_eq!(s.indexes(), vec![-1, 0, 1]);
+    // En mitad del cruce las dos suenan a ~0,707 (seno/coseno)
+    let (_, voices) = s.at(5.5);
+    assert_eq!(voices, 2, "las dos a la vez en el cruce");
+}
+
+#[test]
+fn equal_power_envelope() {
+    use crate::engine::voices::Env;
+    let mut up = Env::constant(0.0);
+    up.schedule_eq(0, 0.0, 100, 1.0);
+    let mut down = Env::constant(1.0);
+    down.schedule_eq(0, 1.0, 100, 0.0);
+    for t in [0u64, 25, 50, 75, 100] {
+        let (u, d) = (up.value_at(t), down.value_at(t));
+        assert!((u * u + d * d - 1.0).abs() < 0.01, "potencia constante en {t}: {u} {d}");
+    }
 }

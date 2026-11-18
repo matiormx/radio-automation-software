@@ -13,11 +13,14 @@ use super::pcm::Pcm;
 pub struct Env {
     a: (u64, f32),
     b: (u64, f32),
+    /// Curva de potencia constante (seno/coseno) en lugar de recta: en un
+    /// cruce, la suma de las dos suena igual de fuerte todo el rato.
+    eq: bool,
 }
 
 impl Env {
     pub fn constant(v: f32) -> Self {
-        Env { a: (0, v), b: (0, v) }
+        Env { a: (0, v), b: (0, v), eq: false }
     }
 
     pub fn value_at(&self, t: u64) -> f32 {
@@ -29,7 +32,16 @@ impl Env {
             v1
         } else {
             let k = (t - t0) as f32 / (t1 - t0) as f32;
-            v0 + (v1 - v0) * k
+            if self.eq {
+                let a = k * std::f32::consts::FRAC_PI_2;
+                if v1 >= v0 {
+                    v0 + (v1 - v0) * a.sin()
+                } else {
+                    v1 + (v0 - v1) * a.cos()
+                }
+            } else {
+                v0 + (v1 - v0) * k
+            }
         }
     }
 
@@ -38,12 +50,20 @@ impl Env {
         let cur = self.value_at(now);
         self.a = (now, cur);
         self.b = (now + frames.max(1), to);
+        self.eq = false;
     }
 
     /// Rampa programada: `from` en `t0`, `to` en `t1`.
     pub fn schedule(&mut self, t0: u64, from: f32, t1: u64, to: f32) {
         self.a = (t0, from);
         self.b = (t1.max(t0 + 1), to);
+        self.eq = false;
+    }
+
+    /// Como `schedule`, con curva de potencia constante.
+    pub fn schedule_eq(&mut self, t0: u64, from: f32, t1: u64, to: f32) {
+        self.schedule(t0, from, t1, to);
+        self.eq = true;
     }
 }
 

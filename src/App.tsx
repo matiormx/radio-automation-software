@@ -835,6 +835,7 @@ export default function App() {
       const s = settingsRef.current;
       nat.fadeSeconds = s.fadeSeconds;
       nat.fadeInNext = s.fadeInNext === true;
+      nat.wholeCrossfade = s.wholeCrossfade ?? 1;
       nat.loop = false;
       nat.silenceSkip = s.silenceDetection;
       nat.silenceThresholdDb = s.silenceThresholdDb ?? -55;
@@ -1308,6 +1309,7 @@ export default function App() {
     if (p) {
       p.fadeSeconds = settings.fadeSeconds;
       p.fadeInNext = settings.fadeInNext === true;
+      p.wholeCrossfade = settings.wholeCrossfade ?? 1;
       p.loop = false;
       p.silenceSkip = settings.silenceDetection;
       p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
@@ -1318,6 +1320,7 @@ export default function App() {
   }, [
     settings.fadeSeconds,
     settings.fadeInNext,
+    settings.wholeCrossfade,
     settings.masterVolume,
     settings.silenceDetection,
     settings.silenceThresholdDb,

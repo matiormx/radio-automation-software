@@ -126,6 +126,9 @@ pub enum Op {
         silence_threshold_db: f64,
         #[serde(default)]
         fade_in: bool,
+        /// Cruce de potencia constante al acabar jingles/programas/comerciales
+        #[serde(default)]
+        whole_xfade: Option<f64>,
     },
     Volume { value: f32 },
     Mixer { config: MixConfig },
@@ -227,9 +230,12 @@ impl Engine {
             Op::Volume { value } => lock(&self.shared).core.set_volume(value),
             Op::Meters { on } => self.meters.store(on, Ordering::SeqCst),
             Op::LiveGain { key, db } => lock(&self.shared).core.plan.live_gain(&key, db),
-            Op::Options { fade_seconds, loop_playlist, silence_skip, silence_threshold_db, fade_in } => {
+            Op::Options { fade_seconds, loop_playlist, silence_skip, silence_threshold_db, fade_in, whole_xfade } => {
                 player.fade_seconds = fade_seconds.clamp(0.0, 30.0);
                 player.fade_in = fade_in;
+                if let Some(w) = whole_xfade {
+                    player.whole_xfade = w.clamp(0.0, 5.0);
+                }
                 player.loop_playlist = loop_playlist;
                 player.silence_skip = silence_skip;
                 player.silence_threshold_db = silence_threshold_db.clamp(-90.0, -10.0);
