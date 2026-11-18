@@ -51,6 +51,8 @@ export interface Track {
   id: string;
   /** Tipo de medio (vacío = música). Solo la música sale en la vista Música. */
   mediaType?: MediaType;
+  /** Intro, mix y fade puestos por el análisis (no a mano) */
+  markersAuto?: boolean;
   /** Horario permitido: el AutoDJ solo la pone en estas franjas (vacío = siempre) */
   hours?: HourWindow[];
   /** Ficha IA: energía 1–5 (0/ausente = sin analizar), ánimo y temas */

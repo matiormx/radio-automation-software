@@ -81,6 +81,9 @@ export const EMPTY_TRACK: Track = {
 type Slot = "a" | "b" | "c";
 const SLOTS: Slot[] = ["a", "b", "c"];
 
+/** Jingles, programas y comerciales: sin fundidos automáticos. */
+const noAutoFades = (t?: string): boolean => t === "jingle" || t === "program" || t === "commercial";
+
 export class RadioPlayer {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -615,7 +618,7 @@ export class RadioPlayer {
   /** Punto de mezcla de la pista: donde entra la siguiente cancion. */
   private mixPointOf(index: number): number {
     const track = this.playlist[index];
-    if (!track) return 0;
+    if (!track || (track.markersAuto && noAutoFades(track.mediaType))) return 0;
     const point = track.mixPoint ?? 0;
     return point > 0 ? point : 0;
   }
@@ -636,7 +639,8 @@ export class RadioPlayer {
   /** Punto de fade out de la pista: desde ahi baja hasta el final. */
   private fadeOutOf(index: number): number {
     const track = this.playlist[index];
-    if (!track || track.mediaType === "jingle") return 0; // los jingles suenan enteros
+    // Jingles, programas y comerciales: solo el fade out puesto a mano.
+    if (!track || (track.markersAuto && noAutoFades(track.mediaType))) return 0;
     const point = track.fadeOutStart ?? 0;
     return point > 0 ? point : 0;
   }
@@ -852,7 +856,7 @@ export class RadioPlayer {
     // sigue sonando (su intro queda debajo). Sin punto, se cruza al final.
     // Un jingle no se funde: suena entero y la siguiente entra a su final
     // (o en su punto Mix), sin bajarlo.
-    const jingle = this.playlist[this.index]?.mediaType === "jingle";
+    const jingle = noAutoFades(this.playlist[this.index]?.mediaType);
     const mixPoint = this.usableMixPoint(this.index, deck);
     const crossfadeAt = mixPoint > 0 ? mixPoint : jingle ? deck.end - 0.05 : deck.end - this.fadeSeconds;
     if (
@@ -939,7 +943,7 @@ export class RadioPlayer {
       } else {
         const overlap = Math.min(fadeTarget, available);
         gain.gain.setValueAtTime(0.001, startAt);
-        const fadeIn = this.fadeInNext && nextTrack.mediaType !== "jingle";
+        const fadeIn = this.fadeInNext && !noAutoFades(nextTrack.mediaType);
         gain.gain.linearRampToValueAtTime(1, startAt + (fadeIn ? overlap : 0.03));
         if (keepCurrent) {
           // Punto de mezcla: la pista actual sigue sonando (su intro queda

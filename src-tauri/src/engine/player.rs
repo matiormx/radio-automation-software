@@ -56,8 +56,11 @@ pub struct TrackInfo {
     pub mix_point: f64,
     pub fade_out_start: f64,
     pub duration_secs: f64,
-    /// Tipo de medio ("" = música; «jingle»…). Los jingles no llevan fundidos.
+    /// Tipo de medio ("" = música; «jingle»…). Jingles, programas y
+    /// comerciales no llevan fundidos automáticos.
     pub media_type: String,
+    /// Puntos de mezcla/fade puestos por el análisis (no a mano)
+    pub markers_auto: bool,
     /// Intro superpuesto (audio de un bloque de intros) sobre esta pista
     pub intro_overlay: Option<Overlay>,
 }
@@ -524,7 +527,11 @@ impl Player {
     }
 
     fn mix_point_of(&self, idx: i64) -> f64 {
-        self.playlist.get(idx.max(0) as usize).map(|t| t.mix_point.max(0.0)).unwrap_or(0.0)
+        self.playlist
+            .get(idx.max(0) as usize)
+            .filter(|t| !(t.markers_auto && crate::library::no_auto_fades(&t.media_type)))
+            .map(|t| t.mix_point.max(0.0))
+            .unwrap_or(0.0)
     }
 
     /// El mix va al final de la pista: en la primera mitad se ignora.
@@ -541,15 +548,19 @@ impl Player {
         }
     }
 
+    /// Fade out: el de su punto. En jingles, programas y comerciales solo
+    /// si está puesto a mano (el automático no cuenta).
     fn fade_out_of(&self, idx: i64) -> f64 {
-        if self.is_jingle(idx) {
-            return 0.0; // los jingles suenan enteros, sin bajar
-        }
-        self.playlist.get(idx.max(0) as usize).map(|t| t.fade_out_start.max(0.0)).unwrap_or(0.0)
+        self.playlist
+            .get(idx.max(0) as usize)
+            .filter(|t| !(t.markers_auto && crate::library::no_auto_fades(&t.media_type)))
+            .map(|t| t.fade_out_start.max(0.0))
+            .unwrap_or(0.0)
     }
 
-    fn is_jingle(&self, idx: i64) -> bool {
-        idx >= 0 && self.playlist.get(idx as usize).is_some_and(|t| t.media_type == "jingle")
+    /// Jingle, programa o comercial: sin cruce automático.
+    fn whole(&self, idx: i64) -> bool {
+        idx >= 0 && self.playlist.get(idx as usize).is_some_and(|t| crate::library::no_auto_fades(&t.media_type))
     }
 
     fn next_index(&self) -> i64 {
@@ -637,9 +648,9 @@ impl Player {
         }
 
         // Punto de mezcla: la siguiente entra ahi y la actual sigue sonando.
-        // Un jingle no se funde: suena entero y la siguiente entra a su final
-        // (o en su punto Mix, si lo tiene), sin bajarlo.
-        let jingle = self.is_jingle(self.index);
+        // Jingles, programas y comerciales no se funden: suenan enteros y la
+        // siguiente entra a su final (o en su punto Mix, si lo tiene).
+        let jingle = self.whole(self.index);
         let mix = self.usable_mix_point(&d);
         let cross_at = if mix > 0.0 {
             mix
@@ -703,8 +714,8 @@ impl Player {
             overlap = 0.0;
         } else {
             overlap = fade_target.min(available);
-            // Un jingle entra siempre a volumen completo.
-            let rise = if self.fade_in && track.media_type != "jingle" { overlap } else { 0.03 };
+            // Jingles, programas y comerciales entran siempre a volumen completo.
+            let rise = if self.fade_in && !crate::library::no_auto_fades(&track.media_type) { overlap } else { 0.03 };
             gain.schedule(start_at, 0.001, start_at + core.frames(rise), 1.0);
             if !keep_current {
                 let fade_end = now + core.frames(overlap);

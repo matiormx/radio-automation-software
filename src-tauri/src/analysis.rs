@@ -301,7 +301,8 @@ pub async fn analyze_track(
             .find(|t| t.id == id)
             .ok_or_else(|| "La cancion ya no existe en la biblioteca".to_string())?;
         // Marcas automáticas solo si no las ha puesto nadie a mano.
-        let free = t.markers_auto || (t.intro_point <= 0.0 && t.mix_point <= 0.0 && t.fade_out_start <= 0.0);
+        let free = !crate::library::no_auto_fades(&t.media_type)
+            && (t.markers_auto || (t.intro_point <= 0.0 && t.mix_point <= 0.0 && t.fade_out_start <= 0.0));
         (t.file.trim().to_string(), t.title.clone(), t.artist.clone(), t.album.clone(), free)
     };
     let path = Path::new(&file);
@@ -354,6 +355,12 @@ pub async fn analyze_track(
         t.mix_point = mix;
         t.fade_out_start = fade;
         t.markers_auto = intro > 0.0 || mix > 0.0 || fade > 0.0;
+    } else if t.markers_auto && crate::library::no_auto_fades(&t.media_type) {
+        // Jingle, programa o comercial: fuera las marcas automáticas.
+        t.intro_point = 0.0;
+        t.mix_point = 0.0;
+        t.fade_out_start = 0.0;
+        t.markers_auto = false;
     }
     t.analysis_sig = file_signature(path);
     t.analyzed_at = now_epoch();

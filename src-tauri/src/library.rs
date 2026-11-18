@@ -148,6 +148,12 @@ pub struct Track {
 
 pub const MEDIA_TYPES: [&str; 4] = ["jingle", "program", "podcast", "commercial"];
 
+/// Jingles, programas y comerciales: sin fundidos automáticos (suenan
+/// enteros); solo los puntos puestos a mano en el editor de onda.
+pub fn no_auto_fades(media_type: &str) -> bool {
+    matches!(media_type, "jingle" | "program" | "commercial")
+}
+
 /// Normaliza el tipo de medio («music» y desconocidos = vacío).
 pub fn clean_media_type(v: &str) -> String {
     let v = v.trim().to_lowercase();
