@@ -5200,3 +5200,4 @@ label .help-inline { margin-left: 6px; }
   .settings-nav-title { display: none; }
 }
 .badge-pending { background: #4f8cff22 !important; color: #7fb0ff !important; border-color: #4f8cff55 !important; }
+.swap-artists { align-self: flex-end; flex: 0 0 auto !important; font-size: 16px; padding: 4px 6px; margin-bottom: 2px; }

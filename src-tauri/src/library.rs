@@ -118,7 +118,7 @@ pub struct Track {
     /// «Artista del álbum» (TPE2/ALBUMARTIST): agrupa los álbumes
     #[serde(default)]
     pub album_artist: String,
-    /// Version de la lectura de etiquetas extra (1 = album_artist; 2 = todos los artistas)
+    /// Version de la lectura de etiquetas extra (1 = album_artist; 2 = todos los artistas; 3 = artistas al revés)
     #[serde(default)]
     pub tags_v: u8,
     /// Metadatos que cambian a lo largo de la pista (un directo grabado):
@@ -782,6 +782,19 @@ fn read_audio_props_full(path: &Path) -> ((u32, u8, u32, String), String) {
     }
 }
 
+/// Etiquetas al revés (muy común): ARTIST con solo el principal y ALBUMARTIST
+/// con todos («Genock Gabriel» / «Genock Gabriel & Dariann González»). Si el
+/// del álbum contiene al artista y trae más, se intercambian.
+fn fix_swapped_artists(t: &mut Track) {
+    let a = t.artist.trim().to_lowercase();
+    let aa = t.album_artist.trim().to_lowercase();
+    if !a.is_empty() && aa.len() > a.len() && aa.contains(&a) {
+        let full = normalize_artists(t.album_artist.trim());
+        t.album_artist = t.artist.trim().to_string();
+        t.artist = full;
+    }
+}
+
 /// Completa el artista con los que faltaban en la etiqueta (solo si la lista
 /// nueva incluye a los que ya había: no pisa una corrección a mano).
 fn widen_artists(t: &mut Track, from_tag: &str) {
@@ -802,7 +815,8 @@ fn fill_audio_props(t: &mut Track) {
     t.audio_kbps = k;
     t.album_artist = aa;
     t.audio_checked = true;
-    t.tags_v = 2;
+    t.tags_v = 3;
+    fix_swapped_artists(t);
 }
 
 /// Antes de separar «intro» y «mix», un unico marcador (`mix_point`) servia
@@ -1375,7 +1389,7 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
         let _bg = crate::perflog::Background::enter();
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
-            .filter(|t| (!t.audio_checked || t.tags_v < 2) && Path::new(t.file.trim()).is_file())
+            .filter(|t| (!t.audio_checked || t.tags_v < 3) && Path::new(t.file.trim()).is_file())
             .map(|t| (t.id, t.file))
             .collect();
         if pending.is_empty() {
@@ -1397,7 +1411,10 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
                     t.album_artist = aa;
                 }
                 widen_artists(t, &artists);
-                t.tags_v = 2;
+                if t.tags_v < 3 {
+                    fix_swapped_artists(t);
+                }
+                t.tags_v = 3;
                 t.audio_checked = true;
                 n += 1;
             }
@@ -2810,5 +2827,17 @@ mod artist_tests {
         assert_eq!(normalize_artists("AC/DC"), "AC/DC");
         assert_eq!(normalize_artists("Simon & Garfunkel"), "Simon & Garfunkel");
         assert_eq!(normalize_artists("A, a, B"), "A, B");
+    }
+
+    #[test]
+    fn swapped_artist_tags_are_fixed() {
+        let mut t = super::Track { artist: "Genock Gabriel".into(), album_artist: "Genock Gabriel& Dariann González".into(), ..Default::default() };
+        super::fix_swapped_artists(&mut t);
+        assert_eq!(t.artist, "Genock Gabriel& Dariann González");
+        assert_eq!(t.album_artist, "Genock Gabriel");
+        // Lo normal no se toca
+        let mut u = super::Track { artist: "A, B".into(), album_artist: "A".into(), ..Default::default() };
+        super::fix_swapped_artists(&mut u);
+        assert_eq!(u.artist, "A, B");
     }
 }

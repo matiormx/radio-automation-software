@@ -1967,6 +1967,15 @@ function MusicBrowserBase({
                     onChange={(e) => setEdit({ ...edit, artist: e.target.value })}
                   />
                 </label>
+                <button
+                  type="button"
+                  className="ghost-btn swap-artists"
+                  title="Intercambiar Artista y Artista del álbum"
+                  aria-label="Intercambiar Artista y Artista del álbum"
+                  onClick={() => setEdit({ ...edit, artist: edit.albumArtist, albumArtist: edit.artist })}
+                >
+                  ⇄
+                </button>
                 <label className="field">
                   <span className="field-label">Artista del álbum</span>
                   <input
