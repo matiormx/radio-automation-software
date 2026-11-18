@@ -106,7 +106,10 @@ fn shared(dir: &Path) -> Arc<Shared> {
             });
             let s2 = sh.clone();
             let d = dir.to_path_buf();
-            let _ = std::thread::Builder::new().name("miradio-cloudmedia".into()).spawn(move || worker(d, s2));
+            let _ = std::thread::Builder::new().name("miradio-cloudmedia".into()).spawn(move || {
+                crate::perflog::background_thread();
+                worker(d, s2)
+            });
             sh
         })
         .clone()
@@ -495,6 +498,7 @@ pub fn on_startup(dir: &Path) {
     if read_cfg(dir).enabled {
         let d = dir.to_path_buf();
         let _ = std::thread::Builder::new().name("miradio-cloudmedia-start".into()).spawn(move || {
+        crate::perflog::background_thread();
             std::thread::sleep(Duration::from_secs(60));
             shared(&d);
         });

@@ -213,7 +213,10 @@ pub fn start(app: &AppHandle, data_dir: PathBuf, ai: AiSettings) {
         *s = EnrichStatus { running: true, done, total, session: 0, error: String::new() };
     });
     let app = app.clone();
-    let _ = std::thread::Builder::new().name("ia-fichas".into()).spawn(move || run(app, data_dir, ai));
+    let _ = std::thread::Builder::new().name("ia-fichas".into()).spawn(move || {
+        crate::perflog::background_thread();
+        run(app, data_dir, ai)
+    });
 }
 
 #[tauri::command]

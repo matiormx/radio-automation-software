@@ -287,6 +287,7 @@ pub async fn analyze_track(
     target_lufs: f64,
     true_peak_db: f64,
 ) -> Result<AnalysisOut, String> {
+    let _bg = crate::perflog::Background::enter();
     if !target_lufs.is_finite() || !(-40.0..=-5.0).contains(&target_lufs) {
         return Err("El objetivo debe estar entre -40 y -5 LUFS".to_string());
     }

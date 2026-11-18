@@ -2381,6 +2381,7 @@ dependencies = [
  "flate2",
  "form_urlencoded",
  "jpeg-encoder",
+ "libc",
  "libloading 0.8.9",
  "lofty",
  "lzma-rs",

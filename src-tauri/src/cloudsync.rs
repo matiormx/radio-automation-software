@@ -165,6 +165,7 @@ pub fn on_startup(app: &AppHandle, dir: &Path) {
     });
     if SHARED.set(sh.clone()).is_ok() {
         let _ = std::thread::Builder::new().name("miradio-cloudsync".into()).spawn(move || {
+            crate::perflog::background_thread();
             // Que arranque primero la emisión.
             std::thread::sleep(Duration::from_secs(20));
             worker(sh)
@@ -916,6 +917,7 @@ fn start_downloads(sh: &Arc<Shared>, join: &crate::cloud::JoinFile) {
     let sh2 = sh.clone();
     let join = join.clone();
     let _ = std::thread::Builder::new().name("miradio-cloudsync-dl".into()).spawn(move || {
+        crate::perflog::background_thread();
         let r = download_missing(&sh2, &join);
         if let Err(e) = r {
             set_status(&sh2, |s| s.dl_error = e);
@@ -1170,6 +1172,7 @@ pub fn cloud_set_media_dir(state: State<'_, AppState>, path: String) -> Result<S
     let app = SHARED.get().map(|s| s.app.clone());
     let new2 = new.clone();
     let _ = std::thread::Builder::new().name("miradio-cloud-move".into()).spawn(move || {
+        crate::perflog::background_thread();
         let mut moved = 0usize;
         if let Ok(rd) = fs::read_dir(&old) {
             for e in rd.flatten() {

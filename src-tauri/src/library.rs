@@ -1372,6 +1372,7 @@ pub async fn scan_folder(app: tauri::AppHandle, state: State<'_, AppState>, path
 pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, String> {
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _bg = crate::perflog::Background::enter();
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
             .filter(|t| (!t.audio_checked || t.tags_v < 2) && Path::new(t.file.trim()).is_file())

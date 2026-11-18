@@ -308,3 +308,43 @@ pub async fn logs_tail(state: tauri::State<'_, crate::AppState>) -> Result<Strin
     .await
     .map_err(|e| e.to_string())
 }
+
+
+/// Baja la prioridad del hilo actual (sincronización, descargas, análisis,
+/// IA…): el procesador y el disco van primero para el audio y la pantalla.
+/// En Windows usa el modo «segundo plano» (CPU, disco y memoria).
+pub fn background_thread() {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN};
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        libc::setpriority(libc::PRIO_PROCESS, tid, 15);
+    }
+}
+
+/// Como `background_thread`, solo mientras dure (para hilos prestados de un
+/// grupo, que luego atienden otras órdenes).
+pub struct Background;
+
+impl Background {
+    pub fn enter() -> Background {
+        // En Linux no se puede volver a subir sin permisos: solo Windows.
+        #[cfg(windows)]
+        background_thread();
+        Background
+    }
+}
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        unsafe {
+            use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_END};
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+        }
+    }
+}
