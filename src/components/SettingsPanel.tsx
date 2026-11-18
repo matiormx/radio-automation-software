@@ -186,6 +186,59 @@ function MinField({
   );
 }
 
+/** Menú lateral de Ajustes, por áreas de trabajo de la emisora. */
+const NAV_GROUPS: { title: string; items: { id: SettingsTab; label: string; sub: string; linux?: boolean }[] }[] = [
+  {
+    title: "Emisora",
+    items: [
+      { id: "general", label: "General", sub: "Identidad, apariencia y arranque" },
+      { id: "programs", label: "Programas", sub: "Títulos y portadas en directo" },
+    ],
+  },
+  {
+    title: "Programación",
+    items: [
+      { id: "autodj", label: "AutoDJ", sub: "Rotación, curva de energía e intros" },
+      { id: "mediatypes", label: "Tipos de medio", sub: "Música, jingles, programas, cuñas" },
+      { id: "events", label: "Eventos", sub: "Franjas y emisiones programadas" },
+      { id: "campaigns", label: "Campañas", sub: "Cuñas y jingles por pases" },
+    ],
+  },
+  {
+    title: "Audio y vídeo",
+    items: [
+      { id: "sound", label: "Consola", sub: "Canales, buses y salidas" },
+      { id: "plugins", label: "Plugins VST", sub: "Carpetas y plugins visibles" },
+      { id: "video", label: "Vídeo", sub: "Entradas, salidas y mezcla" },
+    ],
+  },
+  {
+    title: "Emisión",
+    items: [
+      { id: "streaming", label: "Streaming", sub: "Icecast, FLAC, AAC, RTMP y NDI" },
+      { id: "calls", label: "Llamadas", sub: "Oyentes al aire desde NGRADIO" },
+    ],
+  },
+  {
+    title: "Conexiones",
+    items: [
+      { id: "cloud", label: "Nube (maestro)", sub: "Equipos de la emisora y panel web" },
+      { id: "mobile", label: "Control remoto", sub: "Directo, lista y consola desde el móvil" },
+      { id: "ai", label: "Inteligencia artificial", sub: "Metadatos IA, asistente y transcripción" },
+      { id: "api", label: "API", sub: "Datos para la web de la emisora" },
+      { id: "notify", label: "Notificaciones", sub: "Avisos GET/POST por eventos" },
+    ],
+  },
+  {
+    title: "Sistema",
+    items: [
+      { id: "backup", label: "Copia y actualizaciones", sub: "Copias de seguridad y versiones" },
+      { id: "remote", label: "Acceso remoto", sub: "VNC, WireGuard y carpeta compartida", linux: true },
+      { id: "network", label: "Red", sub: "IP, DNS, Wi-Fi y nombre del equipo", linux: true },
+    ],
+  },
+];
+
 export type SettingsTab =
   | "general"
   | "autodj"
@@ -270,183 +323,25 @@ export function SettingsPanel({
 
         <div className="settings-body">
           <nav className="settings-nav">
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "general" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("general")}
-              title="Identidad (nombre, eslogan y logo) y carpeta"
-            >
-              General
-              <span>Identidad (nombre, eslogan y logo) y carpeta</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "sound" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("sound")}
-              title="Consola y salidas"
-            >
-              Sonido
-              <span>Consola y salidas</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "plugins" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("plugins")}
-              title="Carpetas de plugins VST3 y cuáles mostrar"
-            >
-              Plugins VST
-              <span>Carpetas y plugins visibles en la consola</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "ai" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("ai")}
-              title="Metadatos con Ollama local"
-            >
-              IA
-              <span>Metadatos con Ollama local</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "video" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("video")}
-              title="Entradas, salidas y mezcla"
-            >
-              Vídeo
-              <span>Entradas, salidas y mezcla</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "autodj" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("autodj")}
-              title="Rotación y cola automática"
-            >
-              AutoDJ
-              <span>Rotación y cola automática</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "mediatypes" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("mediatypes")}
-              title="Música, jingles, programas, cuñas…"
-            >
-              Tipos de medio
-              <span>Música, jingles, programas…</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "campaigns" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("campaigns")}
-              title="Anuncios y jingles"
-            >
-              Campañas
-              <span>Anuncios y jingles</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "events" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("events")}
-              title="Franjas y sonidos programados"
-            >
-              Eventos
-              <span>Franjas y sonidos programados</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "programs" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("programs")}
-              title="Títulos y portadas en directo"
-            >
-              Programas
-              <span>Títulos y portadas en directo</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "streaming" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("streaming")}
-              title="Icecast, FLAC, AAC y RTMP"
-            >
-              Streaming
-              <span>Icecast, FLAC, AAC y RTMP</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "calls" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("calls")}
-              title="Oyentes al aire desde NGRADIO"
-            >
-              Llamadas
-              <span>Oyentes al aire desde NGRADIO</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "api" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("api")}
-              title="Datos para ngradio.es (como RadioBOSS)"
-            >
-              API
-              <span>Datos para ngradio.es (como RadioBOSS)</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "notify" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("notify")}
-              title="Avisos GET/POST por eventos"
-            >
-              Notificaciones
-              <span>Avisos GET/POST por eventos</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "backup" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("backup")}
-              title="Copias de seguridad y versiones nuevas"
-            >
-              Copia y actualizaciones
-              <span>Copias de seguridad y versiones nuevas</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "mobile" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("mobile")}
-              title="Manejar el directo desde el navegador del móvil"
-            >
-              Control desde el móvil
-              <span>Directo, lista, emisión y consola</span>
-            </button>
-            <button
-              type="button"
-              className={`settings-nav-btn ${tab === "cloud" ? "settings-nav-on" : ""}`}
-              onClick={() => onTabChange("cloud")}
-              title="Unir este equipo al maestro en la nube"
-            >
-              Maestro (nube)
-              <span>Equipos de la emisora y panel remoto</span>
-            </button>
-            {IS_LINUX && (
-              <button
-                type="button"
-                className={`settings-nav-btn ${tab === "remote" ? "settings-nav-on" : ""}`}
-                onClick={() => onTabChange("remote")}
-                title="VNC, WireGuard y carpeta de música en la red"
-              >
-                Acceso remoto
-                <span>VNC, WireGuard y carpeta compartida</span>
-              </button>
-            )}
-            {IS_LINUX && (
-              <button
-                type="button"
-                className={`settings-nav-btn ${tab === "network" ? "settings-nav-on" : ""}`}
-                onClick={() => onTabChange("network")}
-                title="IP, puerta de enlace, DNS, Wi-Fi y nombre del equipo"
-              >
-                Red
-                <span>IP, DNS, Wi-Fi y nombre del equipo</span>
-              </button>
-            )}
-            {/* Abajo del todo: en Linux (equipo dedicado) reiniciar o apagar
-                el equipo; en Windows, cerrar OmniCaster (la X solo lo oculta). */}
+            {NAV_GROUPS.map((g) => (
+              <div key={g.title} className="settings-nav-group">
+                <div className="settings-nav-title">{g.title}</div>
+                {g.items
+                  .filter((it) => !it.linux || IS_LINUX)
+                  .map((it) => (
+                    <button
+                      key={it.id}
+                      type="button"
+                      className={`settings-nav-btn ${tab === it.id ? "settings-nav-on" : ""}`}
+                      onClick={() => onTabChange(it.id)}
+                      title={it.sub}
+                    >
+                      {it.label}
+                      <span>{it.sub}</span>
+                    </button>
+                  ))}
+              </div>
+            ))}
             <div className="settings-nav-power">
               {IS_LINUX ? (
                 <>
