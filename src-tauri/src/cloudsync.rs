@@ -530,7 +530,16 @@ fn collect_local(sh: &Shared, need: &mut HashMap<String, PathBuf>) -> HashMap<St
     };
     let mdir = media_dir(dir);
     let hashes = crate::cloudmedia::known_hashes(dir);
+    // Canciones añadidas aquí hace poco que la nube aún no tiene: se suben ya.
+    let recent = now().saturating_sub(7 * 24 * 3600);
+    let mut fresh_files: Vec<PathBuf> = Vec::new();
     for t in crate::library::read_library_internal(dir) {
+        if t.added_at >= recent && !t.file.trim().is_empty() && media_of(&t.file, &mdir, &hashes).is_empty() {
+            let p = PathBuf::from(t.file.trim());
+            if p.is_file() {
+                fresh_files.push(p);
+            }
+        }
         // La carátula se guarda como nombre dentro de «covers»: se busca allí.
         let v = track_value(&t, &mdir, &hashes, &mut |p| {
             let abs = crate::library::cover_abs(dir, p);
@@ -538,6 +547,7 @@ fn collect_local(sh: &Shared, need: &mut HashMap<String, PathBuf>) -> HashMap<St
         });
         add("track", t.id.clone(), v);
     }
+    crate::cloudmedia::upload_new(dir, fresh_files);
     for b in crate::library::read_blocks(dir) {
         add("block", b.id.clone(), serde_json::to_value(&b).unwrap_or(Value::Null));
     }

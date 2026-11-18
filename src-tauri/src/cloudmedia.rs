@@ -77,6 +77,29 @@ struct Shared {
     cv: std::sync::Condvar,
     /// Medidor de velocidad real, a lo largo de varios archivos
     meter: Mutex<(Instant, u64)>,
+    /// Canciones nuevas que subir ya, aunque la subida de toda la biblioteca
+    /// esté apagada (si no, en los otros equipos quedarían sin audio).
+    only: Mutex<std::collections::HashSet<PathBuf>>,
+}
+
+/// Canciones recién añadidas en este equipo: se suben a la nube enseguida
+/// (con la subida de toda la biblioteca apagada, solo estas).
+pub fn upload_new(dir: &Path, files: Vec<PathBuf>) {
+    if files.is_empty() || crate::cloud::read_join(dir).is_none() {
+        return;
+    }
+    let sh = shared(dir);
+    if let Ok(mut q) = sh.only.lock() {
+        let before = q.len();
+        q.extend(files);
+        if q.len() == before {
+            return; // ya estaban en cola
+        }
+    }
+    if let Ok(mut w) = sh.wake.lock() {
+        *w = true;
+    }
+    sh.cv.notify_all();
 }
 
 static SHARED: std::sync::OnceLock<Arc<Shared>> = std::sync::OnceLock::new();
@@ -103,6 +126,7 @@ fn shared(dir: &Path) -> Arc<Shared> {
                 wake: Mutex::new(false),
                 cv: std::sync::Condvar::new(),
                 meter: Mutex::new((Instant::now(), 0)),
+                only: Mutex::new(std::collections::HashSet::new()),
             });
             let s2 = sh.clone();
             let d = dir.to_path_buf();
@@ -130,6 +154,28 @@ fn nap(sh: &Shared, secs: u64) {
 
 fn worker(dir: PathBuf, sh: Arc<Shared>) {
     loop {
+        // Subida apagada pero con canciones nuevas en cola: solo esas.
+        let queued: Vec<PathBuf> = sh.only.lock().map(|q| q.iter().cloned().collect()).unwrap_or_default();
+        if !sh.enabled.load(Ordering::Relaxed) && !queued.is_empty() {
+            if let Some(join) = crate::cloud::read_join(&dir) {
+                let only: std::collections::HashSet<PathBuf> = queued.iter().cloned().collect();
+                match pass(&dir, &sh, &join, Some(&only)) {
+                    Ok(_) => {
+                        if let Ok(mut q) = sh.only.lock() {
+                            for p in &queued {
+                                q.remove(p);
+                            }
+                        }
+                        crate::cloudsync::cloud_sync_now(); // que la canción lleve ya su audio
+                    }
+                    Err(e) => {
+                        crate::crashlog::note(&format!("Subida de canciones nuevas al maestro: {e}"));
+                        nap(&sh, 120);
+                    }
+                }
+                continue;
+            }
+        }
         if !sh.enabled.load(Ordering::Relaxed) {
             set_status(&sh, |s| {
                 if s.phase != "done" {
@@ -146,7 +192,10 @@ fn worker(dir: PathBuf, sh: Arc<Shared>) {
             nap(&sh, 60);
             continue;
         };
-        match pass(&dir, &sh, &join) {
+        if let Ok(mut q) = sh.only.lock() {
+            q.clear(); // la pasada completa ya las incluye
+        }
+        match pass(&dir, &sh, &join, None) {
             Ok(true) => {
                 set_status(&sh, |s| {
                     s.phase = "done".into();
@@ -194,14 +243,19 @@ fn content_type(path: &Path) -> &'static str {
 }
 
 /// Una pasada completa. Ok(true) = terminada; Ok(false) = se pausó.
-fn pass(dir: &Path, sh: &Arc<Shared>, join: &crate::cloud::JoinFile) -> Result<bool, String> {
-    let on = || sh.enabled.load(Ordering::Relaxed);
+fn pass(
+    dir: &Path,
+    sh: &Arc<Shared>,
+    join: &crate::cloud::JoinFile,
+    only: Option<&std::collections::HashSet<PathBuf>>,
+) -> Result<bool, String> {
+    let on = || only.is_some() || sh.enabled.load(Ordering::Relaxed);
     // 1. Archivos de la biblioteca (sin repetir).
     let mut files: Vec<(PathBuf, u64, u64)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for t in crate::library::read_library_internal(dir) {
         let p = PathBuf::from(t.file.trim());
-        if t.file.trim().is_empty() || !seen.insert(p.clone()) {
+        if t.file.trim().is_empty() || !seen.insert(p.clone()) || only.is_some_and(|o| !o.contains(&p)) {
             continue;
         }
         if let Ok(m) = std::fs::metadata(&p) {
