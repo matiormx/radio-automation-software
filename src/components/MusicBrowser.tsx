@@ -1090,7 +1090,19 @@ function MusicBrowserBase({
                       )}
                       {isVideoFile(t.file) && <span className="badge-video">VÍDEO</span>}
                       {qualityBadge(t)}
-                      {t.missing && <span className="badge-missing">sin archivo</span>}
+                      {t.missing &&
+                        (t.file.trim() ? (
+                          <span className="badge-missing" title={`No está en este equipo: ${t.file}. Usa «Reubicar archivo» si lo moviste.`}>
+                            sin archivo
+                          </span>
+                        ) : (
+                          <span
+                            className="badge-missing badge-pending"
+                            title="Llegó de otro equipo sin audio: aparecerá cuando ese equipo termine de subirlo a la nube (déjalo encendido con OmniCaster abierto)."
+                          >
+                            audio pendiente
+                          </span>
+                        ))}
                       {t.disabled && <span className="badge-missing">desactivada</span>}
                     </span>
                     <span className="brow-sub">

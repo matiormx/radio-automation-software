@@ -126,7 +126,11 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                   <strong>{details.title}</strong>
                   <span>{details.artist}</span>
                   {details.album && <span className="props-album">{details.album}</span>}
-                  {details.missing && <span className="badge-missing">archivo no encontrado</span>}
+                  {details.missing && (
+                    <span className="badge-missing">
+                      {details.file ? "archivo no encontrado" : "audio pendiente de subir desde otro equipo"}
+                    </span>
+                  )}
                 </div>
               </div>
 
