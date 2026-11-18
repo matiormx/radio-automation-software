@@ -26,7 +26,7 @@ interface PlayerBarProps {
   } | null;
   onPreviewToggle: () => void;
   onPreviewStop: () => void;
-  /** Salta a una posicion (0..1) de la preescucha */
+  /** Salta a una posicion (0..1) de el cue */
   onPreviewSeek: (fraction: number) => void;
   /** Escuchar sola la canción al hacer clic en la biblioteca */
   autoPreview: boolean;
@@ -96,7 +96,7 @@ export function PlayerBar({
       <div className="pb-divider" />
 
       <div className="pb-group-seg pb-block">
-        <span className="pb-label">LISTA AUTO</span>
+        <span className="pb-label">ROTACIÓN</span>
         <select
           className="pb-select"
           value={defaultBlockId}
@@ -124,8 +124,8 @@ export function PlayerBar({
 
       <div className="pb-divider" />
 
-      <div className="pb-group-seg" role="group" aria-label="Duración de la transición entre pistas">
-        <span className="pb-label">TRANSICIÓN</span>
+      <div className="pb-group-seg" role="group" aria-label="Duración del crossfade">
+        <span className="pb-label">CROSSFADE</span>
         <div className="seg">
           {FADE_OPTIONS.map((s) => (
             <button
@@ -150,8 +150,8 @@ export function PlayerBar({
               type="button"
               className="pb-preview-play"
               onClick={onPreviewToggle}
-              title={preview.playing ? "Pausar preescucha" : "Reanudar preescucha"}
-              aria-label={preview.playing ? "Pausar preescucha" : "Reanudar preescucha"}
+              title={preview.playing ? "Pausar cue" : "Reanudar cue"}
+              aria-label={preview.playing ? "Pausar cue" : "Reanudar cue"}
             >
               {preview.playing ? <IconPause size={14} /> : <IconPlay size={14} />}
             </button>
@@ -162,7 +162,7 @@ export function PlayerBar({
               <span
                 className="pb-preview-bar"
                 role="slider"
-                aria-label="Posición de la preescucha"
+                aria-label="Posición de el cue"
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(((preview.pos - preview.from) / Math.max(0.05, preview.to - preview.from)) * 100)}
@@ -185,8 +185,8 @@ export function PlayerBar({
               type="button"
               className="ghost-btn"
               onClick={onPreviewStop}
-              title="Cerrar preescucha"
-              aria-label="Cerrar preescucha"
+              title="Cerrar cue"
+              aria-label="Cerrar cue"
             >
               <IconX size={13} />
             </button>
@@ -209,7 +209,7 @@ export function PlayerBar({
         type="button"
         className="pb-mixer"
         onClick={onOpenMixer}
-        title="Abrir la mesa de mezclas (Mixer)"
+        title="Abrir la consola (Mixer)"
         aria-label="Abrir el Mixer"
       >
         <IconSliders size={26} />

@@ -4,8 +4,9 @@ import { autoTrackTrim, getTrackWaveform, saveTrackMarkers, saveTrackTrim } from
 import { IconX, IconPlay, IconPause, IconTrash, IconPrev, IconNext } from "../icons";
 import type { Track, Waveform } from "../types";
 import type { SoundMixer } from "../mixer";
+import { Help } from "./Help";
 
-/** Lo que el editor necesita para la preescucha. */
+/** Lo que el editor necesita para el cue. */
 type PreviewLike = Pick<SoundMixer, "playPreview" | "stopPreview">;
 
 type MarkerId = "start" | "end" | "intro" | "mix" | "fade";
@@ -44,7 +45,7 @@ function fmtTime(secs: number): string {
 }
 
 /**
- * Editor de cortes y puntos: onda con zoom (rueda) y desplazamiento (botón
+ * Editor de marcadores: onda con zoom (rueda) y desplazamiento (botón
  * central), cursor, controles de reproducción desde el cursor y un botón
  * «Asignar» en cada punto para ponerlo donde está el cursor.
  */
@@ -294,7 +295,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
 
   const play = async (from: number) => {
     if (!mixer) {
-      showToast("La mesa de sonido todavía no está disponible");
+      showToast("La consola todavía no está disponible");
       return;
     }
     stopAudio();
@@ -425,7 +426,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
   const save = async (): Promise<boolean> => {
     if (mix > 0 && mix <= start + (end - start) / 2) {
       showToast(
-        "El punto Mix va al final de la pista (segunda mitad). " + "Si querías marcar dónde empieza a cantar, usa Intro.",
+        "El Segue va al final de la pista (segunda mitad). " + "Si querías marcar dónde empieza a cantar, usa Intro.",
       );
       return false;
     }
@@ -488,7 +489,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
       await autoTrackTrim(track.id);
       setStart(track.autoTrimStart);
       setEnd(track.autoTrimEnd ?? duration);
-      showToast("Recorte automático restablecido");
+      showToast("Auto-cue restablecido");
     } catch (e) {
       showToast(String(e));
     }
@@ -521,7 +522,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
     <div className="modal-backdrop" {...closeOnBackdrop(requestClose)}>
       <div className="modal modal-wide trim-modal" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head">
-          <h3>Cortes y puntos</h3>
+          <h3>Marcadores</h3>
           <button type="button" className="ghost-btn" onClick={requestClose} title="Cerrar">
             <IconX size={16} />
           </button>
@@ -569,7 +570,7 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
           </div>
 
           <div className="transport">
-            <button type="button" className="act-btn" onClick={() => seek(start)} title="Ir al corte inicial">
+            <button type="button" className="act-btn" onClick={() => seek(start)} title="Ir al cue in">
               <IconPrev size={14} />
             </button>
             <button type="button" className="act-btn" onClick={() => seek(head - 5)} title="Atrás 5 s">
@@ -615,16 +616,16 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
           </div>
 
           <div className="mark-bar">
-            <Marker label="Corte inicial" fixed {...markerProps("start")} />
-            <Marker label="Corte final" fixed {...markerProps("end")} />
-            <Marker label="Intro (empieza a cantar)" {...markerProps("intro")} />
-            <Marker label="Mix (entra la siguiente)" {...markerProps("mix")} />
+            <Marker label="Cue In" fixed {...markerProps("start")} />
+            <Marker label="Cue Out" fixed {...markerProps("end")} />
+            <Marker label="Intro" {...markerProps("intro")} />
+            <Marker label="Segue" {...markerProps("mix")} />
             <Marker label="Fade out" {...markerProps("fade")} />
           </div>
 
           <div className="mark-tools">
             <button type="button" className="ghost-btn" onClick={() => void useAuto()}>
-              Recorte automático
+              Auto-cue
             </button>
             <button
               type="button"
@@ -654,13 +655,13 @@ export function TrackEditor({ track, mixer, onClose, onSaved, showToast }: Track
             </button>
           </div>
 
-          <p className="hint">
+          <Help>
             Clic en la onda para poner el cursor; <strong>rueda</strong> para acercar o alejar y{" "}
             <strong>botón central</strong> para arrastrar la vista. Con el cursor en su sitio, pulsa{" "}
             <strong>Asignar</strong> en el punto que quieras. La <strong>intro</strong> es donde empieza a cantar; el{" "}
             <strong>mix</strong>, donde entra la siguiente canción; el <strong>fade out</strong>, donde baja hasta el
-            final. Se escucha por la preescucha.
-          </p>
+            final. Se escucha por el cue.
+          </Help>
         </div>
 
         {askClose && (

@@ -9,10 +9,10 @@ import { busOutputs } from "./types";
 import { Leveler, levelerOf } from "./leveler";
 
 /**
- * Mesa de mezclas de la aplicacion.
+ * Consola de la aplicacion.
  *
  * Canales -> buses o tarjeta de salida. Los buses suman canales y salen por
- * una tarjeta. Las fuentes de aplicacion (musica y preescucha) entran por
+ * una tarjeta. Las fuentes de aplicacion (musica y cue) entran por
  * sendos nodos; las entradas fisicas se capturan con getUserMedia.
  *
  * La salida a varias tarjetas se hace con un MediaStreamAudioDestinationNode
@@ -82,11 +82,11 @@ export class SoundMixer {
   readonly ctx: AudioContext;
   /** Entrada de la reproduccion musical (los decks conectan aqui) */
   readonly musicInput: GainNode;
-  /** Entrada de la preescucha del normalizador */
+  /** Entrada de el cue del normalizador */
   readonly previewInput: GainNode;
   /**
    * Medidor de la musica (deteccion de silencio). Vive aqui porque apply()
-   * desconecta musicInput al reconfigurar la mesa y lo reconecta.
+   * desconecta musicInput al reconfigurar la consola y lo reconecta.
    */
   readonly musicAnalyser: AnalyserNode;
   /** Entrada de la voz de los oyentes que llaman al aire */
@@ -107,7 +107,7 @@ export class SoundMixer {
   /** Medidores por tira (izquierda y derecha) para la ventana Mixer */
   private stripMeters = new Map<string, { l: AnalyserNode; r: AnalyserNode }>();
   private meterData = new Float32Array(new ArrayBuffer(256 * 4));
-  /** Faders por tira para moverlos en vivo sin rehacer la mesa */
+  /** Faders por tira para moverlos en vivo sin rehacer la consola */
   private liveFaders = new Map<string, { gain: GainNode; open: boolean }>();
   private readonly meterSink: GainNode;
   private faders: GainNode[] = [];
@@ -122,7 +122,7 @@ export class SoundMixer {
   private inputFailed = new Set<string>();
   private previewSource: AudioBufferSourceNode | null = null;
   private previewRaf = 0;
-  /** Cancela decodificaciones de preescucha que ya no interesan */
+  /** Cancela decodificaciones de cue que ya no interesan */
   private previewJob = 0;
   private disposed = false;
   private monitorSplit: ChannelSplitterNode;
@@ -406,7 +406,7 @@ export class SoundMixer {
     const monitorTap = monitorSource ?? this.deviceMix(DEFAULT_DEVICE);
     monitorTap.connect(this.monitorSplit);
     // Los encoders toman la salida Streaming si algo va a ella; si no, la
-    // salida predeterminada (se avisa en la mesa; no depende del VU).
+    // salida predeterminada (se avisa en la consola; no depende del VU).
     const streamUsed =
       cfg.mixerBuses.some(
         (b) => busOutputs(b).some((d) => normDevice(d) === STREAM_DEVICE),
@@ -470,7 +470,7 @@ export class SoundMixer {
       if (lv) lv.output.connect(compIn);
       // La senal entra por el insert y el nivelador (si los hay) y luego pasa por el fader.
       const insertEntry = insertFor(`ch:${ch.id}`, ch, lv ? lv.input : compIn);
-      // Ganancia de entrada, antes de inserts y fader (el AGC solo existe en el motor nativo).
+      // Trim, antes de inserts y fader (el AGC solo existe en el motor nativo).
       const entry = this.ctx.createGain();
       entry.gain.value = dbToGain(ch.inputGainDb ?? 0);
       entry.connect(insertEntry);
@@ -529,9 +529,9 @@ export class SoundMixer {
     }
 
     // Una fuente de la app sin canal no sale por ningun sitio (nada oculto):
-    // la mesa muestra el aviso y permite crear el canal.
+    // la consola muestra el aviso y permite crear el canal.
     this.musicRouted = musicUsed;
-    // Capturas del motor nativo (preescucha y llamadas): apply() barre el
+    // Capturas del motor nativo (cue y llamadas): apply() barre el
     // cableado de los buses, asi que se vuelven a enchufar a mano — si el
     // canal web del mismo bus existe, el tap queda fuera y no se duplica.
     for (const tap of this.cueTaps) {
@@ -568,7 +568,7 @@ export class SoundMixer {
   }
 
   /**
-   * Conecta la voz de un oyente (audio remoto de la llamada) a la mesa.
+   * Conecta la voz de un oyente (audio remoto de la llamada) a la consola.
    * El <audio> mudo mantiene vivo el flujo: sin el, Chromium no entrega audio remoto a Web Audio.
    */
   attachCallSource(id: string, stream: MediaStream) {
@@ -625,13 +625,13 @@ export class SoundMixer {
     node.connect(this.returnMix);
   }
 
-  /** Capturas externas (motor nativo: preescucha y llamadas) que estan
+  /** Capturas externas (motor nativo: cue y llamadas) que estan
    *  enchufadas a los buses; apply() las vuelve a conectar tras reconstruir
-   *  la mesa. */
+   *  la consola. */
   private cueTaps: Array<{ input: "preview" | "call"; node: AudioNode }> = [];
 
-  /** Enchufa un nodo a la captura de preescucha o de llamadas sin pasar por
-   *  un canal de la mesa (el motor nativo lo loleva al motor como fuente). */
+  /** Enchufa un nodo a la captura de cue o de llamadas sin pasar por
+   *  un canal de la consola (el motor nativo lo loleva al motor como fuente). */
   addCueTap(input: "preview" | "call", node: AudioNode) {
     this.removeCueTap(node);
     this.cueTaps.push({ input, node });
@@ -653,7 +653,7 @@ export class SoundMixer {
     }
   }
 
-  /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la mesa. */
+  /** Silencia o devuelve la voz de los oyentes sin tocar los faders de la consola. */
   setCallMuted(muted: boolean) {
     this.callInput.gain.setTargetAtTime(
       muted ? 0 : 1,
@@ -673,7 +673,7 @@ export class SoundMixer {
     return this.programTap;
   }
 
-  /** Mueve un fader en vivo (mientras se arrastra), sin rehacer la mesa. */
+  /** Mueve un fader en vivo (mientras se arrastra), sin rehacer la consola. */
   setLiveGain(key: string, db: number) {
     const f = this.liveFaders.get(key);
     if (!f) return;
@@ -938,7 +938,7 @@ export class SoundMixer {
 
   /**
    * Salida de envio de un insert. Al confirmarse la tarjeta (o fallar) se
-   * reconfigura la mesa para conectar el retorno o dejar el canal en directo.
+   * reconfigura la consola para conectar el retorno o dejar el canal en directo.
    */
   private insertSink(key: string, deviceId: string): Sink | null {
     if (!this.canSink) return null;
@@ -1010,7 +1010,7 @@ export class SoundMixer {
     void sink.el.play().catch(() => undefined);
   }
 
-  /** Canales que necesita cada tarjeta de entrada segun los canales de la mesa. */
+  /** Canales que necesita cada tarjeta de entrada segun los canales de la consola. */
   private wantedChannels(deviceId: string): number {
     let n = 2;
     for (const ch of this.config.mixerChannels) {

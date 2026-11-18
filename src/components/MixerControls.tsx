@@ -3,7 +3,7 @@ import type { CompressorSettings, InsertSettings, LevelerSettings } from "../typ
 import { pickVstFile, vstList } from "../api";
 import { levelerOf } from "../leveler";
 
-/** Controles compartidos de la mesa (ventana Mixer y Ajustes → Sonido). */
+/** Controles compartidos de la consola (ventana Mixer y Ajustes → Sonido). */
 
 const COMP_DEFAULT: CompressorSettings = { enabled: false, thresholdDb: -18, ratio: 3, attackMs: 10, releaseMs: 200, makeupDb: 0 };
 
@@ -342,7 +342,7 @@ export function newId(): string {
   return `mixer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Plugins ocultos en Ajustes (lo actualiza la mesa al pintarse). */
+/** Plugins ocultos en Ajustes (lo actualiza la consola al pintarse). */
 let vstHiddenNow: string[] = [];
 export function setVstHidden(list: string[] | undefined) {
   vstHiddenNow = list ?? [];

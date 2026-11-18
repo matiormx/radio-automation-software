@@ -2,6 +2,7 @@ import { useState } from "react";
 import { openExternal } from "../api";
 import { RELEASES_PAGE, checkForUpdate, installUpdate } from "../update";
 import type { AppUpdateInfo } from "../types";
+import { Help } from "./Help";
 
 /**
  * Actualizaciones de la app: busca la ultima release publicada y, si es mas
@@ -58,10 +59,10 @@ export function UpdateSection({ showToast }: { showToast: (msg: string) => void 
     <>
     <fieldset className="fieldset">
       <legend>Actualizaciones de la app</legend>
-      <p className="hint">
+      <Help>
         Busca la última versión publicada en GitHub. Al instalarla, la app descarga la
         actualización, comprueba su firma, se cierra y se vuelve a abrir ya actualizada.
-      </p>
+      </Help>
       <div className="update-actions">
         <button type="button" className="btn btn-sm" onClick={() => void search()} disabled={busy || installing}>
           {busy ? "Buscando…" : "Buscar actualizaciones"}

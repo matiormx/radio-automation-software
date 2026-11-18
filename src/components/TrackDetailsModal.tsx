@@ -157,7 +157,7 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                 <span className="prop-v">
                   {details.introPoint > 0 ? fmtTime(details.introPoint) : "Sin marcar"}
                 </span>
-                <span className="prop-k">Mix</span>
+                <span className="prop-k">Segue</span>
                 <span className="prop-v">
                   {details.mixPoint > 0 ? fmtTime(details.mixPoint) : "Sin marcar"}
                 </span>
@@ -197,17 +197,17 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                 <span className="prop-k">Energía</span>
                 <span className="prop-v">
                   {details.energy > 0 ? (
-                    <span title="Ficha IA: 1 muy tranquila · 5 muy enérgica">
+                    <span title="Metadatos IA: 1 muy tranquila · 5 muy enérgica">
                       <span className="energy-dots">{"●".repeat(details.energy)}<span className="off">{"●".repeat(5 - details.energy)}</span></span>{" "}
                       {["", "Muy tranquila", "Suave", "Media", "Animada", "Muy enérgica"][details.energy]}
                     </span>
                   ) : (
-                    "Sin ficha"
+                    "Sin datos"
                   )}
                 </span>
                 <span className="prop-k">Horario</span>
                 <span className="prop-v">{hoursText(details.hours)}</span>
-                <span className="prop-k">Ánimo</span>
+                <span className="prop-k">Mood</span>
                 <span className="prop-v">{details.mood || "—"}</span>
                 <span className="prop-k">Temas</span>
                 <span className="prop-v">

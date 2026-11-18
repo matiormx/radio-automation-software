@@ -8,7 +8,7 @@ interface VuMeterProps {
   } | null;
   /** Que mide: la salida general o lo que va al streaming */
   source?: "master" | "streaming";
-  /** Buses de la mesa (se puede medir cualquiera) */
+  /** Buses de la consola (se puede medir cualquiera) */
   buses?: { id: string; name: string }[];
   /** Bus medido cuando la fuente es la salida general ("" = master) */
   monitorBusId?: string;

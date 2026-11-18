@@ -13,6 +13,7 @@ import { listMonitors, type MonitorInfo } from "../bridge";
 import { listVideoCaptureDevices, pickFfmpegFile, ndiNative, probeNdi } from "../api";
 import { DEFAULT_SETTINGS } from "../types";
 import { VideoOutputsEditor } from "./StreamingTab";
+import { Help } from "./Help";
 
 interface Props {
   settings: Settings;
@@ -179,11 +180,11 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
       <div className="camp-head">
         <div>
           <h4>Vídeos de la lista</h4>
-          <p className="hint">
+          <Help>
             Los vídeos de la biblioteca (mp4, m4v, mov, avi, mkv…) suenan en la lista como cualquier canción: su audio
-            pasa por la mesa. La imagen se ve en la zona «En el aire» y, si la activas, en una ventana de vídeo a
+            pasa por la consola. La imagen se ve en la zona «En el aire» y, si la activas, en una ventana de vídeo a
             pantalla completa en el monitor que elijas (HDMI, proyector o captura de OBS).
-          </p>
+          </Help>
         </div>
       </div>
       <fieldset className="fieldset">
@@ -257,30 +258,30 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
               <option value="program">Lo que está sonando (vídeo o portada)</option>
               <option value="none">Negro</option>
             </select>
-            <small className="hint">
+            <Help>
               Si la capturadora se desconecta, deja de mandar imagen o da negro más de 3 s, se pasa solo a lo que suena y
               vuelve en cuanto llega imagen. Las salidas de Streaming que emiten «la pantalla de emisión» llevan este mismo
               respaldo.
-            </small>
+            </Help>
           </label>
         )}
         {captureInputs.length === 0 && (
-          <p className="hint">
+          <Help>
             Añade y activa una entrada de tipo «Captura de vídeo» para poder mostrarla en la pantalla externa.
-          </p>
+          </Help>
         )}
-        <p className="hint">
+        <Help>
           En otro monitor se abre a pantalla completa. Doble clic o tecla F: pantalla completa; Esc: salir de pantalla
           completa. La capturadora elegida aquí es la misma que emiten las salidas de vídeo de Streaming.
-        </p>
+        </Help>
       </fieldset>
       <div className="camp-head">
         <div>
           <h4>Entradas de vídeo y mezcla</h4>
-          <p className="hint">
+          <Help>
             Canales de entrada. La capturadora elegida para la pantalla externa también se emite por
             las salidas de vídeo de Streaming (pantalla, SDI, NDI o RTMP).
-          </p>
+          </Help>
         </div>
         <label className="check-field">
           <input
@@ -295,7 +296,7 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
       <fieldset className="fieldset">
         <legend>Canales de entrada</legend>
         {v.inputs.length === 0 && (
-          <p className="hint">Añade un archivo, una captura de vídeo, una fuente RTMP o una fuente NDI.</p>
+          <Help>Añade un archivo, una captura de vídeo, una fuente RTMP o una fuente NDI.</Help>
         )}
         {v.inputs.map((ch) => (
           <div className="io-card" key={ch.id}>
@@ -461,12 +462,12 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
             <option value="0">Sin límite</option>
           </select>
         </label>
-        <p className="hint">
+        <Help>
           Todo el vídeo se queda en esta resolución como mucho: las salidas (RTMP, NDI, pantalla) se reducen
           aunque tengan puesto más, el bitrate de RTMP baja en proporción (mínimo 2500 kbps) y la imagen NDI
           que llega se achica antes de procesarla. Las salidas DeckLink no se tocan. Se aplica al volver a
           empezar la emisión.
-        </p>
+        </Help>
         <label className="check-field">
           <input
             type="checkbox"
@@ -475,22 +476,22 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
           />
           Recibir NDI en calidad ligera
         </label>
-        <p className="hint">
+        <Help>
           Una fuente NDI a 1080p ocupa unos 125–150 Mbps de la red, y eso puede hacer perder paquetes al
           streaming. En calidad ligera se recibe la versión reducida que todo emisor NDI manda a la vez (suele
           ser de unos 640×360) y gasta alrededor de una décima parte. Lo ideal es que el equipo que emite el NDI
           lo mande ya a 720p o en NDI|HX. Se aplica al reconectar con la fuente.
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset">
         <legend>NDI</legend>
-        <p className="hint">
+        <Help>
           Con el NDI Runtime instalado (gratis, «NDI Tools» en ndi.video), OmniCaster recibe NDI por sí mismo: las
           fuentes se ven en la pantalla de emisión y en la botonera VÍDEO, y salen por las salidas que emiten la
           pantalla de emisión. Las salidas NDI (Streaming) también usan el Runtime. El FFmpeg con NDI ya solo
           haría falta para emitir una fuente NDI directamente a RTMP sin pasar por la pantalla de emisión.
-        </p>
+        </Help>
         <div className="ndi-source-row">
           <label className="field">
             <span className="field-label">FFmpeg con NDI</span>
@@ -532,10 +533,10 @@ export function VideoTab({ settings, onChange, streamStatus = null }: Props) {
         )}
       </fieldset>
 
-      <p className="hint">
+      <Help>
         La tarjeta SDI requiere el SDK DeckLink instalado en el equipo. NDI usa FFmpeg con soporte
-        NDI; el audio de NDI sale de la salida «Streaming» de la mesa.
-      </p>
+        NDI; el audio de NDI sale de la salida «Streaming» de la consola.
+      </Help>
     </>
   );
 }

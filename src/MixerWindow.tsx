@@ -20,11 +20,12 @@ import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerAgc, MixerBus, MixerChannel, MixerSend, PluginSlot, Settings } from "./types";
 import { busOutputs } from "./types";
 import type { SharedState } from "./SettingsWindow";
+import { Help } from "./components/Help";
 
 /**
- * Mesa de mezclas en su propia ventana, al estilo Pro Tools: una tira
+ * Consola en su propia ventana, al estilo Pro Tools: una tira
  * vertical por canal y por bus con inserts, envios, entrada/salida,
- * panorama, solo/silencio, fader largo con medidor y nombre con color.
+ * pan, solo/silencio, fader largo con medidor y nombre con color.
  */
 
 // ------------------------------------------------------------ escala del fader
@@ -396,11 +397,11 @@ function PanKnob({ pan, onCommit }: { pan: number; onCommit: (pan: number) => vo
         className="mx-knob"
         role="slider"
         tabIndex={0}
-        aria-label="Panorama"
+        aria-label="Pan"
         aria-valuemin={-100}
         aria-valuemax={100}
         aria-valuenow={Math.round(value * 100)}
-        title={`Panorama ${fmtPan(value)} · arrastra arriba/abajo · doble clic: centro`}
+        title={`Pan ${fmtPan(value)} · arrastra arriba/abajo · doble clic: centro`}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           setDrag({ y: e.clientY, start: pan, v: pan });
@@ -684,7 +685,7 @@ export function MixerWindow() {
   );
 }
 
-/** La misma mesa, dentro de Ajustes → Sonido. */
+/** La misma consola, dentro de Ajustes → Sonido. */
 export function MixerEmbedded({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
   const meters = useRef<MeterMap>(new Map());
   const isNative = settings.audioEngine === "native";
@@ -721,7 +722,7 @@ export function MixerEmbedded({ settings, onChange }: { settings: Settings; onCh
   );
 }
 
-const APP_NAMES = { music: "Música", preview: "Preescucha", call: "Llamadas" } as const;
+const APP_NAMES = { music: "Música", preview: "Cue", call: "Llamadas" } as const;
 
 function MixerBoard({
   s,
@@ -806,7 +807,7 @@ function MixerBoard({
           name: named ? APP_NAMES[app] : `Canal ${channels.length + 1}`,
           color: nextColor(channels.length),
           // Un canal nuevo no tiene entrada ni salida hasta que se elijan;
-          // los de aplicacion (musica, preescucha, llamadas) salen ya conectados.
+          // los de aplicacion (musica, cue, llamadas) salen ya conectados.
           input: named ? { kind: "app", app, deviceId: "" } : { kind: "device", app: "", deviceId: "none" },
           output: !named
             ? { kind: "device", id: "none" }
@@ -881,7 +882,7 @@ function MixerBoard({
         let copied: Promise<void> = Promise.resolve();
         if (pos.copy) {
           const id = `vst${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-          // Los ajustes se copian antes de que la mesa cargue la copia.
+          // Los ajustes se copian antes de que la consola cargue la copia.
           copied = vstCopyState(slot.id, id).catch(() => undefined);
           const dst = target === p.owner ? src : listOf(target);
           dst.splice(Math.min(at, dst.length), 0, { ...slot, id });
@@ -954,7 +955,7 @@ function MixerBoard({
         >
           Detectar entradas
         </button>
-        <label className="mx-engine" title="Nativo: todo el audio (música, entradas, preescucha, llamadas) se mezcla en OmniCaster y va a las tarjetas por su nombre del sistema. Web: el motor de la ventana (solo estéreo por tarjeta).">
+        <label className="mx-engine" title="Nativo: todo el audio (música, entradas, cue, llamadas) se mezcla en OmniCaster y va a las tarjetas por su nombre del sistema. Web: el motor de la ventana (solo estéreo por tarjeta).">
           Motor{" "}
           <select
             value={isNative ? "native" : "web"}
@@ -978,7 +979,7 @@ function MixerBoard({
               {app === "music"
                 ? "La música no tiene canal: no suena por ninguna salida y el detector de silencio no actúa."
                 : app === "preview"
-                  ? "La preescucha no tiene canal: no se oirá."
+                  ? "El cue no tiene canal: no se oirá."
                   : "Las llamadas no tienen canal: no se oirá a los oyentes."}
             </span>
             <button type="button" className="btn btn-sm" onClick={() => addChannel(app, true)}>
@@ -1147,7 +1148,7 @@ function ChannelStrip({
   const inputLabel =
     ch.input.kind === "app"
       ? ch.input.app === "preview"
-        ? "Preescucha"
+        ? "Cue"
         : ch.input.app === "call"
           ? "Llamadas"
           : "Música"
@@ -1207,7 +1208,7 @@ function ChannelStrip({
             >
               <optgroup label="Aplicación">
                 <option value="app:music">Reproducción de música</option>
-                <option value="app:preview">Preescucha</option>
+                <option value="app:preview">Cue</option>
                 <option value="app:call">Llamadas de oyentes</option>
               </optgroup>
               <optgroup label="Entradas">
@@ -1259,13 +1260,13 @@ function ChannelStrip({
         <button
           type="button"
           className={`mx-slot ${agcMode !== "off" ? "mx-slot-on" : ""}`}
-          title="Ganancia de entrada / control automático de ganancia"
+          title="Trim / control automático de ganancia"
           onClick={() => setPop(pop === "gain" ? "" : "gain")}
         >
           {agcMode === "slow" ? "AGC lento" : agcMode === "fast" ? "AGC rápido" : `Gain ${fmtDb(ch.inputGainDb ?? 0)}`}
         </button>
         <Pop open={pop === "gain"} onClose={close}>
-          <div className="mx-pop-title">Ganancia de entrada</div>
+          <div className="mx-pop-title">Trim</div>
           <label className="mixer-field">
             <span>Control automático (AGC)</span>
             <select value={agcMode} onChange={(e) => onPatch({ agc: e.target.value as MixerAgc })}>
@@ -1287,9 +1288,9 @@ function ChannelStrip({
               onChange={(e) => onPatch({ inputGainDb: Number(e.target.value) })}
             />
           </label>
-          <small className="mx-hint">
+          <Help>
             Antes de inserts y fader. El AGC lleva la señal a unos −18 dB (sube hasta +18 dB) y solo funciona con el motor nativo.
-          </small>
+          </Help>
         </Pop>
       </div>
 

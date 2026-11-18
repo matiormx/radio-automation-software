@@ -43,7 +43,7 @@ export function canvasUrl(file: string): string {
 
 /**
  * Video sincronizado con el motor de audio: el <video> va siempre en
- * silencio (el sonido sale por la mesa) y se corrige si se desvia.
+ * silencio (el sonido sale por la consola) y se corrige si se desvia.
  */
 export function VideoSurface({ source, output, canvasSafe = false }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiNewToken, apiSetLogin, apiSetUpdateToken, apiStatus, type ApiStatus } from "../api";
 import type { ApiSettings, Settings } from "../types";
+import { Help } from "./Help";
 
 const MIN_PASS = 6;
 
@@ -50,12 +51,12 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
       <div className="camp-head">
         <div>
           <h4>API para ngradio.es</h4>
-          <p className="hint">
+          <Help>
             Sustituye a RadioBOSS como fuente de datos: responde a las mismas peticiones
             (<code>?action=playbackinfo</code>, <code>getlastplayed</code>, <code>library</code>…) con el
             mismo XML. Publícala con un túnel de Cloudflare hacia este equipo y apunta{" "}
             <code>API_BASE</code> del worker a esa dirección.
-          </p>
+          </Help>
         </div>
       </div>
 
@@ -92,11 +93,11 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>Acceso</legend>
-        <p className="hint">
+        <Help>
           Credenciales propias de la API (no las del panel). Se guardan cifradas en este equipo, fuera de los
           ajustes y del repositorio. El worker puede usar <code>user</code>/<code>pass</code> en la URL o la cabecera{" "}
           <code>Authorization: Bearer</code>.
-        </p>
+        </Help>
         <div className="field-row">
           <label className="field">
             <span className="field-label">Usuario</span>
@@ -174,15 +175,15 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
             </span>
           )}
         </div>
-        {token && <p className="hint">Cópialo ahora: no se vuelve a mostrar. Al generar otro, el anterior deja de valer.</p>}
+        {token && <Help>Cópialo ahora: no se vuelve a mostrar. Al generar otro, el anterior deja de valer.</Help>}
       </fieldset>
 
       <fieldset className="fieldset">
         <legend>Oyentes</legend>
-        <p className="hint">
+        <Help>
           Se leen de tus emisiones Icecast (Ajustes › Streaming) y se suman los de sus montajes. Si un servidor da
           las estadísticas en otro puerto, indícalo en «Estadísticas» dentro de esa emisión.
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset">
@@ -223,15 +224,15 @@ export function ApiTab({ settings, onChange, showToast }: Props) {
             Guardar
           </button>
         </div>
-        <p className="hint">
+        <Help>
           Cada vez que cambia la canción que suena, OmniCaster llama una sola vez a{" "}
           <code>{(api.updateUrl || "https://core.ngradio.es/update") + "?token=…"}</code>, sin reintentos.
           {status?.lastUpdate ? ` Último aviso: ${status.lastUpdate}.` : ""}
-        </p>
-        <p className="hint">
+        </Help>
+        <Help>
           FILENAME (la identidad de cada canción) es la ruta completa del archivo: si lo renombras o lo mueves,
           para tu base de datos será una canción nueva.
-        </p>
+        </Help>
       </fieldset>
     </>
   );

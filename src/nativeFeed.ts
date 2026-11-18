@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SoundMixer } from "./mixer";
 
 /**
- * Con el motor nativo, la preescucha y las llamadas siguen sonando en el
+ * Con el motor nativo, el cue y las llamadas siguen sonando en el
  * WebView: aqui se capturan y se mandan al motor (s16le estereo, ~21 ms por
- * bloque) para que pasen por la mesa nativa como cualquier otra fuente.
+ * bloque) para que pasen por la consola nativa como cualquier otra fuente.
  */
 export class NativeAppFeed {
   private nodes: AudioWorkletNode[] = [];
@@ -55,8 +55,8 @@ export class NativeAppFeed {
             busy -= 1;
           });
       };
-      // Registro en la mesa: cada apply() volvera a enchufar la captura.
-      // Conectarse a mano dejaria la captura muerta tras reconstruir la mesa.
+      // Registro en la consola: cada apply() volvera a enchufar la captura.
+      // Conectarse a mano dejaria la captura muerta tras reconstruir la consola.
       this.mixer.addCueTap(src, node);
       node.connect(sink);
       this.nodes.push(node);

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Playlist, Track } from "../types";
+import { Help } from "../components/Help";
 
 function fmt(secs: number): string {
   if (!secs || secs <= 0) return "--:--";
@@ -126,9 +127,9 @@ export function PlaylistEditor({
           </>
         )}
       </div>
-      <p className="hint">
+      <Help>
         La playlist que esté sonando en un equipo no cambia desde aquí hasta que deje de sonar allí.
-      </p>
+      </Help>
       {pl && (
         <div className="web-pl-add">
           <input type="search" placeholder="Buscar canciones para añadir…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -182,7 +183,7 @@ export function PlaylistEditor({
                 <button type="button" className="btn btn-sm" title="Parar" onClick={onStop}>
                   ■
                 </button>
-                <button type="button" className="btn btn-sm" title="Cortes y puntos" onClick={() => onEditCuts(r.t!)}>
+                <button type="button" className="btn btn-sm" title="Marcadores" onClick={() => onEditCuts(r.t!)}>
                   ✂
                 </button>
               </>
@@ -199,7 +200,7 @@ export function PlaylistEditor({
           </li>
         ))}
       </ol>
-      {pl && rows.length === 0 && <p className="hint">Playlist vacía. Busca canciones arriba o añádelas desde Música con «+».</p>}
+      {pl && rows.length === 0 && <Help>Playlist vacía. Busca canciones arriba o añádelas desde Música con «+».</Help>}
       {!pl && <p className="hint">Aún no hay playlists. Crea una con «Nueva».</p>}
     </div>
   );

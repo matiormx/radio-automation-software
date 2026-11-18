@@ -186,7 +186,7 @@ const icon = {
   sys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
   agenda: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
 };
-const TABS = [["live", "Directo"], ["list", "Lista"], ["air", "Emisión"], ["agenda", "Agenda"], ["mix", "Mesa"], ["sys", "Sistema"]];
+const TABS = [["live", "Directo"], ["list", "Lista"], ["air", "Emisión"], ["agenda", "Agenda"], ["mix", "Consola"], ["sys", "Sistema"]];
 
 let token = localStorage.getItem("oc.token") || "";
 let brandName = "OmniCaster";
@@ -327,8 +327,8 @@ function viewLive() {
       </div>
     </div>
     <div class="card next">Siguiente: ${S.next ? `<b>${esc(S.next.title)}</b> — ${esc(S.next.artist)}` : "<b>nada</b>"}</div>
-    <button class="btn green ${S.autopilot ? "on" : ""}" data-c="autopilot"><span class="dot"></span>Piloto automático ${S.autopilot ? "activado" : "apagado"}</button>
-    ${collections().length ? `<div class="snapnote" style="margin:4px 2px 0">El piloto automático elige canciones de:</div>
+    <button class="btn green ${S.autopilot ? "on" : ""}" data-c="autopilot"><span class="dot"></span>AutoDJ ${S.autopilot ? "activado" : "apagado"}</button>
+    ${collections().length ? `<div class="snapnote" style="margin:4px 2px 0">El AutoDJ elige canciones de:</div>
     <div class="lchips" style="flex-wrap:wrap">${collections().map((b) => `<button class="lchip ${S.autodj === b.id ? "on" : ""}" data-dj="${esc(b.id)}">${esc(b.name)}</button>`).join("")}<button class="lchip ${!S.autodj ? "on" : ""}" data-dj="">Toda la biblioteca</button></div>` : ""}`;
   $("#main").onclick = (e) => {
     const dj = e.target.closest("[data-dj]");
@@ -686,7 +686,7 @@ function openNet(id) {
       <option value="program" ${!d.videoInputId || d.videoInputId === "program" ? "selected" : ""}>Pantalla de emisión</option>
       ${(S.videoInputs || []).map((i2) => `<option value="${esc(i2.id)}" ${d.videoInputId === i2.id ? "selected" : ""}>${esc(i2.name || i2.source)} · ${esc(i2.kind)}</option>`).join("")}</select>
     <label>Fuente de audio</label><select data-f="audioSource">
-      <option value="mixer" ${(!d.audioSource || d.audioSource === "mixer") ? "selected" : ""}>Salida Encoders de la mesa</option>
+      <option value="mixer" ${(!d.audioSource || d.audioSource === "mixer") ? "selected" : ""}>Salida Encoders de la consola</option>
       <option value="input" ${d.audioSource === "input" ? "selected" : ""}>El de la propia entrada de vídeo</option></select>
     <div class="row2"><div style="flex:1"><label>Ancho</label><input type="number" data-f="width" value="${d.width || 1280}"></div>
       <div style="flex:1"><label>Alto</label><input type="number" data-f="height" value="${d.height || 720}"></div></div>
@@ -980,7 +980,7 @@ function closeEditor() {
   render();
 }
 
-// Fader: 0..1000 -> dB (curva como una mesa: más recorrido cerca de 0 dB)
+// Fader: 0..1000 -> dB (curva como una consola: más recorrido cerca de 0 dB)
 const toDb = (x) => (x <= 0 ? -60 : x >= 1000 ? 12 : x <= 750 ? -60 + (x / 750) * 60 : ((x - 750) / 250) * 12);
 const fromDb = (db) => (db <= -60 ? 0 : db <= 0 ? ((db + 60) / 60) * 750 : 750 + (Math.min(12, db) / 12) * 250);
 const dbText = (db) => (db <= -60 ? "−∞" : `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`);
@@ -995,7 +995,7 @@ function ioInputs() { return (S.io && S.io.inputs) || []; }
 function ioOutputs() { return (S.io && S.io.outputs) || []; }
 function stripIn(x) {
   const ii = x.input || {};
-  if (ii.kind === "app") return { music: "Música", preview: "Preescucha", call: "Llamadas" }[ii.app || ""] || "Aplicación";
+  if (ii.kind === "app") return { music: "Música", preview: "Cue", call: "Llamadas" }[ii.app || ""] || "Aplicación";
   if (ii.kind === "device") {
     const d = ioInputs().find((i) => i.id === ii.deviceId);
     const pair = ii.channel ? ` · ${ii.channel}|${Number(ii.channel) + 1}` : "";
@@ -1034,11 +1034,11 @@ function viewMix() {
       <button class="btn" data-mxadd="c">+ Canal</button>
       <button class="btn" data-mxadd="b">+ Bus</button>
       <small class="snapnote" style="align-self:center;margin-left:auto">FX y plugins desde el ordenador</small>
-    </div><h3>Mesa · desliza de lado →</h3><div class="mixx">
+    </div><h3>Consola · desliza de lado →</h3><div class="mixx">
       ${chans.map((c) => strip(c, "c")).join("")}
       ${buses.map((b) => strip(b, "b")).join("")}
       ${strip({ id: "master", name: "Master", gainDb: toDb(Math.max(0.001, S.master ?? 1)) }, "m")}
-    </div><small class="snapnote">La mesa guarda tu mesa en: las tarjetas habilitadas en Ajustes &gt; Sonido salen aquí. Los plugins y compresores se ajustan desde el ordenador.</small>`;
+    </div><small class="snapnote">Esta es tu consola: las tarjetas habilitadas en Ajustes &gt; Sonido salen aquí. Los plugins y compresores se ajustan desde el ordenador.</small>`;
   let timer = 0;
   $("#main").oninput = (e) => {
     const r = e.target.closest("input[type=range]");
@@ -1127,10 +1127,10 @@ function openStrip(kind, id, draft) {
         `<option value="none" ${!(d.input && d.input.kind === "device" && d.input.deviceId && d.input.deviceId !== "none") ? "selected" : ""}>Sin entrada (apagada)</option>`,
         io.inputs.map((dv) => `<option value="${esc(dv.id)}" ${d.input && d.input.kind === "device" && d.input.deviceId === dv.id ? "selected" : ""}>${esc(dv.label)}</option>`).join(""),
       ].join("")}</select>
-      ${d.input && d.input.kind === "app" ? '<div class="snapnote">Tira de aplicación (Música/Preescucha/Llamadas): la entrada es fija.</div>' : ""}
+      ${d.input && d.input.kind === "app" ? '<div class="snapnote">Tira de aplicación (Música/Cue/Llamadas): la entrada es fija.</div>' : ""}
       <div class="row2">
         <div style="flex:1"><label>Par estéreo (1 = 1-2, 2 = 3-4…)</label><input type="number" min="1" max="16" data-f="__pair" value="${d.input?.channel ? d.input.channel : ""}" placeholder="—"></div>
-        <div style="flex:1"><label>Ganancia de entrada (dB)</label><input type="number" min="-24" max="24" step="0.5" data-f="__ingain" value="${d.inputGainDb ?? 0}"></div>
+        <div style="flex:1"><label>Trim (dB)</label><input type="number" min="-24" max="24" step="0.5" data-f="__ingain" value="${d.inputGainDb ?? 0}"></div>
       </div>
       <label>Auto ganancia (AGC)</label><select data-f="__agc">
         <option value="off" ${d.agc !== "slow" && d.agc !== "fast" ? "selected" : ""}>Apagada</option>
@@ -1237,7 +1237,7 @@ function openStrip(kind, id, draft) {
       return;
     }
     if (t.dataset.mdel) {
-      if (!confirm("¿Quitar esta tira de la mesa?")) return;
+      if (!confirm("¿Quitar esta tira de la consola?")) return;
       const lists = kind === "c" ? (S.mixer || []).filter((x2) => x2.id !== id) : (S.buses || []).filter((x2) => x2.id !== id);
       cmd({ cmd: kind === "c" ? "mixerChannelsUpdate" : "mixerBusesUpdate", ...(kind === "c" ? { channels: lists } : { buses: lists }) });
       el.remove(); editing = null; dragging = false;
@@ -1434,7 +1434,7 @@ function aiCard() {
     <button class="btn" data-ai="model" style="padding:8px;font-size:13px">Cambiar modelo</button>
     <label class="line" style="gap:8px"><span>Escuchar el directo (gasta procesador)</span><input type="checkbox" data-ai="listen" ${a.listenLive ? "checked" : ""}></label>
   </div>
-  <h3>Fichas de la biblioteca</h3><div class="card">
+  <h3>Metadatos IA de la biblioteca</h3><div class="card">
     ${en ? `<div class="stat"><span>Con ficha</span><span class="bar"><i style="width:${pct}%;background:var(--ok)"></i></span><b>${pct}%</b></div>
     <div class="line"><span>${en.done} de ${en.total} canciones${en.running ? ` · procesando (${en.session})` : ""}</span></div>
     ${en.error ? `<div class="line"><span style="color:#ff8b8e">${esc(en.error)}</span></div>` : ""}

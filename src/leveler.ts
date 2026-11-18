@@ -1,5 +1,5 @@
 /**
- * Nivelador automatico de ganancia para un canal o un bus de la mesa.
+ * Nivelador automatico de ganancia para un canal o un bus de la consola.
  *
  * Mide la sonoridad de los ultimos segundos de la senal que entra (con un
  * filtro tipo K simplificado) y mueve despacio una ganancia hacia el objetivo,

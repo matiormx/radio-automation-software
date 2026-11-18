@@ -44,15 +44,15 @@ export interface MediaTypeCfg {
   label: string;
   /** Color de su etiqueta (#rrggbb) */
   color: string;
-  /** Al terminar: como la música, cruce corto de potencia constante, o seco */
+  /** Al terminar: como la música, crossfade corto equal power, o seco */
   transition: "music" | "constant" | "dry";
-  /** Duración del cruce de potencia constante (s) */
+  /** Duración del crossfade equal power (s) */
   crossfade: number;
   /** Sale en la vista Música, OmniCaster Music y Subsonic */
   inMusic: boolean;
   /** El AutoDJ lo elige en la rotación general */
   autodj: boolean;
-  /** Lleva ficha IA de energía */
+  /** Lleva metadatos IA de energía */
   energy: boolean;
   /** Se nivela el volumen como la música */
   normalize: boolean;
@@ -68,11 +68,11 @@ export interface Track {
   markersAuto?: boolean;
   /** Horario permitido: el AutoDJ solo la pone en estas franjas (vacío = siempre) */
   hours?: HourWindow[];
-  /** Ficha IA: energía 1–5 (0/ausente = sin analizar), ánimo y temas */
+  /** Metadatos IA: energía 1–5 (0/ausente = sin analizar), mood y temas */
   energy?: number;
   mood?: string;
   themes?: string[];
-  /** Inhabilitada: no suena aunque esté en una lista o un evento */
+  /** Desactivada: no suena aunque esté en una lista o un evento */
   disabled?: boolean;
   title: string;
   artist: string;
@@ -258,7 +258,7 @@ export interface AiSettings {
   cloudModel?: string;
   /** Escuchar el directo para que el asistente sepa de qué se habla (gasta CPU) */
   listenLive?: boolean;
-  /** Rellenar solas las fichas IA de las canciones nuevas */
+  /** Generar solos los metadatos IA de las canciones nuevas */
   enrichAuto?: boolean;
   /** Interruptor general de la IA en este equipo (apagado de serie) */
   enabled?: boolean;
@@ -272,7 +272,7 @@ export interface AiSuggestion {
   /** 0 a 1; el modelo puede devolver 0 si no esta seguro */
   confidence: number;
   reason: string;
-  /** Ficha: energía 1–5 (0 = no se sabe), ánimo y temas */
+  /** Ficha: energía 1–5 (0 = no se sabe), mood y temas */
   energy?: number;
   mood?: string;
   themes?: string[];
@@ -291,7 +291,7 @@ export interface TrackDetails {
   blocks: string[];
   blockNames: string[];
   tags: string[];
-  /** Ficha IA */
+  /** Metadatos IA */
   energy: number;
   mood: string;
   themes: string[];
@@ -347,7 +347,7 @@ export interface PlaylistRow {
   blocks: string[];
   /** Metadatos propios de esta emision (anuncio, evento…), si los hay */
   meta?: StreamMeta | null;
-  /** Ficha IA: energía 1–5 (0 = sin asignar) */
+  /** Metadatos IA: energía 1–5 (0 = sin asignar) */
   energy?: number;
   /** Tipo de medio ("" = música) */
   mediaType?: MediaType;
@@ -520,14 +520,14 @@ export interface InsertSettings {
 
 /**
  * Entrada o salida de audio habilitada en Ajustes > Sonido. Solo estas
- * aparecen en la mesa, con su alias si se les ha puesto uno.
+ * aparecen en la consola, con su alias si se les ha puesto uno.
  */
 export interface AudioDeviceSetting {
   id: string;
   kind: "audioinput" | "audiooutput";
   /** Nombre que da el sistema a la tarjeta */
   label: string;
-  /** Alias visible en la mesa; vacio = usar label */
+  /** Alias visible en la consola; vacio = usar label */
   name: string;
   enabled: boolean;
 }
@@ -561,7 +561,7 @@ export interface MixerChannel {
   color: string;
   input: MixerInput;
   output: MixerOutput;
-  /** Ganancia de entrada, antes de inserts y del fader */
+  /** Trim, antes de inserts y del fader */
   inputGainDb?: number;
   /** Control automatico de ganancia; si no esta en "off", ignora inputGainDb */
   agc?: MixerAgc;
@@ -573,7 +573,7 @@ export interface MixerChannel {
   /** En el grupo que se sincroniza (compensación de latencia de plugins) */
   sync?: boolean;
   insert?: InsertSettings;
-  /** Panorama/balance: -1 izquierda, 0 centro, 1 derecha */
+  /** Pan/balance: -1 izquierda, 0 centro, 1 derecha */
   pan?: number;
   solo?: boolean;
   /** Estereo (off), suma L+R, solo izquierda o solo derecha; sale igual por los dos lados */
@@ -634,7 +634,7 @@ export interface VideoCaptureDevice {
   deviceId?: string;
 }
 
-/** Audio que acompaña a una salida de vídeo: la mesa, el de la propia entrada (NDI/capturadora) o un dispositivo. */
+/** Audio que acompaña a una salida de vídeo: la consola, el de la propia entrada (NDI/capturadora) o un dispositivo. */
 export type VideoAudioSource = "mixer" | "input" | "device";
 
 export interface VideoOutput {
@@ -649,7 +649,7 @@ export interface VideoOutput {
   videoInputId?: string;
   /** Respaldo si falla el vídeo principal: "" = ninguno, "program" = pantalla de emisión, "nowplaying" = lo que suena */
   fallbackVideoInputId?: string;
-  /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
+  /** "mixer" = salida Encoders de la consola; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;
   /** Dispositivo de audio de captura cuando audioSource = "device" */
   audioSourceId?: string;
@@ -793,7 +793,7 @@ export interface RtmpOutput {
   keyframeSecs: number;
   /** Entrada de vídeo a emitir; "" = la de la pantalla externa */
   videoInputId?: string;
-  /** "mixer" = salida Encoders de la mesa; "device" = audio de capturadora */
+  /** "mixer" = salida Encoders de la consola; "device" = audio de capturadora */
   audioSource?: VideoAudioSource;
   audioSourceId?: string;
 }
@@ -959,7 +959,7 @@ export interface Settings {
   autoPlayOnStart: boolean;
   /** Renombrar el archivo al cambiar título o artista («Artista - Título») */
   renameFiles?: boolean;
-  /** Qué es este equipo: emite o puesto de trabajo ("" = aún sin elegir) */
+  /** Qué es este equipo: emite o estación de trabajo ("" = aún sin elegir) */
   stationMode?: "" | "broadcast" | "workstation";
   /** Carpeta para la música que se baja de la nube ("" = la de datos) */
   cloudMediaDir?: string;
@@ -1041,7 +1041,7 @@ export interface Settings {
   eventsEnabled: boolean;
   mixerChannels: MixerChannel[];
   mixerBuses: MixerBus[];
-  /** Entradas y salidas habilitadas para la mesa */
+  /** Entradas y salidas habilitadas para la consola */
   audioDevices: AudioDeviceSetting[];
   /** Analisis de metadatos con Ollama local */
   ai: AiSettings;
@@ -1049,7 +1049,7 @@ export interface Settings {
   monitorBusId: string;
   /** Tarjeta de salida del Master; "" = salida predeterminada del sistema */
   masterOutputDeviceId: string;
-  /** Tarjeta de salida de monitorizacion/preescucha; "" = predeterminada */
+  /** Tarjeta de salida de monitorizacion/cue; "" = predeterminada */
   monitorOutputDeviceId: string;
   video: VideoSettings;
   streaming: StreamingSettings;

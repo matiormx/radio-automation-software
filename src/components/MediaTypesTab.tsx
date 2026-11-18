@@ -1,18 +1,19 @@
 import type { MediaTypeCfg, Settings } from "../types";
 import { DEFAULT_MEDIA_TYPES } from "../mediaTypes";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
+import { Help } from "./Help";
 
 const BUILT_IN = new Set(DEFAULT_MEDIA_TYPES.map((m) => m.id));
 
 const TRANSITIONS: { id: MediaTypeCfg["transition"]; label: string }[] = [
-  { id: "music", label: "Como la música (con la TRANSICIÓN de la barra)" },
-  { id: "constant", label: "Suena entero y cruce corto de potencia constante" },
-  { id: "dry", label: "Suena entero y cambio seco" },
+  { id: "music", label: "Como la música (con el CROSSFADE de la barra)" },
+  { id: "constant", label: "Suena entero y crossfade corto equal power" },
+  { id: "dry", label: "Suena entero y corte seco" },
 ];
 
 /**
  * Ajustes › Tipos de medio: cómo se trata cada tipo (música, jingles,
- * programas, comerciales y los que se añadan).
+ * programas, cuñas y los que se añadan).
  */
 export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
   const list = withMusic(s.mediaTypes?.length ? s.mediaTypes : DEFAULT_MEDIA_TYPES);
@@ -42,11 +43,11 @@ export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; o
 
   return (
     <div className="settings-section">
-      <p className="hint">
+      <Help>
         Cada archivo de la biblioteca tiene un tipo de medio (se cambia en Editar metadatos o con el clic derecho). Aquí
-        decides cómo se trata cada tipo. Los puntos Mix y Fade out que pongas a mano en Cortes y puntos siempre mandan
-        sobre la transición del tipo.
-      </p>
+        decides cómo se trata cada tipo. Los puntos Segue y Fade Out que pongas a mano en Marcadores siempre mandan
+        sobre el crossfade del tipo.
+      </Help>
 
       {list.map((m) => {
         const music = m.id === "";
@@ -85,7 +86,7 @@ export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; o
                 </label>
                 {m.transition === "constant" && (
                   <label className="field mtype-xf">
-                    <span className="field-label">Duración del cruce</span>
+                    <span className="field-label">Duración del crossfade</span>
                     <select value={String(m.crossfade)} onChange={(e) => patch(m.id, { crossfade: Number(e.target.value) })}>
                       {[0.5, 1, 1.5, 2, 3].map((x) => (
                         <option key={x} value={String(x)}>
@@ -98,29 +99,33 @@ export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; o
               </div>
             )}
             {!music && m.transition !== "music" && (
-              <p className="hint">
+              <Help>
                 Sin fundidos automáticos: entra a volumen completo y suena entero. El análisis no le pone puntos de mezcla
                 ni de fade solos.
-              </p>
+              </Help>
             )}
 
             {!music && (
               <label className="check-field">
                 <input type="checkbox" checked={m.inMusic} onChange={(e) => patch(m.id, { inMusic: e.target.checked })} />
-                Sale con la música: en la vista Música, en OmniCaster Music y en los programas Subsonic
+                Visible como música
+                <Help>Sale en la vista Música, en OmniCaster Music y en los programas Subsonic (MusicBee, Amperfy…).</Help>
               </label>
             )}
             <label className="check-field">
               <input type="checkbox" checked={m.autodj} onChange={(e) => patch(m.id, { autodj: e.target.checked })} />
-              El AutoDJ lo elige en la rotación general (si no, solo cuando está en una lista elegida a propósito)
+              En la rotación general del AutoDJ
+              <Help>Si no, el AutoDJ solo lo usa cuando está en una lista elegida a propósito para la rotación.</Help>
             </label>
             <label className="check-field">
               <input type="checkbox" checked={m.energy} onChange={(e) => patch(m.id, { energy: e.target.checked })} />
-              Lleva ficha de energía de la IA (y sale en «Sin energía» si le falta)
+              Lleva energía (metadatos IA)
+              <Help>La IA le asigna energía, mood y temas, y aparece en «Sin energía» de la biblioteca si le falta.</Help>
             </label>
             <label className="check-field">
               <input type="checkbox" checked={m.normalize} onChange={(e) => patch(m.id, { normalize: e.target.checked })} />
-              Nivelar su volumen como la música (desactívalo si ya vienen masterizados)
+              Normalización (LUFS)
+              <Help>Se nivela su volumen como el de la música. Desactívalo si estos archivos ya vienen masterizados.</Help>
             </label>
 
             <label className="check-field">
@@ -129,7 +134,8 @@ export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; o
                 checked={!!m.meta}
                 onChange={(e) => patch(m.id, { meta: e.target.checked ? { ...EMPTY_STREAM_META } : null })}
               />
-              Metadatos propios al emitirse (lo que ven los oyentes, como en los eventos)
+              Metadatos propios al aire
+              <Help>Lo que ven los oyentes mientras suena (como en los eventos). Vacío: los del propio archivo.</Help>
             </label>
             {m.meta && (
               <MetaFields
@@ -141,7 +147,7 @@ export function MediaTypesTab({ settings: s, onChange }: { settings: Settings; o
 
             {!BUILT_IN.has(m.id) && (
               <div className="edit-actions">
-                <span className="hint">Si lo quitas, sus archivos se tratarán como música hasta que les cambies el tipo.</span>
+                <Help>Si lo quitas, sus archivos se tratarán como música hasta que les cambies el tipo.</Help>
                 <span className="spacer" />
                 <button type="button" className="btn btn-sm btn-danger" onClick={() => save(list.filter((x) => x.id !== m.id))}>
                   Quitar este tipo

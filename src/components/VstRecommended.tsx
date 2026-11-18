@@ -9,6 +9,7 @@ import {
   type VstPkg,
   type VstPkgProgress,
 } from "../api";
+import { Help } from "./Help";
 
 const CATEGORY: Record<string, string> = {
   dinamica: "Dinámica",
@@ -68,11 +69,11 @@ export function VstRecommended({ onInstalled }: { onInstalled: () => void }) {
           {checking ? "Buscando…" : updates > 0 ? `Buscar actualizaciones (${updates} disponibles)` : "Buscar actualizaciones"}
         </button>
       </div>
-      <p className="hint">
+      <Help>
         Gratuitos. Los de código abierto se instalan con un clic (OmniCaster los prepara desde su versión oficial y
         comprueba su firma) y se actualizan solos cada semana; los demás se descargan en su web y OmniCaster los
         encuentra igual.
-      </p>
+      </Help>
       <div className="vst-reco-list">
         {shown.map((p) => {
           const pr = prog[p.item.id];

@@ -10,6 +10,7 @@ import {
   pickAnyFolder,
   type BackupInfo,
 } from "../api";
+import { Help } from "./Help";
 
 interface Props {
   showToast: (msg: string) => void;
@@ -103,14 +104,14 @@ export function BackupTab({ showToast }: Props) {
       <div className="camp-head">
         <div>
           <h4>Copia de seguridad</h4>
-          <p className="hint">
-            Guarda todo OmniCaster en un único archivo .zip: biblioteca (con fichas IA, energía, tipo de medio,
-            horarios, cortes y puntos), listas y bloques, historial, programas, eventos, campañas, todos los ajustes
-            (mesa y plugins con su configuración, emisión, nube, IA, curva de energía, AutoDJ, control remoto, API,
+          <Help>
+            Guarda todo OmniCaster en un único archivo .zip: biblioteca (con metadatos IA, energía, tipo de medio,
+            horarios, marcadores), listas y bloques, historial, programas, eventos, campañas, todos los ajustes
+            (consola y plugins con su configuración, emisión, nube, IA, curva de energía, AutoDJ, control remoto, API,
             apariencia, notificaciones…), carátulas, fotos de artistas, logo y la disposición de la pantalla. Sirve
             para recuperarlo o para pasarlo a otro equipo. No incluye los programas que se bajan solos (FFmpeg,
             Whisper) ni los plugins instalados en el sistema.
-          </p>
+          </Help>
         </div>
       </div>
 
@@ -118,12 +119,13 @@ export function BackupTab({ showToast }: Props) {
         <legend>Crear copia</legend>
         <label className="check-field">
           <input type="checkbox" checked={withAudio} onChange={(e) => setWithAudio(e.target.checked)} />
-          Incluir también la música (los archivos de audio de la biblioteca y la música bajada de la nube)
+          Incluir los archivos de audio
+          <Help>Los de la biblioteca y la música bajada de la nube. La copia puede ocupar muchos gigas.</Help>
         </label>
-        <p className="hint">
+        <Help>
           Sin la música la copia ocupa poco; las canciones se buscan en las mismas rutas (o en las que indiques al
           importar). Con la música puede ocupar muchos GB.
-        </p>
+        </Help>
         <div className="field-row">
           <button type="button" className="btn btn-sm" disabled={!!busy} onClick={() => void doExport()}>
             {busy === "export" ? "Creando copia…" : "Crear copia de seguridad…"}
@@ -131,17 +133,17 @@ export function BackupTab({ showToast }: Props) {
           {busy === "export" && pct !== null && <span className="hint">{pct}%</span>}
         </div>
         {lastExport && <p className="hint">{lastExport}</p>}
-        <p className="hint">
+        <Help>
           La copia incluye las claves de emisión, de la nube, de la IA y de la API: guárdala en un sitio seguro.
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset bk-fieldset">
         <legend>Importar copia</legend>
-        <p className="hint">
+        <Help>
           Sustituye todo lo de este equipo por lo de la copia. Antes se guarda automáticamente una copia de lo actual
           en la carpeta de datos (backups). OmniCaster se reinicia al terminar.
-        </p>
+        </Help>
         <div className="field-row">
           <button type="button" className="btn btn-sm" disabled={!!busy} onClick={() => void chooseImport()}>
             Elegir copia (.zip)…
@@ -149,11 +151,11 @@ export function BackupTab({ showToast }: Props) {
         </div>
         {info && (
           <>
-            <p className="hint">
+            <Help>
               <strong>{file.split(/[\\/]/).pop()}</strong> · creada el {info.manifest.created} con OmniCaster{" "}
               {info.manifest.appVersion} · {info.manifest.tracks} canciones · {info.manifest.playlists} listas
               {info.manifest.includeAudio ? ` · incluye ${info.manifest.audioFiles} archivos de música (${size(info.manifest.audioBytes)})` : " · sin música"}
-            </p>
+            </Help>
 
             {info.manifest.includeAudio && (
               <div className="bk-roots">
@@ -175,11 +177,11 @@ export function BackupTab({ showToast }: Props) {
             {info.roots.length > 0 && (
               <div className="bk-roots">
                 <span className="field-label">Rutas de la música</span>
-                <p className="hint">
+                <Help>
                   Si en este equipo la música está en el mismo sitio (por ejemplo la misma unidad M:), déjalo igual.
                   Si está en otra carpeta, escribe o elige la nueva ruta.
                   {info.manifest.includeAudio && audioDest ? " Las rutas incluidas en la copia irán a la carpeta elegida arriba." : ""}
-                </p>
+                </Help>
                 {info.roots.map((r) => {
                   const locked = info.manifest.includeAudio && !!audioDest && r.included;
                   return (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MobileSettings, Settings } from "../types";
+import { Help } from "./Help";
 
 interface MobileStatus {
   running: boolean;
@@ -36,11 +37,11 @@ export function MobileTab({ settings, onChange }: Props) {
     <>
       <fieldset className="fieldset">
         <legend>Control desde el móvil</legend>
-        <p className="hint">
+        <Help>
           Maneja el directo desde el navegador del móvil: lo que suena, la lista, la emisión, la botonera de vídeo y los
-          faders de la mesa. Funciona en la red del estudio y desde fuera por WireGuard (no se abre nada a internet). Para
+          faders de la consola. Funciona en la red del estudio y desde fuera por WireGuard (no se abre nada a internet). Para
           entrar hace falta el PIN.
-        </p>
+        </Help>
         <label className="field">
           <span className="field-label">PIN (4 a 8 cifras)</span>
           <input
@@ -85,10 +86,10 @@ export function MobileTab({ settings, onChange }: Props) {
                 </code>
               ))
             )}
-            <p className="hint">
+            <Help>
               Cambiar el PIN cierra la sesión en los móviles que ya entraron. Si Windows pregunta por el cortafuegos,
               permite el acceso en redes privadas.
-            </p>
+            </Help>
           </div>
         )}
       </fieldset>

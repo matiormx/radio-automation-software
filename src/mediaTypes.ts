@@ -7,7 +7,7 @@ export const DEFAULT_MEDIA_TYPES: MediaTypeCfg[] = [
   { id: "jingle", label: "Jingle", color: "#ffb84d", transition: "constant", crossfade: 1, inMusic: false, autodj: false, energy: false, normalize: true, meta: null },
   { id: "program", label: "Programa", color: "#59d98c", transition: "constant", crossfade: 1, inMusic: false, autodj: false, energy: false, normalize: true, meta: null },
   { id: "podcast", label: "Podcast", color: "#4dd6ff", transition: "music", crossfade: 1, inMusic: false, autodj: false, energy: false, normalize: true, meta: null },
-  { id: "commercial", label: "Comercial", color: "#ff7ab6", transition: "constant", crossfade: 1, inMusic: false, autodj: false, energy: false, normalize: true, meta: null },
+  { id: "commercial", label: "Cuña", color: "#ff7ab6", transition: "constant", crossfade: 1, inMusic: false, autodj: false, energy: false, normalize: true, meta: null },
 ];
 
 let current: MediaTypeCfg[] = DEFAULT_MEDIA_TYPES;
@@ -54,7 +54,7 @@ export function mediaTypeLabel(id?: string | null): string {
 
 /** Sale en la vista Música (y en OmniCaster Music). */
 export const inMusic = (id?: string | null): boolean => !id || mediaRule(id).inMusic;
-/** Lleva ficha IA de energía. */
+/** Lleva metadatos IA de energía. */
 export const wantsEnergy = (id?: string | null): boolean => !id || mediaRule(id).energy;
 /** Sin fundidos automáticos (suena entero). */
 export const noAutoFades = (id?: string | null): boolean => !!id && mediaRule(id).transition !== "music";

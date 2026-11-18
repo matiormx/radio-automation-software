@@ -14,6 +14,7 @@ import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
 import { IconPlus, IconTrash } from "../icons";
 import { confirmAsk, pickImageFile, trackUrl } from "../api";
+import { Help } from "./Help";
 
 const DAYS: { value: number; label: string; long: string }[] = [
   { value: 1, label: "L", long: "lunes" },
@@ -398,11 +399,11 @@ export function EventsTab({
       <div className="camp-head">
         <div>
           <h4>Eventos de programación</h4>
-          <p className="hint">
+          <Help>
             Una franja cambia la fuente del AutoDJ a partir de una o varias horas. Un evento de
             audio puede ser una pista de la biblioteca (se coloca como siguiente a una o varias
             horas exactas) o un audio de internet (se emite durante una franja con sus metadatos).
-          </p>
+          </Help>
         </div>
         <button type="button" className="btn btn-accent btn-sm" onClick={startNew}>
           <IconPlus size={14} /> Nuevo evento
@@ -700,11 +701,11 @@ function EventEditor({
 
         {draft.kind === "auto" ? (
           <>
-            <p className="hint">
+            <Help>
               La franja se activa a cada uno de los horarios indicados y se mantiene hasta que
               empiece otro evento. Las próximas canciones que elija el AutoDJ saldrán de la fuente
               indicada; la cola que ya está cargada no se toca.
-            </p>
+            </Help>
             <label className="check-field">
               <input
                 type="checkbox"
@@ -713,16 +714,16 @@ function EventEditor({
               />
               Limpiar la lista al asignar la fuente
             </label>
-            <p className="hint">
+            <Help>
               Al entrar la franja quita lo que queda por sonar de la lista (se respeta la canción
               que ya está en antena) y el AutoDJ rellena desde el principio con la fuente nueva.
-            </p>
+            </Help>
           </>
         ) : draft.kind === "stream" ? (
-          <p className="hint">
+          <Help>
             A la hora de inicio la música se funde y entra el audio de internet; a la hora de fin se funde y la lista
             sigue con la siguiente canción. Si la hora de fin es menor que la de inicio, termina al día siguiente.
-          </p>
+          </Help>
         ) : (
           <>
             <div className="field-row">
@@ -771,10 +772,10 @@ function EventEditor({
             </p>
           </>
         )}
-        <p className="hint">
+        <Help>
           Si la app está cerrada a alguna de esas horas no se emite; al abrirla solo se recupera
           el horario más reciente si han pasado menos de 15 minutos.
-        </p>
+        </Help>
       </fieldset>
 
       {draft.kind === "auto" && (
@@ -816,10 +817,10 @@ function EventEditor({
               )}
             </label>
           </div>
-          <p className="hint">
+          <Help>
             Si la fuente se queda sin canciones disponibles, el AutoDJ vuelve a la biblioteca
             completa para no dejar la lista sin gas.
-          </p>
+          </Help>
         </fieldset>
       )}
 
@@ -1008,11 +1009,11 @@ function RandomFields({
         </div>
       </div>
       {latestMode && (
-        <p className="hint">
+        <Help>
           Cada vez que salta el evento se coloca la pista que entró la última en esa lista. Pensado
           para los directos grabados: si las grabaciones de un programa van a su lista (Ajustes ›
           Programas), este evento emite siempre la del último directo.
-        </p>
+        </Help>
       )}
       {!latestMode && (
       <>
@@ -1043,10 +1044,10 @@ function RandomFields({
           "No elegir una pista que haya sonado en antena hace menos de esto.",
         )}
       </div>
-      <p className="hint">
+      <Help>
         Si la fuente tiene pocas pistas y no queda ninguna que cumpla las reglas, se van saltando de la última
         a la primera para que el evento siempre suene, y se avisa al lanzarlo.
-      </p>
+      </Help>
       </>
       )}
 
@@ -1094,10 +1095,10 @@ function StreamFields({ draft, set }: { draft: StationEvent; set: (patch: Partia
             onChange={(e) => set({ streamUrl: e.target.value })}
           />
         </label>
-        <p className="hint">
+        <Help>
           Vale cualquier cosa que abra FFmpeg: Icecast/Shoutcast, HLS (.m3u8), MP3/AAC por HTTP, RTMP o un archivo. Si
           la conexión se corta, se reintenta sola. Hace falta FFmpeg junto a OmniCaster.
-        </p>
+        </Help>
       </fieldset>
       <fieldset className="fieldset">
         <legend>Lo que se muestra mientras suena</legend>
@@ -1128,9 +1129,9 @@ function StreamFields({ draft, set }: { draft: StationEvent; set: (patch: Partia
             )}
           </div>
         </div>
-        <p className="hint">
-          Se usan como los de una canción: zona «En emisión», archivos nowplaying, API, notificaciones y ventana de vídeo.
-        </p>
+        <Help>
+          Se usan como los de una canción: zona «Al aire», archivos nowplaying, API, notificaciones y ventana de vídeo.
+        </Help>
       </fieldset>
     </>
   );

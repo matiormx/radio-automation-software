@@ -40,6 +40,7 @@ import {
   liveImagePath,
   nowPlayingImagePath,
 } from "../nowplaying";
+import { Help } from "./Help";
 
 interface SettingsPanelProps {
   settings: Settings;
@@ -282,10 +283,10 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "sound" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("sound")}
-              title="Mesa de mezclas y salidas"
+              title="Consola y salidas"
             >
               Sonido
-              <span>Mesa de mezclas y salidas</span>
+              <span>Consola y salidas</span>
             </button>
             <button
               type="button"
@@ -294,7 +295,7 @@ export function SettingsPanel({
               title="Carpetas de plugins VST3 y cuáles mostrar"
             >
               Plugins VST
-              <span>Carpetas y plugins visibles en la mesa</span>
+              <span>Carpetas y plugins visibles en la consola</span>
             </button>
             <button
               type="button"
@@ -327,7 +328,7 @@ export function SettingsPanel({
               type="button"
               className={`settings-nav-btn ${tab === "mediatypes" ? "settings-nav-on" : ""}`}
               onClick={() => onTabChange("mediatypes")}
-              title="Música, jingles, programas, comerciales…"
+              title="Música, jingles, programas, cuñas…"
             >
               Tipos de medio
               <span>Música, jingles, programas…</span>
@@ -411,7 +412,7 @@ export function SettingsPanel({
               title="Manejar el directo desde el navegador del móvil"
             >
               Control desde el móvil
-              <span>Directo, lista, emisión y mesa</span>
+              <span>Directo, lista, emisión y consola</span>
             </button>
             <button
               type="button"
@@ -586,9 +587,9 @@ function GeneralTab({
     <>
       <fieldset className="fieldset">
         <legend>Identidad de la emisora</legend>
-        <p className="hint">
+        <Help>
           Estos datos sustituyen la marca por defecto de la esquina superior izquierda.
-        </p>
+        </Help>
         <div className="field-row">
           <label className="field">
             <span className="field-label">Nombre de la radio</span>
@@ -631,21 +632,21 @@ function GeneralTab({
                 </button>
               )}
             </div>
-            <p className="hint">
+            <Help>
               PNG, JPG, WebP o GIF. Se copia a los datos de la app; el original no se toca.
               Recomendado: cuadrado o horizontal con fondo transparente.
-            </p>
+            </Help>
           </div>
         </div>
             </fieldset>
 
       <fieldset className="fieldset">
         <legend>Diagnóstico</legend>
-        <p className="hint">
+        <Help>
           OmniCaster apunta en <strong>rendimiento.log</strong> qué gasta el procesador (por partes y por hilos) y qué
           órdenes se repiten, cada vez que pasa del 30 % y un resumen cada 10 minutos; los fallos van en errores.log.
           Si algo va lento, copia el registro y mándalo.
-        </p>
+        </Help>
         <p>
           <button
             type="button"
@@ -691,7 +692,7 @@ function GeneralTab({
             <option value="maximo">Máximo: todo blanco y colores vivos</option>
           </select>
         </label>
-        <span className="hint">Se aplica al momento. Útil en pantallas lejanas, por VNC o con poca luz.</span>
+        <Help>Se aplica al momento. Útil en pantallas lejanas, por VNC o con poca luz.</Help>
       </fieldset>
 
       <fieldset className="fieldset">
@@ -710,7 +711,8 @@ function GeneralTab({
             checked={s.renameFiles !== false}
             onChange={(e) => onChange({ ...s, renameFiles: e.target.checked })}
           />
-          Al cambiar el título o el artista de una canción, renombrar también su archivo («Artista - Título»)
+          Renombrar el archivo al editar título o artista
+          <Help>El archivo pasa a llamarse «Artista - Título» cada vez que cambias esos datos en el editor.</Help>
         </label>
         <label className="check-field">
           <input
@@ -718,8 +720,11 @@ function GeneralTab({
             checked={s.fadeInNext === true}
             onChange={(e) => onChange({ ...s, fadeInNext: e.target.checked })}
           />
-          En la transición, la siguiente canción entra con fundido (desactivado: entra a volumen completo y solo baja la
-          que sale, así no se apaga el arranque de las canciones enérgicas)
+          Fade in en el crossfade
+          <Help>
+            Activado, la siguiente canción entra con fundido de entrada. Desactivado (recomendado), entra a volumen
+            completo y solo baja la que sale: así no se pierde el arranque de las canciones enérgicas.
+          </Help>
         </label>
         <label className="check-field">
           <input
@@ -741,9 +746,9 @@ function GeneralTab({
             value={s.pastVisible ?? 5}
             onChange={(e) => onChange({ ...s, pastVisible: Number(e.target.value) })}
           />
-          <span className="hint">
+          <Help>
             Las que ya sonaron se ven en gris por encima de la actual; las más antiguas se ocultan.
-          </span>
+          </Help>
         </label>
         <label className="field">
           <span className="field-label">Canciones emitidas que se guardan en la lista</span>
@@ -758,9 +763,9 @@ function GeneralTab({
               </option>
             ))}
           </select>
-          <span className="hint">
+          <Help>
             Las más antiguas se quitan de la lista que suena (siguen en la biblioteca). Así la lista no crece sin fin.
-          </span>
+          </Help>
         </label>
         {s.silenceDetection && (
           <label className="field">
@@ -775,10 +780,10 @@ function GeneralTab({
               value={s.silenceThresholdDb ?? -55}
               onChange={(e) => onChange({ ...s, silenceThresholdDb: Number(e.target.value) })}
             />
-            <span className="hint">
+            <Help>
               Por debajo de este nivel se considera silencio (3 s seguidos). Súbelo si salta
               con pasajes suaves; bájalo si no detecta silencios con ruido de fondo.
-            </span>
+            </Help>
           </label>
         )}
         <label className="field">
@@ -795,19 +800,19 @@ function GeneralTab({
             ))}
           </select>
         </label>
-        <p className="hint">
+        <Help>
           Si eliges una lista, el AutoDJ saca las próximas canciones de ahí. En «Automático»
           usa las listas marcados con el rayo en Música; si no hay ninguno, toda la biblioteca.
           Un evento activo tiene prioridad sobre esta selección.
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset">
         <legend>Archivo nowplaying</legend>
-        <p className="hint">
+        <Help>
           Escribe un archivo de texto con la canción que está sonando, para que otros programas
           o pantallas lo lean. Se actualiza en cada cambio de canción.
-        </p>
+        </Help>
         <label className="field">
           <span className="field-label">Archivo</span>
           <span className="field-unit np-path">
@@ -832,16 +837,16 @@ function GeneralTab({
             </button>
           </span>
         </label>
-        <p className="hint">
+        <Help>
           Junto al archivo de texto se escribe la portada de la canción:{" "}
           <code>{nowPlayingImagePath(s.nowPlayingPath) || "nowplaying.jpg"}</code> (misma carpeta,
           600x600). Si la canción no tiene portada, se genera una imagen con el título.
-        </p>
-        <p className="hint">
+        </Help>
+        <Help>
           Hay dos archivos: <code>nowplaying.txt</code> lleva siempre la música que está sonando, y
           el archivo de directo lleva el programa seleccionado cuando el modo LIVE está activado. Si
           LIVE está apagado, los dos muestran la misma canción.
-        </p>
+        </Help>
         <label className="field">
           <span className="field-label">Contenido</span>
           <span className="field-unit np-path">
@@ -886,7 +891,7 @@ function GeneralTab({
             />
           </span>
         </label>
-        <p className="hint">
+        <Help>
           Por defecto: <code>{DEFAULT_NOW_PLAYING_TEMPLATE}</code>. Puedes usar{" "}
           {NOW_PLAYING_PLACEHOLDERS.map((item, index) => (
             <span key={item.key}>
@@ -895,18 +900,18 @@ function GeneralTab({
             </span>
           ))}
           .
-        </p>
+        </Help>
       </fieldset>
 
 
 
       <fieldset className="fieldset">
         <legend>Carpeta de música</legend>
-        <p className="hint">
+        <Help>
           Las canciones que importes se copian aquí, para que la biblioteca siempre tenga su
           propia copia. La canción es sus metadatos: si mueves el archivo, sigue viva y se puede
-          relinkar.
-        </p>
+          reubicar.
+        </Help>
         <div className="music-path-row">
           <span className="music-path" title={s.musicPath || "Carpeta interna de la app"}>
             {s.musicPath || "Carpeta interna de la app"}
@@ -958,11 +963,11 @@ function AutoDjTab({
     <>
       <fieldset className="fieldset">
         <legend>Intros</legend>
-        <p className="hint">
+        <Help>
           Audios de una lista especial (presentaciones, identificadores…) que suenan encima del hueco entre el
           inicio de una canción y su punto de intro, sin pisar la voz. Solo se usan en canciones que tengan el
-          intro marcado en el editor de cortes, y solo si el audio cabe en ese hueco.
-        </p>
+          intro marcado en Marcadores, y solo si el audio cabe en ese hueco.
+        </Help>
         <label className="check-field">
           <input type="checkbox" checked={intros.enabled} onChange={(e) => setIntros({ enabled: e.target.checked })} />
           Poner intros sobre las canciones
@@ -996,10 +1001,10 @@ function AutoDjTab({
                 value={intros.gapSongs}
                 onChange={(e) => setIntros({ gapSongs: Math.max(0, Math.min(50, Math.round(Number(e.target.value) || 0))) })}
               />
-              <span className="hint">
+              <Help>
                 Tras poner un intro, esas canciones suenan sin intro aunque lo tengan marcado; después se vuelve a
                 intentar en la primera que lo tenga.
-              </span>
+              </Help>
             </label>
             <label className="field">
               <span className="field-label">Volumen del intro: {intros.gainDb > 0 ? "+" : ""}{intros.gainDb} dB</span>
@@ -1012,19 +1017,19 @@ function AutoDjTab({
                 onChange={(e) => setIntros({ gainDb: Number(e.target.value) })}
               />
             </label>
-            <p className="hint">
+            <Help>
               La lista de intros no entra en la rotación normal del AutoDJ. Los cambios valen para las canciones
               que aún no han empezado a sonar.
-            </p>
+            </Help>
           </>
         )}
       </fieldset>
 
       <fieldset className="fieldset">
         <legend>Idiomas</legend>
-        <p className="hint">
+        <Help>
           Idiomas que puedes asignar a cada canción (se ven con su bandera en los metadatos). Activa los que uses.
-        </p>
+        </Help>
         <div className="edit-blocks">
           {LANGUAGE_CATALOG.map((l) => (
             <button
@@ -1038,10 +1043,10 @@ function AutoDjTab({
           ))}
         </div>
         <h4 style={{ marginTop: 12 }}>Probabilidad en el AutoDJ</h4>
-        <p className="hint">
+        <Help>
           Porcentaje de canciones de cada idioma que elige el AutoDJ. Con todos a 0 no filtra por idioma. Las
           canciones sin idioma solo entran si no hay porcentajes.
-        </p>
+        </Help>
         {langs.map((c) => (
           <label key={c} className="field field-inline">
             <span className="field-label">
@@ -1065,10 +1070,10 @@ function AutoDjTab({
 
       <fieldset className="fieldset">
         <legend>Reglas de rotación</legend>
-        <p className="hint">
-          El piloto automático respeta estas reglas cuando añade pistas a la lista. Si no hay
+        <Help>
+          El AutoDJ respeta estas reglas cuando añade pistas a la lista. Si no hay
           ninguna que las cumpla, elige la que más tiempo lleve sin sonar.
-        </p>
+        </Help>
         <MinField
           label="Sin repetir mismo tema"
           value={s.repeatTrackMinutes}
@@ -1097,7 +1102,7 @@ function AutoDjTab({
       <EnergyCurveField s={s} onChange={onChange} />
 
       <fieldset className="fieldset">
-        <legend>Piloto automático</legend>
+        <legend>AutoDJ</legend>
         <MinField
           label="Añadir pistas cuando queden menos de"
           value={s.autopilotMinUpcoming}
@@ -1108,10 +1113,10 @@ function AutoDjTab({
           value={s.autopilotFillTo}
           onCommit={(v) => onChange({ ...s, autopilotFillTo: v })}
         />
-        <p className="hint">
+        <Help>
           Los listas de los que saca canciones se eligen en el navegador «Música», con
           el rayo de cada lista. Las campañas programadas se configuran en la pestaña Campañas.
-        </p>
+        </Help>
       </fieldset>
     </>
   );
@@ -1293,10 +1298,10 @@ function CampaignsTab({
       <div className="camp-head">
         <div>
           <h4>Campañas de anuncios y jingles</h4>
-          <p className="hint">
+          <Help>
             Cada campaña se inserta en la lista del AutoDJ a las horas indicadas. El spot suena
             después del tema que esté sonando cuando llega la hora, sin cortarlo.
-          </p>
+          </Help>
         </div>
         <button type="button" className="btn btn-accent btn-sm" onClick={newCampaign}>
           <IconPlus size={14} /> Nueva campaña
@@ -1490,10 +1495,10 @@ function CampaignEditor({
           Sin fecha de fin (continuidad permanente)
         </label>
 
-        <p className="hint">
+        <Help>
           La campaña solo emite entre las fechas indicadas. Si la app está cerrada a esa hora no se
           emite; al abrirla solo se recupera la emisión si han pasado menos de 15 minutos.
-        </p>
+        </Help>
       </fieldset>
 
       <MetaFields
@@ -1630,11 +1635,11 @@ function AudioBufferField({ settings: s, onChange }: { settings: Settings; onCha
           <option value="80">80 ms (equipo muy cargado)</option>
           <option value="150">150 ms (máximo)</option>
         </select>
-        <span className="hint">
+        <Help>
           Sonido que la tarjeta tiene guardado por adelantado. Si el audio se entrecorta cuando el equipo va
-          cargado (vídeo, NDI, plugins), sube el margen. A cambio, lo que pasa por la mesa sale un poco más tarde.
+          cargado (vídeo, NDI, plugins), sube el margen. A cambio, lo que pasa por la consola sale un poco más tarde.
           Se aplica al reiniciar OmniCaster.
-        </span>
+        </Help>
       </label>
     </fieldset>
   );
@@ -1701,17 +1706,22 @@ function EnergyCurveField({ s, onChange }: { s: Settings; onChange: (s: Settings
         <input type="checkbox" checked={curve.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
         El AutoDJ sigue una curva de energía según la hora
       </label>
-      <p className="hint">
+      <Help>
         Cada franja va desde su hora hasta la siguiente (la última sigue de madrugada). Usa la
-        energía de la ficha IA de cada canción (Ajustes › IA › Fichas de la biblioteca). Dentro del
+        energía de la metadatos IA de cada canción (Ajustes › IA › Metadatos IA de la biblioteca). Dentro del
         rango de la franja todas valen igual y se reparten al azar; las de fuera solo suenan si no
-        queda ninguna dentro. Las que aún no tienen ficha van detrás de las del rango.
-      </p>
+        queda ninguna dentro. Las que aún no tienen metadatos IA van detrás de las del rango.
+      </Help>
       {curve.enabled && (
         <>
           <label className="check-field">
             <input type="checkbox" checked={curve.smooth} onChange={(e) => set({ smooth: e.target.checked })} />
-            Cambios suaves: no saltar más de un punto de energía entre una canción y la siguiente
+            Transiciones de energía suaves
+            <Help>
+              No salta más de un nivel de energía entre una canción y la siguiente. Con un rango (por ejemplo, de 3 a
+              5) va de uno en uno como una ola: se queda unas canciones en un nivel, sube o baja uno y rebota en los
+              bordes.
+            </Help>
           </label>
           <div className="energy-curve">
             {sorted.map(({ p, i }) => (

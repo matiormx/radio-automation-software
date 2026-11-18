@@ -209,9 +209,9 @@ export class NativePlayer {
     void inOrder(() => invoke("engine_stop")).catch(() => undefined);
   }
 
-  // ------------------------------------------------------------ mesa y VU
+  // ------------------------------------------------------------ consola y VU
 
-  /** Envia la configuracion de la mesa (canales, buses y VU). */
+  /** Envia la configuracion de la consola (canales, buses y VU). */
   applyMixer(cfg: MixerSlice) {
     void this.cmd({
       op: "mixer",
@@ -223,7 +223,7 @@ export class NativePlayer {
     });
   }
 
-  /** Fader en vivo mientras se arrastra (sin rehacer la mesa). */
+  /** Fader en vivo mientras se arrastra (sin rehacer la consola). */
   liveGain(key: string, db: number) {
     void this.cmd({ op: "liveGain", key, db });
   }
@@ -348,7 +348,7 @@ function stereoLevel(
 }
 
 /**
- * Tarjetas del motor nativo como opciones de la mesa. Las multicanal traen un
+ * Tarjetas del motor nativo como opciones de la consola. Las multicanal traen un
  * id `nombre#N` por cada par de canales (N=1 es el propio nombre).
  */
 export function nativeDeviceOptions<K extends "audioinput" | "audiooutput">(

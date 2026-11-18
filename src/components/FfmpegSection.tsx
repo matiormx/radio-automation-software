@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ffmpegInfo, ffmpegUpdate, openExternal, type FfmpegInfo, type FfmpegProgress } from "../api";
+import { Help } from "./Help";
 
 const PHASE: Record<string, string> = {
   comprobando: "Comprobando la última versión…",
@@ -54,12 +55,12 @@ export function FfmpegSection({ showToast }: { showToast: (msg: string) => void 
           : "En este sistema se usa el FFmpeg instalado."}
       </p>
       {info && (
-        <p className="hint">
+        <Help>
           En uso: <strong>{info.version || "ninguno"}</strong>
           {info.source !== "none" && <> · {SOURCE[info.source] ?? info.source}</>}
           {info.source === "auto" && installedAt && <> · instalado el {installedAt}</>}
           {info.source === "auto" && lastCheck && <> · comprobado el {lastCheck}</>}
-        </p>
+        </Help>
       )}
       <div className="update-actions">
         {info?.canDownload && (
@@ -93,10 +94,10 @@ export function FfmpegSection({ showToast }: { showToast: (msg: string) => void 
       )}
       {!busy && prog?.done && <p className="hint">{prog.done}</p>}
       {!busy && prog?.error && <p className="hint update-error">{prog.error}</p>}
-      <p className="hint">
+      <Help>
         FFmpeg es software libre (GPL), de las compilaciones oficiales para Windows de BtbN/FFmpeg-Builds. Va como
         programa aparte; su código está en ffmpeg.org.
-      </p>
+      </Help>
     </fieldset>
   );
 }

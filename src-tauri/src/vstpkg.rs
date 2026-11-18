@@ -593,7 +593,7 @@ pub fn vstpkg_remove(app: AppHandle, id: String) -> Result<String, String> {
     if busy.is_empty() {
         Ok("Plugin quitado".into())
     } else {
-        Err("Está en uso: quítalo de la mesa y vuelve a intentarlo (o reinicia OmniCaster)".into())
+        Err("Está en uso: quítalo de la consola y vuelve a intentarlo (o reinicia OmniCaster)".into())
     }
 }
 

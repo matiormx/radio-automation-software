@@ -83,7 +83,7 @@ export function cloudSyncSet(enabled: boolean, download: SyncStatus["download"])
 
 type Listener = (s: CloudStatus) => void;
 
-/** El directo del equipo que emite, tal como lo ve un puesto de trabajo. */
+/** El directo del equipo que emite, tal como lo ve una estación de trabajo. */
 export interface LiveState {
   node: string;
   /** Lista en antena y sus canciones (en orden, como se ven allí) */

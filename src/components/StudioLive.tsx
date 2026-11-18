@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cloudNode, type LiveState } from "../cloud";
 import type { Track } from "../types";
 import { closeOnBackdrop } from "../backdrop";
+import { Help } from "./Help";
 
 function fmt(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0;
@@ -11,7 +12,7 @@ function fmt(secs: number): string {
 }
 
 /**
- * El directo del estudio visto desde un puesto de trabajo: qué suena, la
+ * El directo del estudio visto desde una estación de trabajo: qué suena, la
  * playlist en antena y los mandos. Cada acción es una orden que ejecuta el
  * propio estudio (así nunca hay dos equipos reescribiendo la lista).
  */
@@ -103,7 +104,7 @@ export function StudioLive({
                     disabled={busy}
                     onChange={(e) => void send({ cmd: "autopilot", on: e.target.checked })}
                   />
-                  Piloto automático
+                  AutoDJ
                 </label>
               </div>
             </div>
@@ -175,10 +176,10 @@ export function StudioLive({
             </ol>
           </>
         )}
-        <p className="hint">
+        <Help>
           Las órdenes las ejecuta el estudio. Para poder darlas, este equipo necesita el permiso «Puede manejar el directo» en
           el panel del maestro.
-        </p>
+        </Help>
       </div>
     </div>
   );

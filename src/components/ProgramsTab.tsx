@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { deleteProgramCover, importProgramCover, pickAnyFolder, pickImageFile, trackUrl } from "../api";
 import { IconChevron, IconNote, IconPlus, IconTrash } from "../icons";
 import { LIVE_RECORD_DEFAULTS, type Block, type LiveRecordSettings, type Program, type Settings } from "../types";
+import { Help } from "./Help";
 
 interface ProgramsTabProps {
   settings: Settings;
@@ -165,14 +166,14 @@ export function ProgramsTab({ settings, blocks = [], onChange, showToast }: Prog
       <div ref={topRef} />
       <fieldset className="fieldset">
         <legend>Programas</legend>
-        <p className="hint">
+        <Help>
           Prepara aquí los programas con antelación: título, portada y hora de inicio. Con el
           modo LIVE activado, la barra auxiliar muestra el programa que está en antena y sus
           metadatos sustituyen a los de la canción (archivo nowplaying y portada). Arrastra el asa
           para ordenarlos y despliega uno para editarlo.
-        </p>
+        </Help>
         {programs.length === 0 && (
-          <p className="hint">Todavía no hay programas. Crea el primero para poder usarlo en directo.</p>
+          <Help>Todavía no hay programas. Crea el primero para poder usarlo en directo.</Help>
         )}
       </fieldset>
 
@@ -270,18 +271,18 @@ export function ProgramsTab({ settings, blocks = [], onChange, showToast }: Prog
           </label>
         )}
         {rec.addToLibrary && (
-          <p className="hint">
+          <Help>
             Cada programa puede llevar sus grabaciones a otra lista (al desplegarlo, abajo). Un evento
             con «La más reciente de una lista» emite siempre la última grabación de esa lista: por
             ejemplo, la repetición del último directo.
-          </p>
+          </Help>
         )}
-        <p className="hint">
+        <Help>
           Cada cambio de programa o de sus datos durante el directo queda apuntado con su segundo
           exacto, junto al archivo y como capítulos dentro de él. Al poner la grabación en una
           lista, el título que se emite va cambiando igual que en el directo. El sonido se graba
           tal como sale al aire (16 bits).
-        </p>
+        </Help>
       </fieldset>
 
       <div className="prog-list">

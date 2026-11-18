@@ -5164,3 +5164,25 @@ body[data-dnd="fx"] .mx-fx-cell.dnd-over .mx-fx-add { box-shadow: none; border-c
 .ntype-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 .ntype-chip { font-size: 8.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; border-radius: 3px; padding: 0 4px; margin-right: 5px; }
 .ntype-energy { font-size: 7px; margin-right: 5px; }
+
+/* Ayuda plegada: (i) junto al título del recuadro o donde se ponga */
+.help-anchor { display: contents; }
+.help-inline { display: inline-flex; vertical-align: middle; margin: 2px 0; }
+.help-slot { display: inline-flex; margin-left: 6px; vertical-align: middle; }
+.help-i {
+  width: 16px; height: 16px; border-radius: 50%; padding: 0; flex-shrink: 0;
+  border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text-dim);
+  font: italic 700 10px/1 Georgia, "Times New Roman", serif; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; text-transform: none; letter-spacing: 0;
+}
+.help-i:hover, .help-i-on { border-color: var(--accent); color: var(--accent); }
+.help-pop {
+  position: fixed; z-index: 2000; width: min(380px, calc(100vw - 16px));
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 14px 40px #000a; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--text-dim);
+  text-transform: none; letter-spacing: normal; font-weight: 400;
+}
+.help-par { margin: 0 0 6px; }
+.help-par:last-child { margin-bottom: 0; }
+.help-pop strong { color: var(--text); }
+label .help-inline { margin-left: 6px; }

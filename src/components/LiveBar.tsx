@@ -45,7 +45,7 @@ export function LiveBar({
       </div>
 
       <div className="livebar-info">
-        <span className="livebar-tag">{live ? "EN DIRECTO" : "PREPARADO"}</span>
+        <span className="livebar-tag">{live ? "EN DIRECTO" : "EN CUE"}</span>
         <span className="livebar-name">{active?.name || "Sin programa"}</span>
         {active?.subtitle && <span className="livebar-sub">{active.subtitle}</span>}
         {active?.startsAt && <span className="livebar-time">Empieza a las {active.startsAt}</span>}

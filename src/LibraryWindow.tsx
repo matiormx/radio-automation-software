@@ -10,8 +10,8 @@ import type { SharedState } from "./SettingsWindow";
 /**
  * Librería (normalizador) en su propia ventana. El análisis corre aquí: al
  * cerrar, la ventana solo se oculta para que siga en segundo plano. El
- * progreso se publica para la ventana principal y la preescucha suena por la
- * mesa de la principal (respeta su enrutado).
+ * progreso se publica para la ventana principal y el cue suena por la
+ * consola de la principal (respeta su enrutado).
  */
 export function LibraryWindow() {
   const [shared, setShared] = useState<SharedState | null>(null);
@@ -68,7 +68,7 @@ export function LibraryWindow() {
     };
   }, [refresh]);
 
-  // Preescucha a traves de la ventana principal.
+  // Cue a traves de la ventana principal.
   const preview = useMemo<PreviewPlayer>(() => {
     let job = 0;
     let offs: Array<Promise<() => void>> = [];

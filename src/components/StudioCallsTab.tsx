@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Settings, StudioCallsSettings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 import { studioSocketUrl, type StudioSnapshot } from "../studioCalls";
+import { Help } from "./Help";
 
 interface Props {
   settings: Settings;
@@ -35,11 +36,11 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
       <div className="camp-head">
         <div>
           <h4>Llamadas al aire</h4>
-          <p className="hint">
+          <Help>
             Recibe aquí las llamadas que el moderador pasa al aire desde NGRADIO. La voz del
-            oyente entra en la mesa como el canal «Llamadas de oyentes» y él oye el programa sin
+            oyente entra en la consola como el canal «Llamadas de oyentes» y él oye el programa sin
             su propia voz. Las llamadas se atienden y se pasan al aire desde el panel de NGRADIO.
-          </p>
+          </Help>
         </div>
       </div>
 
@@ -148,10 +149,10 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
           <input type="checkbox" checked={chat.floating} onChange={(e) => setChat({ floating: e.target.checked })} />
           <span>En una ventana flotante (si no, acoplado bajo la lista de emisión)</span>
         </label>
-        <p className="hint">
+        <Help>
           Usa la misma dirección y token de estudio que las llamadas. Desde OmniCaster escribes como la emisora y puedes
           borrar mensajes o silenciar a un oyente (como un moderador).
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset">
@@ -170,11 +171,11 @@ export function StudioCallsTab({ settings, onChange, studio, callMuted, onCallMu
             </button>
           </>
         )}
-        <p className="hint">
+        <Help>
           En la pestaña Sonido puedes elegir «Llamadas de oyentes» como entrada de un canal para
           darle su propio fader, bus y salida. Sin canal propio, la voz sale por la salida del
           sistema junto al resto del programa.
-        </p>
+        </Help>
       </fieldset>
     </>
   );

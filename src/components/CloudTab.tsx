@@ -3,6 +3,7 @@ import type { Settings } from "../types";
 import { pickFolder } from "../api";
 import { formatBytes } from "./cloudFmt";
 import { cloudGet, cloudJoinPick, cloudLeave, cloudMediaSet, cloudMediaStatus, cloudNode, cloudSyncSet, cloudSyncStatus, cloudLocalUsage, cloudFreeSpace, cloudSetMediaDir, cloudMediaDir, type CloudStatus, type MediaStatus, type SyncStatus } from "../cloud";
+import { Help } from "./Help";
 
 const ROLE: Record<string, string> = {
   main: "Principal (emite)",
@@ -63,11 +64,11 @@ export function CloudTab({
     <div className="settings-section">
       <fieldset className="fieldset">
         <legend>Maestro (nube)</legend>
-        <p className="hint">
+        <Help>
           El maestro reúne los datos de la emisora, avisa si un equipo se cae y permite manejarlo
           desde su panel web. Para unir este equipo, crea su archivo de alta en el panel del maestro
           («Añadir un equipo») y ábrelo aquí.
-        </p>
+        </Help>
         {!j ? (
           <button type="button" className="btn btn-accent" disabled={busy} onClick={() => void join()}>
             Unirse a un maestro…
@@ -151,11 +152,11 @@ function MediaUpload({ showToast }: { showToast: (m: string) => void }) {
   return (
     <fieldset className="fieldset" style={{ marginTop: 12 }}>
       <legend>Música en la nube</legend>
-      <p className="hint">
+      <Help>
         Sube la música de la biblioteca al maestro, en segundo plano y con la velocidad limitada para
         no quitarle ancho de banda a la emisión. Solo sube lo que falta, y si se pausa o se cierra el
         programa, sigue donde iba.
-      </p>
+      </Help>
       <div className="field-row">
         <button type="button" className={m.enabled ? "btn" : "btn btn-accent"} onClick={() => set(!m.enabled, m.limitMbps)}>
           {m.enabled ? "Pausar" : m.uploadedFiles || m.hashed ? "Reanudar" : "Subir la música"}
@@ -224,13 +225,13 @@ function DataSync({ role, showToast }: { role: string; showToast: (m: string) =>
   return (
     <fieldset className="fieldset" style={{ marginTop: 12 }}>
       <legend>Datos de la emisora</legend>
-      <p className="hint">
+      <Help>
         Biblioteca, listas, programas, eventos y campañas, iguales en todos los equipos de la emisora.
         {role === "backup"
           ? " Este equipo es de relevo: recibe los cambios, pero no los manda."
           : " Lo que cambies aquí llega a los demás en segundos, y al revés."}{" "}
         La lista que está sonando en un equipo no se cambia desde otro.
-      </p>
+      </Help>
       <div className="field-row">
         <button type="button" className={x.enabled ? "btn" : "btn btn-accent"} onClick={() => set(!x.enabled, x.download)}>
           {x.enabled ? "Detener la sincronización" : "Sincronizar con el maestro"}
@@ -261,7 +262,7 @@ function DataSync({ role, showToast }: { role: string; showToast: (m: string) =>
   );
 }
 
-/** Qué es este equipo: emite o puesto de trabajo. */
+/** Qué es este equipo: emite o estación de trabajo. */
 export function StationMode({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
   const ws = settings.stationMode === "workstation";
   return (
@@ -275,13 +276,13 @@ export function StationMode({ settings, onChange }: { settings: Settings; onChan
             onChange={(e) => onChange({ ...settings, stationMode: e.target.value as Settings["stationMode"] })}
           >
             <option value="broadcast">Emite (estudio o relevo)</option>
-            <option value="workstation">Puesto de trabajo (organiza, no emite)</option>
+            <option value="workstation">Estación de trabajo (organiza, no emite)</option>
           </select>
         </label>
       </div>
       <p className="hint">
         {ws
-          ? "Puesto de trabajo: aquí se organizan la biblioteca, las playlists y los eventos, y se escucha lo que haga falta. No funcionan el AutoDJ, los eventos ni la emisión automática, para no cambiar las listas que suenan en el estudio."
+          ? "Estación de trabajo: aquí se organizan la biblioteca, las playlists y los eventos, y se escucha lo que haga falta. No funcionan el AutoDJ, los eventos ni la emisión automática, para no cambiar las listas que suenan en el estudio."
           : "Este equipo emite: AutoDJ, eventos y emisión funcionan con normalidad."}
       </p>
     </fieldset>
@@ -336,10 +337,10 @@ function LocalMusic({
   return (
     <fieldset className="fieldset" style={{ marginTop: 12 }}>
       <legend>Música bajada de la nube</legend>
-      <p className="hint">
+      <Help>
         Las canciones que este equipo no tiene se bajan del maestro cuando hacen falta (al escucharlas, al editar sus
         cortes o al sonar) y se guardan aquí.
-      </p>
+      </Help>
       <div className="field-row">
         <label className="field" style={{ flex: 1 }}>
           <span className="field-label">Carpeta</span>

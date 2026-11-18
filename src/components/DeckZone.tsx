@@ -118,7 +118,7 @@ export function DeckZone({
         <div className="deck-main">
           <div className="deck-label-row">
             <span className={`live-dot ${spinning ? "live-on" : ""}`} aria-hidden="true" />
-            <span className="deck-label">{spinning ? "EN EMISIÓN" : "EN PAUSA"}</span>
+            <span className="deck-label">{spinning ? "AL AIRE" : "EN PAUSA"}</span>
           </div>
           <span className="deck-title" title={hasTrack ? title : ""}>
             {hasTrack ? title : "Sin emisión"}

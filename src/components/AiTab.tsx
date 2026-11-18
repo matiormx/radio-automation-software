@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { aiEnrichStart, aiEnrichStatus, aiEnrichStop, aiModels, aiOpencodeVersion, type AiEnrichStatus } from "../api";
 import { DEFAULT_SETTINGS, type AiSettings, type Settings } from "../types";
+import { Help } from "./Help";
 
 interface Props {
   settings: Settings;
@@ -134,13 +135,13 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         <legend>Funciones de IA en este equipo</legend>
         <label className="check-field">
           <input type="checkbox" checked={!!ai.enabled} onChange={(e) => setAi({ enabled: e.target.checked })} />
-          Activar el asistente de canciones, las fichas de la biblioteca y la escucha del directo
+          Activar el asistente de canciones, los metadatos IA de la biblioteca y la escucha del directo
         </label>
-        <p className="hint">
-          Apagado de serie: consumen recursos. Las fichas ya hechas siguen sirviendo al AutoDJ aunque esté
+        <Help>
+          Apagado de serie: consumen recursos. Los metadatos ya generados siguen sirviendo al AutoDJ aunque esté
           apagado, y el asistente de la nube (cloud.ngradio.es/asistente) funciona sin este equipo. El análisis
           de metadatos de abajo (botón de IA en el editor de pistas) funciona siempre.
-        </p>
+        </Help>
       </fieldset>
 
       <fieldset className="fieldset">
@@ -162,13 +163,13 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         </label>
         {provider === "cloud" && (
           <>
-            <p className="hint">
+            <Help>
               Usa un servicio <strong>compatible con OpenAI</strong> en la nube (OpenAI, Groq,
               Gemini…) para proponer idioma, estilo y etiquetas a partir de los metadatos de cada
               canción. No se sube el audio: solo se envían título, artista, álbum, año, estilo,
               etiquetas y nombre del archivo. Las propuestas se revisan y se aceptan una a una
               antes de guardarlas.
-            </p>
+            </Help>
             <div className="field-row">
               <label className="field">
                 <span className="field-label">Servicio</span>
@@ -239,12 +240,12 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
         {provider === "ollama" && (
           <>
-            <p className="hint">
+            <Help>
               Usa un servidor <strong>Ollama</strong> en tu equipo para proponer idioma, estilo y
               etiquetas a partir de los metadatos de cada canción. No se sube el audio: solo se
               envían título, artista, álbum, año, estilo, etiquetas y nombre del archivo. Las
               propuestas se revisan y se aceptan una a una antes de guardarlas.
-            </p>
+            </Help>
             <div className="field-row">
               <label className="field">
                 <span className="field-label">Dirección de Ollama</span>
@@ -283,13 +284,13 @@ export function AiTab({ settings, onChange, showToast }: Props) {
         )}
         {provider === "opencode" && (
           <>
-            <p className="hint">
+            <Help>
               Usa <strong>OpenCode</strong> instalado en tu equipo: cada análisis lanza
               <code> opencode run</code> con una orden breve. No se sube el audio: solo se envían
               título, artista, álbum, año, estilo, etiquetas y nombre del archivo. Las propuestas
               se revisan y se aceptan una a una antes de guardarlas. Configura primero tu
               proveedor con <code>opencode auth login</code>.
-            </p>
+            </Help>
             <div className="field-row">
               <label className="field">
                 <span className="field-label">Comando OpenCode</span>
@@ -339,11 +340,11 @@ export function AiTab({ settings, onChange, showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>Asistente de canciones</legend>
-        <p className="hint">
+        <Help>
           En la barra de arriba, el botón <strong>«IA»</strong> abre un chat: pide lo que quieres
           sonar («algo tranquilo sobre la esperanza, en español») y propone canciones de tu
           biblioteca que no hayan sonado hace poco, con un clic para ponerlas de siguiente.
-        </p>
+        </Help>
         <label className="check-field">
           <input
             type="checkbox"
@@ -352,11 +353,11 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           />
           Escuchar el directo para que el asistente sepa de qué se está hablando
         </label>
-        <p className="hint">
+        <Help>
           Mientras el directo está activo, cada medio minuto se pasa a texto lo que sale al aire
           (Whisper, en este equipo; el audio no sale de él). Al terminar el directo, el asistente
           propone canciones según lo hablado.
-        </p>
+        </Help>
         {ai.listenLive && (
           <p className="form-error">
             ⚠ Gasta bastante procesador: en equipos de 4 núcleos con vídeo o muchos plugins puede
@@ -383,10 +384,10 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             <li><strong>DeepSeek</strong> — platform.deepseek.com</li>
             <li><strong>OpenAI</strong> — platform.openai.com/api-keys</li>
           </ul>
-          <p className="hint">
+          <Help>
             Después pulsa «Probar conexión»: se llena la lista de modelos y eliges uno. Solo se envían los datos de
             texto de cada canción (título, artista, letra…), nunca el audio.
-          </p>
+          </Help>
         </details>
       ) : provider === "ollama" ? (
         <fieldset className="fieldset">
@@ -395,26 +396,26 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             Instala Ollama desde <strong>ollama.com</strong> y descarga un modelo, por ejemplo:
           </p>
           <pre className="ai-command">ollama pull llama3.1:8b</pre>
-          <p className="hint">
+          <Help>
             Si Ollama está en otro equipo o usa otro puerto, cambia la dirección. El análisis
             puede tardar unos segundos por canción según el modelo y el hardware.
-          </p>
+          </Help>
         </fieldset>
       ) : (
         <fieldset className="fieldset">
           <legend>Cómo preparar OpenCode</legend>
-          <p className="hint">
+          <Help>
             Instala OpenCode (<strong>curl -fsSL https://opencode.ai/install | bash</strong> o
             npm) y entra a tu proveedor una sola vez:
-          </p>
+          </Help>
           <pre className="ai-command">opencode auth login</pre>
-          <p className="hint">
+          <Help>
             El modelo se escribe como <strong>proveedor/modelo</strong> (con <code>opencode
             models</code> ves la lista: por ejemplo <code>openai/gpt-5.2</code>). Vacío usa el
             modelo por defecto de tu OpenCode. Cada análisis es un <code>opencode run</code>
             corto: el resultado llega con el JSON que la app espera; si el modelo se demora más
             de 4 minutos se cancela.
-          </p>
+          </Help>
         </fieldset>
       )}
     </>
@@ -469,7 +470,7 @@ function ModelSelect({
   );
 }
 
-/** Fichas IA de la biblioteca: energía, ánimo y temas de cada canción. */
+/** Metadatos IA de la biblioteca: energía, mood y temas de cada canción. */
 function EnrichBox({
   ai,
   enrichAuto,
@@ -495,19 +496,19 @@ function EnrichBox({
   const pct = st && st.total > 0 ? Math.round((st.done / st.total) * 100) : 0;
   return (
     <fieldset className="fieldset">
-      <legend>Fichas de la biblioteca (energía, ánimo y temas)</legend>
-      <p className="hint">
-        La IA describe cada canción: energía del 1 al 5, ánimo y de qué habla la letra. Las usan el
+      <legend>Metadatos IA de la biblioteca (energía, mood y temas)</legend>
+      <Help>
+        La IA describe cada canción: energía del 1 al 5, mood y de qué habla la letra. Las usan el
         AutoDJ (energía del día, en Ajustes › AutoDJ) y el asistente de canciones. Se hace una vez por
         canción, de 10 en 10, y la nube las reparte a los demás equipos: mejor desde un{" "}
-        <strong>puesto de trabajo</strong>, así el del estudio no gasta nada.
-      </p>
+        <strong>estación de trabajo</strong>, así el del estudio no gasta nada.
+      </Help>
       {st && (
         <p>
           <strong>
             {st.done} de {st.total}
           </strong>{" "}
-          canciones con ficha ({pct} %){st.running ? ` · procesando… (${st.session} en esta tanda)` : ""}
+          canciones con metadatos IA ({pct} %){st.running ? ` · procesando… (${st.session} en esta tanda)` : ""}
         </p>
       )}
       {st?.error && <div className="form-error">{st.error}</div>}

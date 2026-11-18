@@ -18,7 +18,7 @@ export type DragPayload =
   | { kind: "blockItem"; key: string; blockId: string; label: string }
   /** Archivos del Explorador (pueden no estar en la biblioteca) */
   | { kind: "files"; paths: string[]; label: string }
-  /** Canal o bus de la mesa (para ordenarlos) */
+  /** Canal o bus de la consola (para ordenarlos) */
   | { kind: "strip"; id: string; group: "chan" | "bus"; label: string }
   /** Plugin de una ranura FX (mover a otro sitio; con Ctrl o Alt, copiar) */
   | { kind: "fx"; owner: string; slotId: string; label: string };

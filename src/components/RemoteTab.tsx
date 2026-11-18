@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openDialog } from "../api";
 import type { Settings } from "../types";
+import { Help } from "./Help";
 
 interface RemoteStatus {
   supported: boolean;
@@ -89,10 +90,10 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
     <>
       <fieldset className="fieldset">
         <legend>Control remoto (VNC)</legend>
-        <p className="hint">
+        <Help>
           Maneja OmniCaster desde otro ordenador con un visor VNC (TightVNC, RealVNC…). Se ve y se controla la misma
           pantalla del equipo.
-        </p>
+        </Help>
         {!st.vncInstalled ? (
           <p className="hint update-error">Falta x11vnc. {INSTALL_HINT}</p>
         ) : (
@@ -154,10 +155,10 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>WireGuard</legend>
-        <p className="hint">
+        <Help>
           Red privada cifrada para llegar a este equipo desde fuera del estudio (VNC, carpeta de música…). Importa el
           archivo .conf que te da tu servidor de WireGuard.
-        </p>
+        </Help>
         {!st.wgHelper ? (
           <p className="hint update-error">Falta el ayudante de WireGuard. {INSTALL_HINT}</p>
         ) : (
@@ -204,13 +205,13 @@ export function RemoteTab({ settings, onChange, showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>Carpetas en la red (Samba)</legend>
-        <p className="hint">
+        <Help>
           Comparte tres carpetas para usarlas desde Windows (Explorador › <code>\\IP</code>) o desde un Mac:{" "}
           <strong>Musica</strong> (la de OmniCaster, para copiar canciones), <strong>Plugins</strong> (los plugins
-          .vst3 para Linux que pongas ahí aparecen en la mesa al pulsar «Volver a buscar» en Plugins VST) y{" "}
+          .vst3 para Linux que pongas ahí aparecen en la consola al pulsar «Volver a buscar» en Plugins VST) y{" "}
           <strong>Descargas</strong> (otros archivos). La carpeta <strong>Personal</strong> no se comparte. El usuario
           es <strong>radio</strong> (o el del quiosco) con la contraseña que pongas aquí.
-        </p>
+        </Help>
         {!st.smbInstalled ? (
           <p className="hint update-error">Falta Samba. {INSTALL_HINT}</p>
         ) : (

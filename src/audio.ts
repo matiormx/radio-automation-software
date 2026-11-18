@@ -617,7 +617,7 @@ export class RadioPlayer {
     if (!this.ctx) {
       this.ctx = this.mixer.ctx;
       this.master = this.mixer.musicInput;
-      // El medidor lo mantiene la mesa: apply() desconecta musicInput al
+      // El medidor lo mantiene la consola: apply() desconecta musicInput al
       // reconfigurarse y un medidor propio se quedaba mudo (falso silencio).
       // El detector de silencio mide lo que recibe el streaming, no la fuente.
       const analyser = this.mixer.getStreamAnalyser();
@@ -650,7 +650,7 @@ export class RadioPlayer {
   /** Punto de fade out de la pista: desde ahi baja hasta el final. */
   private fadeOutOf(index: number): number {
     const track = this.playlist[index];
-    // Jingles, programas y comerciales: solo el fade out puesto a mano.
+    // Jingles, programas y cuñas: solo el fade out puesto a mano.
     if (!track || (track.markersAuto && noAutoFades(track.mediaType))) return 0;
     const point = track.fadeOutStart ?? 0;
     return point > 0 ? point : 0;
@@ -866,7 +866,7 @@ export class RadioPlayer {
     // Punto de mezcla: la siguiente cancion entra en ese punto y la actual
     // sigue sonando (su intro queda debajo). Sin punto, se cruza al final.
     // Un jingle no se funde: suena entero y la siguiente entra a su final
-    // (o en su punto Mix), sin bajarlo.
+    // (o en su Segue), sin bajarlo.
     const jingle = noAutoFades(this.playlist[this.index]?.mediaType);
     const mixPoint = this.usableMixPoint(this.index, deck);
     const rule = mediaRule(this.playlist[this.index]?.mediaType);
@@ -882,7 +882,7 @@ export class RadioPlayer {
       nextIdx >= 0 &&
       nextIdx !== this.index
     ) {
-      this.reportEarlyChange(deck, mixPoint > 0 ? "Cruce por punto Mix" : "Cruce", pos);
+      this.reportEarlyChange(deck, mixPoint > 0 ? "Segue" : "Crossfade", pos);
       void this.beginCrossfade(deck, remaining, nextIdx, mixPoint > 0 || (jingle && !eq), eq ? eqSecs : 0);
       return;
     }

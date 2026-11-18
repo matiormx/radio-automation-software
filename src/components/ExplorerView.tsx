@@ -14,7 +14,7 @@ function fmtSize(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
 }
 
-/** Ficha provisional para preescuchar un archivo que no esta en la biblioteca. */
+/** Ficha provisional para escuchar en cue un archivo que no esta en la biblioteca. */
 export function fileTrack(path: string): Track {
   const name = path.split(/[\\/]/).pop() ?? path;
   return {
@@ -65,9 +65,9 @@ export function ExplorerView({
   tracks: Track[];
   blocks: Block[];
   query: string;
-  /** Preescucha al hacer clic (si esta activada la automatica) */
+  /** Cue al hacer clic (si esta activada la automatica) */
   onPreview?: (track: Track) => void;
-  /** Preescucha a peticion (menu) */
+  /** Cue a peticion (menu) */
   onPreviewNow?: (track: Track) => void;
   /** Añade a la lista de emision (importa si hace falta) */
   onAddToPlaylist: (paths: string[]) => void;
@@ -344,11 +344,11 @@ export function ExplorerView({
                 onClick={() => {
                   const fn = onPreviewNow ?? onPreview;
                   if (fn) fn(known.get(norm(ctx.paths[0])) ?? fileTrack(ctx.paths[0]));
-                  else showToast("La preescucha no está disponible");
+                  else showToast("El cue no está disponible");
                   setCtx(null);
                 }}
               >
-                Preescuchar
+                Escuchar en cue
               </button>
             )}
             <div className="ctx-title">Añadir a una lista</div>

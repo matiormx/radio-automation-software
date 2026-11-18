@@ -3,6 +3,7 @@ import type { DeezerTrack } from "../types";
 import { closeOnBackdrop } from "../backdrop";
 import { deezerSearch, deezerTrack } from "../api";
 import { IconSearch } from "../icons";
+import { Help } from "./Help";
 
 interface Props {
   /** Texto inicial de busqueda (p. ej. "artista titulo") */
@@ -91,10 +92,10 @@ export function DeezerSearch({ initialQuery = "", onClose, onPick, showToast }: 
           </button>
         </div>
         <div className="modal-body">
-          <p className="hint">
+          <Help>
             Elige el resultado correcto para rellenar título, artista, álbum, año y género.
             Revisa los datos antes de guardar. Deezer solo aporta información y una preview de 30 s.
-          </p>
+          </Help>
           <form
             className="deezer-form"
             onSubmit={(e) => {

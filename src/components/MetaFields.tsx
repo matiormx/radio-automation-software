@@ -1,5 +1,6 @@
 import type { StreamMeta } from "../types";
 import { pickImageFile, trackUrl } from "../api";
+import { Help } from "./Help";
 
 export const EMPTY_STREAM_META: StreamMeta = {
   title: "",
@@ -64,10 +65,10 @@ export function MetaFields({
           )}
         </div>
       </div>
-      <p className="hint">
+      <Help>
         Si dejas los campos vacíos se usan los metadatos de la canción. La portada también se envía
         a las notificaciones y a la ventana de vídeo.
-      </p>
+      </Help>
     </fieldset>
   );
 }

@@ -24,6 +24,7 @@ import {
   type UploadProgress,
 } from "./store";
 import { PlaylistEditor } from "./PlaylistEditor";
+import { Help } from "../components/Help";
 
 type Tab = "music" | "playlists" | "events" | "programs";
 const TABS: { id: Tab; label: string }[] = [
@@ -33,7 +34,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "programs", label: "Programas" },
 ];
 
-/** Escucha previa en el navegador (lo que en OmniCaster suena por la mesa). */
+/** Escucha previa en el navegador (lo que en OmniCaster suena por la consola). */
 function makePreview() {
   const audio = new Audio();
   audio.preload = "auto";
@@ -147,7 +148,7 @@ function Login({ error, onEnter }: { error: string; onEnter: () => void }) {
     <div className="web-login">
       <div className="web-card">
         <h1>{station ? `Gestión de ${station}` : "Gestión de la emisora"}</h1>
-        <p className="hint">Entra con tu email: te llegará un código de un solo uso. No hace falta contraseña.</p>
+        <Help>Entra con tu email: te llegará un código de un solo uso. No hace falta contraseña.</Help>
         {msg && <p className="hint update-error">{msg}</p>}
         <input
           type="email"
@@ -163,7 +164,7 @@ function Login({ error, onEnter }: { error: string; onEnter: () => void }) {
           </button>
         ) : (
           <>
-            <p className="hint">Si ese email tiene acceso, te acaba de llegar un código (mira también en spam). Caduca en 10 minutos.</p>
+            <Help>Si ese email tiene acceso, te acaba de llegar un código (mira también en spam). Caduca en 10 minutos.</Help>
             <input
               inputMode="numeric"
               autoComplete="one-time-code"

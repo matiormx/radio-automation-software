@@ -14,6 +14,7 @@ import { icecastStats, type IcecastStats } from "../types";
 import { IconEdit, IconPlus, IconTrash } from "../icons";
 import { listVideoCaptureDevices } from "../api";
 import { MonitorThumb } from "./MonitorThumb";
+import { Help } from "./Help";
 
 interface Props {
   settings: Settings;
@@ -320,10 +321,10 @@ function VideoRoutingFields({
         </div>
       )}
       {source === "device" && audioDevices.length === 0 && (
-        <p className="hint">
+        <Help>
           No se han detectado entradas de audio. Pulsa «Buscar» en Ajustes &gt; Vídeo para
           actualizar la lista.
-        </p>
+        </Help>
       )}
       {source === "device" &&
         !!audioSourceId &&
@@ -334,10 +335,10 @@ function VideoRoutingFields({
             Encoders».
           </p>
         )}
-      <p className="hint">
-        El audio se usa en las salidas RTMP y NDI. La opción de la mesa envía la misma señal que
+      <Help>
+        El audio se usa en las salidas RTMP y NDI. La opción de la consola envía la misma señal que
         los encoders de audio.
-      </p>
+      </Help>
     </>
   );
 }
@@ -438,13 +439,13 @@ export function StreamingTab({
       <div className="camp-head">
         <div>
           <h4>Streaming</h4>
-          <p className="hint">
+          <Help>
             Emisión de audio a Icecast en FLAC o AAC y salidas de vídeo (pantalla, SDI, NDI o RTMP).
             El motor usa FFmpeg y se inicia con el botón EMITIR de la cabecera. Cada salida elige su
             fuente de vídeo y de audio. La captura de audio toma lo que envíes a la salida Streaming
-            de la mesa (canales o buses); si nada va a ella, toma el mismo bus que el VU de salida.
+            de la consola (canales o buses); si nada va a ella, toma el mismo bus que el VU de salida.
             PCM 48 kHz estéreo.
-          </p>
+          </Help>
         </div>
       </div>
 
@@ -524,10 +525,10 @@ export function StreamingTab({
         )}
       </div>
 
-      <p className="hint">
+      <Help>
         OmniCaster descarga FFmpeg sola y lo mantiene al día (Ajustes &gt; Copia y actualizaciones). Si
         prefieres uno concreto, pon <code>ffmpeg.exe</code> junto a OmniCaster.exe y se usará ese.
-      </p>
+      </Help>
 
       <label className="check-row">
         <input
@@ -541,10 +542,10 @@ export function StreamingTab({
       <fieldset className="fieldset">
         <legend>Audio por Icecast</legend>
         {st.icecast.length === 0 && (
-          <p className="hint">
+          <Help>
             Añade una emisión FLAC sin pérdida o una emisión AAC con bitrate
             ajustable.
-          </p>
+          </Help>
         )}
         <div className="stream-list">
           {st.icecast.map((s) => {
@@ -846,7 +847,7 @@ export function StreamingTab({
         statusByKey={statusByKey}
         kinds={["rtmp", "whip"]}
         title="Salidas de vídeo por internet (RTMP / WHIP)"
-        hint="YouTube, Facebook, Twitch, Restream… Cada salida elige su vídeo y su audio (la salida Encoders de la mesa o el de una capturadora). WHIP (Restream) da latencia sub-segundo: pega la «URL WHIP» que te da Restream. Las salidas locales (pantalla/HDMI, NDI, tarjeta SDI) se configuran en Ajustes › Vídeo. Si cambias salidas con la emisión en marcha, pulsa «Aplicar cambios»."
+        hint="YouTube, Facebook, Twitch, Restream… Cada salida elige su vídeo y su audio (la salida Encoders de la consola o el de una capturadora). WHIP (Restream) da latencia sub-segundo: pega la «URL WHIP» que te da Restream. Las salidas locales (pantalla/HDMI, NDI, tarjeta SDI) se configuran en Ajustes › Vídeo. Si cambias salidas con la emisión en marcha, pulsa «Aplicar cambios»."
       />
     </>
   );
@@ -1065,13 +1066,13 @@ export function VideoOutputsEditor({
                             </option>
                           ))}
                         </select>
-                        <span className="hint">
+                        <Help>
                           Si la fuente principal se cae o se congela, la salida pasa sola a este vídeo,
-                          siempre con el audio de la mesa (Encoders). Cambiar de fuente aquí reconecta la
+                          siempre con el audio de la consola (Encoders). Cambiar de fuente aquí reconecta la
                           salida: el directo se corta unos segundos. Para cambios <strong>sin cortes</strong>,
                           emite «Pantalla de emisión»: allí la capturadora o el NDI pasan a lo que suena y
                           vuelven solos dentro de la ventana, sin tocar la conexión.
-                        </span>
+                        </Help>
                       </label>
                     )}
                     <div className="io-format">
@@ -1156,10 +1157,10 @@ export function VideoOutputsEditor({
                        )}
                      </div>
                      {(output.kind === "rtmp" || output.kind === "whip") && (
-                       <p className="hint">
+                       <Help>
                          Retardo del vídeo respecto al audio (solo en esta emisión): positivo atrasa la imagen
                          con «setpts»; negativo atrasa el audio con «adelay». Se aplica al reiniciar la emisión.
-                       </p>
+                       </Help>
                      )}
                      <label className="check-field">
                        <input
@@ -1182,11 +1183,11 @@ export function VideoOutputsEditor({
                       </label>
                     )}
                     {output.kind === "ndi" && (
-                      <p className="hint">
+                      <Help>
                         Sale por NDI con el NDI Runtime (sin FFmpeg especial): la imagen de la fuente
                         de vídeo elegida (mejor «Pantalla de emisión») y el audio de la salida
-                        «Streaming» de la mesa. Aparece en la red con el nombre indicado arriba.
-                      </p>
+                        «Streaming» de la consola. Aparece en la red con el nombre indicado arriba.
+                      </Help>
                     )}
                   </>
                 )}
@@ -1270,10 +1271,10 @@ function StatsFields({ stream, onChange }: { stream: IcecastStream; onChange: (s
           )}
         </div>
       )}
-      <p className="hint">
+      <Help>
         Se leen primero las estadísticas públicas del servidor y, si no las da, las de administración con
         el usuario y la contraseña de admin de Icecast (no la de emisión). Montaje vacío = el de esta emisión.
-      </p>
+      </Help>
     </fieldset>
   );
 }

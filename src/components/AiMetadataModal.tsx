@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { aiSuggestMetadata, updateTrack } from "../api";
 import { languageFlag, languageName } from "../languages";
 import type { AiSettings, AiSuggestion, Track, TrackPatch } from "../types";
+import { Help } from "./Help";
 
 interface Props {
   tracks: Track[];
@@ -269,13 +270,13 @@ export function AiMetadataModal({ tracks, ai, onClose, onSaved, showToast, stand
           )}
         </div>
         <div className="modal-body">
-          <p className="hint">
-            La IA propondrá idioma, estilo, etiquetas, energía (1–5), ánimo y temas de la letra a partir de los
+          <Help>
+            La IA propondrá idioma, estilo, etiquetas, energía (1–5), mood y temas de la letra a partir de los
             metadatos y la letra de cada canción. La energía la usa el AutoDJ (energía del día) y el asistente.
             Revisa las propuestas y acepta solo las que quieras guardar. No se modifica nada hasta
             que pulses «Aceptar seleccionadas». Esta ventana se puede minimizar: el análisis
             sigue en segundo plano y al aceptar la biblioteca se refresca sola.
-          </p>
+          </Help>
 
           <div className="ai-toolbar">
             <label className="check-field">

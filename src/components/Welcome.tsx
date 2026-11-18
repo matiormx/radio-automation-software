@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Settings } from "../types";
 import { pickFolder, pickScanFolder, scanFolder } from "../api";
 import { cloudJoinPick, cloudNode, cloudSetMediaDir, cloudSyncSet, type CloudJoin } from "../cloud";
+import { Help } from "./Help";
 
 type Mode = "broadcast" | "workstation";
 
@@ -34,7 +35,7 @@ export function Welcome({
         setJoin(j);
         cloudNode.start(j);
         if (ws && j.node.role !== "studio") {
-          showToast(`Ojo: ese archivo es de un equipo «${j.node.role}». Para un puesto de trabajo, créalo en el panel con el papel «studio».`);
+          showToast(`Ojo: ese archivo es de un equipo «${j.node.role}». Para una estación de trabajo, créalo en el panel con el papel «studio».`);
         }
       }
     } catch (e) {
@@ -82,7 +83,7 @@ export function Welcome({
           <span>El estudio, o un relevo. Suena, emite y lleva el AutoDJ y los eventos.</span>
         </button>
         <button type="button" className={`welcome-choice ${mode === "workstation" ? "on" : ""}`} onClick={() => setMode("workstation")}>
-          <b>Puesto de trabajo</b>
+          <b>Estación de trabajo</b>
           <span>Para organizar desde otro sitio: biblioteca, playlists, eventos y cortes. No emite y solo baja la música que escuches.</span>
         </button>
       </div>
@@ -90,10 +91,10 @@ export function Welcome({
     // 1. La emisora
     <>
       <h2>Tu emisora</h2>
-      <p className="hint">
+      <Help>
         Si tu emisora tiene un maestro en la nube, ábrelo con el archivo de alta que se crea en su panel («Añadir un equipo»).
-        {ws ? " Un puesto de trabajo lo necesita: de ahí saca la biblioteca y la música." : " Si no, puedes hacerlo más tarde en Ajustes › Maestro (nube)."}
-      </p>
+        {ws ? " Una estación de trabajo lo necesita: de ahí saca la biblioteca y la música." : " Si no, puedes hacerlo más tarde en Ajustes › Maestro (nube)."}
+      </Help>
       {join ? (
         <p className="okc">
           Unido a <b>{join.station.name}</b> como «{join.node.name}».
@@ -108,10 +109,10 @@ export function Welcome({
     ws ? (
       <>
         <h2>Música</h2>
-        <p className="hint">
+        <Help>
           Las canciones se bajan de la nube solo cuando las escuchas o editas sus cortes, y se guardan en esta carpeta. Desde
           Ajustes puedes ver cuánto ocupa y liberar espacio con un botón.
-        </p>
+        </Help>
         <div className="field-row">
           <input type="text" readOnly value={cloudDir || "La carpeta de datos de OmniCaster (por defecto)"} />
           <button
@@ -126,10 +127,10 @@ export function Welcome({
     ) : (
       <>
         <h2>Tu música</h2>
-        <p className="hint">
+        <Help>
           ¿Dónde está tu música? OmniCaster la añade a la biblioteca sin mover ni copiar nada. Puedes añadir más carpetas
           después.
-        </p>
+        </Help>
         <div className="field-row">
           <input type="text" readOnly value={musicDir || (join ? "La de la emisora (se baja de la nube)" : "Ninguna por ahora")} />
           <button type="button" className="btn" onClick={() => void pickScanFolder().then((p) => p && setMusicDir(p))}>

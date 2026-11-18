@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Help } from "./Help";
 
 /** Oyentes ahora mismo (lo da el sondeo de Icecast de las emisiones). */
 export interface ListenersNow {
@@ -220,18 +221,18 @@ export function AudienceModal({ onClose }: { onClose: () => void }) {
           {!stats ? (
             <p className="hint">Cargando…</p>
           ) : empty ? (
-            <p className="hint">Aún no hay datos: OmniCaster apunta los oyentes cada minuto mientras está abierto. Vuelve en un rato.</p>
+            <Help>Aún no hay datos: OmniCaster apunta los oyentes cada minuto mientras está abierto. Vuelve en un rato.</Help>
           ) : view === "24h" ? (
             <BarChart points={stats.last24h} labels={(p) => clock(p.t)} unit="oyentes en las últimas 24 horas" />
           ) : view === "hours" ? (
             <>
               <BarChart points={stats.byHour} labels={(p) => `${p.t}h`} highlight={stats.bestHours} unit="oyentes por hora del día" />
-              <p className="hint">Barra: media de oyentes en esa hora · sombra: máximo · en color, las tres mejores franjas.</p>
+              <Help>Barra: media de oyentes en esa hora · sombra: máximo · en color, las tres mejores franjas.</Help>
             </>
           ) : (
             <>
               <Heat heat={stats.heat} />
-              <p className="hint">Más intenso = más oyentes de media en esa hora de ese día de la semana.</p>
+              <Help>Más intenso = más oyentes de media en esa hora de ese día de la semana.</Help>
             </>
           )}
           {stats && stats.since > 0 && <p className="hint">Datos desde el {dayTime(stats.since)}.</p>}

@@ -682,7 +682,7 @@ impl Player {
             d.end - self.fade_seconds
         };
         if !fading && self.index >= 0 && self.fade_seconds > 0.0 && pos >= cross_at && next >= 0 && next != self.index {
-            self.report_early(&d, if mix > 0.0 { "Cruce por punto Mix" } else { "Cruce" }, pos);
+            self.report_early(&d, if mix > 0.0 { "Segue" } else { "Crossfade" }, pos);
             self.eq_next = if eq { eq_secs } else { 0.0 };
             self.begin_crossfade(next as usize, mix > 0.0 || (jingle && !eq), remaining, core, ld);
             return;

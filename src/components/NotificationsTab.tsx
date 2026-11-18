@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notifyTest } from "../api";
 import { invoke } from "@tauri-apps/api/core";
 import type { NotificationRule, Settings } from "../types";
+import { Help } from "./Help";
 
 interface Props {
   settings: Settings;
@@ -47,11 +48,11 @@ export function NotificationsTab({ settings, onChange, showToast }: Props) {
       <div className="camp-head">
         <div>
           <h4>Notificaciones</h4>
-          <p className="hint">
+          <Help>
             Envía una petición GET o POST a una dirección cuando ocurre algo: cambia la canción, se conecta o cae el
             servidor, se detecta silencio o hay un error. Sin reintentos. Variables en la URL y el cuerpo:{" "}
             <code>{VARS}</code>.
-          </p>
+          </Help>
         </div>
         <button
           type="button"

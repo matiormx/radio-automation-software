@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Settings } from "../types";
 import { pickVstFolder, vstList, vstScan, type VstScanResult } from "../api";
 import { VstRecommended } from "./VstRecommended";
+import { Help } from "./Help";
 
 /**
  * Ajustes > Sonido > Plugins VST3: en qué carpetas se buscan, añadir otras y
- * ocultar del selector de la mesa los plugins que no interesan.
+ * ocultar del selector de la consola los plugins que no interesan.
  */
 export function VstSettings({ settings, onChange }: { settings: Settings; onChange: (next: Settings) => void }) {
   const vst = settings.vst ?? { extraFolders: [], hidden: [] };
@@ -58,10 +59,10 @@ export function VstSettings({ settings, onChange }: { settings: Settings; onChan
   return (
     <section className="settings-section vst-settings">
       <h3>Plugins VST3</h3>
-      <p className="hint">
-        Los plugins se cargan en las ranuras FX de cada canal y bus de la mesa (suenan con el motor nativo). Haz clic en
+      <Help>
+        Los plugins se cargan en las ranuras FX de cada canal y bus de la consola (suenan con el motor nativo). Haz clic en
         el nombre del plugin en la ranura para abrir su ventana.
-      </p>
+      </Help>
 
       <VstRecommended onInstalled={() => void scan()} />
 
@@ -144,7 +145,7 @@ export function VstSettings({ settings, onChange }: { settings: Settings; onChan
           </label>
         ))}
       </div>
-      <p className="hint">Desmarca los que no quieras ver al añadir un plugin en la mesa. No se borran del equipo.</p>
+      <Help>Desmarca los que no quieras ver al añadir un plugin en la consola. No se borran del equipo.</Help>
       {error && <p className="form-error">{error}</p>}
     </section>
   );

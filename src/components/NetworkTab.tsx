@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Help } from "./Help";
 
 interface NetIface {
   name: string;
@@ -320,12 +321,12 @@ export function NetworkTab({ showToast }: Props) {
 
       <fieldset className="fieldset">
         <legend>Aplicar cambios</legend>
-        <p className="hint">
+        <Help>
           Hace falta la contraseña de un administrador del equipo{st.admins?.length ? ` (${st.admins.join(", ")})` : ""}, no
           la del usuario radio. Si después de aplicar no confirmas en 2 minutos, se vuelve sola a la red anterior (por si
           el equipo se queda sin conexión). Si cambias la IP y lo manejas por VNC, vuelve a conectarte a la nueva para
           confirmar.
-        </p>
+        </Help>
         <label className="field">
           <span className="field-label">Contraseña de administrador</span>
           <input
@@ -344,12 +345,12 @@ export function NetworkTab({ showToast }: Props) {
       </fieldset>
       <fieldset className="fieldset">
         <legend>Discos de red</legend>
-        <p className="hint">
+        <Help>
           Carpetas compartidas de otros ordenadores, como las unidades M: o R: que tienes en Windows. Se conectan en{" "}
           <code>/mnt/red/NOMBRE</code>, vuelven a conectarse en cada arranque y salen en los selectores de archivos como
           «Red · NOMBRE». Al importar una copia de Windows, cambia por ejemplo <code>M:\</code> por{" "}
           <code>/mnt/red/M</code>.
-        </p>
+        </Help>
         {!st.cifsSupport && <p className="hint update-error">Falta cifs-utils: vuelve a ejecutar el instalador del quiosco.</p>}
         {(st.shares ?? []).map((sh) => (
           <div key={sh.name} className="net-share">
@@ -394,10 +395,10 @@ export function NetworkTab({ showToast }: Props) {
             {busy ? "Conectando…" : "Conectar disco de red"}
           </button>
         </div>
-        <p className="hint">
+        <Help>
           Si la ruta es la de un PC con Windows, usa mejor su IP que su nombre (<code>\\192.168.1.10\Musica</code>). En
           el usuario puedes poner <code>EQUIPO\usuario</code> si Windows lo pide así.
-        </p>
+        </Help>
       </fieldset>
     </>
   );

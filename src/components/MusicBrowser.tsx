@@ -89,6 +89,7 @@ import {
   IconWave,
   IconSparkles,
 } from "../icons";
+import { Help } from "./Help";
 
 type Mode = "blocks" | "music" | "explorer" | "tags" | "history";
 type SortKey = "title" | "album" | "genre" | "duration";
@@ -120,11 +121,11 @@ interface MusicBrowserProps {
   onPendingEditDone: () => void;
   /** Asigna una cancion a una lista (arrastrando desde la lista de emision). */
   onAssignTrackBlock?: (trackId: string, blockId: string) => void;
-  /** Preescucha automatica al seleccionar una cancion. */
+  /** Cue automático al seleccionar una cancion. */
   onPreviewTrack?: (track: Track) => void;
   /** Bloque sobre el que se estan soltando archivos */
   dropBlockId?: string;
-  /** Preescucha a peticion (menu del Explorador) */
+  /** Cue a peticion (menu del Explorador) */
   onPreviewNow?: (track: Track) => void;
   /** Importa archivos del Explorador: a la biblioteca, a una lista o a la lista de emision */
   onImportPaths?: (paths: string[], opts: { blockId?: string; toPlaylist?: boolean }) => void;
@@ -525,7 +526,7 @@ function MusicBrowserBase({
     }
   };
 
-  // La vista Música solo enseña música (no jingles, programas, podcasts ni comerciales).
+  // La vista Música solo enseña música (no jingles, programas, podcasts ni cuñas).
   const MEDIA_TYPES = useMediaTypes();
   const musicTracks = useMemo(() => tracks.filter((t) => inMusic(t.mediaType)), [tracks, MEDIA_TYPES]);
 
@@ -556,7 +557,7 @@ function MusicBrowserBase({
 
 
   const noTagCount = useMemo(() => tracks.filter((t) => t.tags.length === 0).length, [tracks]);
-  // Energía (ficha IA) de la música, para revisar a mano: [0 = sin energía, 1…5]
+  // Energía (metadatos IA) de la música, para revisar a mano: [0 = sin energía, 1…5]
   const energyCounts = useMemo(() => {
     const c = [0, 0, 0, 0, 0, 0];
     for (const t of tracks) if (wantsEnergy(t.mediaType) && !t.disabled) c[Math.max(0, Math.min(5, t.energy ?? 0))]++;
@@ -842,7 +843,7 @@ function MusicBrowserBase({
       setEdit(null);
       showToast("Canción relinkada a un nuevo archivo");
     } catch (e) {
-      showToast(`No se pudo relinkar: ${String(e)}`);
+      showToast(`No se pudo reubicar: ${String(e)}`);
     }
   };
 
@@ -1087,7 +1088,7 @@ function MusicBrowserBase({
                       {isVideoFile(t.file) && <span className="badge-video">VÍDEO</span>}
                       {qualityBadge(t)}
                       {t.missing && <span className="badge-missing">sin archivo</span>}
-                      {t.disabled && <span className="badge-missing">inhabilitada</span>}
+                      {t.disabled && <span className="badge-missing">desactivada</span>}
                     </span>
                     <span className="brow-sub">
                       {t.artist}
@@ -1371,8 +1372,8 @@ function MusicBrowserBase({
                         }}
                         title={
                           autoBlocks.includes(b.id)
-                            ? "El piloto automático elige de esta lista"
-                            : "El piloto automático ignora esta lista"
+                            ? "El AutoDJ elige de esta lista"
+                            : "El AutoDJ ignora esta lista"
                         }
                       >
                         <IconBolt size={11} />
@@ -1492,7 +1493,7 @@ function MusicBrowserBase({
                   <span className="nav-count">{noTagCount}</span>
                 </button>
               )}
-              <div className="nav-section">Energía (ficha IA)</div>
+              <div className="nav-section">Energía (metadatos IA)</div>
               {[0, 1, 2, 3, 4, 5].map((lvl) => (
                 <button
                   key={lvl}
@@ -1709,12 +1710,12 @@ function MusicBrowserBase({
                       type="button"
                       className="ctx-item"
                       onClick={() => {
-                        // Preescucha a peticion (funciona con la automatica apagada).
+                        // Cue a peticion (funciona con la automatica apagada).
                         onPreviewNow?.(ctx.track);
                         closeCtx();
                       }}
                     >
-                      <IconPlay size={13} /> Preescucha
+                      <IconPlay size={13} /> Cue
                     </button>
                   )}
                   <div className="ctx-title">Añadir a una lista</div>
@@ -1770,7 +1771,7 @@ function MusicBrowserBase({
                           closeCtx();
                         }}
                       >
-                        <IconWave size={13} /> Cortes y puntos
+                        <IconWave size={13} /> Marcadores
                       </button>
                       <button
                         type="button"
@@ -1780,7 +1781,7 @@ function MusicBrowserBase({
                           closeCtx();
                         }}
                       >
-                        <IconLink size={13} /> Relinkar archivo
+                        <IconLink size={13} /> Reubicar archivo
                       </button>
                     </>
                   )}
@@ -1797,7 +1798,7 @@ function MusicBrowserBase({
                       closeCtx();
                     }}
                   >
-                    {allDisabled ? "Habilitar" : "Inhabilitar"}
+                    {allDisabled ? "Activar" : "Desactivar"}
                     {many ? ` (${sel.length})` : ""}
                   </button>
                   <div className="ctx-sep" />
@@ -1995,7 +1996,7 @@ function MusicBrowserBase({
                 <label className="field">
                   <span className="field-label">Energía (IA)</span>
                   <select value={edit.energy} onChange={(e) => setEdit({ ...edit, energy: Number(e.target.value) })}>
-                    <option value={0}>Sin ficha</option>
+                    <option value={0}>Sin datos</option>
                     <option value={1}>1 · Muy tranquila</option>
                     <option value={2}>2 · Suave</option>
                     <option value={3}>3 · Media</option>
@@ -2004,7 +2005,7 @@ function MusicBrowserBase({
                   </select>
                 </label>
                 <label className="field">
-                  <span className="field-label">Ánimo (IA)</span>
+                  <span className="field-label">Mood (IA)</span>
                   <input value={edit.mood} placeholder="adoración íntima, festiva…" onChange={(e) => setEdit({ ...edit, mood: e.target.value })} />
                 </label>
               </div>
@@ -2040,14 +2041,14 @@ function MusicBrowserBase({
               )}
               <label className="check" title="Sigue en la biblioteca, pero no suena aunque esté en una lista o en un evento, y el AutoDJ no la elige">
                 <input type="checkbox" checked={edit.disabled} onChange={(e) => setEdit({ ...edit, disabled: e.target.checked })} />
-                Inhabilitada: no suena aunque esté en una lista o en un evento
+                Desactivada: no suena aunque esté en una lista o en un evento
               </label>
 
               <div className="field">
                 <span className="field-label">Listas</span>
                 <div className="edit-blocks">
                   {blocks.length === 0 && (
-                    <span className="hint">Crea listas en la pestaña «Listas» para clasificar esta canción.</span>
+                    <Help>Crea listas en la pestaña «Listas» para clasificar esta canción.</Help>
                   )}
                   {blocks.map((b) => {
                     const on = edit.blocks.includes(b.id);
@@ -2076,7 +2077,7 @@ function MusicBrowserBase({
                 ) : (
                   <>
                     <button type="button" className="btn btn-sm" onClick={() => void doRelink(edit.id)}>
-                      <IconLink size={13} /> Relinkar archivo
+                      <IconLink size={13} /> Reubicar archivo
                     </button>
                     <span className="spacer" />
                     <button type="button" className="btn btn-sm" onClick={() => void saveEdit()}>
@@ -2085,10 +2086,10 @@ function MusicBrowserBase({
                   </>
                 )}
               </div>
-              <p className="hint">
+              <Help>
                 La canción vive en la biblioteca aunque su archivo se mueva o desaparezca:
-                con «Relinkar archivo» la vuelves a conectar.
-              </p>
+                con «Reubicar archivo» la vuelves a conectar.
+              </Help>
             </div>
           </div>
         </div>
@@ -2110,12 +2111,12 @@ function MusicBrowserBase({
               </button>
             </div>
             <div className="modal-body">
-              <p className="hint">
+              <Help>
                 <strong>{imp.fileName}</strong>
                 <br />
                 Las canciones que ya estén en la biblioteca se añaden a la lista; las que no,
                 se catalogan.
-              </p>
+              </Help>
 
               {imp.report ? (
                 <>
@@ -2199,10 +2200,10 @@ function MusicBrowserBase({
                       />
                       Copiar los archivos a la carpeta de música
                     </label>
-                    <p className="hint">
+                    <Help>
                       Desmarcado (recomendado si tu música ya está organizada): las canciones
                       enlazan el archivo en su sitio, sin duplicarlo.
-                    </p>
+                    </Help>
                   </fieldset>
 
                   <div className="edit-actions">

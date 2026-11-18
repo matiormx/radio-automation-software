@@ -509,7 +509,7 @@ function Pane({
                   <button
                     type="button"
                     className="nact"
-                    title="Cortes y puntos (inicio, final, intro, mix y fade)"
+                    title="Marcadores (inicio, final, intro, mix y fade)"
                     onClick={(e) => {
                       e.stopPropagation();
                       onTrim(t.id);
@@ -605,7 +605,7 @@ interface NormalizerProps {
   windowed?: boolean;
 }
 
-/** Lo que el normalizador necesita para la preescucha. */
+/** Lo que el normalizador necesita para el cue. */
 export type PreviewPlayer = Pick<SoundMixer, "playPreview" | "stopPreview">;
 
 export interface NormalizerStatus {
@@ -832,7 +832,7 @@ export function Normalizer({
           <IconWave size={20} />
           <div>
             <strong>Normalizador de bibliotecas</strong>
-            <span>Ganancia no destructiva · recorte automático de silencios</span>
+            <span>Ganancia no destructiva · auto-cue de silencios</span>
           </div>
         </div>
 

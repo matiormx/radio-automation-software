@@ -418,7 +418,7 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   const byId = new Map(tracks.map((t) => [t.id, t]));
   return pl.trackIds.flatMap((id, index) => {
     const t = byId.get(id);
-    // Una pista inhabilitada no suena (ni se ve en la lista) aunque siga en ella.
+    // Una pista desactivada no suena (ni se ve en la lista) aunque siga en ella.
     if (!t || t.disabled) return [];
     const meta = pl.meta?.[index] ?? null;
     const value = (override: string | undefined, base: string) =>
@@ -441,14 +441,14 @@ function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   });
 }
 
-/** Con el motor nativo, la mesa web no toca los canales de musica. */
+/** Con el motor nativo, la consola web no toca los canales de musica. */
 function webMixerSlice(s: Settings): Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId"> {
   return {
     // Los inserts los lleva el motor nativo (sus tarjetas se eligen por nombre
     // del sistema, no por el id del WebView), asi que aqui se quitan.
     mixerChannels: s.mixerChannels
-      // Todo va por el motor nativo (la preescucha y las llamadas se le
-      // mandan desde el WebView): la mesa web queda vacia y no suena nada doble.
+      // Todo va por el motor nativo (el cue y las llamadas se le
+      // mandan desde el WebView): la consola web queda vacia y no suena nada doble.
       .filter(() => false)
       .map((ch) => ({ ...ch, insert: undefined })),
     mixerBuses: [],
@@ -576,7 +576,7 @@ export default function App() {
     from: number;
     to: number;
   } | null>(null);
-  // Un puesto de trabajo organiza, no emite: sin AutoDJ, eventos ni emisión
+  // Una estación de trabajo organiza, no emite: sin AutoDJ, eventos ni emisión
   // automática (si no, cambiaría las listas de todos los equipos).
   const workstation = settings.stationMode === "workstation";
   const autopilotOn = settings.autopilotEnabled && !workstation;
@@ -648,8 +648,8 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(""), 3200);
   }, []);
 
-  // Minireproductor de preescucha: suena por el canal «Preescucha» de la mesa
-  // (auriculares), nunca por el programa. Se rehace si cambia la mesa.
+  // Minireproductor de cue: suena por el canal «Cue» de la consola
+  // (auriculares), nunca por el programa. Se rehace si cambia la consola.
   useEffect(() => {
     if (!mixer) return;
     const audio = new Audio();
@@ -707,7 +707,7 @@ export default function App() {
     );
     if (!hasCue && !previewWarned.current) {
       previewWarned.current = true;
-      showToast("La preescucha no tiene canal en la mesa: créalo (Sonido) para oírla en tus auriculares");
+      showToast("El cue no tiene canal en la consola: créalo (Sonido) para oírlo en tus auriculares");
     }
     const from = Math.max(0, track.trimStart || 0);
     const to = Math.max(from + 0.05, track.trimEnd ?? track.durationSecs);
@@ -720,7 +720,7 @@ export default function App() {
         /* aun sin metadatos */
       }
       setPreview({ track, playing: true, pos: from, from, to });
-      void audio.play().catch((error) => showToast(`No se pudo preescuchar: ${String(error)}`));
+      void audio.play().catch((error) => showToast(`No se pudo escuchar en cue: ${String(error)}`));
     };
     audio.src = trackUrl({ file: track.file });
     if (audio.readyState >= 1) play();
@@ -733,7 +733,7 @@ export default function App() {
     if (!audio || !current) return;
     if (audio.paused) {
       if (audio.currentTime >= current.to - 0.05) audio.currentTime = current.from;
-      void audio.play().catch((error) => showToast(`No se pudo preescuchar: ${String(error)}`));
+      void audio.play().catch((error) => showToast(`No se pudo escuchar en cue: ${String(error)}`));
     } else {
       audio.pause();
     }
@@ -822,8 +822,8 @@ export default function App() {
     mixerRef.current = mixer;
     setMixer(mixer);
     const useNative = settingsRef.current.audioEngine === "native";
-    // Motor nativo (beta): la musica la reproduce y mezcla Rust. La mesa web
-    // sigue con microfonos, preescucha y llamadas.
+    // Motor nativo (beta): la musica la reproduce y mezcla Rust. La consola web
+    // sigue con microfonos, cue y llamadas.
     let appFeed: NativeAppFeed | null = null;
     const player = useNative ? new NativePlayer((msg) => showToast(msg)) : new RadioPlayer(mixer);
     if (useNative) {
@@ -1312,7 +1312,7 @@ export default function App() {
       p.silenceSkip = settings.silenceDetection;
       p.silenceThresholdDb = settings.silenceThresholdDb ?? -55;
       p.setVolume(settings.masterVolume);
-      // Con el motor nativo, la mesa web (micros, preescucha) sigue el mismo volumen.
+      // Con el motor nativo, la consola web (micros, cue) sigue el mismo volumen.
       if (p instanceof NativePlayer) mixerRef.current?.setMasterVolume(settings.masterVolume);
     }
   }, [
@@ -1323,7 +1323,7 @@ export default function App() {
     settings.silenceThresholdDb,
   ]);
 
-  // La mesa de sonido se reconfigura en caliente.
+  // La consola se reconfigura en caliente.
   useEffect(() => {
     const p = playerRef.current;
     if (p instanceof NativePlayer) {
@@ -1334,7 +1334,7 @@ export default function App() {
     }
   }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, native]);
 
-  // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la mesa.
+  // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la consola.
   useEffect(() => {
     if (!mixer) return;
     const calls = new StudioCalls(mixer);
@@ -1999,7 +1999,7 @@ export default function App() {
     [mutateView, showToast],
   );
 
-  /** Preescucha de una pista de la lista por la salida de monitorizacion. */
+  /** Cue de una pista de la lista por la salida de monitorizacion. */
   const previewRow = useCallback(
     (index: number) => {
       const row = viewRowsRef.current[index];
@@ -2142,7 +2142,7 @@ export default function App() {
     const t = window.setTimeout(() => {
       void mutateById(listId, (ids) => {
         // Posición real (en la lista guardada) de la fila que suena: las
-        // pistas que faltan o están inhabilitadas no tienen fila.
+        // pistas que faltan o están desactivadas no tienen fila.
         const byId = new Map(tracksRef.current.map((x) => [x.id, x]));
         const visible = (id: string) => {
           const x = byId.get(id);
@@ -2411,7 +2411,7 @@ export default function App() {
     if (streamBusy) return;
     const mixer = mixerRef.current;
     if (!mixer) {
-      showToast("La mesa de sonido todavía no está lista");
+      showToast("La consola todavía no está lista");
       return;
     }
     setStreamBusy(true);
@@ -2455,7 +2455,7 @@ export default function App() {
       if (streamBusy) return;
       const mixer = mixerRef.current;
       if (!mixer) {
-        showToast("La mesa de sonido todavía no está lista");
+        showToast("La consola todavía no está lista");
         return;
       }
       setStreamBusy(true);
@@ -2510,7 +2510,7 @@ export default function App() {
     }
   }, [settings.liveMode, showToast]);
 
-  // Emitir al iniciar: una sola vez, cuando la mesa y el motor estan listos.
+  // Emitir al iniciar: una sola vez, cuando la consola y el motor estan listos.
   const autoStreamDone = useRef(false);
   const setStreamGroupRef = useRef(setStreamGroup);
   setStreamGroupRef.current = setStreamGroup;
@@ -2668,7 +2668,7 @@ export default function App() {
   const launchEvent = useCallback(
     (event: StationEvent) => {
       if (settingsRef.current.stationMode === "workstation") {
-        showToast("Este equipo es un puesto de trabajo: los eventos se lanzan desde el estudio");
+        showToast("Este equipo es una estación de trabajo: los eventos se lanzan desde el estudio");
         return;
       }
       if (!settingsRef.current.eventsEnabled) {
@@ -3249,7 +3249,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playingRow, rows, active?.id, pendingInserts.length]);
 
-  // Piloto automático
+  // AutoDJ
   const setAutopilot = useCallback(
     (on: boolean) => updateSettings({ ...settings, autopilotEnabled: on }),
     [settings, updateSettings],
@@ -3368,7 +3368,7 @@ export default function App() {
           });
         }
       })
-      .catch((e) => showToast(`Piloto automático: ${String(e)}`))
+      .catch((e) => showToast(`AutoDJ: ${String(e)}`))
       .finally(() => {
         topupBusy.current = false;
       });
@@ -3608,7 +3608,7 @@ export default function App() {
     pickFiles: () => pickFiles(),
     playPreview: async (file: string, start: number, end: number) => {
       const mixer = mixerRef.current;
-      if (!mixer) throw new Error("La mesa de sonido todavía no está lista");
+      if (!mixer) throw new Error("La consola todavía no está lista");
       await mixer.playPreview(
         file,
         start,
@@ -3859,7 +3859,7 @@ export default function App() {
       })
       .catch(() => undefined);
   }, [showToast]);
-  // Medidores de la mesa web para la ventana Mixer (el motor nativo manda los suyos).
+  // Medidores de la consola web para la ventana Mixer (el motor nativo manda los suyos).
   const [metersOn, setMetersOn] = useState(false);
   useEffect(() => {
     if (!metersOn) return;
@@ -3892,7 +3892,7 @@ export default function App() {
   const [aiRemote, setAiRemote] = useState<{ busy: boolean; msgs: { role: "user" | "assistant"; text: string; error?: boolean; picks?: AiPick[] }[] }>({ busy: false, msgs: [] });
   const aiRemoteRef = useRef(aiRemote);
   aiRemoteRef.current = aiRemote;
-  /** Estado de las fichas IA (para el control remoto) */
+  /** Estado de los metadatos IA (para el control remoto) */
   const [enrichSt, setEnrichSt] = useState<AiEnrichStatus | null>(null);
   useEffect(() => {
     if (!settings.mobile?.enabled || !settings.ai?.enabled) return;
@@ -4112,7 +4112,7 @@ export default function App() {
 
   const mobileActions = useRef<(c: Record<string, unknown>) => void>(() => undefined);
 
-  // ---- El directo para los puestos de trabajo: qué suena, la lista en
+  // ---- El directo para los estaciones de trabajo: qué suena, la lista en
   // antena y por dónde va (al cambiar algo y cada 10 s).
   const liveKey = `${activeId}|${rows.map((r) => r.id).join(",")}|${playingRow}|${paused}|${nextPick?.index ?? -1}|${autopilotOn}|${settings.liveMode}`;
   useEffect(() => {
@@ -4169,7 +4169,7 @@ export default function App() {
   mobileActions.current = (c) => {
     const num = (k: string) => Number(c[k]);
     const s = settingsRef.current;
-    // Órdenes de otro equipo (puesto de trabajo): la fila que se toca tiene
+    // Órdenes de otro equipo (estación de trabajo): la fila que se toca tiene
     // que ser la que él veía; si la lista cambió entretanto, no se hace.
     const expect = (k: string) => {
       const want = typeof c.expect === "string" ? c.expect : "";
@@ -4223,7 +4223,7 @@ export default function App() {
         const i = num("i");
         if (!Number.isInteger(i) || i === playingRowRef.current) return;
         // Fila de la lista que se ve -> posición en la lista guardada (las
-        // inhabilitadas o borradas no se ven, pero siguen ahí).
+        // desactivadas o borradas no se ven, pero siguen ahí).
         void mutateList((ids) => {
           const k = visibleIdx(ids)[i];
           return k === undefined ? ids : ids.filter((_, x) => x !== k);
@@ -4354,7 +4354,7 @@ export default function App() {
         });
         break;
       }
-      // ---- Mesa: arrays completos desde el movil (canal o bus) ----
+      // ---- Consola: arrays completos desde el movil (canal o bus) ----
       case "mixerChannelsUpdate": {
         const list = Array.isArray(c.channels) ? c.channels : [];
         const channels: MixerChannel[] = list.slice(0, 32).map((raw: Record<string, unknown>, i: number): MixerChannel => {
@@ -4376,7 +4376,7 @@ export default function App() {
           };
         });
         updateSettings({ ...s, mixerChannels: channels });
-        showToast("Mesa actualizada desde el móvil");
+        showToast("Consola actualizada desde el móvil");
         break;
       }
       case "mixerBusesUpdate": {
@@ -4403,7 +4403,7 @@ export default function App() {
         showToast("Buses actualizados desde el móvil");
         break;
       }
-      // ---- Mesa: buses, master ----
+      // ---- Consola: buses, master ----
       case "busFader":
       case "busMute": {
         const id = String(c.id ?? "");
@@ -4756,7 +4756,7 @@ export default function App() {
           {importing && <span className="pill pill-warn">Importando…</span>}
           {workstation && (
             <span className="pill pill-auto" title="Este equipo organiza y no emite: sin AutoDJ, eventos ni emisión automática (Ajustes › Maestro)">
-              Puesto de trabajo
+              Estación de trabajo
             </span>
           )}
           {aiOn && <button
@@ -4785,7 +4785,7 @@ export default function App() {
           )}
           {autopilotOn && (
             <span className="pill pill-auto">
-              Piloto automático</span>
+              AutoDJ</span>
           )}
           <label
             className={`top-switch ${settings.eventsEnabled && !settings.liveMode ? "switch-on" : ""}`}
@@ -4862,7 +4862,7 @@ export default function App() {
             type="button"
             className="icon-btn"
             onClick={openSettings}
-            title="Ajustes de rotación y piloto automático"
+            title="Ajustes de rotación y AutoDJ"
             aria-label="Ajustes"
           >
             <IconGear size={18} />

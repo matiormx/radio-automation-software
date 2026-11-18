@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { aiListenClear, aiListenStatus, aiPick, type AiChatMsg, type AiListenStatus, type AiPick } from "../api";
 import { closeOnBackdrop } from "../backdrop";
 import type { AiSettings } from "../types";
+import { Help } from "./Help";
 
 export interface AiDjContext {
   nowPlaying: string;
@@ -111,7 +112,7 @@ export function AiDj({ ai, context, insert, canNext, autoAsk, onClose, showToast
       <div className="modal ai-dj" role="dialog" aria-modal="true">
         <header className="studio-live-head">
           <h2>Asistente de canciones</h2>
-          <span className="hint">Propone canciones de tu biblioteca que no han sonado hace poco.</span>
+          <Help>Propone canciones de tu biblioteca que no han sonado hace poco.</Help>
           <span style={{ flex: 1 }} />
           {msgs.length > 0 && (
             <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setMsgs([])}>

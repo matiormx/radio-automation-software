@@ -280,7 +280,7 @@ export function PlaylistZone({
         {autoIds.size > 0 && (
           <>
             <span className="sep">·</span>
-            <span className="auto-note">{autoIds.size} añadidas por el piloto automático</span>
+            <span className="auto-note">{autoIds.size} añadidas por el AutoDJ</span>
           </>
         )}
       </div>
@@ -310,7 +310,7 @@ export function PlaylistZone({
           data-drop-zone="playlist-end"
         >
           Lista vacía. Arrastra canciones desde la biblioteca o activa el
-          piloto automático para que se llene sola.
+          AutoDJ para que se llene sola.
         </div>
       ) : (
         <div className="rows flex-1" ref={rowsRef} data-drop-zone="playlist-end">
@@ -387,14 +387,14 @@ export function PlaylistZone({
                       {mediaTypeLabel(r.mediaType).toUpperCase()}
                     </span>
                   ) : (r.energy ?? 0) > 0 ? (
-                    <span className="badge-energy" title={`Energía ${r.energy} de 5 (ficha IA)`}>
+                    <span className="badge-energy" title={`Energía ${r.energy} de 5 (metadatos IA)`}>
                       <span className="energy-dots">
                         {"●".repeat(r.energy!)}
                         <span className="off">{"●".repeat(5 - r.energy!)}</span>
                       </span>
                     </span>
                   ) : (
-                    <span className="badge-energy badge-noenergy" title="Sin energía asignada (falta la ficha IA)">
+                    <span className="badge-energy badge-noenergy" title="Sin energía asignada (falta la metadatos IA)">
                       sin energía
                     </span>
                   )}
@@ -521,7 +521,7 @@ export function PlaylistZone({
                 setCtx(null);
               }}
             >
-              <IconPlay size={13} /> Preescucha
+              <IconPlay size={13} /> Cue
             </button>
             <button
               type="button"
@@ -531,7 +531,7 @@ export function PlaylistZone({
                 setCtx(null);
               }}
             >
-              <IconWave size={13} /> Cortes y puntos
+              <IconWave size={13} /> Marcadores
             </button>
             <button
               type="button"

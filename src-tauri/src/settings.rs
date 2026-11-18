@@ -149,7 +149,7 @@ pub fn default_media_types() -> Vec<MediaTypeCfg> {
         t("jingle", "Jingle", "#ffb84d", "constant", false),
         t("program", "Programa", "#59d98c", "constant", false),
         t("podcast", "Podcast", "#4dd6ff", "music", false),
-        t("commercial", "Comercial", "#ff7ab6", "constant", false),
+        t("commercial", "Cuña", "#ff7ab6", "constant", false),
     ]
 }
 
