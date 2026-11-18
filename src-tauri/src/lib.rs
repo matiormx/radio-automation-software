@@ -7,6 +7,7 @@ pub mod aidj;
 pub mod aienrich;
 pub mod perflog;
 pub mod hls;
+mod winstate;
 pub mod analysis;
 pub mod backup;
 pub mod deezer;
@@ -147,6 +148,9 @@ pub fn run() {
             remote::on_startup(&settings::read_settings_public(&data_dir));
             cloudmedia::on_startup(&data_dir);
             cloudsync::on_startup(app.handle(), &data_dir);
+            if let Some(w) = app.get_webview_window("main") {
+                winstate::on_startup(&w, &data_dir);
+            }
             app.manage(AppState { data_dir });
             app.manage(streaming::StreamingState::default());
             // Prueba en segundo plano qué compresor de vídeo por hardware hay
@@ -179,6 +183,7 @@ pub fn run() {
                         }
                     }
                     tauri::WindowEvent::Destroyed => window.app_handle().exit(0),
+                    tauri::WindowEvent::Resized(_) => winstate::on_resized(window),
                     _ => {}
                 }
             } else if window.label() == "ai" {
