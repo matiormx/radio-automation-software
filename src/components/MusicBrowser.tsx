@@ -136,6 +136,7 @@ interface EditState {
   id: string;
   title: string;
   artist: string;
+  albumArtist: string;
   album: string;
   genre: string;
   year: string;
@@ -739,12 +740,13 @@ function MusicBrowserBase({
     return ids.includes(id) ? ids : [id];
   };
   const editKey = (e: Omit<EditState, "orig" | "busy" | "navIds">) =>
-    JSON.stringify([e.title, e.artist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.hours, e.mediaType, e.blocks, e.coverChange]);
+    JSON.stringify([e.title, e.artist, e.albumArtist, e.album, e.genre, e.year, e.tagsText, e.language, e.disabled, e.energy, e.mood, e.themesText, e.hours, e.mediaType, e.blocks, e.coverChange]);
   const makeEdit = (t: Track, navIds: string[]): EditState => {
     const e = {
       id: t.id,
       title: t.title,
       artist: t.artist,
+      albumArtist: t.albumArtist ?? "",
       album: t.album,
       genre: t.genre,
       year: t.year,
@@ -785,6 +787,7 @@ function MusicBrowserBase({
       const patch: TrackPatch = {
         title: edit.title.trim() || "Sin título",
         artist: edit.artist.trim(),
+        albumArtist: edit.albumArtist.trim(),
         album: edit.album.trim(),
         genre: edit.genre.trim(),
         year: edit.year.trim(),
@@ -1943,10 +1946,24 @@ function MusicBrowserBase({
                 <span className="field-label">Título</span>
                 <input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
               </label>
-              <label className="field">
-                <span className="field-label">Artista</span>
-                <input value={edit.artist} onChange={(e) => setEdit({ ...edit, artist: e.target.value })} />
-              </label>
+              <div className="field-row">
+                <label className="field">
+                  <span className="field-label">Artista</span>
+                  <input
+                    value={edit.artist}
+                    placeholder="Todos, separados por comas"
+                    onChange={(e) => setEdit({ ...edit, artist: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Artista del álbum</span>
+                  <input
+                    value={edit.albumArtist}
+                    placeholder={edit.artist.split(",")[0]?.trim() || "El principal del disco"}
+                    onChange={(e) => setEdit({ ...edit, albumArtist: e.target.value })}
+                  />
+                </label>
+              </div>
               <div className="field-row">
                 <label className="field">
                   <span className="field-label">Álbum</span>

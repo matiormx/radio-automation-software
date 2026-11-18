@@ -118,7 +118,7 @@ pub struct Track {
     /// «Artista del álbum» (TPE2/ALBUMARTIST): agrupa los álbumes
     #[serde(default)]
     pub album_artist: String,
-    /// Version de la lectura de etiquetas extra (1 = ya se leyo album_artist)
+    /// Version de la lectura de etiquetas extra (1 = album_artist; 2 = todos los artistas)
     #[serde(default)]
     pub tags_v: u8,
     /// Metadatos que cambian a lo largo de la pista (un directo grabado):
@@ -732,8 +732,8 @@ fn read_metadata(
                 if let Some(v) = tag.title().filter(|v| !v.trim().is_empty()) {
                     title = v.trim().to_string();
                 }
-                if let Some(v) = tag.artist().filter(|v| !v.trim().is_empty()) {
-                    artist = multi_value(&v);
+                if let Some(v) = tag_artists(tag) {
+                    artist = v;
                 }
                 if let Some(v) = tag.album().filter(|v| !v.trim().is_empty()) {
                     album = v.trim().to_string();
@@ -756,22 +756,42 @@ fn read_metadata(
 /// Frecuencia, bits y kbps del archivo (0 si no se sabe).
 /// Calidad del archivo y «artista del album».
 fn read_audio_props(path: &Path) -> (u32, u8, u32, String) {
+    read_audio_props_full(path).0
+}
+
+/// Como `read_audio_props`, y además la lista completa de artistas.
+fn read_audio_props_full(path: &Path) -> ((u32, u8, u32, String), String) {
     match read_from_path(path) {
         Ok(tagged) => {
             let p = tagged.properties();
-            let album_artist = tagged
-                .primary_tag()
-                .or_else(|| tagged.first_tag())
-                .and_then(|t| t.get_string(lofty::tag::ItemKey::AlbumArtist).map(multi_value))
-                .unwrap_or_default();
+            let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
+            let album_artist =
+                tag.and_then(|t| t.get_string(lofty::tag::ItemKey::AlbumArtist).map(normalize_artists)).unwrap_or_default();
+            let artists = tag.and_then(tag_artists).unwrap_or_default();
             (
-                p.sample_rate().unwrap_or(0),
-                p.bit_depth().unwrap_or(0),
-                p.audio_bitrate().or_else(|| p.overall_bitrate()).unwrap_or(0),
-                album_artist,
+                (
+                    p.sample_rate().unwrap_or(0),
+                    p.bit_depth().unwrap_or(0),
+                    p.audio_bitrate().or_else(|| p.overall_bitrate()).unwrap_or(0),
+                    album_artist,
+                ),
+                artists,
             )
         }
-        Err(_) => (0, 0, 0, String::new()),
+        Err(_) => ((0, 0, 0, String::new()), String::new()),
+    }
+}
+
+/// Completa el artista con los que faltaban en la etiqueta (solo si la lista
+/// nueva incluye a los que ya había: no pisa una corrección a mano).
+fn widen_artists(t: &mut Track, from_tag: &str) {
+    let cur = normalize_artists(&t.artist);
+    let have: Vec<String> = cur.split(", ").map(|a| a.to_lowercase()).filter(|a| !a.is_empty()).collect();
+    let new: Vec<String> = from_tag.split(", ").map(|a| a.to_lowercase()).collect();
+    if new.len() > have.len() && have.iter().all(|a| new.contains(a)) {
+        t.artist = from_tag.to_string();
+    } else if cur != t.artist && !cur.is_empty() {
+        t.artist = cur;
     }
 }
 
@@ -782,7 +802,7 @@ fn fill_audio_props(t: &mut Track) {
     t.audio_kbps = k;
     t.album_artist = aa;
     t.audio_checked = true;
-    t.tags_v = 1;
+    t.tags_v = 2;
 }
 
 /// Antes de separar «intro» y «mix», un unico marcador (`mix_point`) servia
@@ -802,6 +822,34 @@ fn is_legacy_intro_marker(mix_point: f64, intro_point: f64, duration: f64) -> bo
 /// otros con un carácter de control (p. ej. U+0007). Quedan «A, B».
 pub(crate) fn multi_value(v: &str) -> String {
     v.split(|c: char| c.is_control()).map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
+}
+
+/// Todos los artistas separados por coma: «A; B», «A / B», «A feat. B» o
+/// «A ft. B» quedan «A, B» (sin repetir). «AC/DC» o «Simon & Garfunkel» no
+/// se tocan.
+pub fn normalize_artists(v: &str) -> String {
+    let mut s = multi_value(v);
+    for sep in [";", " / ", " feat. ", " Feat. ", " ft. ", " Ft. ", " featuring ", " Featuring ", " feat ", " ft "] {
+        s = s.replace(sep, ", ");
+    }
+    let mut out: Vec<String> = Vec::new();
+    for a in s.split(',').map(str::trim).filter(|a| !a.is_empty()) {
+        if !out.iter().any(|x| x.eq_ignore_ascii_case(a)) {
+            out.push(a.to_string());
+        }
+    }
+    out.join(", ")
+}
+
+/// Artistas de la etiqueta: todos los valores de ARTIST (y ARTISTS si trae
+/// la lista completa), separados por coma.
+fn tag_artists(tag: &lofty::tag::Tag) -> Option<String> {
+    use lofty::tag::ItemKey;
+    let join = |k: &ItemKey| -> String { normalize_artists(&tag.get_strings(k.clone()).collect::<Vec<_>>().join(", ")) };
+    let main = join(&ItemKey::TrackArtist);
+    let all = join(&ItemKey::TrackArtists);
+    let best = if all.split(", ").count() > main.split(", ").count() { all } else { main };
+    (!best.is_empty()).then_some(best)
 }
 
 /// Última biblioteca leída (o escrita), con la huella del archivo: muchas
@@ -1326,25 +1374,29 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
     tauri::async_runtime::spawn_blocking(move || {
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
-            .filter(|t| (!t.audio_checked || t.tags_v < 1) && Path::new(t.file.trim()).is_file())
+            .filter(|t| (!t.audio_checked || t.tags_v < 2) && Path::new(t.file.trim()).is_file())
             .map(|t| (t.id, t.file))
             .collect();
         if pending.is_empty() {
             return Ok::<usize, String>(0);
         }
         // Se lee fuera del candado (puede tardar) y luego se guarda de una vez.
-        let props: Vec<(String, (u32, u8, u32, String))> =
-            pending.into_iter().map(|(id, f)| (id, read_audio_props(Path::new(f.trim())))).collect();
+        let props: Vec<(String, ((u32, u8, u32, String), String))> =
+            pending.into_iter().map(|(id, f)| (id, read_audio_props_full(Path::new(f.trim())))).collect();
         let _guard = lock_library();
         let mut tracks = read_library_internal(&data_dir);
         let mut n = 0;
-        for (id, (r, b, k, aa)) in props {
+        for (id, ((r, b, k, aa), artists)) in props {
             if let Some(t) = tracks.iter_mut().find(|t| t.id == id) {
                 t.audio_rate = r;
                 t.audio_bits = b;
                 t.audio_kbps = k;
-                t.album_artist = aa;
-                t.tags_v = 1;
+                // El artista del álbum puesto a mano no se pisa.
+                if t.album_artist.trim().is_empty() {
+                    t.album_artist = aa;
+                }
+                widen_artists(t, &artists);
+                t.tags_v = 2;
                 t.audio_checked = true;
                 n += 1;
             }
@@ -1386,6 +1438,9 @@ pub struct TrackPatch {
     /// Inhabilitada: no suena aunque esté en una lista o en un evento
     #[serde(default)]
     pub disabled: Option<bool>,
+    /// Artista del álbum (el que agrupa el disco)
+    #[serde(default)]
+    pub album_artist: Option<String>,
     /// Ficha IA (se puede corregir a mano): energía 0–5, ánimo y temas
     #[serde(default)]
     pub energy: Option<u8>,
@@ -1502,7 +1557,10 @@ pub fn apply_patch(data_dir: &Path, id: &str, patch: TrackPatch) -> Result<Optio
             }
         }
         if let Some(v) = patch.artist {
-            t.artist = v.trim().to_string();
+            t.artist = normalize_artists(&v);
+        }
+        if let Some(v) = patch.album_artist {
+            t.album_artist = normalize_artists(&v);
         }
         if let Some(v) = patch.album {
             t.album = v.trim().to_string();
@@ -1753,6 +1811,7 @@ pub struct TrackDetails {
     pub id: String,
     pub title: String,
     pub artist: String,
+    pub album_artist: String,
     pub album: String,
     pub genre: String,
     pub year: String,
@@ -1843,6 +1902,7 @@ pub fn track_details(state: State<'_, AppState>, id: String) -> Result<TrackDeta
         id: t.id.clone(),
         title: t.title.clone(),
         artist: t.artist.clone(),
+        album_artist: t.album_artist.clone(),
         album: t.album.clone(),
         genre: t.genre.clone(),
         year: t.year.clone(),
@@ -2734,5 +2794,20 @@ mod hours_tests {
         assert!(hours_allow(&[], 3, 0));
         assert!(hours_allow(&[morning.clone(), night], 6, 30));
         assert!(!hours_allow(&[morning], 7, 9 * 60));
+    }
+}
+
+#[cfg(test)]
+mod artist_tests {
+    use super::normalize_artists;
+
+    #[test]
+    fn artists_comma_separated() {
+        assert_eq!(normalize_artists("A; B"), "A, B");
+        assert_eq!(normalize_artists("A feat. B / C"), "A, B, C");
+        assert_eq!(normalize_artists("A\u{0}B\u{0}"), "A, B");
+        assert_eq!(normalize_artists("AC/DC"), "AC/DC");
+        assert_eq!(normalize_artists("Simon & Garfunkel"), "Simon & Garfunkel");
+        assert_eq!(normalize_artists("A, a, B"), "A, B");
     }
 }

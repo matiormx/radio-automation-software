@@ -227,6 +227,8 @@ export interface Block {
 export interface TrackPatch {
   title?: string;
   artist?: string;
+  /** Artista del álbum (el que agrupa el disco) */
+  albumArtist?: string;
   album?: string;
   genre?: string;
   year?: string;
@@ -282,6 +284,7 @@ export interface TrackDetails {
   id: string;
   title: string;
   artist: string;
+  albumArtist?: string;
   album: string;
   genre: string;
   year: string;

@@ -135,6 +135,8 @@ export function TrackDetailsModal({ trackId, onClose, onEdit, navIds, onNavigate
                 <span className="prop-v">{mediaTypeLabel(details.mediaType)}</span>
                 <span className="prop-k">Álbum</span>
                 <span className="prop-v">{details.album || "—"}</span>
+                <span className="prop-k">Artista del álbum</span>
+                <span className="prop-v">{details.albumArtist || "—"}</span>
                 <span className="prop-k">Estilo</span>
                 <span className="prop-v">{details.genre || "—"}</span>
                 <span className="prop-k">Año</span>
