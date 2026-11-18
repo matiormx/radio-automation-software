@@ -189,7 +189,7 @@ function nextAutoStartAfter(events: StationEvent[], after: Date): number {
 
 function eventSourceLabel(event: StationEvent, blocks: Block[]): string {
   if (event.sourceKind === "library") {
-    return event.sourceId === "b" ? "Biblioteca B" : "Biblioteca A";
+    return "Toda la biblioteca";
   }
   return blocks.find((b) => b.id === event.sourceId)?.name ?? "Lista eliminada";
 }
