@@ -11,6 +11,9 @@ import { fitToScreen, toolKind } from "./bridge";
 import "./styles.css";
 import { uiStateRestore, uiStateSave } from "./api";
 import { IS_WEB } from "./platform";
+import { installMenuFit } from "./ctxfit";
+
+installMenuFit();
 
 const kind = toolKind();
 // Sin el menu contextual del navegador (Atrás, Actualizar, Imprimir...): la
