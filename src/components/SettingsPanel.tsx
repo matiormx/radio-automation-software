@@ -33,6 +33,7 @@ import { ProgramsTab } from "./ProgramsTab";
 import { ScheduleEditor, newScheduleBlock } from "./ScheduleEditor";
 import { EMPTY_STREAM_META, MetaFields } from "./MetaFields";
 import { MediaTypesTab } from "./MediaTypesTab";
+import { campaignToEvent, campaignToEventBlocker } from "../convertSchedule";
 import {
   DEFAULT_NOW_PLAYING_TEMPLATE,
   NOW_PLAYING_PLACEHOLDERS,
@@ -287,6 +288,8 @@ export function SettingsPanel({
   onToggleStreamGroup,
   windowed = false,
 }: SettingsPanelProps) {
+  // Elemento que abrir al cambiar de pestaña (evento o campaña recién pasado)
+  const [openItem, setOpenItem] = useState("");
   const s = settings;
   return (
     <div
@@ -398,6 +401,13 @@ export function SettingsPanel({
                 blocks={blocks}
                 onChange={onChange}
                 onImportAudio={onImportAudio}
+                openId={openItem}
+                onOpened={() => setOpenItem("")}
+                onConverted={(id) => {
+                  setOpenItem(id);
+                  onTabChange("events");
+                  showToast("Pasada a Eventos");
+                }}
               />
             )}
             {tab === "events" && (
@@ -408,6 +418,13 @@ export function SettingsPanel({
                 onChange={onChange}
                 onImportAudio={onImportAudio}
                 onLaunchEvent={onLaunchEvent}
+                openId={openItem}
+                onOpened={() => setOpenItem("")}
+                onConverted={(id) => {
+                  setOpenItem(id);
+                  onTabChange("campaigns");
+                  showToast("Pasado a Campañas");
+                }}
               />
             )}
             {tab === "programs" && (
@@ -1031,12 +1048,20 @@ function CampaignsTab({
   blocks,
   onChange,
   onImportAudio,
+  openId,
+  onOpened,
+  onConverted,
 }: {
   settings: Settings;
   tracks: Track[];
   blocks: Block[];
   onChange: (s: Settings) => void;
   onImportAudio: () => Promise<Track[]>;
+  /** Abrir esta campaña en el editor (p. ej. recién pasada desde Eventos) */
+  openId?: string;
+  onOpened?: () => void;
+  /** Tras pasar una campaña a evento: abrirlo allí */
+  onConverted?: (eventId: string) => void;
 }) {
   const [draft, setDraft] = useState<Campaign | null>(null);
   const [error, setError] = useState("");
@@ -1155,9 +1180,35 @@ function CampaignsTab({
     });
   };
 
+  useEffect(() => {
+    if (!openId) return;
+    const c = (s.campaigns ?? []).find((x) => x.id === openId);
+    if (c) edit(c);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
+
+  /** Pasa la campaña que se edita a Eventos (y la abre allí). */
+  const convertToEvent = async () => {
+    if (!draft) return;
+    const why = campaignToEventBlocker(draft, blocks);
+    if (why) {
+      setError(why);
+      return;
+    }
+    const label = draft.name.trim() || "esta campaña";
+    if (!(await confirmAsk(`¿Pasar «${label}» a Eventos? Deja de estar en Campañas.`, "Pasar a evento"))) return;
+    const ev = campaignToEvent(draft);
+    onChange({ ...s, campaigns: s.campaigns.filter((x) => x.id !== draft.id), events: [...s.events, ev] });
+    setDraft(null);
+    setError("");
+    onConverted?.(ev.id);
+  };
+
   if (draft) {
     return (
       <CampaignEditor
+        onConvert={() => void convertToEvent()}
         draft={draft}
         setDraft={setDraft}
         error={error}
@@ -1276,7 +1327,9 @@ function CampaignEditor({
   onCancel,
   importing,
   onImport,
+  onConvert,
 }: {
+  onConvert: () => void;
   draft: Campaign;
   setDraft: (c: Campaign | null) => void;
   error: string;
@@ -1327,6 +1380,18 @@ function CampaignEditor({
 
       <fieldset className="fieldset">
         <legend>Datos</legend>
+        <label className="field">
+          <span className="field-label">Programar como</span>
+          <select value="campaign" onChange={(e) => e.target.value === "event" && onConvert()}>
+            <option value="campaign">Campaña</option>
+            <option value="event">Evento (una pista a una hora)</option>
+          </select>
+          <Help>
+            Una <strong>campaña</strong> emite cuñas o jingles en pases, rotándolos, con fechas de inicio y fin. Un{" "}
+            <strong>evento</strong> lanza una pista (o una franja AutoDJ, o un audio de internet) a una hora. Para pasarla
+            a evento debe tener una sola cuña.
+          </Help>
+        </label>
         <div className="field-row">
           <label className="field">
             <span className="field-label">Nombre</span>

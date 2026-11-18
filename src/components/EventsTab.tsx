@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { eventToCampaign, eventToCampaignBlocker } from "../convertSchedule";
 import { DEFAULT_AIR_MINS, DEFAULT_EVENT_DAYS, DEFAULT_SLOT_DAYS, isLatest, isPooled, pickLatest, randomPool } from "../eventPick";
 import type {
   Block,
@@ -180,6 +181,9 @@ export function EventsTab({
   onChange,
   onImportAudio,
   onLaunchEvent,
+  openId,
+  onOpened,
+  onConverted,
 }: {
   settings: Settings;
   tracks: Track[];
@@ -187,6 +191,11 @@ export function EventsTab({
   onChange: (s: Settings) => void;
   onImportAudio: () => Promise<Track[]>;
   onLaunchEvent: (event: StationEvent) => void;
+  /** Abrir este evento en el editor (p. ej. recién pasado desde Campañas) */
+  openId?: string;
+  onOpened?: () => void;
+  /** Tras pasar un evento a campaña: abrirla allí */
+  onConverted?: (campaignId: string) => void;
 }) {
   const [draft, setDraft] = useState<StationEvent | null>(null);
   const [error, setError] = useState("");
@@ -220,6 +229,35 @@ export function EventsTab({
       })),
       meta: { ...EMPTY_STREAM_META, ...(event.meta ?? {}) },
     });
+  };
+
+  useEffect(() => {
+    if (!openId) return;
+    const ev = settings.events.find((e) => e.id === openId);
+    if (ev) edit(ev);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
+
+  /** Pasa el evento que se edita a Campañas (y lo abre allí). */
+  const convertToCampaign = async () => {
+    if (!draft) return;
+    const why = eventToCampaignBlocker(draft);
+    if (why) {
+      setError(why);
+      return;
+    }
+    const label = draft.name.trim() || "este evento";
+    if (!(await confirmAsk(`¿Pasar «${label}» a Campañas? Deja de estar en Eventos.`, "Pasar a campaña"))) return;
+    const c = eventToCampaign(draft, tracks);
+    onChange({
+      ...settings,
+      events: settings.events.filter((e) => e.id !== draft.id),
+      campaigns: [...(settings.campaigns ?? []), c],
+    });
+    setDraft(null);
+    setError("");
+    onConverted?.(c.id);
   };
 
   const save = () => {
@@ -379,6 +417,7 @@ export function EventsTab({
           setError("");
         }}
         importing={importing}
+        onConvert={() => void convertToCampaign()}
         onImport={async () => {
           setImporting(true);
           try {
@@ -521,7 +560,9 @@ function EventEditor({
   onCancel,
   importing,
   onImport,
+  onConvert,
 }: {
+  onConvert: () => void;
   draft: StationEvent;
   setDraft: (event: StationEvent | null) => void;
   error: string;
@@ -628,6 +669,18 @@ function EventEditor({
 
       <fieldset className="fieldset">
         <legend>Datos</legend>
+        <label className="field">
+          <span className="field-label">Programar como</span>
+          <select value="event" onChange={(e) => e.target.value === "campaign" && onConvert()}>
+            <option value="event">Evento</option>
+            <option value="campaign">Campaña (cuñas y jingles por pases)</option>
+          </select>
+          <Help>
+            Un <strong>evento</strong> cambia la programación a una hora (una franja AutoDJ, una pista o un audio de
+            internet). Una <strong>campaña</strong> emite cuñas o jingles en pases, rotándolos, con fechas de inicio y
+            fin. Al cambiarlo se conservan el nombre, las franjas, las horas, los metadatos y las pistas.
+          </Help>
+        </label>
         <div className="field-row">
           <label className="field">
             <span className="field-label">Nombre</span>
