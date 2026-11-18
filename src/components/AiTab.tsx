@@ -20,7 +20,7 @@ const CLOUD_SERVICES: Array<{ id: string; label: string; url: string; hint: stri
   { id: "mistral", label: "Mistral (capa gratuita)", url: "https://api.mistral.ai/v1", hint: "mistral-small-latest", model: "mistral-small-latest" },
   { id: "deepseek", label: "DeepSeek (muy barato)", url: "https://api.deepseek.com/v1", hint: "deepseek-chat", model: "deepseek-chat" },
   { id: "openai", label: "OpenAI", url: "https://api.openai.com/v1", hint: "gpt-4o-mini", model: "gpt-4o-mini" },
-  { id: "custom", label: "Otro (compatible OpenAI)", url: "", hint: "", model: "" },
+  { id: "custom", label: "Otro servicio", url: "", hint: "", model: "" },
 ];
 
 function serviceIdOf(url: string | undefined): string {
@@ -145,7 +145,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
       </fieldset>
 
       <fieldset className="fieldset">
-        <legend>Análisis de metadatos con IA local</legend>
+        <legend>Motor de IA</legend>
         <label className="field">
           <span className="field-label">Motor</span>
           <select
@@ -156,19 +156,17 @@ export function AiTab({ settings, onChange, showToast }: Props) {
               setAi({ provider: e.target.value as typeof ai.provider });
             }}
           >
-            <option value="ollama">Ollama (servidor local)</option>
-            <option value="opencode">OpenCode (CLI opencode run)</option>
-            <option value="cloud">En la nube (compatible OpenAI)</option>
+            <option value="ollama">Ollama (en este equipo o en la red)</option>
+            <option value="opencode">OpenCode (programa instalado)</option>
+            <option value="cloud">Servicio en la nube</option>
           </select>
         </label>
         {provider === "cloud" && (
           <>
             <Help>
-              Usa un servicio <strong>compatible con OpenAI</strong> en la nube (OpenAI, Groq,
-              Gemini…) para proponer idioma, estilo y etiquetas a partir de los metadatos de cada
-              canción. No se sube el audio: solo se envían título, artista, álbum, año, estilo,
-              etiquetas y nombre del archivo. Las propuestas se revisan y se aceptan una a una
-              antes de guardarlas.
+              La IA propone idioma, estilo, etiquetas, energía, mood y temas a partir de los datos de
+              cada canción (título, artista, álbum, año, estilo y letra si la hay). No se sube el
+              audio. Vale OpenCode, OpenRouter, Groq, Gemini, OpenAI…
             </Help>
             <div className="field-row">
               <label className="field">
@@ -202,7 +200,7 @@ export function AiTab({ settings, onChange, showToast }: Props) {
             </div>
             {serviceIdOf(ai.cloudUrl) === "custom" && (
               <label className="field">
-                <span className="field-label">Dirección del servicio (compatible OpenAI)</span>
+                <span className="field-label">Dirección del servicio</span>
                 <input
                   type="text"
                   value={ai.cloudUrl ?? ""}

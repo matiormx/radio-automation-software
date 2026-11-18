@@ -1219,8 +1219,8 @@ function MusicBrowserBase({
           type="button"
           className="btn btn-sm icon-only"
           onClick={() => void openAnalyzer()}
-          title="Analizar idioma y estilos con IA local"
-          aria-label="Analizar idioma y estilos con IA local"
+          title="Completar metadatos con IA"
+          aria-label="Completar metadatos con IA"
         >
           <IconSparkles size={14} />
         </button>
