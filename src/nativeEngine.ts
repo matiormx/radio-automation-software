@@ -32,7 +32,7 @@ interface StatePayload {
   streamDbR?: number;
 }
 
-type MixerSlice = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId">;
+type MixerSlice = Pick<Settings, "mixerChannels" | "mixerBuses" | "monitorBusId" | "listenChannelIds">;
 
 /**
  * Arranque y parada del motor en orden estricto: al cambiar de motor (o al
@@ -219,6 +219,7 @@ export class NativePlayer {
         mixerChannels: cfg.mixerChannels ?? [],
         mixerBuses: cfg.mixerBuses ?? [],
         monitorBusId: cfg.monitorBusId ?? "",
+        listenChannelIds: cfg.listenChannelIds ?? [],
       },
     });
   }

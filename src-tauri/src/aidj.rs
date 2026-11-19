@@ -361,14 +361,41 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// La escucha toma canales de la consola (p. ej. solo micrófonos) en vez de
+/// lo que sale al aire.
+static CHAN_SOURCE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_channel_source(on: bool) {
+    CHAN_SOURCE.store(on, Ordering::Relaxed);
+}
+
 /// Audio que sale al aire (lo llama el envío a los encoders). Barato: solo
-/// copia si la escucha está activa.
+/// copia si la escucha está activa y no hay canales elegidos para ella.
 pub fn feed(data: &[u8]) {
-    if !LISTENING.load(Ordering::Relaxed) {
+    if !LISTENING.load(Ordering::Relaxed) || CHAN_SOURCE.load(Ordering::Relaxed) {
         return;
     }
     if let Ok(mut r) = RING.try_lock() {
         r.extend(data.iter().copied());
+        let max = CHUNK_SECS * RATE * 4;
+        let extra = r.len().saturating_sub(max);
+        if extra > 0 {
+            r.drain(..extra);
+        }
+    }
+}
+
+/// Audio de los canales elegidos para la escucha (f32 estéreo intercalado a 48 kHz,
+/// desde el hilo de audio): sin bloquear ni reservar memoria si se puede.
+pub fn feed_f32(buf: &[f32]) {
+    if !LISTENING.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Ok(mut r) = RING.try_lock() {
+        for s in buf {
+            let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+            r.extend(v.to_le_bytes());
+        }
         let max = CHUNK_SECS * RATE * 4;
         let extra = r.len().saturating_sub(max);
         if extra > 0 {

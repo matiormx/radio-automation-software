@@ -357,6 +357,41 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           propone canciones según lo hablado.
         </Help>
         {ai.listenLive && (
+          <div className="field">
+            <span className="field-label">Qué escucha</span>
+            {(settings.mixerChannels ?? []).length === 0 && <p className="hint">La consola no tiene canales.</p>}
+            {(settings.mixerChannels ?? []).map((ch) => {
+              const ids = settings.listenChannelIds ?? [];
+              const on = ids.includes(ch.id);
+              return (
+                <label key={ch.id} className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={(e) =>
+                      onChange({
+                        ...settings,
+                        listenChannelIds: e.target.checked ? [...ids, ch.id] : ids.filter((x) => x !== ch.id),
+                      })
+                    }
+                  />
+                  {ch.name || "Canal"}
+                </label>
+              );
+            })}
+            <p className="hint">
+              {(settings.listenChannelIds ?? []).length
+                ? "Solo oye los canales marcados."
+                : "Sin ninguno marcado oye lo que sale al aire (voces y música)."}
+            </p>
+            <Help>
+              Marca solo los micrófonos: la música no se mezcla en la transcripción y entiende mejor lo hablado.
+              También se marca en la Consola con el botón «IA» de cada canal. Se escucha tras el fader: con el
+              micro cerrado no oye nada.
+            </Help>
+          </div>
+        )}
+        {ai.listenLive && (
           <p className="form-error">
             ⚠ Gasta bastante procesador: en equipos de 4 núcleos con vídeo o muchos plugins puede
             provocar cortes. Funciona a prioridad mínima, pero si notas el audio entrecortado,

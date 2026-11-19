@@ -1052,6 +1052,8 @@ export interface Settings {
   ai: AiSettings;
   /** Bus cuya señal muestra el VU de salida; "" = salida general */
   monitorBusId: string;
+  /** Canales que escucha la IA (Whisper); vacío = lo que sale al aire */
+  listenChannelIds?: string[];
   /** Tarjeta de salida del Master; "" = salida predeterminada del sistema */
   masterOutputDeviceId: string;
   /** Tarjeta de salida de monitorizacion/cue; "" = predeterminada */

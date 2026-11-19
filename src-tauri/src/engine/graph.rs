@@ -144,6 +144,8 @@ pub struct MixConfig {
     pub mixer_channels: Vec<ChannelCfg>,
     pub mixer_buses: Vec<BusCfg>,
     pub monitor_bus_id: String,
+    /// Canales que escucha la IA (Whisper); vacío = lo que sale al aire.
+    pub listen_channel_ids: Vec<String>,
 }
 
 /// Fuente de un canal.
@@ -249,6 +251,8 @@ struct Chan {
     insert: Option<usize>,
     sync: bool,
     delay: DelayLine,
+    /// Va a la escucha de la IA
+    listen: bool,
 }
 
 /// Linea de retardo (compensacion de latencia de los canales sincronizados).
@@ -326,6 +330,10 @@ pub struct Plan {
     pub inputs: Vec<String>,
     /// Bus que se mide en el VU (si no, la salida predeterminada)
     monitor_bus: Option<usize>,
+    /// Hay canales elegidos para la escucha de la IA
+    listen_any: bool,
+    /// Suma de esos canales (tras su fader)
+    listen: Vec<f32>,
     stream_out: Option<usize>,
     default_out: usize,
     pub monitor: Vec<f32>,
@@ -585,7 +593,7 @@ impl Plan {
             let pc = prev.and_then(|p| p.chans.iter().find(|x| x.key == key));
             let leveler = Leveler::new(&c.leveler).map(|lv| lv.carry(pc.and_then(|x| x.leveler.as_ref())));
             let comp = Compressor::new(&c.compressor).map(|x| x.carry(pc.and_then(|y| y.comp.as_ref())));
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert, sync: c.sync, delay: DelayLine::new(c.sync) });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert, sync: c.sync, delay: DelayLine::new(c.sync), listen: cfg.listen_channel_ids.iter().any(|x| *x == c.id) });
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -603,6 +611,8 @@ impl Plan {
         } else {
             cfg.mixer_buses.iter().position(|b| b.id == cfg.monitor_bus_id)
         };
+        let listen_any = chans.iter().any(|c| c.listen);
+        crate::aidj::set_channel_source(listen_any);
         let stream_out = outs.iter().position(|o| o.is_stream);
         let insert_sends: Vec<InsertSend> =
             inserts.iter().map(|i| InsertSend { device: i.send_device.clone(), buf: buf() }).collect();
@@ -612,6 +622,8 @@ impl Plan {
             outs,
             inputs,
             monitor_bus,
+            listen_any,
+            listen: buf(),
             stream_out,
             default_out,
             monitor: buf(),
@@ -720,6 +732,9 @@ impl Plan {
         }
         let silence: &[f32] = &[];
         self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
+        if self.listen_any {
+            self.listen[..n].iter_mut().for_each(|x| *x = 0.0);
+        }
         // Latencia de plugins del canal mas lento del grupo sincronizado.
         let sync_max: u32 = self
             .chans
@@ -810,6 +825,11 @@ impl Plan {
             tmp.iter_mut().for_each(|x| *x = 0.0);
             add_scaled2(tmp, &src[..n], gl, gr);
             c.meter.feed(tmp);
+            if c.listen {
+                for (o, v) in self.listen[..n].iter_mut().zip(tmp.iter()) {
+                    *o += *v;
+                }
+            }
             if c.src != Source::Call {
                 for (o, v) in self.ret[..n].iter_mut().zip(tmp.iter()) {
                     *o += *v;
@@ -878,6 +898,9 @@ impl Plan {
             scale(&mut o.buf[..n], g);
             // Nada pasa de -1 dBFS: sin recorte duro en la tarjeta ni en el streaming.
             o.limiter.process(&mut o.buf[..n]);
+        }
+        if self.listen_any {
+            crate::aidj::feed_f32(&self.listen[..n]);
         }
         if self.monitor_bus.is_none() {
             self.monitor[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]);

@@ -834,7 +834,12 @@ function MixerBoard({
         },
       ],
     });
-  const removeChannel = (id: string) => commit({ ...s, mixerChannels: channels.filter((c) => c.id !== id) });
+  const removeChannel = (id: string) =>
+    commit({
+      ...s,
+      mixerChannels: channels.filter((c) => c.id !== id),
+      listenChannelIds: (s.listenChannelIds ?? []).filter((x) => x !== id),
+    });
 
   // Arrastrar: canales y buses para ordenarlos; plugins entre canales/buses
   // (mover, o copiar con Ctrl/Alt: la copia lleva los mismos ajustes).
@@ -1013,6 +1018,15 @@ function MixerBoard({
             outputs={outputs}
             meters={meters}
             isNative={isNative}
+            isListen={(s.listenChannelIds ?? []).includes(ch.id)}
+            onListen={(on) =>
+              commit({
+                ...s,
+                listenChannelIds: on
+                  ? [...(s.listenChannelIds ?? []).filter((x) => x !== ch.id), ch.id]
+                  : (s.listenChannelIds ?? []).filter((x) => x !== ch.id),
+              })
+            }
             latency={latencyAdvice(ch, channels, lat)}
             onPatch={(patch) => patchChannel(ch.id, patch)}
             onRemove={() => removeChannel(ch.id)}
@@ -1122,6 +1136,8 @@ function ChannelStrip({
   outputs,
   meters,
   isNative,
+  isListen,
+  onListen,
   latency,
   onPatch,
   onRemove,
@@ -1134,6 +1150,8 @@ function ChannelStrip({
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
   isNative: boolean;
+  isListen?: boolean;
+  onListen?: (on: boolean) => void;
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
@@ -1186,7 +1204,24 @@ function ChannelStrip({
       <Grip label={ch.name} onPointerDown={(e) => beginDrag(e, { kind: "strip", id: ch.id, group: "chan", label: ch.name })} />
       <div className="mx-top">
       <div className="mx-section">
-        <span className="mx-label">ENTRADA</span>
+        <span className="mx-label mx-label-row">
+          ENTRADA
+          {onListen && (
+            <button
+              type="button"
+              className={`mx-ia ${isListen ? "mx-on" : ""}`}
+              aria-pressed={!!isListen}
+              title={
+                isListen
+                  ? "La IA escucha este canal (Whisper). Pulsa para quitarlo."
+                  : "Que la IA escuche este canal (Whisper). Si eliges alguno, solo oye esos canales y no lo que sale al aire."
+              }
+              onClick={() => onListen(!isListen)}
+            >
+              IA
+            </button>
+          )}
+        </span>
         <button type="button" className="mx-slot" title={inputLabel} onClick={() => setPop(pop === "in" ? "" : "in")}>
           {inputLabel}
         </button>
