@@ -834,12 +834,7 @@ function MixerBoard({
         },
       ],
     });
-  const removeChannel = (id: string) =>
-    commit({
-      ...s,
-      mixerChannels: channels.filter((c) => c.id !== id),
-      listenChannelIds: (s.listenChannelIds ?? []).filter((x) => x !== id),
-    });
+  const removeChannel = (id: string) => commit({ ...s, mixerChannels: channels.filter((c) => c.id !== id) });
 
   // Arrastrar: canales y buses para ordenarlos; plugins entre canales/buses
   // (mover, o copiar con Ctrl/Alt: la copia lleva los mismos ajustes).
@@ -1018,15 +1013,6 @@ function MixerBoard({
             outputs={outputs}
             meters={meters}
             isNative={isNative}
-            isListen={(s.listenChannelIds ?? []).includes(ch.id)}
-            onListen={(on) =>
-              commit({
-                ...s,
-                listenChannelIds: on
-                  ? [...(s.listenChannelIds ?? []).filter((x) => x !== ch.id), ch.id]
-                  : (s.listenChannelIds ?? []).filter((x) => x !== ch.id),
-              })
-            }
             latency={latencyAdvice(ch, channels, lat)}
             onPatch={(patch) => patchChannel(ch.id, patch)}
             onRemove={() => removeChannel(ch.id)}
@@ -1136,8 +1122,6 @@ function ChannelStrip({
   outputs,
   meters,
   isNative,
-  isListen,
-  onListen,
   latency,
   onPatch,
   onRemove,
@@ -1150,8 +1134,6 @@ function ChannelStrip({
   outputs: Device[];
   meters: React.MutableRefObject<MeterMap>;
   isNative: boolean;
-  isListen?: boolean;
-  onListen?: (on: boolean) => void;
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
@@ -1186,6 +1168,8 @@ function ChannelStrip({
         ? "Ninguna"
         : ch.output.id === "streaming"
         ? "Streaming"
+        : ch.output.id === "whisper"
+        ? "IA (Whisper)"
         : ch.output.id === "default" || !ch.output.id
           ? "Predeterminada"
           : outputs.find((d) => d.id === ch.output.id)?.label ?? "Salida";
@@ -1204,24 +1188,7 @@ function ChannelStrip({
       <Grip label={ch.name} onPointerDown={(e) => beginDrag(e, { kind: "strip", id: ch.id, group: "chan", label: ch.name })} />
       <div className="mx-top">
       <div className="mx-section">
-        <span className="mx-label mx-label-row">
-          ENTRADA
-          {onListen && (
-            <button
-              type="button"
-              className={`mx-ia ${isListen ? "mx-on" : ""}`}
-              aria-pressed={!!isListen}
-              title={
-                isListen
-                  ? "La IA escucha este canal (Whisper). Pulsa para quitarlo."
-                  : "Que la IA escuche este canal (Whisper). Si eliges alguno, solo oye esos canales y no lo que sale al aire."
-              }
-              onClick={() => onListen(!isListen)}
-            >
-              IA
-            </button>
-          )}
-        </span>
+        <span className="mx-label">ENTRADA</span>
         <button type="button" className="mx-slot" title={inputLabel} onClick={() => setPop(pop === "in" ? "" : "in")}>
           {inputLabel}
         </button>
@@ -1502,6 +1469,7 @@ function ChannelStrip({
               )}
               <optgroup label="Emisión">
                 <option value="device:streaming">Streaming (encoders)</option>
+                <option value="device:whisper">IA (Whisper, solo escucha)</option>
                 <option value="device:none">Ninguna (solo envíos)</option>
               </optgroup>
               <optgroup label="Tarjetas">
@@ -1606,13 +1574,14 @@ function BusStrip({
   const out = bus.outputDeviceId || "default";
   const extras = bus.extraOutputIds ?? [];
   const nameOf = (id: string) =>
-    id === "none" ? "Ninguna" : id === "streaming" ? "Streaming" : id === "default" ? "Predeterminada" : outputs.find((d) => d.id === id)?.label ?? "Salida";
+    id === "none" ? "Ninguna" : id === "streaming" ? "Streaming" : id === "whisper" ? "IA (Whisper)" : id === "default" ? "Predeterminada" : outputs.find((d) => d.id === id)?.label ?? "Salida";
   const allOuts = busOutputs(bus);
   const outputLabel = allOuts.length === 0 ? "Ninguna" : allOuts.length === 1 ? nameOf(allOuts[0]) : `${nameOf(allOuts[0])} +${allOuts.length - 1}`;
   const outputTitle = allOuts.length > 1 ? allOuts.map(nameOf).join(" · ") : outputLabel;
   const outOptions = (withNone: boolean) => (
     <>
       <option value="streaming">Streaming (encoders)</option>
+      <option value="whisper">IA (Whisper, solo escucha)</option>
       {withNone && <option value="none">Ninguna (solo envíos)</option>}
       <option value="default">Salida predeterminada</option>
       {outputs.map((d) => (

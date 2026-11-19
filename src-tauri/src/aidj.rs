@@ -361,7 +361,7 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// La escucha toma canales de la consola (p. ej. solo micrófonos) en vez de
+/// La escucha toma la salida virtual «IA» de la consola (p. ej. solo micrófonos) en vez de
 /// lo que sale al aire.
 static CHAN_SOURCE: AtomicBool = AtomicBool::new(false);
 
@@ -370,7 +370,7 @@ pub fn set_channel_source(on: bool) {
 }
 
 /// Audio que sale al aire (lo llama el envío a los encoders). Barato: solo
-/// copia si la escucha está activa y no hay canales elegidos para ella.
+/// copia si la escucha está activa y nada va a la salida «IA» de la consola.
 pub fn feed(data: &[u8]) {
     if !LISTENING.load(Ordering::Relaxed) || CHAN_SOURCE.load(Ordering::Relaxed) {
         return;
@@ -385,7 +385,7 @@ pub fn feed(data: &[u8]) {
     }
 }
 
-/// Audio de los canales elegidos para la escucha (f32 estéreo intercalado a 48 kHz,
+/// Audio de la salida virtual «IA» de la consola (f32 estéreo intercalado a 48 kHz,
 /// desde el hilo de audio): sin bloquear ni reservar memoria si se puede.
 pub fn feed_f32(buf: &[f32]) {
     if !LISTENING.load(Ordering::Relaxed) {

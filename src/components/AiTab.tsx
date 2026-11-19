@@ -356,41 +356,11 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           (Whisper, en este equipo; el audio no sale de él). Al terminar el directo, el asistente
           propone canciones según lo hablado.
         </Help>
-        {ai.listenLive && (
-          <div className="field">
-            <span className="field-label">Qué escucha</span>
-            {(settings.mixerChannels ?? []).length === 0 && <p className="hint">La consola no tiene canales.</p>}
-            {(settings.mixerChannels ?? []).map((ch) => {
-              const ids = settings.listenChannelIds ?? [];
-              const on = ids.includes(ch.id);
-              return (
-                <label key={ch.id} className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={(e) =>
-                      onChange({
-                        ...settings,
-                        listenChannelIds: e.target.checked ? [...ids, ch.id] : ids.filter((x) => x !== ch.id),
-                      })
-                    }
-                  />
-                  {ch.name || "Canal"}
-                </label>
-              );
-            })}
-            <p className="hint">
-              {(settings.listenChannelIds ?? []).length
-                ? "Solo oye los canales marcados."
-                : "Sin ninguno marcado oye lo que sale al aire (voces y música)."}
-            </p>
-            <Help>
-              Marca solo los micrófonos: la música no se mezcla en la transcripción y entiende mejor lo hablado.
-              También se marca en la Consola con el botón «IA» de cada canal. Se escucha tras el fader: con el
-              micro cerrado no oye nada.
-            </Help>
-          </div>
-        )}
+        <Help>
+          Para que solo oiga las voces: en la Consola, manda los micrófonos a un bus (con un envío) y añade a ese
+          bus la salida <strong>«IA (Whisper)»</strong>. Si algo va a esa salida, la IA oye solo eso en lugar de lo
+          que sale al aire, y la música no se mezcla en la transcripción.
+        </Help>
         {ai.listenLive && (
           <p className="form-error">
             ⚠ Gasta bastante procesador: en equipos de 4 núcleos con vídeo o muchos plugins puede

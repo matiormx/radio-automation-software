@@ -284,7 +284,7 @@ fn apply_mixer(shared: &SharedRef, io: &Arc<Io>, vst_used: &AtomicBool, config: 
         let mut g = lock(shared);
         let vol = g.core.volume();
         let plan = Plan::build(&config, vol, Some(&g.core.plan));
-        let devices: Vec<String> = plan.outs.iter().filter(|o| o.device != graph::NONE_DEVICE).map(|o| o.device.clone()).collect();
+        let devices: Vec<String> = plan.outs.iter().filter(|o| o.device != graph::NONE_DEVICE && o.device != graph::IA_DEVICE).map(|o| o.device.clone()).collect();
         let (sends, returns) = plan.insert_devices();
         io.set_route(devices, sends, returns);
         g.core.swap_plan(plan)

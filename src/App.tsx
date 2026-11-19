@@ -1332,7 +1332,7 @@ export default function App() {
     } else {
       mixerRef.current?.apply(settings);
     }
-  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, settings.listenChannelIds, native]);
+  }, [settings.mixerChannels, settings.mixerBuses, settings.monitorBusId, native]);
 
   // Llamadas al aire de NGRADIO: conexion con el worker y entrada a la consola.
   useEffect(() => {

@@ -310,8 +310,6 @@ pub struct Settings {
     pub ai: AiSettings,
     /// Bus cuya señal muestra el VU de salida; vacio = salida general.
     pub monitor_bus_id: String,
-    /// Canales que escucha la IA (Whisper); vacio = lo que sale al aire.
-    pub listen_channel_ids: Vec<String>,
     /// Tarjeta de salida del Master; vacio = salida predeterminada.
     pub master_output_device_id: String,
     /// Tarjeta de salida de monitorizacion/preescucha; vacio = predeterminada.
@@ -1114,7 +1112,6 @@ impl Default for Settings {
             audio_devices: Vec::new(),
             ai: AiSettings::default(),
             monitor_bus_id: String::new(),
-            listen_channel_ids: Vec::new(),
             master_output_device_id: String::new(),
             monitor_output_device_id: String::new(),
             video: VideoSettings::default(),

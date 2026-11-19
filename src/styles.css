@@ -3853,14 +3853,6 @@ span.mwait {
 .mx-mono.mx-on { background: #4f8cff; border-color: #4f8cff; color: #fff; }
 .mx-solo.mx-on { background: #e8c547; border-color: #e8c547; color: #1a1500; }
 .mx-mute.mx-on { background: #e8833a; border-color: #e8833a; color: #1d0e00; }
-.mx-label-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.mx-ia {
-  font: inherit; font-size: 9.5px; letter-spacing: .4px; line-height: 1;
-  padding: 2px 4px; border-radius: 3px; cursor: pointer;
-  border: 1px solid var(--border); background: transparent; color: var(--text-faint);
-}
-.mx-ia:hover { color: var(--text); }
-.mx-ia.mx-on { background: #9b7bff; border-color: #9b7bff; color: #12082a; }
 .mx-fader-row { flex: 1; min-height: 140px; display: flex; justify-content: center; gap: 6px; padding: 4px 0; }
 .mx-fader { position: relative; width: 44px; cursor: ns-resize; touch-action: none; outline-offset: 2px; }
 .mx-fader-slot { position: absolute; left: 50%; top: 6px; bottom: 6px; width: 4px; margin-left: -2px; border-radius: 2px; background: #05070a; box-shadow: inset 0 0 0 1px #262c37; }

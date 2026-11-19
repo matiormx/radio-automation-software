@@ -23,6 +23,8 @@ import { Leveler, levelerOf } from "./leveler";
 const DEFAULT_DEVICE = "default";
 /** Salida virtual: lo que entra a los encoders de streaming */
 export const STREAM_DEVICE = "streaming";
+/** Salida virtual: lo que llega aquí lo escucha la IA (Whisper), no suena. */
+export const IA_DEVICE = "whisper";
 /** Salida «Ninguna»: no va a ninguna tarjeta */
 export const NONE_DEVICE = "none";
 export const MIN_GAIN_DB = -60;
@@ -877,6 +879,11 @@ export class SoundMixer {
     if (existing) return existing.gain;
 
     const gain = this.ctx.createGain();
+    if (id === IA_DEVICE) {
+      // Salida virtual de la escucha de la IA: solo existe en el motor nativo.
+      this.deviceMixes.set(id, { gain });
+      return gain;
+    }
     if (id === STREAM_DEVICE) {
       // El volumen maestro es la escucha local: no debe cambiar la emision.
       gain.gain.value = 1;

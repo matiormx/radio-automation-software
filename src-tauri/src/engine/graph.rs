@@ -14,6 +14,8 @@ pub const DEFAULT_DEVICE: &str = "default";
 pub const STREAM_DEVICE: &str = "streaming";
 /// Salida «Ninguna»: la senal no va a ninguna tarjeta (solo envios).
 pub const NONE_DEVICE: &str = "none";
+/// Salida virtual: lo que llega aquí lo escucha la IA (Whisper), no suena.
+pub const IA_DEVICE: &str = "whisper";
 pub const MIN_GAIN_DB: f64 = -60.0;
 pub const MAX_GAIN_DB: f64 = 12.0;
 /// Frames maximos por bloque; bloques mayores se parten.
@@ -144,8 +146,6 @@ pub struct MixConfig {
     pub mixer_channels: Vec<ChannelCfg>,
     pub mixer_buses: Vec<BusCfg>,
     pub monitor_bus_id: String,
-    /// Canales que escucha la IA (Whisper); vacío = lo que sale al aire.
-    pub listen_channel_ids: Vec<String>,
 }
 
 /// Fuente de un canal.
@@ -251,8 +251,6 @@ struct Chan {
     insert: Option<usize>,
     sync: bool,
     delay: DelayLine,
-    /// Va a la escucha de la IA
-    listen: bool,
 }
 
 /// Linea de retardo (compensacion de latencia de los canales sincronizados).
@@ -330,10 +328,8 @@ pub struct Plan {
     pub inputs: Vec<String>,
     /// Bus que se mide en el VU (si no, la salida predeterminada)
     monitor_bus: Option<usize>,
-    /// Hay canales elegidos para la escucha de la IA
-    listen_any: bool,
-    /// Suma de esos canales (tras su fader)
-    listen: Vec<f32>,
+    /// Salida virtual «IA (Whisper)», si algo va a ella
+    ia_out: Option<usize>,
     stream_out: Option<usize>,
     default_out: usize,
     pub monitor: Vec<f32>,
@@ -475,8 +471,9 @@ impl Plan {
             if let Some(i) = outs.iter().position(|o| o.device == d) {
                 return i;
             }
+            // Streaming e IA no llevan el volumen maestro
             let is_stream = d == STREAM_DEVICE;
-            let v = if is_stream { 1.0 } else { volume };
+            let v = if is_stream || d == IA_DEVICE { 1.0 } else { volume };
             outs.push(Out { device: d, buf: buf(), is_stream, vol: Smooth::new(v), limiter: Limiter::default() });
             outs.len() - 1
         };
@@ -593,7 +590,7 @@ impl Plan {
             let pc = prev.and_then(|p| p.chans.iter().find(|x| x.key == key));
             let leveler = Leveler::new(&c.leveler).map(|lv| lv.carry(pc.and_then(|x| x.leveler.as_ref())));
             let comp = Compressor::new(&c.compressor).map(|x| x.carry(pc.and_then(|y| y.comp.as_ref())));
-            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert, sync: c.sync, delay: DelayLine::new(c.sync), listen: cfg.listen_channel_ids.iter().any(|x| *x == c.id) });
+            chans.push(Chan { gl, gr, key, src, dest, sends, meter: Meter::default(), pan: c.pan, open, input_gain, agc, leveler, comp, fx: fx_of(&c.plugins), mono: match c.mono_mode.as_str() { "sum" => 1, "left" => 2, "right" => 3, _ => 0 }, insert, sync: c.sync, delay: DelayLine::new(c.sync)});
         }
 
         // Volumen maestro: continua desde el anterior si lo habia.
@@ -611,8 +608,8 @@ impl Plan {
         } else {
             cfg.mixer_buses.iter().position(|b| b.id == cfg.monitor_bus_id)
         };
-        let listen_any = chans.iter().any(|c| c.listen);
-        crate::aidj::set_channel_source(listen_any);
+        let ia_out = outs.iter().position(|o| o.device == IA_DEVICE);
+        crate::aidj::set_channel_source(ia_out.is_some());
         let stream_out = outs.iter().position(|o| o.is_stream);
         let insert_sends: Vec<InsertSend> =
             inserts.iter().map(|i| InsertSend { device: i.send_device.clone(), buf: buf() }).collect();
@@ -622,8 +619,7 @@ impl Plan {
             outs,
             inputs,
             monitor_bus,
-            listen_any,
-            listen: buf(),
+            ia_out,
             stream_out,
             default_out,
             monitor: buf(),
@@ -693,7 +689,7 @@ impl Plan {
 
     pub fn set_volume(&mut self, v: f32) {
         for o in self.outs.iter_mut() {
-            if !o.is_stream {
+            if !o.is_stream && o.device != IA_DEVICE {
                 o.vol.target = v;
             }
         }
@@ -732,9 +728,7 @@ impl Plan {
         }
         let silence: &[f32] = &[];
         self.ret[..n].iter_mut().for_each(|x| *x = 0.0);
-        if self.listen_any {
-            self.listen[..n].iter_mut().for_each(|x| *x = 0.0);
-        }
+
         // Latencia de plugins del canal mas lento del grupo sincronizado.
         let sync_max: u32 = self
             .chans
@@ -825,11 +819,6 @@ impl Plan {
             tmp.iter_mut().for_each(|x| *x = 0.0);
             add_scaled2(tmp, &src[..n], gl, gr);
             c.meter.feed(tmp);
-            if c.listen {
-                for (o, v) in self.listen[..n].iter_mut().zip(tmp.iter()) {
-                    *o += *v;
-                }
-            }
             if c.src != Source::Call {
                 for (o, v) in self.ret[..n].iter_mut().zip(tmp.iter()) {
                     *o += *v;
@@ -899,8 +888,8 @@ impl Plan {
             // Nada pasa de -1 dBFS: sin recorte duro en la tarjeta ni en el streaming.
             o.limiter.process(&mut o.buf[..n]);
         }
-        if self.listen_any {
-            crate::aidj::feed_f32(&self.listen[..n]);
+        if let Some(i) = self.ia_out {
+            crate::aidj::feed_f32(&self.outs[i].buf[..n]);
         }
         if self.monitor_bus.is_none() {
             self.monitor[..n].copy_from_slice(&self.outs[self.default_out].buf[..n]);
