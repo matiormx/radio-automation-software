@@ -158,7 +158,7 @@ pub enum Source {
     Input(usize),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Dest {
     Bus(usize),
     Out(usize),
@@ -223,7 +223,8 @@ impl Meter {
 }
 
 struct Send {
-    bus: usize,
+    /// Un bus o la salida virtual «IA (Whisper)»
+    to: Dest,
     /// Ganancia del envio (antes del fader incluye silencio y solo del canal)
     g: Smooth,
     pre: bool,
@@ -491,10 +492,10 @@ impl Plan {
             let (cl, cr) = cur.unwrap_or((l, r));
             (Smooth { cur: cl, target: l }, Smooth { cur: cr, target: r })
         };
-        let prev_send = |key: &str, bus: usize, target: f32| -> Smooth {
+        let prev_send = |key: &str, to: Dest, target: f32| -> Smooth {
             let cur = prev
                 .and_then(|p| p.chans.iter().find(|c| c.key == key))
-                .and_then(|c| c.sends.iter().find(|s| s.bus == bus))
+                .and_then(|c| c.sends.iter().find(|s| s.to == to))
                 .map(|s| s.g.cur);
             Smooth { cur: cur.unwrap_or(target), target }
         };
@@ -567,14 +568,20 @@ impl Plan {
             let (gl, gr) = prev_lr(&key, l, r);
             let mut sends = Vec::new();
             for sc in &c.sends {
-                let Some(bus) = bus_ids.iter().position(|id| *id == sc.bus_id) else { continue };
-                // No se envia a su propio bus de salida (se sumaria dos veces).
-                if matches!(dest, Dest::Bus(d) if d == bus) {
+                // Envío directo a la escucha de la IA (sin bus de por medio)
+                let to = if sc.bus_id == IA_DEVICE {
+                    Dest::Out(out_index(IA_DEVICE, &mut outs))
+                } else {
+                    let Some(bus) = bus_ids.iter().position(|id| *id == sc.bus_id) else { continue };
+                    Dest::Bus(bus)
+                };
+                // No se envia a su propia salida (se sumaria dos veces).
+                if dest == to {
                     continue;
                 }
                 let base = if sc.muted { 0.0 } else { db_to_gain(sc.gain_db) };
                 let target = if sc.pre { if open { base } else { 0.0 } } else { base };
-                sends.push(Send { bus, g: prev_send(&key, bus, target), pre: sc.pre });
+                sends.push(Send { to, g: prev_send(&key, to, target), pre: sc.pre });
             }
             let insert = insert_of(&c.insert, &key, &mut inserts);
             let input_gain = if c.input_gain_db.is_finite() { 10f64.powf(c.input_gain_db.clamp(-60.0, 24.0) / 20.0) as f32 } else { 1.0 };
@@ -833,7 +840,10 @@ impl Plan {
             }
             for s in sends.iter_mut() {
                 let g = s.g.gains(frames);
-                let bus = &mut self.buses[s.bus].buf[..n];
+                let bus = match s.to {
+                    Dest::Bus(i) => &mut self.buses[i].buf[..n],
+                    Dest::Out(i) => &mut self.outs[i].buf[..n],
+                };
                 if s.pre {
                     add_scaled(bus, &src[..n], g);
                 } else {

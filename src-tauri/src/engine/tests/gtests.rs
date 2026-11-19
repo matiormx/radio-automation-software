@@ -284,3 +284,14 @@ fn bus_with_several_outputs_sounds_on_all() {
     assert!((l["streaming"] - 0.25).abs() < 1e-3, "{:?}", l);
     assert!((l["default"] - 0.25).abs() < 1e-3, "{:?}", l);
 }
+
+#[test]
+fn send_to_ia_reaches_whisper_output_only() {
+    let mut c = core_with_music(0.5);
+    apply(&mut c, r#"{"mixerChannels":[{"id":"m","input":{"kind":"app","app":"music"},"output":{"kind":"device","id":"default"},"gainDb":0,"muted":false,
+      "sends":[{"busId":"whisper","gainDb":-6.0206,"pre":false,"muted":false}]}],"mixerBuses":[],"monitorBusId":""}"#);
+    let l = levels(&mut c, 4096);
+    assert!((l["default"] - 0.5).abs() < 0.01);
+    // El envío llega a la salida virtual de la IA, sin volumen maestro
+    assert!((l["whisper"] - 0.25).abs() < 0.01, "{}", l["whisper"]);
+}

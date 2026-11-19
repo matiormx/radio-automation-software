@@ -16,7 +16,7 @@ import { confirmAsk, vstCopyState, vstEditor, vstLatencies } from "./api";
 import { beginDrag, registerDropZone, type DragPayload } from "./dnd";
 import { callMain, onMainState } from "./bridge";
 import { nativeDeviceOptions, nativeDevices, nativeInputs } from "./nativeEngine";
-import { MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
+import { IA_DEVICE as IA_SEND, MAX_GAIN_DB, MIN_GAIN_DB } from "./mixer";
 import type { MixerAgc, MixerBus, MixerChannel, MixerSend, PluginSlot, Settings } from "./types";
 import { busOutputs } from "./types";
 import type { SharedState } from "./SettingsWindow";
@@ -1140,7 +1140,7 @@ function ChannelStrip({
   const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "in" | "gain" | "out" | `send:${number}`>("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
-  const busName = (id: string) => buses.find((b) => b.id === id)?.name ?? "—";
+  const busName = (id: string) => (id === IA_SEND ? "IA" : buses.find((b) => b.id === id)?.name ?? "—");
   const monoMode: MonoMode = ch.monoMode === "sum" || ch.monoMode === "left" || ch.monoMode === "right" ? ch.monoMode : "off";
   const monoOn = monoMode !== "off";
   const agcMode: MixerAgc = ch.agc === "slow" || ch.agc === "fast" ? ch.agc : "off";
@@ -1174,7 +1174,10 @@ function ChannelStrip({
           ? "Predeterminada"
           : outputs.find((d) => d.id === ch.output.id)?.label ?? "Salida";
   const ownBus = ch.output.kind === "bus" ? ch.output.id : "";
-  const freeBus = buses.find((b) => b.id !== ownBus && !sends.some((x) => x.busId === b.id));
+  // Destinos libres para un envío: los buses y la escucha de la IA (Whisper).
+  const iaFree = !sends.some((x) => x.busId === IA_SEND) && !(ch.output.kind !== "bus" && ch.output.id === IA_SEND);
+  const freeBus =
+    buses.find((b) => b.id !== ownBus && !sends.some((x) => x.busId === b.id)) ?? (iaFree ? { id: IA_SEND } : undefined);
   const setSend = (i: number, patch: Partial<MixerSend> | null) => {
     const next = sends.slice();
     if (patch === null) next.splice(i, 1);
@@ -1368,7 +1371,7 @@ function ChannelStrip({
               key={i}
               type="button"
               className={`mx-slot ${sd ? (sd.muted ? "mx-slot-muted" : "mx-slot-send") : ""}`}
-              title={sd ? undefined : "Añadir un envío a otro bus"}
+              title={sd ? (sd.busId === IA_SEND ? "Envío a la escucha de la IA (Whisper)" : undefined) : "Añadir un envío a un bus o a la IA"}
               onClick={() => {
                 if (!sd) {
                   if (!freeBus) return;
@@ -1388,20 +1391,21 @@ function ChannelStrip({
             </button>
           );
         })}
-        {buses.length === 0 && <span className="mx-hint">Crea un bus para poder enviar</span>}
+
         {sends.map((sd, i) => (
           <Pop key={i} open={pop === `send:${i}`} onClose={close}>
             <div className="mx-pop-title">Envío {i + 1}</div>
             <label className="mixer-field">
-              <span>Bus</span>
+              <span>Destino</span>
               <select value={sd.busId} onChange={(e) => setSend(i, { busId: e.target.value })}>
                 {buses
                   .filter((b) => b.id === sd.busId || (b.id !== ownBus && !sends.some((x) => x.busId === b.id)))
                   .map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.name}
+                      Bus {b.name}
                     </option>
                   ))}
+                {(sd.busId === IA_SEND || iaFree) && <option value={IA_SEND}>IA (Whisper, solo escucha)</option>}
               </select>
             </label>
             <label className="mixer-field">

@@ -357,9 +357,9 @@ export function AiTab({ settings, onChange, showToast }: Props) {
           propone canciones según lo hablado.
         </Help>
         <Help>
-          Para que solo oiga las voces: en la Consola, manda los micrófonos a un bus (con un envío) y añade a ese
-          bus la salida <strong>«IA (Whisper)»</strong>. Si algo va a esa salida, la IA oye solo eso en lugar de lo
-          que sale al aire, y la música no se mezcla en la transcripción.
+          Para que solo oiga las voces: en la Consola, añade en cada micrófono un envío (SENDS) a{" "}
+          <strong>«IA»</strong>, o pon <strong>«IA (Whisper)»</strong> como salida de un bus. Si algo va a la IA, oye
+          solo eso en lugar de lo que sale al aire, y la música no se mezcla en la transcripción.
         </Help>
         {ai.listenLive && (
           <p className="form-error">
