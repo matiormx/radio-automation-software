@@ -153,18 +153,23 @@ jobs:
       # apt en pasos separados, con límite de tiempo y, si falla, las últimas
       # líneas como aviso (se ven en el resumen de la ejecución).
       - name: Librerías del sistema (lista de paquetes)
-        timeout-minutes: 6
+        timeout-minutes: 9
         run: |
           set -o pipefail
-          # El espejo de Azure va a veces lentísimo: se usa el oficial de Ubuntu.
-          # Los runners usan «mirror+file:/etc/apt/apt-mirrors.txt» con Azure primero.
+          upd() {
+            # -k: si apt no responde al aviso, se mata (antes se colgaba hasta el límite del paso)
+            timeout -k 10 "$1" sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 update >apt.log 2>&1
+          }
+          # 1.º el espejo de serie del runner (Azure); si va lento o falla, el oficial de Ubuntu.
+          if upd 180; then exit 0; fi
+          echo "::warning::El espejo de Azure no respondió; se prueba archive.ubuntu.com"
+          tail -n 5 apt.log || true
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
           sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-          grep -rh "^deb\|^URIs" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | head -3 || true
-          if ! timeout 300 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update >apt.log 2>&1; then
+          if ! upd 240; then
             tail -n 15 apt.log | sed 's/^/::error::/'; exit 1
           fi
 
