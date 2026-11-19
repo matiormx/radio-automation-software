@@ -3853,6 +3853,7 @@ span.mwait {
 .mx-mono.mx-on { background: #4f8cff; border-color: #4f8cff; color: #fff; }
 .mx-solo.mx-on { background: #e8c547; border-color: #e8c547; color: #1a1500; }
 .mx-mute.mx-on { background: #e8833a; border-color: #e8833a; color: #1d0e00; }
+.mx-pick { display: block; width: 100%; text-align: left; }
 .mx-fader-row { flex: 1; min-height: 140px; display: flex; justify-content: center; gap: 6px; padding: 4px 0; }
 .mx-fader { position: relative; width: 44px; cursor: ns-resize; touch-action: none; outline-offset: 2px; }
 .mx-fader-slot { position: absolute; left: 50%; top: 6px; bottom: 6px; width: 4px; margin-left: -2px; border-radius: 2px; background: #05070a; box-shadow: inset 0 0 0 1px #262c37; }

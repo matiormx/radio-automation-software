@@ -1137,7 +1137,7 @@ function ChannelStrip({
   onPatch: (patch: Partial<MixerChannel>) => void;
   onRemove: () => void;
 }) {
-  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "in" | "gain" | "out" | `send:${number}`>("");
+  const [pop, setPop] = useState<"" | "insert" | "leveler" | "comp" | "vst" | "in" | "gain" | "out" | "send:new" | `send:${number}`>("");
   const close = useCallback(() => setPop(""), []);
   const sends = ch.sends ?? [];
   const busName = (id: string) => (id === IA_SEND ? "IA" : buses.find((b) => b.id === id)?.name ?? "—");
@@ -1176,8 +1176,11 @@ function ChannelStrip({
   const ownBus = ch.output.kind === "bus" ? ch.output.id : "";
   // Destinos libres para un envío: los buses y la escucha de la IA (Whisper).
   const iaFree = !sends.some((x) => x.busId === IA_SEND) && !(ch.output.kind !== "bus" && ch.output.id === IA_SEND);
-  const freeBus =
-    buses.find((b) => b.id !== ownBus && !sends.some((x) => x.busId === b.id)) ?? (iaFree ? { id: IA_SEND } : undefined);
+  const freeDests: { id: string; label: string }[] = [
+    ...buses.filter((b) => b.id !== ownBus && !sends.some((x) => x.busId === b.id)).map((b) => ({ id: b.id, label: `Bus ${b.name}` })),
+    ...(iaFree ? [{ id: IA_SEND, label: "IA (Whisper, solo escucha)" }] : []),
+  ];
+  const freeBus = freeDests[0];
   const setSend = (i: number, patch: Partial<MixerSend> | null) => {
     const next = sends.slice();
     if (patch === null) next.splice(i, 1);
@@ -1372,13 +1375,7 @@ function ChannelStrip({
               type="button"
               className={`mx-slot ${sd ? (sd.muted ? "mx-slot-muted" : "mx-slot-send") : ""}`}
               title={sd ? (sd.busId === IA_SEND ? "Envío a la escucha de la IA (Whisper)" : undefined) : "Añadir un envío a un bus o a la IA"}
-              onClick={() => {
-                if (!sd) {
-                  if (!freeBus) return;
-                  onPatch({ sends: [...sends, { busId: freeBus.id, gainDb: 0, pre: false, muted: false }] });
-                }
-                setPop(`send:${i}`);
-              }}
+              onClick={() => setPop(sd ? `send:${i}` : pop === "send:new" ? "" : "send:new")}
             >
               {sd ? (
                 <>
@@ -1392,6 +1389,23 @@ function ChannelStrip({
           );
         })}
 
+        {/* «+»: primero se elige el destino; el envío se crea al elegirlo. */}
+        <Pop open={pop === "send:new"} onClose={close}>
+          <div className="mx-pop-title">Nuevo envío a…</div>
+          {freeDests.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              className="ghost-btn mx-pick"
+              onClick={() => {
+                onPatch({ sends: [...sends, { busId: d.id, gainDb: 0, pre: false, muted: false }] });
+                setPop(`send:${sends.length}`);
+              }}
+            >
+              {d.label}
+            </button>
+          ))}
+        </Pop>
         {sends.map((sd, i) => (
           <Pop key={i} open={pop === `send:${i}`} onClose={close}>
             <div className="mx-pop-title">Envío {i + 1}</div>
