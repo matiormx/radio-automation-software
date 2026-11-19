@@ -118,7 +118,7 @@ pub struct Track {
     /// «Artista del álbum» (TPE2/ALBUMARTIST): agrupa los álbumes
     #[serde(default)]
     pub album_artist: String,
-    /// Version de la lectura de etiquetas extra (1 = album_artist; 2 = todos los artistas; 3 = artistas al revés)
+    /// Version de la lectura de etiquetas extra (1 = album_artist; 2 = todos los artistas; 3 = artistas al revés; 4 = «&» como coma)
     #[serde(default)]
     pub tags_v: u8,
     /// Metadatos que cambian a lo largo de la pista (un directo grabado):
@@ -815,7 +815,7 @@ fn fill_audio_props(t: &mut Track) {
     t.audio_kbps = k;
     t.album_artist = aa;
     t.audio_checked = true;
-    t.tags_v = 3;
+    t.tags_v = 4;
     fix_swapped_artists(t);
 }
 
@@ -838,13 +838,38 @@ pub(crate) fn multi_value(v: &str) -> String {
     v.split(|c: char| c.is_control()).map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")
 }
 
-/// Todos los artistas separados por coma: «A; B», «A / B», «A feat. B» o
-/// «A ft. B» quedan «A, B» (sin repetir). «AC/DC» o «Simon & Garfunkel» no
-/// se tocan.
+/// Grupos con «&» en el nombre (no son dos artistas).
+const AMP_NAMES: [&str; 8] = [
+    "hillsong young & free",
+    "simon & garfunkel",
+    "mumford & sons",
+    "earth, wind & fire",
+    "hall & oates",
+    "brooks & dunn",
+    "big & rich",
+    "for king & country",
+];
+
+/// Todos los artistas separados por coma: «A; B», «A / B», «A & B»,
+/// «A feat. B» o «A ft. B» quedan «A, B» (sin repetir). «AC/DC» y los grupos
+/// con «&» en el nombre (Hillsong Young & Free…) no se tocan.
 pub fn normalize_artists(v: &str) -> String {
     let mut s = multi_value(v);
-    for sep in [";", " / ", " feat. ", " Feat. ", " ft. ", " Ft. ", " featuring ", " Featuring ", " feat ", " ft "] {
+    // Los grupos con «&» se protegen antes de partir.
+    let lower = s.to_lowercase();
+    let mut kept: Vec<String> = Vec::new();
+    for name in AMP_NAMES {
+        if let Some(i) = lower.find(name) {
+            let original = s[i..i + name.len()].to_string();
+            s = s.replacen(&original, &format!("\u{1}{}\u{1}", kept.len()), 1);
+            kept.push(original);
+        }
+    }
+    for sep in [";", " / ", " feat. ", " Feat. ", " ft. ", " Ft. ", " featuring ", " Featuring ", " feat ", " ft ", "&"] {
         s = s.replace(sep, ", ");
+    }
+    for (i, name) in kept.iter().enumerate() {
+        s = s.replace(&format!("\u{1}{i}\u{1}"), name);
     }
     let mut out: Vec<String> = Vec::new();
     for a in s.split(',').map(str::trim).filter(|a| !a.is_empty()) {
@@ -1389,7 +1414,7 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
         let _bg = crate::perflog::Background::enter();
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
-            .filter(|t| (!t.audio_checked || t.tags_v < 3) && Path::new(t.file.trim()).is_file())
+            .filter(|t| (!t.audio_checked || t.tags_v < 4) && Path::new(t.file.trim()).is_file())
             .map(|t| (t.id, t.file))
             .collect();
         if pending.is_empty() {
@@ -1414,7 +1439,10 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
                 if t.tags_v < 3 {
                     fix_swapped_artists(t);
                 }
-                t.tags_v = 3;
+                // «&» como separador: todos con comas
+                t.artist = normalize_artists(&t.artist);
+                t.album_artist = normalize_artists(&t.album_artist);
+                t.tags_v = 4;
                 t.audio_checked = true;
                 n += 1;
             }
@@ -2826,6 +2854,9 @@ mod artist_tests {
         assert_eq!(normalize_artists("A\u{0}B\u{0}"), "A, B");
         assert_eq!(normalize_artists("AC/DC"), "AC/DC");
         assert_eq!(normalize_artists("Simon & Garfunkel"), "Simon & Garfunkel");
+        assert_eq!(normalize_artists("Genock Gabriel& Dariann González"), "Genock Gabriel, Dariann González");
+        assert_eq!(normalize_artists("A & B & C"), "A, B, C");
+        assert_eq!(normalize_artists("Hillsong Young & Free & Lecrae"), "Hillsong Young & Free, Lecrae");
         assert_eq!(normalize_artists("A, a, B"), "A, B");
     }
 
@@ -2833,7 +2864,7 @@ mod artist_tests {
     fn swapped_artist_tags_are_fixed() {
         let mut t = super::Track { artist: "Genock Gabriel".into(), album_artist: "Genock Gabriel& Dariann González".into(), ..Default::default() };
         super::fix_swapped_artists(&mut t);
-        assert_eq!(t.artist, "Genock Gabriel& Dariann González");
+        assert_eq!(t.artist, "Genock Gabriel, Dariann González");
         assert_eq!(t.album_artist, "Genock Gabriel");
         // Lo normal no se toca
         let mut u = super::Track { artist: "A, B".into(), album_artist: "A".into(), ..Default::default() };
