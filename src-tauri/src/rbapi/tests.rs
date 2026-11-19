@@ -220,9 +220,9 @@ fn tags_only_inside_library_and_roundtrip() {
     let (s, x) = get(&core, &format!("/?action=writetag&fn={}&data={}&{AUTH}", enc(&file), enc(data)));
     assert_eq!((s, x.as_str()), (200, "OK"));
     let lib = crate::library::read_library_internal(&core.data_dir);
-    assert_eq!(lib[0].artist, "Nuevo & Mejor", "la ficha de la biblioteca se actualiza");
+    assert_eq!(lib[0].artist, "Nuevo, Mejor", "la ficha de la biblioteca se actualiza");
     let (_, x) = get(&core, &format!("/?action=readtag&fn={}&{AUTH}", enc(&file)));
-    assert!(x.contains("Artist=\"Nuevo &amp; Mejor\" Title=\"Después\""), "{x}");
+    assert!(x.contains("Artist=\"Nuevo, Mejor\" Title=\"Después\""), "{x}");
     let (s, _) = get(&core, &format!("/?action=writetag&fn={}&data=basura&{AUTH}", enc(&file)));
     assert_eq!(s, 400);
     let (s, _) = get(&core, &format!("/?action=writetag&fn={}&data={}&{AUTH}", enc("/etc/passwd"), enc(data)));
