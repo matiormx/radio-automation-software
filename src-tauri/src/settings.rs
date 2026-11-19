@@ -1511,8 +1511,10 @@ fn energy_cost(e: u8, (lo, hi): (u8, u8), want: u8, prev: u8, smooth: bool) -> u
     if lo == 0 {
         return 0;
     }
+    // Sin energía no se sabe si encaja: va detrás de lo que está en el rango
+    // o cerca de él (si no, archivos sin analizar desplazan a la música).
     let mut c = if e == 0 {
-        5
+        13
     } else {
         let d = 2 * (e as i32 - want as i32).unsigned_abs();
         // De fuera del rango, solo el paso hacia él que toca ahora no penaliza.
@@ -1643,7 +1645,11 @@ pub fn pick_tracks(
         && !pick_blocks.is_empty()
     {
         for t in library {
-            if in_playlist.contains(t.id.as_str()) || is_intro(t) {
+            if in_playlist.contains(t.id.as_str()) || is_intro(t) || t.disabled {
+                continue;
+            }
+            // Tampoco aquí entran jingles, programas, cuñas…
+            if !t.media_type.is_empty() && !s.media_rule(&t.media_type).autodj {
                 continue;
             }
             candidates.push(Candidate {
@@ -1697,6 +1703,10 @@ pub fn pick_tracks(
         // Lo nuevo entra detrás de lo que queda en la lista (unos minutos).
         let mut at = now as f64 + (s.autopilot_min_upcoming as f64) * 60.0;
         let mut seq = seq0.clone();
+        // Lo elegido en esta misma tanda también cuenta para no repetir
+        // artista ni título (si no, un mismo artista podía salir cada 2-3).
+        let mut batch_artist: HashMap<String, f64> = HashMap::new();
+        let mut batch_title: HashMap<String, f64> = HashMap::new();
         while picked.len() < count as usize {
             // Horario permitido de cada canción, a la hora en que sonará
             // (regla fija: no se relaja).
@@ -1705,6 +1715,14 @@ pub fn pick_tracks(
                 .iter()
                 .filter(|c| !used.contains(c.id.as_str()))
                 .filter(|c| by_id.get(c.id.as_str()).map(|t| crate::library::hours_allow(&t.hours, wd, min)).unwrap_or(true))
+                .filter(|c| {
+                    relax || {
+                        let gap_ok = |when: Option<&f64>, m: u32| when.map(|w| at - *w >= mins(m) as f64).unwrap_or(true);
+                        let t = by_id.get(c.id.as_str());
+                        artist_of(&c.id).iter().all(|a| gap_ok(batch_artist.get(a), s.repeat_artist_minutes))
+                            && t.map(|t| gap_ok(batch_title.get(&t.title.to_lowercase()), s.repeat_title_minutes)).unwrap_or(true)
+                    }
+                })
                 .filter(|c| {
                     relax
                         || !s.avoid_consecutive_artist
@@ -1751,6 +1769,12 @@ pub fn pick_tracks(
             used.insert(chosen.id.as_str());
             picked.push(chosen.id.clone());
             tail.push(artist_of(&chosen.id));
+            for a in artist_of(&chosen.id) {
+                batch_artist.insert(a, at);
+            }
+            if let Some(t) = by_id.get(chosen.id.as_str()) {
+                batch_title.insert(t.title.to_lowercase(), at);
+            }
             at += dur_of(&chosen.id).max(60.0);
             let e = energy_of(&chosen.id);
             if e > 0 {
@@ -1988,7 +2012,10 @@ mod energy_tests {
         // Rango: primero el nivel que toca; fuera, solo como último recurso
         assert_eq!(energy_cost(4, (3, 5), 4, 0, false), 0);
         assert!(energy_cost(5, (3, 5), 4, 0, false) < energy_cost(0, (3, 5), 4, 0, false));
-        assert!(energy_cost(0, (3, 5), 4, 0, false) < energy_cost(2, (3, 5), 4, 0, false));
+        // Sin energía: detrás de la música que se sale un nivel del rango,
+        // delante de la que se sale mucho.
+        assert!(energy_cost(2, (3, 3), 3, 0, false) < energy_cost(0, (3, 3), 3, 0, false));
+        assert!(energy_cost(0, (3, 3), 3, 0, false) < energy_cost(1, (3, 3), 3, 0, false));
     }
 
     #[test]
@@ -2041,6 +2068,30 @@ mod energy_tests {
         assert!(e.iter().all(|x| (3..=5).contains(x)), "{e:?}");
         assert!(e.windows(2).all(|w| (w[0] as i32 - w[1] as i32).abs() <= 1), "{e:?}");
         assert!(e.contains(&5) && e.contains(&3), "{e:?}");
+    }
+
+    #[test]
+    fn untagged_preachings_do_not_flood_the_list() {
+        // Caso real: muchas predicaciones de un mismo artista sin energía ni tipo
+        // y música con energía fuera del rango de esa hora.
+        let mut s = Settings::default();
+        s.repeat_artist_minutes = 60;
+        s.energy_curve = EnergyCurve {
+            enabled: true,
+            smooth: true,
+            // Solo energía 3, con pocas canciones de 3 en la biblioteca
+            points: vec![EnergyPoint { start: "00:00".into(), energy: 3, energy_max: 3, label: String::new() }],
+        };
+        let mut library: Vec<Track> = (0..60).map(|i| tr(&format!("m{i}"), [1, 2, 2, 4, 4, 5][i % 6])).collect();
+        library.extend((0..3).map(|i| tr(&format!("x{i}"), 3)));
+        for i in 0..80 {
+            let mut t = tr(&format!("p{i}"), 0);
+            t.artist = "Predicadora".into();
+            library.push(t);
+        }
+        let p = pick_tracks(&s, &library, &[], &[], 20, None, None, 1_000_000);
+        let preach = p.iter().filter(|id| id.starts_with('p')).count();
+        assert!(preach <= 2, "{p:?}");
     }
 }
 
