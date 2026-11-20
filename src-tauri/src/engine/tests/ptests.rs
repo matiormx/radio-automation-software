@@ -299,3 +299,21 @@ fn equal_power_envelope() {
         assert!((u * u + d * d - 1.0).abs() < 0.01, "potencia constante en {t}: {u} {d}");
     }
 }
+
+#[test]
+fn repeated_spot_keeps_its_own_position() {
+    // La cuña «c» está dos veces: suena la segunda y la lista cambia
+    // (el AutoDJ añade al final). No debe saltar a la primera «c» y repetir «x».
+    let mut s = Sim::new(vec![
+        (track("c", 30.0), tone(30.0, 0.5)),
+        (track("x", 30.0), tone(30.0, 0.5)),
+        (track("y", 30.0), tone(30.0, 0.5)),
+    ]);
+    let list = |ids: &[&str]| ids.iter().map(|id| track(id, 30.0)).collect::<Vec<_>>();
+    s.p.set_playlist(list(&["c", "x", "y", "c"]), &mut s.ld);
+    s.p.play_at(3, &mut s.core, &mut s.ld);
+    s.run(1.0);
+    s.p.set_playlist(list(&["c", "x", "y", "c", "z"]), &mut s.ld);
+    s.run(0.5);
+    assert_eq!(s.indexes().last(), Some(&3), "{:?}", s.indexes());
+}

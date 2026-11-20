@@ -413,6 +413,16 @@ function alignPlaylistMeta(
 }
 
 /** Filas de una lista con los datos de la biblioteca (pistas que existen). */
+/** Posición de `id` más cercana a `near` (una pista puede repetirse en la lista). */
+function nearestIndex(ids: string[], id: string, near: number): number {
+  let best = -1;
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i] !== id) continue;
+    if (best < 0 || Math.abs(i - near) < Math.abs(best - near) || (Math.abs(i - near) === Math.abs(best - near) && i > best)) best = i;
+  }
+  return best;
+}
+
 function rowsOf(pl: Playlist | undefined, tracks: Track[]): PlaylistRow[] {
   if (!pl) return [];
   const byId = new Map(tracks.map((t) => [t.id, t]));
@@ -1855,7 +1865,7 @@ export default function App() {
       // (si no, durante un instante la lista y el AutoDJ ven la fila equivocada).
       if (listId === activeIdRef.current && playingRowRef.current >= 0) {
         const playingId = pl.trackIds[playingRowRef.current];
-        const now = playingId ? ids.indexOf(playingId) : -1;
+        const now = playingId ? nearestIndex(ids, playingId, playingRowRef.current) : -1;
         if (now >= 0 && now !== playingRowRef.current) {
           playingRowRef.current = now;
           setPlayingRow(now);
@@ -1865,7 +1875,7 @@ export default function App() {
       const pick = nextPickRef.current;
       if (pick && pick.listId === listId) {
         const id = rowsOf(pl, tracksRef.current)[pick.index]?.id;
-        const idx = id ? rowsOf(updated, tracksRef.current).findIndex((r) => r.id === id) : -1;
+        const idx = id ? nearestIndex(rowsOf(updated, tracksRef.current).map((r) => r.id), id, pick.index) : -1;
         setNextPick(idx >= 0 ? { listId, index: idx } : null);
       }
       try {
@@ -3356,12 +3366,17 @@ export default function App() {
           void mutateList((ids) => {
             const copy = [...ids];
             const playingId = playingRowRef.current >= 0 ? ids[playingRowRef.current] : undefined;
+            // Posición real de la que suena (no la primera vez que sale su id:
+            // una cuña puede estar varias veces en la lista).
+            let pIdx = playingRowRef.current;
             for (const id of picked) {
-              const at = copy.indexOf(id);
-              const pIdx = playingId ? copy.indexOf(playingId) : -1;
-              if (at >= 0 && (id === playingId || at > pIdx)) continue; // ya está por sonar
+              if (id === playingId || copy.slice(pIdx + 1).includes(id)) continue; // ya está por sonar
               // Estaba entre las emitidas: se mueve al final (una lista no repite pistas).
-              if (at >= 0) copy.splice(at, 1);
+              const at = copy.indexOf(id);
+              if (at >= 0 && at < pIdx) {
+                copy.splice(at, 1);
+                pIdx--;
+              }
               copy.push(id);
             }
             return copy;

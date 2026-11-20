@@ -255,7 +255,18 @@ impl Player {
             want_all(ld, t);
         }
         if let Some(id) = prev_id {
-            self.index = self.playlist.iter().position(|t| t.id == id).map(|i| i as i64).unwrap_or(-1);
+            // La misma pista puede estar varias veces (una cuña que se repite):
+            // se queda la aparición más cercana a donde estaba, no la primera.
+            // Antes saltaba a una anterior y volvía a sonar lo que la seguía.
+            let old = self.index;
+            self.index = self
+                .playlist
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.id == id)
+                .map(|(i, _)| i as i64)
+                .min_by_key(|i| ((i - old).abs(), -i))
+                .unwrap_or(-1);
         } else if self.index >= self.playlist.len() as i64 {
             self.index = -1;
         }
