@@ -1118,6 +1118,21 @@ pub fn ensure_local(path: &Path) -> bool {
     }
 }
 
+/// Baja ya (en segundo plano, una tras otra) las canciones de la nube que van
+/// a sonar pronto: el AutoDJ las elige con antelación y así están listas.
+pub fn prefetch(paths: Vec<PathBuf>) {
+    let paths: Vec<PathBuf> = paths.into_iter().filter(|p| !p.is_file() && is_cloud_file(p)).collect();
+    if paths.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new().name("miradio-cloud-prefetch".into()).spawn(move || {
+        crate::perflog::background_thread();
+        for p in paths {
+            ensure_local(&p);
+        }
+    });
+}
+
 /// Cuánto ocupa aquí la música bajada de la nube.
 fn local_usage(dir: &Path) -> (usize, u64) {
     let mut n = 0;

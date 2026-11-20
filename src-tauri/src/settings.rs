@@ -1353,19 +1353,31 @@ pub fn auto_pick(
         return Ok(vec![]);
     }
     let s = read_settings(&state.data_dir);
-    // Solo lo que se puede emitir en este equipo: una canción cuyo audio aún
-    // no está aquí (p. ej. subida desde otro equipo y sin bajar) se saltaba al
-    // sonar y, como nunca constaba como emitida, se volvía a elegir una y otra
-    // vez; entre tanto solo sonaban las pocas que sí estaban.
+    // Solo lo que se puede emitir: lo que está en este equipo o en la nube
+    // (se baja ya, por adelantado). Un archivo perdido sin copia en la nube se
+    // saltaba al sonar y, como nunca constaba como emitido, se volvía a elegir.
     let library: Vec<crate::library::Track> =
         crate::library::read_library_public(&state.data_dir).into_iter().filter(playable_here).collect();
     let history = read_history(&state.data_dir);
-    Ok(pick_tracks(&s, &library, &history, &playlist_track_ids, count, scope_kind, scope_id, now_epoch()))
+    let picked = pick_tracks(&s, &library, &history, &playlist_track_ids, count, scope_kind, scope_id, now_epoch());
+    // Las de la nube que aún no están aquí se bajan ya, antes de que les toque.
+    let fetch: Vec<std::path::PathBuf> = picked
+        .iter()
+        .filter_map(|id| library.iter().find(|t| &t.id == id))
+        .map(|t| std::path::PathBuf::from(t.file.trim()))
+        .filter(|p| !p.is_file())
+        .collect();
+    crate::cloudsync::prefetch(fetch);
+    Ok(picked)
 }
 
 fn playable_here(t: &crate::library::Track) -> bool {
     let f = t.file.trim();
-    !f.is_empty() && (f.starts_with("http://") || f.starts_with("https://") || std::path::Path::new(f).is_file())
+    if f.is_empty() {
+        return false;
+    }
+    let p = std::path::Path::new(f);
+    f.starts_with("http://") || f.starts_with("https://") || p.is_file() || crate::cloudsync::is_cloud_file(p)
 }
 
 /// Artistas de una ficha: "Alicia Keys, John Mayer" son dos. Minusculas y sin
