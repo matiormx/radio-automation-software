@@ -1353,9 +1353,19 @@ pub fn auto_pick(
         return Ok(vec![]);
     }
     let s = read_settings(&state.data_dir);
-    let library = crate::library::read_library_public(&state.data_dir);
+    // Solo lo que se puede emitir en este equipo: una canción cuyo audio aún
+    // no está aquí (p. ej. subida desde otro equipo y sin bajar) se saltaba al
+    // sonar y, como nunca constaba como emitida, se volvía a elegir una y otra
+    // vez; entre tanto solo sonaban las pocas que sí estaban.
+    let library: Vec<crate::library::Track> =
+        crate::library::read_library_public(&state.data_dir).into_iter().filter(playable_here).collect();
     let history = read_history(&state.data_dir);
     Ok(pick_tracks(&s, &library, &history, &playlist_track_ids, count, scope_kind, scope_id, now_epoch()))
+}
+
+fn playable_here(t: &crate::library::Track) -> bool {
+    let f = t.file.trim();
+    !f.is_empty() && (f.starts_with("http://") || f.starts_with("https://") || std::path::Path::new(f).is_file())
 }
 
 /// Artistas de una ficha: "Alicia Keys, John Mayer" son dos. Minusculas y sin
@@ -1801,7 +1811,7 @@ pub fn pick_tracks(
 
 /// Bloques de los que saca canciones el AutoDJ. El bloque por defecto
 /// manda sobre los bloques marcados en el navegador; si no hay, todos.
-fn pick_block_ids(s: &Settings) -> HashSet<String> {
+pub fn pick_block_ids(s: &Settings) -> HashSet<String> {
     if s.default_block_id.trim().is_empty() {
         s.auto_blocks.iter().cloned().collect()
     } else {

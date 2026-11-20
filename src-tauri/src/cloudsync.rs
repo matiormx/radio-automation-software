@@ -1010,6 +1010,15 @@ fn needed_ids(dir: &Path) -> HashSet<String> {
     for v in [serde_json::to_value(&s.events), serde_json::to_value(&s.campaigns), serde_json::to_value(&s.programs)].into_iter().flatten() {
         strings(&v, &mut refs);
     }
+    // Las listas de las que tira el AutoDJ (las suyas y las de los eventos):
+    // sus canciones también hacen falta aquí. Antes solo se bajaban las
+    // referidas una a una, y el AutoDJ elegía canciones sin audio.
+    refs.extend(crate::settings::pick_block_ids(&s));
+    for t in crate::library::read_library_internal(dir) {
+        if t.blocks.iter().any(|b| refs.contains(b)) {
+            ids.insert(t.id);
+        }
+    }
     ids.extend(refs);
     ids
 }
