@@ -1730,18 +1730,26 @@ pub fn pick_tracks(
                 })
                 .collect();
             let target = if curve.enabled { curve.target_at(local_minute(at as u64)) } else { (0, 0) };
+            let prev_energy = seq.last().copied().unwrap_or(0);
+            let want = if target.0 > 0 { wave_level(&seq, target, curve.smooth, salt) } else { 0 };
+            let energy_key = |c: &Candidate| -> u32 {
+                if target.0 > 0 { energy_cost(energy_of(&c.id), target, want, prev_energy, curve.smooth) } else { 0 }
+            };
             if target.0 > 0 {
                 // Primero las reglas de repetición; luego lo que encaja con la curva.
-                let prev_energy = seq.last().copied().unwrap_or(0);
-                let want = wave_level(&seq, target, curve.smooth, salt);
-                eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_cost(energy_of(&c.id), target, want, prev_energy, curve.smooth), c.salt));
+                eligible.sort_by_key(|c| (std::cmp::Reverse(c.ok_rules), energy_key(c), c.salt));
             }
             let Some(first) = eligible.first() else { break };
             let mut chosen: &Candidate = first;
             if !weights.is_empty() {
-                // Idiomas disponibles ahora mismo, con su peso.
+                // Idiomas disponibles ahora mismo, con su peso. Solo entre las
+                // que mejor cumplen las reglas de repetición (y la curva): si no,
+                // con pocas canciones con idioma puesto, el AutoDJ daba vueltas a
+                // esas pocas aunque acabaran de sonar.
+                let best = (first.ok_rules, energy_key(first));
+                let top: Vec<&&Candidate> = eligible.iter().take_while(|c| (c.ok_rules, energy_key(c)) == best).collect();
                 let mut avail: Vec<(String, f64)> = Vec::new();
-                for c in &eligible {
+                for c in &top {
                     let l = lang_of(&c.id);
                     if avail.iter().any(|(x, _)| *x == l) {
                         continue;
@@ -1761,7 +1769,7 @@ pub fn pick_tracks(
                         }
                         r -= w;
                     }
-                    if let Some(c) = eligible.iter().find(|c| lang_of(&c.id) == lang) {
+                    if let Some(c) = top.iter().find(|c| lang_of(&c.id) == lang) {
                         chosen = c;
                     }
                 }
@@ -2068,6 +2076,25 @@ mod energy_tests {
         assert!(e.iter().all(|x| (3..=5).contains(x)), "{e:?}");
         assert!(e.windows(2).all(|w| (w[0] as i32 - w[1] as i32).abs() <= 1), "{e:?}");
         assert!(e.contains(&5) && e.contains(&3), "{e:?}");
+    }
+
+    #[test]
+    fn language_weights_do_not_loop_on_the_few_with_language() {
+        // Lista grande sin idioma puesto y 4 en español que acaban de sonar:
+        // no debe volver a ellas.
+        let mut s = Settings::default();
+        s.language_weights = [("es".to_string(), 100.0)].into_iter().collect();
+        let mut library: Vec<Track> = (0..200).map(|i| tr(&format!("m{i}"), 0)).collect();
+        for i in 0..4 {
+            let mut t = tr(&format!("es{i}"), 0);
+            t.language = "es".into();
+            library.push(t);
+        }
+        let now = 10_000_000;
+        let history: Vec<HistoryEntry> =
+            (0..4).map(|i| HistoryEntry { track_id: format!("es{i}"), played_at: now - 300 }).collect();
+        let p = pick_tracks(&s, &library, &history, &[], 10, None, None, now);
+        assert!(p.iter().all(|id| id.starts_with('m')), "{p:?}");
     }
 
     #[test]
