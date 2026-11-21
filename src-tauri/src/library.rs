@@ -1158,6 +1158,8 @@ pub fn add_recorded(
         cover_checked: true,
         cover,
         tags: vec!["directo".to_string()],
+        // Una grabación de un directo es un programa, no música
+        media_type: "program".to_string(),
         chapters,
         added_at: now_secs(),
         blocks: if block_id.trim().is_empty() { Vec::new() } else { vec![block_id.trim().to_string()] },
@@ -1412,6 +1414,21 @@ pub async fn backfill_quality(state: State<'_, AppState>) -> Result<usize, Strin
     let data_dir = state.data_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _bg = crate::perflog::Background::enter();
+        // Las grabaciones de directos de antes entraban como música: pasan a Programa.
+        {
+            let _guard = lock_library();
+            let mut tracks = read_library_internal(&data_dir);
+            let mut changed = false;
+            for t in tracks.iter_mut() {
+                if t.media_type.is_empty() && t.tags.iter().any(|g| g == "directo") {
+                    t.media_type = "program".to_string();
+                    changed = true;
+                }
+            }
+            if changed {
+                write_library(&data_dir, &tracks)?;
+            }
+        }
         let pending: Vec<(String, String)> = read_library_internal(&data_dir)
             .into_iter()
             .filter(|t| (!t.audio_checked || t.tags_v < 4) && Path::new(t.file.trim()).is_file())
